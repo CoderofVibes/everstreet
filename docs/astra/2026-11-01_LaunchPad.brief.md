@@ -28,6 +28,30 @@ And earlier the same day:
 > Astra come up with ideas for how it wants you to build that out, what the UI will be, and
 > please tell it to go big.
 
+Also from Tony that day: **"I want us to focus some building on the actual platform for a while,
+not trying to simulate things for the judges and hackathon."** Design a real product; the
+hackathon is not the audience for this pass.
+
+And on the original brief (`docs/BRIEF.md`) when he shared it: **"I really like it."** So its
+ideas are his starting material, not something to discard. What he objected to was the first
+pass making continuity and operations the center instead of the launch pad. Carry these from
+the original brief into the launch-pad design, in their right place:
+
+- **Four entrances, one account:** find a solution, start a business, run my business, explore
+  acquisitions. One person can be a founder, a customer and a buyer, with clear switching.
+- **Beyond software:** classes, services, physical products and software, not only SaaS.
+- **The guided launch interview:** customer, problem, deliverable, price, how to deliver the
+  first order; AI drafts an editable offer, a storefront and a first-week checklist; the founder
+  previews and publishes.
+- **Natural-language finder:** "what do you need?" turned into editable constraints; match cards
+  that answer why this, how much, can I use it, what happens next; no paid ranking.
+- **Running the business after launch:** a daily desk with what needs attention, and handing
+  tasks to someone else ("start **and build** their business").
+- **Acquisition done properly on NEAR:** buyers ask for scoped access to evidence, a deal both
+  sides accept on chain, ownership changing hands, and customers' bookings and promises surviving
+  the sale. This is what gate 1 already proved on testnet; it belongs inside the acquisition
+  pillar, not at the center of the product.
+
 ## The three pillars, in this order of weight
 
 1. **Launch pad (the heart).** An aspiring entrepreneur arrives with an idea, or only the itch to
@@ -37,9 +61,9 @@ And earlier the same day:
    Go deep and bold: what makes this the best place on the internet to start a business? What
    does the first hour, first week and first month feel like? Where do AI help, templates,
    community, and NEAR each make the launch faster or more credible?
-2. **Acquisition marketplace.** Investors and other businesses set up accounts and search for
-   businesses that match what they want: who is open to being bought, stage, category,
-   traction, revenue, and **potential valuations, which Tony sees as a headline feature because
+2. **Acquisition marketplace.** Investors and other businesses set up their accounts and search
+   for businesses that match what they want, by different criteria: who is looking to be
+   purchased, stage, category, traction, revenue, and **potential valuations, which Tony sees as a headline feature because
    the business runs on NEAR and its financials are known**. Design the valuation feature
    boldly and make it genuinely useful: what a founder and a buyer see, how the number is formed
    from on-chain activity, how it updates as the business grows. Keep it honest with clear
