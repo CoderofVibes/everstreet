@@ -481,7 +481,15 @@ export class Books {
         direct_cents: direct,
         overhead_cents: overhead,
         profit_cents: revenue === null ? null : revenue - direct - overhead,
-        revenue_sources: uniq(["revenue"]),
+        // Revenue provenance follows how the month's revenue is known, not whether a nonzero
+        // line exists: an observed zero is still an observation (003f2). Unknown, before-opening
+        // and nothing-recorded months carry no revenue source.
+        revenue_sources:
+          basis === "observed"
+            ? ["Verified on NEAR · testnet"]
+            : basis === "seeded"
+              ? ["Seeded history · fictional"]
+              : [],
         cost_sources: uniq(["direct", "overhead"]),
         cash,
         refunds_cents: cash ? cash.refunds_cents : null,
