@@ -6,10 +6,12 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { Acquisitions, type Criteria, interpretAcquire } from "./acquire.ts";
 import { type BookingProvider, Bookings } from "./bookings.ts";
 import { Books } from "./books.ts";
+import type { BuildProvider } from "./build.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
 import { Deals } from "./deals.ts";
 import { Payments } from "./payments.ts";
+import { Products } from "./products.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { type Overrides, Valuation } from "./value.ts";
 
@@ -23,6 +25,8 @@ export interface AppOptions {
   bookingProvider?: BookingProvider;
   /** NEAR testnet, for payments. Without it, priced sessions are booked without payment. */
   chain?: Chain | null;
+  /** Turns product revisions into builds. None is connected yet; the studio says so. */
+  buildProvider?: BuildProvider | null;
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -32,6 +36,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     ? new Bookings(store.db, store, options.bookingProvider)
     : null;
   const payments = bookings ? new Payments(store.db, store, bookings, options.chain ?? null) : null;
+  const products = new Products(store.db, store, options.buildProvider ?? null);
   const books = new Books(store.db, store, options.chain ?? null);
   const valuation = new Valuation(store.db, store, books);
   const acquire = new Acquisitions(store.db, store, books, valuation, options.chain ?? null);
@@ -145,6 +150,26 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/projects/:id/step", async (c) => {
     const { step } = await body<{ step?: string }>(c);
     return c.json(store.setStep(me(c), c.req.param("id"), String(step ?? "")));
+  });
+
+  // ---------- product studio: digital product projects and their revisions ----------
+
+  app.get("/api/product-foundations", (c) => c.json(products.foundations()));
+  app.get("/api/product-projects", (c) => c.json({ projects: products.mine(me(c)) }));
+  app.post("/api/product-projects", async (c) =>
+    c.json(products.create(me(c), await body(c)), 201),
+  );
+  app.get("/api/product-projects/:id", (c) => c.json(products.view(me(c), c.req.param("id"))));
+  app.get("/api/product-projects/:id/revisions/:n", (c) =>
+    c.json(products.revision(me(c), c.req.param("id"), Number(c.req.param("n")))),
+  );
+  app.post("/api/product-projects/:id/revisions", async (c) => {
+    const { created, view } = products.save(me(c), c.req.param("id"), await body(c));
+    return c.json({ ...view, created }, created ? 201 : 200);
+  });
+  app.post("/api/product-projects/:id/restore", async (c) => {
+    const { created, view } = products.restore(me(c), c.req.param("id"), await body(c));
+    return c.json({ ...view, created }, created ? 201 : 200);
   });
 
   // ---------- the founder's business ----------

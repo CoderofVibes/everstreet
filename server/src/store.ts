@@ -127,7 +127,8 @@ function slugify(text: string) {
 export class Store {
   constructor(readonly db: Db) {}
 
-  private tx<T>(fn: () => T): T {
+  /** Runs fn in one write transaction; anything thrown rolls the whole thing back. */
+  tx<T>(fn: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const out = fn();
@@ -238,32 +239,42 @@ export class Store {
   // ---------- launch projects ----------
 
   startProject(owner: Person, route: "idea" | "find" | "started", name?: string) {
+    const { projectId } = this.tx(() => this.insertBusiness(owner, route, name));
+    return this.project(owner, projectId);
+  }
+
+  /**
+   * A new private business with its launch project, empty offer and idea page. No transaction
+   * of its own: callers wrap it so the business and whatever they attach land together.
+   */
+  insertBusiness(
+    owner: Person,
+    route: "idea" | "find" | "started",
+    name?: string,
+    family: "undecided" | "software" = "undecided",
+  ) {
     const businessId = randomUUID();
     const projectId = randomUUID();
     const slug = this.freeSlug(
       name || `${owner.display_name}-${route === "find" ? "idea" : "business"}`,
     );
     const t = now();
-    this.tx(() => {
-      this.db
-        .prepare(
-          "INSERT INTO businesses (id, slug, owner_id, name, family, stage, created_at, updated_at) VALUES (?, ?, ?, ?, 'undecided', 'shape', ?, ?)",
-        )
-        .run(businessId, slug, owner.id, name?.trim() || "Untitled business", t, t);
-      this.db
-        .prepare(
-          "INSERT INTO projects (id, business_id, route, step, updated_at) VALUES (?, ?, ?, ?, ?)",
-        )
-        .run(projectId, businessId, route, route === "find" ? "explore" : "interview", t);
-      this.db
-        .prepare("INSERT INTO offers (id, business_id, version, updated_at) VALUES (?, ?, 1, ?)")
-        .run(randomUUID(), businessId, t);
-      this.db
-        .prepare("INSERT INTO ideas (business_id, updated_at) VALUES (?, ?)")
-        .run(businessId, t);
-      this.event("project_started", businessId, owner.id, { route });
-    });
-    return this.project(owner, projectId);
+    this.db
+      .prepare(
+        "INSERT INTO businesses (id, slug, owner_id, name, family, stage, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'shape', ?, ?)",
+      )
+      .run(businessId, slug, owner.id, name?.trim() || "Untitled business", family, t, t);
+    this.db
+      .prepare(
+        "INSERT INTO projects (id, business_id, route, step, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(projectId, businessId, route, route === "find" ? "explore" : "interview", t);
+    this.db
+      .prepare("INSERT INTO offers (id, business_id, version, updated_at) VALUES (?, ?, 1, ?)")
+      .run(randomUUID(), businessId, t);
+    this.db.prepare("INSERT INTO ideas (business_id, updated_at) VALUES (?, ?)").run(businessId, t);
+    this.event("project_started", businessId, owner.id, { route });
+    return { businessId, projectId };
   }
 
   private projectRow(projectId: string) {
@@ -407,7 +418,8 @@ export class Store {
 
   // ---------- businesses, offers, idea pages ----------
 
-  private ownedBusiness(viewer: Person, businessId: string): Business {
+  /** The business if the viewer owns it; 404 otherwise. */
+  ownedBusiness(viewer: Person, businessId: string): Business {
     const b = this.db.prepare("SELECT * FROM businesses WHERE id = ?").get(businessId) as unknown as
       | Business
       | undefined;

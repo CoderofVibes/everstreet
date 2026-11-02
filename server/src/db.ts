@@ -205,6 +205,23 @@ CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY, type TEXT NOT NULL, subject TEXT NOT NULL, actor TEXT,
   payload TEXT NOT NULL, at TEXT NOT NULL
 ) STRICT;
+CREATE TABLE IF NOT EXISTS product_projects (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  foundation TEXT NOT NULL CHECK (foundation IN ('ai_api','saas_workflow','agent_service','client_portal')),
+  idea TEXT NOT NULL, created_by TEXT NOT NULL REFERENCES people(id),
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS product_projects_business ON product_projects(business_id);
+CREATE TABLE IF NOT EXISTS product_revisions (
+  project_id TEXT NOT NULL REFERENCES product_projects(id), number INTEGER NOT NULL CHECK (number >= 1),
+  brief TEXT NOT NULL, prototype TEXT NOT NULL, content_hash TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '', restored_from INTEGER, author_id TEXT NOT NULL REFERENCES people(id),
+  created_at TEXT NOT NULL, PRIMARY KEY (project_id, number)
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS product_revisions_no_update BEFORE UPDATE ON product_revisions
+BEGIN SELECT RAISE(ABORT, 'product revisions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS product_revisions_no_delete BEFORE DELETE ON product_revisions
+BEGIN SELECT RAISE(ABORT, 'product revisions are immutable'); END;
 `;
 
 export function openDb(path: string) {
