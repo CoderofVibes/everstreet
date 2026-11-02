@@ -107,13 +107,22 @@ plus mobile overflow and provenance/precision issues are in003f1. FinancialUI no
 003e authorizes only an undeployed entitlement/storage/payout contract core with keyless tests;
 test-only owner changes do not prove a NEAR acquisition or runtime continuity.
 
+November2,15:07:002c2 changed-draft/changed-target recovery browser repeat passes; ten-request
+capacity still drops unresolved work (002c3).003f1's five original server probes pass independently;
+390 expanded table now stays within375px document,1280/1440 also contained. Observed-zero source
+badge remains003f2. See002c2-003f1-independent-repeat.003e has26 reported v3/27 v2 keyless tests,
+but source review requires003e1 before integration; weak-key hypothesis is unconfirmed pending
+pinned VM reproduction. All broader M2/M3 integration and live gates remain open.
+
 ## M4: bring an existing product
 
 Connect authorized source and deployment metadata; identify framework, services, ownership
 evidence and dependencies; show a correct preview/readiness report; import no credentials
 into generated code; separate historical imported data from NEAR observations; allow the
 founder to correct mappings; do not claim transferred hosting from a repository connection.
-Status: pending, subdivide after the managed digital runtime exists.
+Status: pending.004a begins genuine supplied-manifest inspection and persistent import/readiness
+records. External source/deployment connections and execution remain later gates, not completed
+by a manually supplied manifest or founder assertion.
 
 ## M5: a useful marketplace and operating network
 
@@ -151,3 +160,5 @@ Production identity, hosting, isolation and provider integrations require their 
 A complete local milestone is not authorization for a public launch. Notify Tony when a
 meaningful milestone is verified or an external decision is necessary; don't require routine
 design approvals. Keep the full roadmap open until its behavior, not only its pages, exists.
+
+
