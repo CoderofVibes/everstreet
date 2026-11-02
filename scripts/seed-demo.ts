@@ -13,6 +13,7 @@ import { type Person, Store } from "../server/src/store.ts";
 import { TestDoubleAuthority } from "../services/openseat/src/authority.ts";
 import { openSeatApp } from "../services/openseat/src/http.ts";
 import { OpenSeat } from "../services/openseat/src/service.ts";
+import { seedBuyers } from "./lib/buyers.ts";
 import { seedHistory } from "./lib/history.ts";
 
 const DB = process.env.EVERSTREET_DB ?? "data/runtime/everstreet.db";
@@ -225,8 +226,9 @@ community.postNeed(sam, {
   days: 14,
 });
 seedHistory(store);
+seedBuyers(store);
 openseat.db.close();
 
 console.log(
-  `Seeded ${EXAMPLES.length} fictional businesses, ${EXAMPLES.length + 1} people, two Juniper sessions and two requests.`,
+  `Seeded ${EXAMPLES.length} fictional businesses, ${EXAMPLES.length + 2} people, two Juniper sessions, two requests and two buying teams.`,
 );

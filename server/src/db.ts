@@ -126,6 +126,51 @@ CREATE TABLE IF NOT EXISTS team (
   capabilities TEXT NOT NULL, appointed_tx TEXT, revoked_at TEXT, revoke_tx TEXT, created_at TEXT NOT NULL,
   PRIMARY KEY (business_id, person_id)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS buyers (
+  id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES people(id), name TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('individual','strategic','fund','cooperative')),
+  intent TEXT NOT NULL CHECK (intent IN ('operate','add','team')), about TEXT NOT NULL DEFAULT '',
+  interests TEXT NOT NULL DEFAULT '', time_available TEXT NOT NULL DEFAULT '', skills TEXT NOT NULL DEFAULT '',
+  budget_basis TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS buyer_members (
+  buyer_id TEXT NOT NULL REFERENCES buyers(id), person_id TEXT NOT NULL REFERENCES people(id),
+  role TEXT NOT NULL CHECK (role IN ('research','evidence','approve')), created_at TEXT NOT NULL,
+  PRIMARY KEY (buyer_id, person_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS mandates (
+  id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL REFERENCES buyers(id), name TEXT NOT NULL,
+  text TEXT NOT NULL DEFAULT '', criteria TEXT NOT NULL, last_seen_at TEXT, created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS listings (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL UNIQUE REFERENCES businesses(id),
+  mode TEXT NOT NULL CHECK (mode IN ('closed','private','anonymous','named')),
+  openness TEXT NOT NULL CHECK (openness IN ('curious','open','seeking')),
+  asking_cents INTEGER, reason TEXT NOT NULL DEFAULT '', transition TEXT NOT NULL DEFAULT '',
+  disclose TEXT NOT NULL DEFAULT '[]', listed_at TEXT, updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS listing_invites (
+  listing_id TEXT NOT NULL REFERENCES listings(id), buyer_id TEXT NOT NULL REFERENCES buyers(id),
+  created_at TEXT NOT NULL, PRIMARY KEY (listing_id, buyer_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS shortlist (
+  buyer_id TEXT NOT NULL REFERENCES buyers(id), listing_id TEXT NOT NULL REFERENCES listings(id),
+  note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, PRIMARY KEY (buyer_id, listing_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS access_requests (
+  id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL REFERENCES buyers(id),
+  listing_id TEXT NOT NULL REFERENCES listings(id), requested_by TEXT NOT NULL REFERENCES people(id),
+  categories TEXT NOT NULL, purpose TEXT NOT NULL, days INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','granted','declined','revoked','withdrawn')),
+  granted TEXT, expires_at TEXT, decided_at TEXT, decision_note TEXT NOT NULL DEFAULT '',
+  revoked_at TEXT, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS buyer_scenarios (
+  id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL REFERENCES buyers(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id), name TEXT NOT NULL, overrides TEXT NOT NULL,
+  result TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY, type TEXT NOT NULL, subject TEXT NOT NULL, actor TEXT,
   payload TEXT NOT NULL, at TEXT NOT NULL

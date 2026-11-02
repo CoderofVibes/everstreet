@@ -189,6 +189,35 @@ function hash(i: Inputs) {
   return createHash("sha256").update(JSON.stringify(i)).digest("hex");
 }
 
+/** The same inputs with a what-if applied; used by founders' and buyers' private scenarios. */
+export function withOverrides(base: Inputs, o: Overrides): Inputs {
+  const n = base.stage === "plan" ? 12 : base.months_used.length;
+  const price = o.price_cents ?? base.price_cents ?? 0;
+  const hours = o.founder_hours_week ?? base.founder_hours_week;
+  const rate = o.hourly_rate_cents ?? base.hourly_rate_cents;
+  const extraRevenue = (o.extra_customers_month ?? 0) * price * n;
+  const priceDelta =
+    o.price_cents !== undefined && base.stage === "plan"
+      ? (o.price_cents - (base.price_cents ?? 0)) * (base.plan_customers_month ?? 0) * 12
+      : 0;
+  const extraCosts = (o.extra_monthly_costs_cents ?? 0) * n;
+  return {
+    ...base,
+    revenue_cents: base.revenue_cents + extraRevenue + priceDelta,
+    costs_cents: base.costs_cents + extraCosts,
+    overhead_cents: base.overhead_cents + extraCosts,
+    founder_hours_week: hours,
+    hourly_rate_cents: rate,
+    labor_month_cents: Math.round(hours * WEEKS_PER_MONTH * rate),
+    labor_is_default: o.founder_hours_week === undefined && base.labor_is_default,
+    multiple_low: o.multiple_low ?? base.multiple_low,
+    multiple_high: o.multiple_high ?? base.multiple_high,
+    multiples_are_default:
+      o.multiple_low === undefined && o.multiple_high === undefined && base.multiples_are_default,
+    price_cents: price,
+  };
+}
+
 export class Valuation {
   constructor(
     private readonly db: Db,
@@ -395,32 +424,7 @@ export class Valuation {
   async scenario(founder: Person, businessId: string, o: Overrides) {
     this.store.business(founder, businessId);
     const base = await this.inputs(businessId);
-    const n = base.stage === "plan" ? 12 : base.months_used.length;
-    const price = o.price_cents ?? base.price_cents ?? 0;
-    const hours = o.founder_hours_week ?? base.founder_hours_week;
-    const rate = o.hourly_rate_cents ?? base.hourly_rate_cents;
-    const extraRevenue = (o.extra_customers_month ?? 0) * price * n;
-    const priceDelta =
-      o.price_cents !== undefined && base.stage === "plan"
-        ? (o.price_cents - (base.price_cents ?? 0)) * (base.plan_customers_month ?? 0) * 12
-        : 0;
-    const extraCosts = (o.extra_monthly_costs_cents ?? 0) * n;
-    const changed: Inputs = {
-      ...base,
-      revenue_cents: base.revenue_cents + extraRevenue + priceDelta,
-      costs_cents: base.costs_cents + extraCosts,
-      overhead_cents: base.overhead_cents + extraCosts,
-      founder_hours_week: hours,
-      hourly_rate_cents: rate,
-      labor_month_cents: Math.round(hours * WEEKS_PER_MONTH * rate),
-      labor_is_default: o.founder_hours_week === undefined && base.labor_is_default,
-      multiple_low: o.multiple_low ?? base.multiple_low,
-      multiple_high: o.multiple_high ?? base.multiple_high,
-      multiples_are_default:
-        o.multiple_low === undefined && o.multiple_high === undefined && base.multiples_are_default,
-      price_cents: price,
-    };
-    return { base: estimate(base), scenario: estimate(changed), overrides: o };
+    return { base: estimate(base), scenario: estimate(withOverrides(base, o)), overrides: o };
   }
 
   async saveScenario(founder: Person, businessId: string, name: string, o: Overrides) {

@@ -4,8 +4,11 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api.ts";
 import { Acquire } from "./pages/Acquire.tsx";
+import { AcquireListing } from "./pages/AcquireListing.tsx";
+import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
 import { DeskList, DeskPage } from "./pages/Desk.tsx";
+import { DeskSale } from "./pages/DeskSale.tsx";
 import { Explore } from "./pages/Explore.tsx";
 import { Find } from "./pages/Find.tsx";
 import { Helping } from "./pages/Helping.tsx";
@@ -148,6 +151,8 @@ function Routes() {
   if (path === "/desk") return <DeskList />;
   const value = match("/desk/:id/value", path);
   if (value) return <Value id={value.id as string} />;
+  const sale = match("/desk/:id/sale", path);
+  if (sale) return <DeskSale id={sale.id as string} />;
   const helping = match("/help/:id", path);
   if (helping) return <Helping id={helping.id as string} />;
   const desk = match("/desk/:id", path);
@@ -159,6 +164,10 @@ function Routes() {
   if (profile) return <Person id={profile.id as string} />;
   if (path === "/find") return <Find />;
   if (path === "/acquire") return <Acquire />;
+  const listing = match("/acquire/l/:id", path);
+  if (listing) return <AcquireListing id={listing.id as string} />;
+  const room = match("/acquire/room/:id", path);
+  if (room) return <AcquireRoom id={room.id as string} />;
   if (path === "/profile") return <Profile />;
   return (
     <div className="page empty">

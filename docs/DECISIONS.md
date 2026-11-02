@@ -152,3 +152,33 @@ Built from Astra's launch-pad pass, for Tony's computer rather than a phone (Ton
    gated on the live `operator_check` for `support`.
 5. **Cut for now:** researched market multiples, accrual adjustments beyond earned-at-delivery,
    helper refunds, the acquisition marketplace (phase 5).
+
+## 2026-11-02 · Phase 5: the acquisition marketplace
+
+1. **A separate index.** Listings live in their own tables and routes (`server/src/acquire.ts`);
+   customer search and public pages never read them. Sharing numbers publicly does not list a
+   business. Tests check the public page and customer search carry no sale wording.
+2. **Four discovery modes** from Astra's table: closed, private introductions (invited buying
+   teams only), anonymous teaser, named profile. Anonymous teasers show and filter only by
+   coarse bands (revenue, estimate, asking price, owner hours), so exact values can't be found by
+   narrowing filters. Undisclosed fields read "Not shared" and no filter reaches them.
+3. **Unknowns stay visible.** Only the estimate filter excludes businesses without an estimate,
+   and it says how many with a one-click "Include them". Other unknowns stay in results, labelled.
+   Estimate filtering is "overlaps" by default or "within"; asking price is a separate filter.
+4. **Buying profiles are teams.** Kinds: owner-operator, strategic business, small investment
+   firm, cooperative. Roles: research (search, shortlist, compare), evidence (also open rooms),
+   approve (also request access). Being on a team is not authority to accept a sale.
+5. **Grants are narrow and time-boxed.** A request names categories, purpose and days (1–30). The
+   seller can grant fewer categories or days, never more. Every room read rechecks role, status
+   and expiry; revoked and expired access returns 403 through the API, not just the UI. Exports
+   say that ending access can't recall a downloaded copy. Room opens are logged for the seller.
+6. **The room reuses the founder's numbers.** Same books and `scenario-v1` estimate; a buyer can
+   reproduce the range from the rows and save team assumptions without changing the founder's.
+   The "what a sale would cover" list is preliminary and marks the owner role Blocked when a
+   business has no contract yet (Paperfin: payments are only built for classes so far).
+7. **Example data** (`scripts/lib/buyers.ts`): Northline Studio Tools (Owen Hart, with Sam as
+   research) with a saved brief; Alder Lane Makers Co-op (Ana, with Theo as evidence); Paperfin
+   named at $195,000; Small Hours Candles as an anonymous teaser.
+8. **Cut for now:** outbound alerts, advanced natural-language briefs, adviser integrations,
+   pooled group funding, payment-aware ownership for non-class businesses, and accepting a deal
+   (phase 6).

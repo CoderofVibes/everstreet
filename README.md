@@ -4,9 +4,10 @@ Start a business, get found by people who need it, and, if you ever sell, hand i
 breaking a single customer's booking. Built for NEAR HACKATHON (November 2026). Fictional data,
 NEAR testnet only.
 
-> Status: the launch pad, real bookings, real testnet payments, books, valuations and scoped
-> helpers run on your computer, and the ownership handoff works on testnet. The acquisition
-> marketplace is next (design: `docs/astra/`, `docs/design/BUSINESS_V2.md`). Everstreet is a separate project from the
+> Status: the launch pad, real bookings, real testnet payments, books, valuations, scoped
+> helpers and the acquisition marketplace run on your computer, and the ownership handoff works
+> on testnet. Accepting a deal on the token-backed contract is next (design: `docs/astra/`,
+> `docs/design/BUSINESS_V2.md`). Everstreet is a separate project from the
 > same team's other entry, Day One (an AI purchasing assistant); the two share no code, data or
 > deployments.
 
@@ -68,11 +69,30 @@ What you can do today:
 - **Hand off a task**: a founder appoints someone to answer customers and mark orders delivered.
   They are appointed on the business's contract with their own account and never get the
   founder's key; they work from "Businesses you help". Revoke, and the contract refuses them.
+- **Buying profiles**: an owner-operator, a business buying a business, a small investment firm,
+  or a customer cooperative sets up a buying profile under their own account, says how they'd
+  own it, and adds teammates with research, evidence or approve roles.
+- **Sell on your terms**: a founder chooses closed, private introductions (invited teams only),
+  an anonymous teaser (coarse bands, no name) or a named acquisition profile, sets an optional
+  asking price, and picks which numbers buyers see. Customers never see any of it, and sharing
+  numbers on the public page does not list a business.
+- **Search acquisitions**: a written brief fills the same visible filters (kind, remote, asking
+  price, estimate range that overlaps or fits within yours, months of history, owner hours,
+  verified on NEAR). Each result says why it matches and what is unknown; businesses without an
+  estimate are set aside only by the estimate filter, which says how many and lets you include
+  them. Asking price and estimate are always separate. Shortlist and compare up to three.
+- **Evidence rooms**: a buyer asks for specific evidence, for a purpose and a number of days;
+  the founder sees the team and grants, narrows or declines. The room shows only what was
+  granted: monthly books with sources, the estimate with a button to reproduce it from the rows,
+  the team's own private assumptions, customer activity in aggregate (small counts suppressed),
+  and a preliminary list of what a sale would cover and its status. Access is checked on every
+  visit; when the founder ends it or it expires, the room stops working. The founder sees how
+  often it was opened.
 - **Switch people** from the top-right menu (local preview only) to see each side. Try: as Theo,
   cancel his Nov 14 place in My activity; within seconds Ana (waiting) gets it. Then as Mara,
   turn on payments on Juniper's desk, and as another person pay for the Nov 7 session.
 
-Not yet: the acquisition marketplace (its page says so), researched market multiples, AI drafting (drafts come from templates today), sign-in with a real identity (people's
+Not yet: agreeing and accepting a deal on the token-backed contract, researched market multiples, AI drafting (drafts come from templates today), sign-in with a real identity (people's
 testnet keys are kept on this computer in the local preview), paid waitlists, and payments for
 kinds other than classes.
 
@@ -101,8 +121,8 @@ Requirements: Node 24+. For the contract: WSL Ubuntu with Rust and `cargo-near`.
 | Build and run the app | `npm run app` → http://localhost:8800 |
 | Fill an empty local database with fictional examples | `npm run seed:demo` (`-- --reset` starts over; stop the app first) |
 | Work on the UI with live reload | `npm run serve` and, beside it, `npm run web:dev` → http://localhost:5173 |
-| Add the examples' fictional history to an existing local database (no reset) | `npm run seed:history` |
-| Lint, typecheck, all tests (39) | `npm run check` |
+| Add the examples' fictional history, buyers and listings to an existing local database (no reset) | `npm run seed:history` |
+| Lint, typecheck, all tests (47) | `npm run check` |
 | Contract unit tests (WSL, `contracts/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --lib` → 21 tests (v1); `-p business-v2 --lib` → 19 tests (v2) |
 | Contract on a local NEAR node (WSL) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --test sandbox` (v1); `-p business-v2 --test sandbox` (v2 with real token transfers) |
 | Build the wasm (WSL, `contracts/business/` or `contracts/business-v2/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo near build non-reproducible-wasm` |

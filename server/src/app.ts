@@ -3,6 +3,7 @@
 
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { Acquisitions, type Criteria, interpretAcquire } from "./acquire.ts";
 import { type BookingProvider, Bookings } from "./bookings.ts";
 import { Books } from "./books.ts";
 import type { Chain } from "./chain.ts";
@@ -32,6 +33,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const payments = bookings ? new Payments(store.db, store, bookings, options.chain ?? null) : null;
   const books = new Books(store.db, store, options.chain ?? null);
   const valuation = new Valuation(store.db, store, books);
+  const acquire = new Acquisitions(store.db, store, books, valuation, options.chain ?? null);
   const pricedAndPaid = (businessId: string) => {
     const offer = store.offerOf(businessId);
     return Boolean(
@@ -368,6 +370,141 @@ export function everstreetApi(store: Store, options: AppOptions) {
       team: await needPayments().removeHelper(me(c), c.req.param("id"), c.req.param("personId")),
     }),
   );
+  // ---------- acquisitions: buying profiles, the seller's listing, search, rooms ----------
+
+  app.get("/api/acquire/meta", (c) => c.json(acquire.meta()));
+  app.post("/api/acquire/interpret", async (c) => {
+    const { text } = await body<{ text?: string }>(c);
+    return c.json({ criteria: interpretAcquire(String(text ?? "")) });
+  });
+  app.post("/api/acquire/search", async (c) => {
+    const b = await body<{
+      criteria?: Criteria;
+      buyer_id?: string;
+      mandate_id?: string;
+      sort?: string;
+    }>(c);
+    const viewer = c.get("person");
+    return c.json(
+      await acquire.search(viewer, b.criteria ?? {}, {
+        buyerId: viewer ? b.buyer_id : undefined,
+        mandateId: b.mandate_id,
+        sort: b.sort,
+      }),
+    );
+  });
+  app.get("/api/acquire/listings/:id", async (c) => {
+    const viewer = c.get("person");
+    return c.json(
+      await acquire.candidate(
+        viewer,
+        c.req.param("id"),
+        viewer ? c.req.query("buyer_id") : undefined,
+      ),
+    );
+  });
+  app.get("/api/acquire/buyers", (c) => c.json({ buyers: acquire.myBuyers(me(c)) }));
+  app.post("/api/acquire/buyers", async (c) =>
+    c.json(await acquire.createBuyer(me(c), await body(c)), 201),
+  );
+  app.get("/api/acquire/buyers/:id", async (c) =>
+    c.json(await acquire.workspace(me(c), c.req.param("id"))),
+  );
+  app.patch("/api/acquire/buyers/:id", async (c) =>
+    c.json(await acquire.updateBuyer(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/acquire/buyers/:id/members", async (c) => {
+    const { person_id, role } = await body<{ person_id?: string; role?: string }>(c);
+    return c.json(
+      await acquire.addMember(
+        me(c),
+        c.req.param("id"),
+        String(person_id ?? ""),
+        role as "research",
+      ),
+    );
+  });
+  app.delete("/api/acquire/buyers/:id/members/:personId", async (c) =>
+    c.json(await acquire.removeMember(me(c), c.req.param("id"), c.req.param("personId"))),
+  );
+  app.post("/api/acquire/buyers/:id/mandates", async (c) =>
+    c.json(await acquire.saveMandate(me(c), c.req.param("id"), await body(c))),
+  );
+  app.delete("/api/acquire/buyers/:id/mandates/:mandateId", async (c) =>
+    c.json(await acquire.deleteMandate(me(c), c.req.param("id"), c.req.param("mandateId"))),
+  );
+  app.post("/api/acquire/buyers/:id/shortlist", async (c) => {
+    const { listing_id, on } = await body<{ listing_id?: string; on?: boolean }>(c);
+    return c.json(
+      await acquire.setShortlist(me(c), c.req.param("id"), String(listing_id ?? ""), on !== false),
+    );
+  });
+  app.get("/api/acquire/buyers/:id/compare", async (c) =>
+    c.json(
+      await acquire.compare(
+        me(c),
+        c.req.param("id"),
+        (c.req.query("ids") ?? "").split(",").filter(Boolean),
+      ),
+    ),
+  );
+  app.post("/api/acquire/listings/:id/requests", async (c) => {
+    const b = await body<{
+      buyer_id?: string;
+      categories?: string[];
+      purpose?: string;
+      days?: number;
+    }>(c);
+    return c.json(
+      { request: acquire.requestAccess(me(c), String(b.buyer_id ?? ""), c.req.param("id"), b) },
+      201,
+    );
+  });
+  app.post("/api/acquire/requests/:id/withdraw", (c) =>
+    c.json({ request: acquire.withdraw(me(c), c.req.param("id")) }),
+  );
+  app.post("/api/acquire/requests/:id/decide", async (c) =>
+    c.json({ request: acquire.decide(me(c), c.req.param("id"), await body(c)) }),
+  );
+  app.post("/api/acquire/requests/:id/revoke", (c) =>
+    c.json({ request: acquire.revoke(me(c), c.req.param("id")) }),
+  );
+  app.get("/api/acquire/rooms/:id", async (c) =>
+    c.json(await acquire.room(me(c), c.req.param("id"))),
+  );
+  app.get("/api/acquire/rooms/:id/export", async (c) => {
+    const snapshot = await acquire.exportRoom(me(c), c.req.param("id"));
+    c.header(
+      "content-disposition",
+      `attachment; filename="evidence-${c.req.param("id").slice(0, 8)}.json"`,
+    );
+    return c.json(snapshot);
+  });
+  app.post("/api/acquire/rooms/:id/try", async (c) => {
+    const { overrides } = await body<{ overrides?: Overrides }>(c);
+    return c.json(await acquire.tryScenario(me(c), c.req.param("id"), overrides ?? {}));
+  });
+  app.post("/api/acquire/rooms/:id/scenarios", async (c) => {
+    const { name, overrides } = await body<{ name?: string; overrides?: Overrides }>(c);
+    return c.json({
+      scenarios: await acquire.saveScenario(
+        me(c),
+        c.req.param("id"),
+        String(name ?? ""),
+        overrides ?? {},
+      ),
+    });
+  });
+  app.get("/api/businesses/:id/listing", async (c) =>
+    c.json(await acquire.listing(me(c), c.req.param("id"))),
+  );
+  app.patch("/api/businesses/:id/listing", async (c) =>
+    c.json(await acquire.updateListing(me(c), c.req.param("id"), await body(c))),
+  );
+  app.get("/api/businesses/:id/listing/summary", (c) =>
+    c.json(acquire.summary(me(c), c.req.param("id"))),
+  );
+
   app.get("/api/helping", (c) => c.json({ businesses: payments?.helping(me(c)) ?? [] }));
   app.get("/api/helping/:id", async (c) =>
     c.json(await needPayments().helperDesk(me(c), c.req.param("id"))),
