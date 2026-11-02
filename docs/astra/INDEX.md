@@ -2,5 +2,6 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-01 | [Intact businesses and living profiles](2026-11-01_IntactProfiles.md) | Extends Launch pad: business continuity from activation, profitable API and customer-cooperative journeys, living profiles and social layer, computed financials and valuation, owner rules, seven wireframes, v2 requirements and eight-phase update | Proposal complete; six Tony decisions with recommendations |
 | 2026-11-01 | [Launch pad](2026-11-01_LaunchPad.md) | Launch-first product: founder journey from idea to first customers, profiles and distribution, early valuations, acquisitions, service discovery, NEAR architecture, mobile UI and phased build order | Proposal complete; five Tony decisions with recommendations |
 | 2026-11-01 | [Platform vision](2026-11-01_PlatformVision.md) | Full platform: founder and customer journeys, acquisitions and valuations, NEAR architecture, UI, bold extensions and phased build order | Proposal complete; Tony decisions open |

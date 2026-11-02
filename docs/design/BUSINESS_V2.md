@@ -206,6 +206,41 @@ dollars this is a demonstration, and the profile says so.
 Slices 1–3 are what the profile's revenue/overhead/profit need; the launch-pad Phase 1 (no chain
 needed) can be built alongside.
 
+## Reconciliation with Astra's requirements (IntactProfiles §9, R1–R15)
+
+Astra wrote its requirements before this doc existed. Most already match (R1 control and
+generation, R2 buckets, R3 accepted-token validation, R10 digest sale, R12 group owner, R13
+labeled performance sources). These change the design:
+
+- **R6 bounded metering.** A worker settling usage against any customer's whole credit is too
+  much power. Add customer-set spending limits: `set_usage_limit(per_period, per_batch)` with a
+  conservative default, and usage **holds**: a batch first places a hold (bounded by the limit),
+  finalizes after a dispute window (default 24 h) unless the customer disputes, then becomes
+  earned revenue. Disputed amounts stay held until the owner resolves or the hold expires back to
+  the customer. Max unfinalized exposure per customer = their limit; shown on their account page.
+- **R4/R11 exits and a live ledger.** `withdraw_credit` can take everything not held; holds expire.
+  A deal never freezes customer withdrawals; closing checks the actual reserves at close against
+  the accepted policy (minimum working cash, all customer credit still backed).
+- **R5 preserved terms.** Credit is kept in **lots** recording the price version it was bought
+  under. Rule option `credit_keeps_purchase_price` (on for Paperfin): a lot is spent at its own
+  price; new prices apply to new credit only. Without it, notice + refundability protect.
+- **R7 payables.** Flat and per-unit pay accrue by rule, capped by the worker agreement's monthly
+  cap; anything else a worker is owed (a human support invoice) needs `approve_payable` by the
+  owner or a `spend` operator. A worker can never create its own payable.
+- **R8 successor plan.** `retained_operators` becomes the buyer-approved **operating plan** in the
+  deal digest: exact accounts, capabilities, budgets. It grants nothing before close; at close it
+  is installed for the new generation in the same execution. The service runs a handoff barrier
+  (stop new old-generation privileged work, reconcile in-flight, then resume under the plan).
+- **R9 claims are not authority.** Generation change voids discretionary power, not debts:
+  accrued payables, approved refunds and pending payouts keep their fixed beneficiary and amount
+  and settle exactly once through their callback, whoever owns the business by then.
+- **R15 visible limits.** Add `get_version()` / `capabilities()` so the profile only shows rules and
+  features the deployed code actually enforces; v1 businesses show as v1.
+- **Service plane (Astra §2).** Astra's "managed runtime" (business-scoped code, config, customer
+  credential store, backups, routing, with Everstreet as an explicit trusted operator) is the
+  off-chain half of the handover. It is service work, not contract work; it gets its own design
+  when the Paperfin example is built.
+
 ## Open questions
 
 1. Which test stablecoin: our own via global FT (proposed) or an existing testnet USDC?
