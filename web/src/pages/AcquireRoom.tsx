@@ -7,10 +7,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usd } from "../api4.ts";
 import { ApiError, api5, type ManifestItem, type Room, when } from "../api5.ts";
 import { begin, type EvidenceView, initial, settle } from "../evidenceView.ts";
-import { missingReason, money, partial } from "../finance.ts";
+import { beforeOpening, missingReason, money, partialLabel } from "../finance.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
-import { CashChart, EarnedCostChart } from "./FinanceChart.tsx";
+import { CashChart, EarnedCostChart, Scroll } from "./FinanceChart.tsx";
 
 const TABS: [string, string][] = [
   ["financials", "Financials"],
@@ -28,16 +28,22 @@ function Reproduce({
 }) {
   const [shown, setShown] = useState(false);
   const p = r.reproduce;
+  if (p.stage === "unavailable")
+    return (
+      <p className="muted">
+        Some months' books couldn't be read right now, so there is no estimate to reproduce. That is
+        unknown, not "no history".
+      </p>
+    );
   if (p.stage === "plan" || p.months.length === 0)
     return (
       <p className="muted">
         No complete month with earnings yet, so there is nothing to reproduce.
       </p>
     );
-  const profit = p.months.reduce(
-    (a, m) => a + m.revenue_cents - m.direct_cents - m.overhead_cents,
-    0,
-  );
+  // The owner's exact totals (chain amounts summed before rounding), so this check uses the same
+  // arithmetic as the estimate; the per-month rows below are shown rounded (003f1).
+  const profit = p.revenue_cents - p.costs_cents;
   const labor = p.labor_month_cents * p.months.length;
   const annual = Math.round((profit - labor) * p.annualize_by);
   const round = (c: number) => Math.round(c / 10000) * 10000;
@@ -57,6 +63,7 @@ function Reproduce({
                 (m) =>
                   `${m.label}: ${usd(m.revenue_cents)} − ${usd(m.direct_cents)} − ${usd(m.overhead_cents)} = ${usd(m.revenue_cents - m.direct_cents - m.overhead_cents)}`,
               ),
+              `Exact totals: earned ${usd(p.revenue_cents)} − costs ${usd(p.costs_cents)}`,
               `Operating profit, ${p.months.length} months   ${usd(profit)}`,
               `Owner work to replace   −${usd(labor)}`,
               `× ${Number(p.annualize_by.toFixed(2))} to a year   ${usd(annual)}`,
@@ -398,7 +405,7 @@ export function AcquireRoom({ id }: { id: string }) {
 
       {tab === "financials" && fin && (
         <>
-          <section className="card">
+          <section className="card fin-card">
             <h2>Month by month</h2>
             <p className="muted" style={{ fontSize: 13 }}>
               The same figures the owner sees, with where each came from. {fin.basis}
@@ -407,8 +414,16 @@ export function AcquireRoom({ id }: { id: string }) {
               months={fin.months}
               title="Earned revenue, costs and contribution by month"
             />
-            <CashChart months={fin.months} />
-            <div style={{ overflowX: "auto" }}>
+            {fin.cash_included ? (
+              <CashChart months={fin.months} />
+            ) : (
+              fin.cash_note && (
+                <p className="muted" style={{ fontSize: 13 }}>
+                  {fin.cash_note}
+                </p>
+              )
+            )}
+            <Scroll className="fin-table-wrap" label="Books by month, scrolls sideways">
               <table className="table fin-table">
                 <caption className="sr-only">Books by month</caption>
                 <thead>
@@ -422,35 +437,40 @@ export function AcquireRoom({ id }: { id: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {fin.months
-                    .filter(
-                      (m) =>
-                        m.revenue_cents !== 0 || m.direct_cents || m.overhead_cents || !m.complete,
-                    )
-                    .map((m) => (
-                      <tr key={m.yyyymm}>
-                        <th scope="row">
-                          {m.label}
-                          {partial(m) && <span className="muted"> (partial)</span>}
-                        </th>
-                        <td className={`num${m.revenue_cents === null ? " fin-unknown" : ""}`}>
-                          {m.revenue_cents === null ? missingReason(m) : money(m.revenue_cents)}
-                        </td>
-                        <td className="num">{money(m.direct_cents)}</td>
-                        <td className="num">{money(m.overhead_cents)}</td>
-                        <td className="num">
-                          <strong>{money(m.profit_cents)}</strong>
-                        </td>
-                        <td style={{ fontSize: 12 }}>
-                          {[...new Set([...m.revenue_sources, ...m.cost_sources])].join(" · ") ||
-                            "—"}
-                          {m.mixed && " · fictional example history kept separate"}
-                        </td>
-                      </tr>
-                    ))}
+                  {/* Every month, zero months included: a real $0 is evidence too (003f1). */}
+                  {fin.months.map((m) => (
+                    <tr key={m.yyyymm}>
+                      <th scope="row">
+                        {m.label}
+                        {partialLabel(m) && <span className="muted"> ({partialLabel(m)})</span>}
+                        {beforeOpening(m) && <span className="muted"> (before opening)</span>}
+                      </th>
+                      <td className={`num${m.revenue_cents === null ? " fin-unknown" : ""}`}>
+                        {beforeOpening(m)
+                          ? "No records"
+                          : m.revenue_cents === null
+                            ? missingReason(m)
+                            : money(m.revenue_cents)}
+                        {m.revenue_basis === "seeded" && (
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            Fictional example history
+                          </div>
+                        )}
+                      </td>
+                      <td className="num">{money(m.direct_cents)}</td>
+                      <td className="num">{money(m.overhead_cents)}</td>
+                      <td className="num">
+                        <strong>{money(m.profit_cents)}</strong>
+                      </td>
+                      <td style={{ fontSize: 12 }}>
+                        {[...new Set([...m.revenue_sources, ...m.cost_sources])].join(" · ") || "—"}
+                        {m.mixed && " · fictional example history kept separate"}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
-            </div>
+            </Scroll>
           </section>
           <section className="card">
             <h2>The estimate, and checking it yourself</h2>

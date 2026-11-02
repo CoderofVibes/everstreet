@@ -12,17 +12,18 @@ import {
   usd,
 } from "../api4.ts";
 import {
+  beforeOpening,
   categories,
   compare,
-  lastTwoComplete,
+  latestPair,
   microUsd,
   missingReason,
   money,
-  partial,
+  partialLabel,
 } from "../finance.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
-import { CashChart, CategoryBars, EarnedCostChart } from "./FinanceChart.tsx";
+import { CashChart, CategoryBars, EarnedCostChart, Scroll } from "./FinanceChart.tsx";
 
 const thisMonth = () => {
   const d = new Date();
@@ -122,7 +123,8 @@ export function DeskBooks({ desk }: { desk: Desk }) {
     );
   if (!data) return null;
   const shown = data.months;
-  const [prev, last] = lastTwoComplete(shown);
+  const [prev, last] = latestPair(shown);
+  const costRows = categories(shown);
   const nothing =
     shown.every(
       (m) => (m.revenue_cents ?? 0) === 0 && m.direct_cents + m.overhead_cents === 0 && !m.cash,
@@ -150,7 +152,7 @@ export function DeskBooks({ desk }: { desk: Desk }) {
   const spendMonths = (l: SpendLedger) =>
     l.months.filter((r) => shown.some((m) => m.yyyymm === r.yyyymm));
   return (
-    <section className="card">
+    <section className="card fin-card">
       <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
         <h2 style={{ margin: 0 }}>Books</h2>
         <span className="spacer" />
@@ -196,14 +198,20 @@ export function DeskBooks({ desk }: { desk: Desk }) {
           </p>
           <EarnedCostChart months={shown} title="Earned revenue, costs and contribution by month" />
           <CashChart months={shown} />
-          <h3 style={{ fontSize: 15 }}>Where the money goes</h3>
-          <CategoryBars rows={categories(shown)} />
+          <h3 style={{ fontSize: 15 }}>Where the money goes (costs you entered)</h3>
+          <CategoryBars rows={costRows} />
+          {costRows.fictional_cents > 0 && (
+            <p className="muted" style={{ fontSize: 13 }}>
+              Fictional example costs of {money(costRows.fictional_cents)} in these months are not
+              counted in your categories.
+            </p>
+          )}
         </>
       )}
 
       <details style={{ marginTop: 12 }}>
         <summary>Every figure, with its source</summary>
-        <div style={{ overflowX: "auto" }}>
+        <Scroll className="fin-table-wrap" label="Books by month, scrolls sideways">
           <table className="table fin-table">
             <caption className="sr-only">Books by month</caption>
             <thead>
@@ -223,10 +231,20 @@ export function DeskBooks({ desk }: { desk: Desk }) {
                 <tr key={m.yyyymm}>
                   <th scope="row">
                     {m.label}
-                    {partial(m) && <span className="muted"> (partial)</span>}
+                    {partialLabel(m) && <span className="muted"> ({partialLabel(m)})</span>}
+                    {beforeOpening(m) && <span className="muted"> (before opening)</span>}
                   </th>
                   <td className={`num${m.revenue_cents === null ? " fin-unknown" : ""}`}>
-                    {m.revenue_cents === null ? missingReason(m) : money(m.revenue_cents)}
+                    {beforeOpening(m)
+                      ? "No records"
+                      : m.revenue_cents === null
+                        ? missingReason(m)
+                        : money(m.revenue_cents)}
+                    {m.revenue_basis === "seeded" && (
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        Fictional example history
+                      </div>
+                    )}
                     {m.mixed && (
                       <div className="muted" style={{ fontSize: 12 }}>
                         Fictional history {money(m.seeded_cents)} kept separate
@@ -248,7 +266,7 @@ export function DeskBooks({ desk }: { desk: Desk }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </Scroll>
       </details>
 
       <h3 style={{ fontSize: 15, marginTop: 18 }}>AI spend from Everstreet's own records</h3>
@@ -263,10 +281,14 @@ export function DeskBooks({ desk }: { desk: Desk }) {
           <li key={name}>
             <strong>{name}:</strong>{" "}
             {spendMonths(l).length === 0
-              ? "nothing recorded in these months"
-              : `${microUsd(spendMonths(l).reduce((a, r) => a + r.used_microcents, 0))} over ${spendMonths(l).reduce((a, r) => a + r.requests, 0)} requests`}
-            {l.unknown_cost_requests > 0 &&
-              ` · ${l.unknown_cost_requests} with unknown cost (reservation held, not counted as zero)`}
+              ? `nothing recorded in the last ${data.period_months} months`
+              : `${microUsd(l.period_microcents)} in the last ${data.period_months} months over ${spendMonths(l).reduce((a, r) => a + r.requests, 0)} requests`}
+            {l.period_unknown_cost_requests > 0 &&
+              ` · ${l.period_unknown_cost_requests} of them with unknown cost (reservation held, not counted as zero)`}
+            {l.total_microcents !== l.period_microcents &&
+              ` · all time: ${microUsd(l.total_microcents)}`}
+            {l.unknown_cost_requests > l.period_unknown_cost_requests &&
+              ` (${l.unknown_cost_requests} unknown-cost requests all time)`}
             <div className="muted" style={{ fontSize: 12.5 }}>
               {l.note}
             </div>

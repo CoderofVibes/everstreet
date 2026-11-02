@@ -171,6 +171,9 @@ export interface Room {
     months: RoomMonth[];
     /** The units basis: test dollars against US-dollar costs, a demo figure. */
     basis: string;
+    /** Whether this grant's wording covers money in and out (scope 3); see cash_note. */
+    cash_included: boolean;
+    cash_note?: string;
     estimate: {
       low_cents: number | null;
       high_cents: number | null;
@@ -186,6 +189,9 @@ export interface Room {
         direct_cents: number;
         overhead_cents: number;
       }[];
+      /** The estimate's exact totals, for an identical check. */
+      revenue_cents: number;
+      costs_cents: number;
       labor_month_cents: number;
       annualize_by: number;
       multiple_low: number;

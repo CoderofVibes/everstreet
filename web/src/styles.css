@@ -660,3 +660,13 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .fin-unknown { color: var(--amber); }
 @media (max-width: 900px) { .fin-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .fin-tiles { grid-template-columns: 1fr; } .fin-cats li { grid-template-columns: 1fr; } }
+
+/* Job 003f1: on narrow screens charts and the source table scroll inside their own region at a
+   readable size, instead of widening the page or shrinking labels to a few pixels. */
+.desk > *, .fin-card { min-width: 0; }
+.fin-scroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+.fin-scroll:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.fin-svg { display: block; width: 100%; min-width: 560px; height: auto; }
+.fin-table-wrap { overflow-x: auto; max-width: 100%; }
+.fin-table-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.sw-dots { background: radial-gradient(var(--mint-ink) 1px, var(--mint-soft) 1.5px) 0 0 / 5px 5px; border: 1px dashed var(--mint-ink); }

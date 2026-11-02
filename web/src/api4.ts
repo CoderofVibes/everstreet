@@ -44,6 +44,10 @@ export interface SpendLedger {
     unknown_cost_requests: number;
     held_cents: number;
   }[];
+  /** The selected period. */
+  period_microcents: number;
+  period_unknown_cost_requests: number;
+  /** All time. */
   total_microcents: number;
   unknown_cost_requests: number;
   note: string;
