@@ -299,3 +299,187 @@ fn an_operator_without_fulfillment_cannot_deliver() {
     as_("helper.near");
     b.deliver("o-1".into());
 }
+
+// ---------- Characterization (job 003a) ----------
+//
+// These tests pass by asserting what v2 does today; they change no behaviour. Tests named
+// `gap_…` pin down behaviour the digital 100/20/80 journey must not rely on. See
+// docs/astra/reports/2026-11-02_003a_characterize-credit-and-close.md.
+
+fn prepaid(b: &mut Business, who: &str, amount: u128) {
+    pay(b, who, amount, serde_json::json!({ "prepay": {} }));
+}
+
+fn fund(b: &mut Business) {
+    pay(b, "northline.near", 1000, serde_json::json!({ "fund_deal": { "deal_id": "D-1" } }));
+}
+
+fn buckets_add_up(b: &Business) -> bool {
+    let t = b.get_treasury();
+    t.held.0
+        == t.customer_credit.0
+            + t.unearned_orders.0
+            + t.available.0
+            + t.pending_payouts.0
+            + t.deal_holds.0
+            + t.seller_proceeds.0
+}
+
+#[test]
+fn gap_a_fulfillment_operator_spends_customer_credit_without_the_customer() {
+    let mut b = business();
+    prepaid(&mut b, "cedar.near", 50);
+    as_("mara.near");
+    // Everstreet appoints every helper with both capabilities (server/src/payments.ts).
+    b.appoint_operator(id("helper.near"), vec!["support".into(), "fulfillment".into()]);
+    as_("helper.near");
+    b.use_credit(id("cedar.near"), U128(50), "no customer signature, policy or cap".into());
+    assert_eq!(b.credit_of(id("cedar.near")).0, 0);
+    let t = b.get_treasury();
+    assert_eq!((t.customer_credit.0, t.available.0, t.withdrawable.0), (0, 50, 40));
+    // The owner can then withdraw it above the reserve.
+    as_("mara.near");
+    let _ = b.withdraw_profit(U128(40));
+    assert_eq!(b.get_treasury().pending_payouts.0, 40);
+}
+
+#[test]
+fn gap_the_same_memo_charges_credit_twice() {
+    let mut b = business();
+    prepaid(&mut b, "cedar.near", 50);
+    as_("mara.near");
+    b.use_credit(id("cedar.near"), U128(5), "usage-0001".into());
+    as_("mara.near");
+    b.use_credit(id("cedar.near"), U128(5), "usage-0001".into());
+    // The memo is only logged; nothing records or checks it.
+    assert_eq!(b.credit_of(id("cedar.near")).0, 40);
+    assert_eq!(b.get_period(202611).credit_used.0, 10);
+}
+
+#[test]
+fn two_prepayments_are_two_deposits_not_a_replay() {
+    let mut b = business();
+    prepaid(&mut b, "cedar.near", 25);
+    prepaid(&mut b, "cedar.near", 25);
+    // Two token transfers moved money twice; v2 credits both (unlike a repeated order id).
+    assert_eq!(b.credit_of(id("cedar.near")).0, 50);
+    assert_eq!(b.get_period(202611).prepaid_in.0, 50);
+    assert_eq!(b.get_treasury().held.0, 50);
+}
+
+#[test]
+fn gap_the_seller_can_withdraw_between_the_buyers_acceptance_and_their_own() {
+    let mut b = business();
+    order(&mut b, "o-1", "sam.near", 100, 0);
+    as_("mara.near");
+    b.deliver("o-1".into());
+    let d = sale(&mut b);
+    fund(&mut b);
+    as_("northline.near");
+    b.accept_sale("D-1".into(), d.clone());
+    as_("mara.near");
+    let _ = b.withdraw_profit(U128(90));
+    // The digest covers parties, price, expiry, terms and generation, not the treasury, so the
+    // buyer's acceptance still matches after the withdrawal.
+    let after = b.get_deal("D-1".into()).unwrap();
+    assert_eq!(after.digest, d);
+    assert_eq!(after.deal.buyer_accepted.as_deref(), Some(d.as_str()));
+    as_("mara.near");
+    b.accept_sale("D-1".into(), d);
+    assert_eq!(b.get_control().owner, id("northline.near"));
+    let t = b.get_treasury();
+    assert_eq!((t.available.0, t.pending_payouts.0), (10, 90));
+}
+
+#[test]
+fn the_second_matching_acceptance_closes_in_the_same_call() {
+    let mut b = business();
+    as_("mara.near");
+    b.appoint_operator(id("helper.near"), vec!["fulfillment".into()]);
+    let d = sale(&mut b);
+    fund(&mut b);
+    as_("mara.near");
+    b.accept_sale("D-1".into(), d.clone());
+    let c = b.get_control();
+    assert_eq!((c.owner.clone(), c.generation, c.operators.len()), (id("mara.near"), 1, 1));
+    assert_eq!(b.get_deal("D-1".into()).unwrap().deal.status, DealStatus::Open);
+    as_("northline.near");
+    b.accept_sale("D-1".into(), d);
+    // No intermediate state: owner, generation, grants and status changed in this one call.
+    let c = b.get_control();
+    assert_eq!((c.owner, c.generation, c.operators.len()), (id("northline.near"), 2, 0));
+    assert_eq!(b.get_deal("D-1".into()).unwrap().deal.status, DealStatus::Closed);
+    assert!(!b.operator_check(id("helper.near"), "fulfillment".into()).authorized);
+}
+
+#[test]
+fn gap_a_balance_read_reserves_nothing_against_a_customer_withdrawal() {
+    let mut b = business();
+    prepaid(&mut b, "cedar.near", 50);
+    // An off-chain service reads the balance and serves usage on the strength of it...
+    let seen = b.credit_of(id("cedar.near")).0;
+    // ...the customer withdraws before the usage is charged...
+    as_("cedar.near");
+    let _ = b.withdraw_credit(U128(50));
+    callback(&mut b, Payout::Credit { to: id("cedar.near"), amount: U128(50) }, true);
+    // ...and the charge for work already delivered fails.
+    let charge = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        as_("mara.near");
+        b.use_credit(id("cedar.near"), U128(5), "usage served before the withdrawal".into());
+    }));
+    assert_eq!(seen, 50);
+    assert!(charge.is_err());
+    assert_eq!(b.credit_of(id("cedar.near")).0, 0);
+}
+
+#[test]
+fn coverage_holds_across_a_sale_but_consent_does_not() {
+    let mut b = business();
+    prepaid(&mut b, "cedar.near", 50);
+    order(&mut b, "o-1", "sam.near", 35, T0 + 1000);
+    let d = sale(&mut b);
+    fund(&mut b);
+    as_("northline.near");
+    b.accept_sale("D-1".into(), d.clone());
+    as_("mara.near");
+    b.accept_sale("D-1".into(), d);
+    // Coverage: every unit is still in exactly one bucket, customers' included.
+    assert!(buckets_add_up(&b));
+    let t = b.get_treasury();
+    assert_eq!((t.customer_credit.0, t.unearned_orders.0), (50, 35));
+    // The former owner is refused...
+    let old = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        as_("mara.near");
+        b.use_credit(id("cedar.near"), U128(1), "former owner".into());
+    }));
+    assert!(old.is_err());
+    // ...but the new owner can charge the customer's credit without the customer.
+    as_("northline.near");
+    b.use_credit(id("cedar.near"), U128(50), "new owner, no customer consent".into());
+    assert_eq!(b.credit_of(id("cedar.near")).0, 0);
+    assert!(buckets_add_up(&b));
+}
+
+#[test]
+fn gap_a_failed_profit_payout_returns_to_the_buyer_after_the_close() {
+    let mut b = business();
+    order(&mut b, "o-1", "sam.near", 100, 0);
+    as_("mara.near");
+    b.deliver("o-1".into());
+    as_("mara.near");
+    let _ = b.withdraw_profit(U128(90));
+    let d = sale(&mut b);
+    fund(&mut b);
+    as_("northline.near");
+    b.accept_sale("D-1".into(), d.clone());
+    as_("mara.near");
+    b.accept_sale("D-1".into(), d);
+    // The seller's withdrawal transfer fails after the close: the money returns to
+    // `available`, which the buyer now controls. The seller's proceeds are unchanged.
+    assert!(!callback(&mut b, Payout::Profit { to: id("mara.near"), amount: U128(90) }, false));
+    assert_eq!(b.get_treasury().available.0, 100);
+    assert_eq!(b.proceeds_of(id("mara.near")).0, 1000);
+    as_("northline.near");
+    let _ = b.withdraw_profit(U128(90));
+    assert_eq!(b.get_treasury().pending_payouts.0, 90);
+}
