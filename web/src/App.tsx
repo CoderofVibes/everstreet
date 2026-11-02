@@ -157,11 +157,17 @@ function ActingContext() {
 
 function Routes() {
   const { path } = useRouter();
+  const { person } = useSession();
   if (path === "/") return <Home />;
   if (path === "/start") return <Start />;
   if (path === "/build") return <BuildHome />;
   const product = match("/build/:id", path);
-  if (product) return <ProductStudio key={product.id} id={product.id as string} />;
+  // Keyed by who is acting: switching people unmounts the studio at once, clearing its private
+  // state, and any response still in flight for the previous person lands nowhere.
+  if (product)
+    return (
+      <ProductStudio key={`${person?.id ?? "anon"}:${product.id}`} id={product.id as string} />
+    );
   const studio = match("/studio/:id", path);
   if (studio) return <Studio id={studio.id as string} />;
   const store = match("/b/:slug", path);

@@ -42,12 +42,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
     ? new Bookings(store.db, store, options.bookingProvider)
     : null;
   const payments = bookings ? new Payments(store.db, store, bookings, options.chain ?? null) : null;
-  const products = new Products(store.db, store, options.buildProvider ?? null);
   const builds =
     options.builds ??
     new Builds(store.db, store, options.buildProvider ?? null, {
       operatorCeilingCents: options.operatorCeilingCents ?? null,
     });
+  const products = new Products(store.db, store, options.buildProvider ?? null, () =>
+    builds.availability(),
+  );
   const authoring = new Authoring(store.db, store, products, builds, () =>
     proposalBudget(builds.provider),
   );

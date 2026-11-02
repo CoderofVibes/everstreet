@@ -377,6 +377,28 @@ describe("guided authoring", () => {
   });
 });
 
+describe("studio view scoping", () => {
+  it("gives drafts an owner epoch that changes when the business changes hands", async () => {
+    const w = await world();
+    const before = (await w.ava(`/api/product-projects/${w.id}`)).body.business.owner_epoch;
+    expect(before).toBe(`${w.ava.id}:0`);
+    const ben = await w.join("Ben Okafor");
+    w.store.db.prepare("UPDATE businesses SET owner_id = ? WHERE id = ?").run(ben.id, w.business);
+    w.store.db
+      .prepare("INSERT INTO ownership (business_id, from_id, to_id, at) VALUES (?, ?, ?, ?)")
+      .run(w.business, w.ava.id, ben.id, new Date().toISOString());
+    const after = (await ben(`/api/product-projects/${w.id}`)).body.business.owner_epoch;
+    expect(after).toBe(`${ben.id}:1`);
+  });
+
+  it("shows the studio the same availability as the assistant, including the ceiling", async () => {
+    const w = await world(new Scripted(), null);
+    const view = (await w.ava(`/api/product-projects/${w.id}`)).body;
+    expect(view.build).toMatchObject({ available: false });
+    expect(view.build.reason).toMatch(/overall AI spending ceiling/);
+  });
+});
+
 describe("guided authoring budgets and availability", () => {
   it("keeps nothing and sends nothing when no provider is connected", async () => {
     const w = await world(null);

@@ -21,6 +21,7 @@ import {
   type KnownState,
   PRICE_LABEL,
   type PriceModel,
+  type ProposalDetail,
   type Prototype,
   priceText,
   productsApi,
@@ -30,9 +31,10 @@ import { historyReducer, initialHistory, shownRevision } from "../revisionHistor
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { BuildsView } from "./Builds.tsx";
+import { ConversationPanel } from "./Conversation.tsx";
 import { emptySample, PrototypeEditor, PrototypePreview, type SampleState } from "./Prototype.tsx";
 
-type Tab = "preview" | "brief" | "checks" | "versions" | "builds" | "continuity";
+type Tab = "preview" | "proposal" | "brief" | "checks" | "versions" | "builds" | "continuity";
 type Content = { brief: Brief; prototype: Prototype };
 interface LocalDraft extends Content {
   base: number;
@@ -41,6 +43,7 @@ interface LocalDraft extends Content {
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "preview", label: "Preview" },
+  { id: "proposal", label: "Proposal" },
   { id: "brief", label: "Brief" },
   { id: "checks", label: "Checks" },
   { id: "versions", label: "Versions" },
@@ -59,11 +62,18 @@ function canon(value: unknown): string {
   return JSON.stringify(value);
 }
 
-const draftKey = (id: string) => `everstreet.product-draft.${id}`;
+/**
+ * Unsaved edits are kept per person, project and owner epoch: another person signed in on the
+ * same browser, or the next owner after a sale, is never offered someone else's unaccepted
+ * edits. (The earlier project-only key cannot be attributed to anyone, so it is not offered.)
+ */
+const draftKey = (personId: string, projectId: string, ownerEpoch: string) =>
+  `everstreet.product-draft.v2.${personId}.${projectId}.${ownerEpoch}`;
+const legacyDraftKey = (projectId: string) => `everstreet.product-draft.${projectId}`;
 
-function readLocal(id: string): LocalDraft | null {
+function readLocal(key: string): LocalDraft | null {
   try {
-    const raw = window.localStorage.getItem(draftKey(id));
+    const raw = window.localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as LocalDraft) : null;
   } catch {
     return null;
@@ -613,6 +623,222 @@ function ContinuityView({ view }: { view: StudioView }) {
   );
 }
 
+// ---------- an AI proposal, beside the current revision ----------
+
+function ProposalView({
+  view,
+  proposalId,
+  dirty,
+  onApplied,
+  onAskAgain,
+}: {
+  view: StudioView;
+  proposalId: string | null;
+  dirty: boolean;
+  onApplied: (v: StudioView, message: string) => void;
+  onAskAgain: (text: string) => void;
+}) {
+  const [chosen, setChosen] = useState<string | null>(proposalId);
+  const [p, setP] = useState<ProposalDetail | null>(null);
+  const [empty, setEmpty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [sample, setSample] = useState<SampleState>(emptySample);
+  const projectId = view.project.id;
+  const head = view.head.number;
+
+  // With nothing chosen, show the latest proposal, if any.
+  useEffect(() => {
+    if (chosen) return;
+    let gone = false;
+    productsApi
+      .conversation(projectId)
+      .then((c) => {
+        if (gone) return;
+        const latest = c.proposals[0];
+        if (latest) setChosen(latest.id);
+        else setEmpty(true);
+      })
+      .catch((e) => !gone && setError((e as Error).message));
+    return () => {
+      gone = true;
+    };
+  }, [chosen, projectId]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new head (after apply) re-reads the comparison
+  useEffect(() => {
+    if (!chosen) return;
+    let gone = false;
+    productsApi
+      .proposal(projectId, chosen)
+      .then((d) => !gone && setP(d))
+      .catch((e) => !gone && setError((e as Error).message));
+    return () => {
+      gone = true;
+    };
+  }, [chosen, projectId, head]);
+
+  if (empty)
+    return (
+      <div className="card empty">
+        <h2>No proposal yet</h2>
+        <p>
+          Tell the assistant what you want. Its proposal appears here next to your current revision,
+          and nothing changes until you choose to use it.
+        </p>
+      </div>
+    );
+  if (error && !p) return <p className="error-text">{error}</p>;
+  if (!p) return <p className="muted">Loading the proposal…</p>;
+
+  const proposed: Content = { brief: p.brief, prototype: p.prototype };
+  const changes = differences({ brief: view.head.brief, prototype: view.head.prototype }, proposed);
+  const stale = p.head.number !== p.base_revision;
+  const apply = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const v = await productsApi.applyProposal(projectId, p.id);
+      onApplied(
+        v,
+        v.applied.already
+          ? `This proposal is already revision ${v.applied.revision}.`
+          : v.applied.created
+            ? `Used the proposal as revision ${v.applied.revision}.`
+            : `The proposal matched revision ${v.applied.revision}; nothing new was saved.`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="proposal">
+      <div className="row" style={{ gap: 8 }}>
+        <h2 style={{ fontSize: 19, margin: 0 }}>Proposal from the assistant</h2>
+        <span
+          className={`pill ${p.status === "applied" ? "mint" : p.status === "open" ? "blue" : ""}`}
+        >
+          {p.status === "applied"
+            ? `Used as revision ${p.applied_revision}`
+            : p.status === "open"
+              ? "Not used yet"
+              : "A newer proposal replaced it"}
+        </span>
+        <span className="muted" style={{ fontSize: 13 }}>
+          Made from revision {p.base_revision} · {ago(p.created_at)}
+        </span>
+      </div>
+      <p style={{ fontSize: 15, marginTop: 8 }}>{p.summary}</p>
+
+      {!p.current_owner && (
+        <p className="notice">
+          This proposal was made before the business changed hands. It can be read, not used; ask
+          again for one of your own.
+        </p>
+      )}
+      {stale && p.status !== "applied" && (
+        <div className="notice">
+          Revision {p.head.number} was saved after this proposal was made from revision{" "}
+          {p.base_revision}. Using it would replace those edits, so it can't be used as is. Compare
+          below, or ask again on revision {p.head.number}.
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() =>
+                onAskAgain(`Please update your last proposal for revision ${p.head.number}.`)
+              }
+            >
+              Ask again on revision {p.head.number}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="grid-2 proposal-notes">
+        <section className="check-group">
+          <h3>What changes</h3>
+          {changes.length ? (
+            <ul className="diff-list">
+              {changes.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">Same as revision {head}.</p>
+          )}
+        </section>
+        <section className="check-group">
+          <h3>Assumptions and questions</h3>
+          {p.assumptions.length > 0 && (
+            <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 14 }}>
+              {p.assumptions.map((a) => (
+                <li key={a}>{a}</li>
+              ))}
+            </ul>
+          )}
+          {p.questions.length > 0 && (
+            <>
+              <strong style={{ fontSize: 13.5 }}>Questions for you</strong>
+              <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 14 }}>
+                {p.questions.map((q) => (
+                  <li key={q}>{q}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            {p.note} Sample data in the preview is fictional.
+          </p>
+        </section>
+      </div>
+
+      <div className="row" style={{ gap: 10, margin: "4px 0 16px" }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={busy || dirty || stale || !p.current_owner || p.status === "applied"}
+          onClick={apply}
+        >
+          {busy ? "Using it…" : "Use this version"}
+        </button>
+        <span className="muted" style={{ fontSize: 13 }}>
+          {dirty
+            ? "Save or discard your unsaved edits first; using a proposal never overwrites them."
+            : `Makes revision ${head + 1}. It does not publish anything.`}
+        </span>
+      </div>
+      {error && (
+        <p className="error-text" aria-live="polite">
+          {error}
+        </p>
+      )}
+
+      <div className="compare">
+        <section aria-label="Proposed">
+          <h3 className="compare-title">Proposed</h3>
+          <BriefDoc view={view} brief={p.brief} starter={false} />
+          <div style={{ marginTop: 12 }}>
+            <PrototypePreview
+              name={p.brief.name}
+              prototype={p.prototype}
+              sample={sample}
+              setSample={setSample}
+            />
+          </div>
+        </section>
+        <section aria-label={`Revision ${head}`}>
+          <h3 className="compare-title">Revision {head} (current)</h3>
+          <BriefDoc view={view} brief={view.head.brief} starter={false} />
+        </section>
+      </div>
+    </div>
+  );
+}
+
 // ---------- the workspace ----------
 
 export function ProductStudio({ id }: { id: string }) {
@@ -624,7 +850,14 @@ export function ProductStudio({ id }: { id: string }) {
   const [base, setBase] = useState(0);
   const [note, setNote] = useState("");
   const [tab, setTab] = useState<Tab>("preview");
-  const [side, setSide] = useState<"brief" | "screens">("brief");
+  const [side, setSide] = useState<"assistant" | "brief" | "screens">("assistant");
+  const [proposalId, setProposalId] = useState<string | null>(null);
+  const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
+  const personId = person?.id ?? "";
+  const reviewProposal = useCallback((pid: string) => {
+    setProposalId(pid);
+    setTab("proposal");
+  }, []);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<{ message: string; conflict: boolean } | null>(null);
   const [offered, setOffered] = useState<LocalDraft | null>(null);
@@ -643,14 +876,16 @@ export function ProductStudio({ id }: { id: string }) {
       .get(id)
       .then((v) => {
         adopt(v);
-        const local = readLocal(id);
+        window.localStorage.removeItem(legacyDraftKey(id));
+        const key = draftKey(personId, id, v.business.owner_epoch);
+        const local = readLocal(key);
         if (
           local &&
           canon({ brief: local.brief, prototype: local.prototype }) !==
             canon({ brief: v.head.brief, prototype: v.head.prototype })
         )
           setOffered(local);
-        else window.localStorage.removeItem(draftKey(id));
+        else window.localStorage.removeItem(key);
       })
       .catch((e) =>
         setLoadError({
@@ -658,7 +893,7 @@ export function ProductStudio({ id }: { id: string }) {
           message: (e as Error).message,
         }),
       );
-  }, [id, adopt]);
+  }, [id, adopt, personId]);
 
   useEffect(() => {
     if (person) load();
@@ -669,17 +904,18 @@ export function ProductStudio({ id }: { id: string }) {
       draft &&
       canon(draft) !== canon({ brief: view.head.brief, prototype: view.head.prototype }),
   );
+  const storageKey = view ? draftKey(personId, id, view.business.owner_epoch) : null;
 
-  // Keep unsaved edits in this browser until they are saved or discarded.
+  // Keep unsaved edits in this browser, for this person and owner, until saved or discarded.
   useEffect(() => {
-    if (!view || !draft || offered) return;
+    if (!view || !draft || offered || !storageKey) return;
     if (dirty)
       window.localStorage.setItem(
-        draftKey(id),
+        storageKey,
         JSON.stringify({ ...draft, base, at: new Date().toISOString() } satisfies LocalDraft),
       );
-    else window.localStorage.removeItem(draftKey(id));
-  }, [view, draft, dirty, base, id, offered]);
+    else window.localStorage.removeItem(storageKey);
+  }, [view, draft, dirty, base, storageKey, offered]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -702,7 +938,7 @@ export function ProductStudio({ id }: { id: string }) {
       const v = await productsApi.save(id, { base_revision: base, ...draft, note: note.trim() });
       adopt(v);
       setNote("");
-      window.localStorage.removeItem(draftKey(id));
+      if (storageKey) window.localStorage.removeItem(storageKey);
       setFlash(
         v.created
           ? `Saved as revision ${v.head.number}.`
@@ -953,7 +1189,7 @@ export function ProductStudio({ id }: { id: string }) {
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={() => {
-              window.localStorage.removeItem(draftKey(id));
+              if (storageKey) window.localStorage.removeItem(storageKey);
               setOffered(null);
             }}
           >
@@ -1008,21 +1244,17 @@ export function ProductStudio({ id }: { id: string }) {
           ))}
         </nav>
 
-        <aside className="ps-side" aria-label="Brief and screens">
+        <aside className="ps-side" aria-label="Assistant, brief and screens">
           <div className="ps-side-scroll">
-            <div className="build-card">
-              <div className="row">
-                <Icon name="spark" />
-                <strong style={{ fontSize: 14 }}>AI generation</strong>
-                <span className="spacer" />
-                <span className={`pill ${view.build.available ? "mint" : ""}`}>
-                  {view.build.available ? "Connected" : "Not connected"}
-                </span>
-              </div>
-              <p>{view.build.reason}</p>
-            </div>
             <fieldset className="seg">
-              <legend className="sr-only">Edit</legend>
+              <legend className="sr-only">Work with</legend>
+              <button
+                type="button"
+                aria-pressed={side === "assistant"}
+                onClick={() => setSide("assistant")}
+              >
+                Assistant
+              </button>
               <button
                 type="button"
                 aria-pressed={side === "brief"}
@@ -1039,7 +1271,16 @@ export function ProductStudio({ id }: { id: string }) {
                 Screens · {draft.prototype.screens.length}
               </button>
             </fieldset>
-            {side === "brief" ? (
+            {side === "assistant" ? (
+              <ConversationPanel
+                projectId={view.project.id}
+                businessId={view.business.id}
+                idea={view.project.idea}
+                prefill={prefill}
+                onReview={reviewProposal}
+                onManual={() => setSide("brief")}
+              />
+            ) : side === "brief" ? (
               <BriefEditor
                 brief={brief}
                 starter={starter}
@@ -1139,6 +1380,22 @@ export function ProductStudio({ id }: { id: string }) {
                 />
               </>
             )}
+            {tab === "proposal" && (
+              <ProposalView
+                key={proposalId ?? "latest"}
+                view={view}
+                proposalId={proposalId}
+                dirty={dirty}
+                onApplied={(v, message) => {
+                  adopt(v);
+                  setFlash(message);
+                }}
+                onAskAgain={(text) => {
+                  setSide("assistant");
+                  setPrefill((p) => ({ text, n: (p?.n ?? 0) + 1 }));
+                }}
+              />
+            )}
             {tab === "brief" && <BriefDoc view={view} brief={brief} starter={starter} />}
             {tab === "checks" && <ChecksView view={view} dirty={dirty} />}
             {tab === "versions" && (
@@ -1147,6 +1404,7 @@ export function ProductStudio({ id }: { id: string }) {
             {tab === "builds" && (
               <BuildsView
                 projectId={view.project.id}
+                businessId={view.business.id}
                 headRevision={view.head.number}
                 dirty={dirty}
               />

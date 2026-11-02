@@ -68,6 +68,8 @@ export interface StudioView {
     slug: string;
     stage: string;
     published_at: string | null;
+    /** Changes when the business changes hands; scopes unsaved browser drafts. */
+    owner_epoch: string;
   };
   foundation: { id: Foundation; label: string; summary: string; features: string[] };
   head: Revision;
@@ -143,8 +145,31 @@ export const productsApi = {
       base_revision,
     }),
 
-  builds: (projectId: string) =>
-    call<BuildList>(`/api/product-projects/${encodeURIComponent(projectId)}/builds`),
+  builds: (projectId: string, intent: "build" | "propose" | null = null) =>
+    call<BuildList>(
+      `/api/product-projects/${encodeURIComponent(projectId)}/builds${intent ? `?intent=${intent}` : ""}`,
+    ),
+  setBudget: (businessId: string, limit_cents: number) =>
+    call<AiBudget>(`/api/businesses/${encodeURIComponent(businessId)}/build-budget`, "PUT", {
+      limit_cents,
+    }),
+  conversation: (projectId: string) =>
+    call<Conversation>(`/api/product-projects/${encodeURIComponent(projectId)}/conversation`),
+  say: (projectId: string, text: string, idempotency_key: string) =>
+    call<{ message: WorkLogMessage; created: boolean }>(
+      `/api/product-projects/${encodeURIComponent(projectId)}/conversation`,
+      "POST",
+      { text, idempotency_key },
+    ),
+  proposal: (projectId: string, proposalId: string) =>
+    call<ProposalDetail>(
+      `/api/product-projects/${encodeURIComponent(projectId)}/proposals/${encodeURIComponent(proposalId)}`,
+    ),
+  applyProposal: (projectId: string, proposalId: string) =>
+    call<StudioView & { applied: { revision: number; created: boolean; already: boolean } }>(
+      `/api/product-projects/${encodeURIComponent(projectId)}/proposals/${encodeURIComponent(proposalId)}/apply`,
+      "POST",
+    ),
   startBuild: (
     projectId: string,
     fields: { idempotency_key: string; revision: number; budget: BuildBudget },
@@ -156,9 +181,13 @@ export const productsApi = {
     ),
   build: (jobId: string) => call<{ job: BuildJob }>(`/api/builds/${encodeURIComponent(jobId)}`),
   buildEvents: (jobId: string, after: number) =>
-    call<{ job_state: BuildState; events: BuildEventRow[]; last_seq: number }>(
-      `/api/builds/${encodeURIComponent(jobId)}/events?after=${after}&limit=100`,
-    ),
+    call<{
+      job_state: BuildState;
+      events: BuildEventRow[];
+      last_seq: number;
+      next_after: number;
+      has_more: boolean;
+    }>(`/api/builds/${encodeURIComponent(jobId)}/events?after=${after}&limit=100`),
   cancelBuild: (jobId: string) =>
     call<{ job: BuildJob }>(`/api/builds/${encodeURIComponent(jobId)}/cancel`, "POST"),
   retryBuild: (jobId: string, idempotency_key: string, acknowledge_unknown_cost: boolean) =>
@@ -235,16 +264,71 @@ export interface BuildEventRow {
   at: string;
 }
 
+/** The business's AI budget. Exact use and rounded budget consumption are different numbers. */
+export interface AiBudget {
+  limit_cents: number | null;
+  /** Worst case held for work not yet settled. */
+  reserved_cents: number;
+  /** What the budget is charged: each job rounded up to whole cents. */
+  counted_cents: number;
+  /** Exact computed use, in millionths of a cent, from reported tokens at declared prices. */
+  used_microcents: number;
+  unresolved_cents: number;
+  available_cents: number | null;
+  /** The most this business may set, from the operator's ceiling; null if none is set. */
+  max_settable_cents: number | null;
+  basis: string;
+}
+
+export interface WorkLogMessage {
+  id: string;
+  seq: number;
+  role: "founder" | "assistant";
+  text: string;
+  author: string;
+  created_at: string;
+  proposal_id: string | null;
+  job: BuildJob | null;
+}
+
+export interface ProposalSummary {
+  id: string;
+  status: "open" | "applied" | "superseded";
+  summary: string;
+  base_revision: number;
+  applied_revision: number | null;
+  created_at: string;
+  provider: { id?: string; model?: string };
+  current_owner: boolean;
+}
+
+export interface ProposalDetail extends ProposalSummary {
+  brief: Brief;
+  prototype: Prototype;
+  assumptions: string[];
+  questions: string[];
+  head: { number: number; content_hash: string };
+  base_is_head: boolean;
+  note: string;
+}
+
+export interface Conversation {
+  log: { label: string; note: string };
+  messages: WorkLogMessage[];
+  last_seq: number;
+  has_more: boolean;
+  proposals: ProposalSummary[];
+  pending: BuildJob | null;
+  availability: BuildAvailability;
+  budget: AiBudget;
+  per_request: { reserve_cents: number; limits: BuildBudget } | null;
+}
+
 export interface BuildList {
   availability: BuildAvailability;
   pricing: { inputCentsPerMillionTokens: number; outputCentsPerMillionTokens: number } | null;
-  budget: {
-    limit_cents: number | null;
-    reserved_cents: number;
-    charged_cents: number;
-    unresolved_cents: number;
-    available_cents: number | null;
-  };
+  provider: { id: string; model: string; version: string } | null;
+  budget: AiBudget;
   limits: {
     maxInputTokens: number;
     maxOutputTokens: number;
@@ -265,6 +349,13 @@ export const BUILD_STATE_LABEL: Record<BuildState, string> = {
 };
 
 export const isLive = (s: BuildState) => s === "queued" || s === "running" || s === "validating";
+
+/** Exact computed cost, to four decimal places of a dollar (a hundredth of a cent). */
+export const exactUsd = (microcents: number) => `$${(microcents / 100_000_000).toFixed(4)}`;
+
+/** Whole cents as dollars, for budgets and reservations. */
+export const usd = (cents: number) =>
+  `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export const PRICE_LABEL: Record<PriceModel, string> = {
   per_use: "Per use",

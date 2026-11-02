@@ -522,7 +522,13 @@ export class Products {
     private readonly db: Db,
     private readonly store: Store,
     private readonly provider: BuildProvider | null = null,
+    /** The build service's own answer (which also requires an operator ceiling), if wired. */
+    private readonly availability: (() => BuildAvailability) | null = null,
   ) {}
+
+  private build(): BuildAvailability {
+    return this.availability ? this.availability() : buildAvailability(this.provider);
+  }
 
   private event(type: string, subject: string, actor: string, payload: object = {}) {
     this.db
@@ -571,7 +577,7 @@ export class Products {
   }
 
   foundations() {
-    return { foundations: foundations(), build: buildAvailability(this.provider) };
+    return { foundations: foundations(), build: this.build() };
   }
 
   mine(viewer: Person) {
@@ -694,7 +700,7 @@ export class Products {
       }[]
     ).map((r) => ({ ...r }));
     const def = FOUNDATION_DEFS[p.foundation];
-    const build = buildAvailability(this.provider);
+    const build = this.build();
     // Fields still holding the foundation's starter text, so the UI can say so.
     const starter =
       current.brief.features.length === def.features.length &&
@@ -716,6 +722,17 @@ export class Products {
         slug: business.slug,
         stage: business.stage,
         published_at: business.published_at,
+        /**
+         * Changes when the business changes hands; browsers scope unsaved drafts to it so
+         * one owner's unaccepted edits are never offered to the next.
+         */
+        owner_epoch: `${business.owner_id}:${
+          (
+            this.db
+              .prepare("SELECT COUNT(*) AS n FROM ownership WHERE business_id = ?")
+              .get(business.id) as { n: number }
+          ).n
+        }`,
       },
       foundation: {
         id: def.id,

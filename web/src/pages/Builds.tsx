@@ -3,25 +3,29 @@
 // otherwise the view says so and offers nothing that looks like a build. While a job is live
 // the view checks back with growing gaps (2 s up to 15 s) and stops after 60 checks.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../icons.tsx";
 import {
+  type AiBudget,
   ago,
   BUILD_STATE_LABEL,
   type BuildBudget,
   type BuildEventRow,
   type BuildJob,
   type BuildList,
+  exactUsd,
   isLive,
   productsApi,
+  usd,
 } from "../productsApi.ts";
-import { money } from "../ui.tsx";
 
-const MAX_POLLS = 60;
-const newKey = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
-const cents = (n: number) => money(n) ?? "$0";
+export const MAX_POLLS = 60;
+export const newKey = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
+const cents = usd;
+/** Event pages loaded automatically before offering "Show more" (100 events each). */
+const AUTO_PAGES = 5;
 
-const STATE_CLASS: Record<BuildJob["state"], string> = {
+export const STATE_CLASS: Record<BuildJob["state"], string> = {
   queued: "",
   running: "blue",
   validating: "blue",
@@ -31,10 +35,9 @@ const STATE_CLASS: Record<BuildJob["state"], string> = {
   needs_reconciliation: "caution",
 };
 
-/** Exact computed cost, to a hundredth of a cent, from reported tokens at declared prices. */
-const exact = (micro: number) => `$${(micro / 100_000_000).toFixed(4)}`;
+const exact = exactUsd;
 
-function usageText(job: BuildJob) {
+export function usageText(job: BuildJob) {
   const tokens = `${job.input_tokens.toLocaleString()} in / ${job.output_tokens.toLocaleString()} out tokens`;
   if (job.usage_state === "final")
     return `${exact(job.charged_microcents)} computed from the provider's final receipt (${tokens}); not an invoice`;
@@ -45,11 +48,11 @@ function usageText(job: BuildJob) {
   return job.dispatched ? "Not reported yet" : "None: nothing was sent";
 }
 
-function describe(e: BuildEventRow): string {
+export function describe(e: BuildEventRow): string {
   const d = e.data as Record<string, unknown>;
   switch (e.type) {
     case "queued":
-      return `Requested for revision ${d.revision}; up to ${cents(Number(d.reserved_cents))} reserved`;
+      return `Requested for revision ${d.revision}; up to ${cents(Number(d.reserved_cents))} reserved (worst case)`;
     case "claimed":
       return `A worker took it (attempt ${e.attempt})`;
     case "dispatched":
@@ -57,9 +60,11 @@ function describe(e: BuildEventRow): string {
     case "progress":
       return String(d.message ?? "");
     case "usage":
-      return `Usage reported: ${d.input_tokens} in / ${d.output_tokens} out tokens, ${cents(Number(d.cents))}`;
+      return `Provisional usage: ${d.input_tokens} in / ${d.output_tokens} out tokens, at least ${exact(Number(d.microcents ?? 0))} so far`;
     case "usage_final":
-      return `Final usage receipt: ${d.input_tokens} in / ${d.output_tokens} out tokens`;
+      return `Final receipt: ${d.input_tokens} in / ${d.output_tokens} out tokens, ${exact(Number(d.microcents ?? 0))} computed`;
+    case "proposal_recorded":
+      return "Proposal ready to review";
     case "usage_duplicate":
       return "The same final receipt again; counted once";
     case "usage_mismatch":
@@ -104,7 +109,27 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(() => newKey("retry"));
+  const [more, setMore] = useState(false);
   const lastSeq = useRef(0);
+
+  /** Reads event pages after what is already shown, up to `pages` pages. */
+  const loadEvents = useCallback(
+    async (pages: number, gone: () => boolean) => {
+      for (let i = 0; i < pages; i++) {
+        const r = await productsApi.buildEvents(summary.id, lastSeq.current);
+        if (gone()) return;
+        const fresh = r.events.filter((x) => x.seq > lastSeq.current);
+        const last = fresh[fresh.length - 1];
+        if (last) {
+          lastSeq.current = last.seq;
+          setEvents((prev) => [...prev, ...fresh]);
+        }
+        setMore(r.has_more);
+        if (!r.has_more || !last) return;
+      }
+    },
+    [summary.id],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: state and event count are triggers: reload when the job moves
   useEffect(() => {
@@ -113,21 +138,11 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
       .build(summary.id)
       .then((r) => !gone && setFull(r.job))
       .catch((e) => !gone && setError((e as Error).message));
-    productsApi
-      .buildEvents(summary.id, lastSeq.current)
-      .then((r) => {
-        if (gone) return;
-        const fresh = r.events.filter((x) => x.seq > lastSeq.current);
-        const last = fresh[fresh.length - 1];
-        if (!last) return;
-        lastSeq.current = last.seq;
-        setEvents((prev) => [...prev, ...fresh]);
-      })
-      .catch(() => {});
+    loadEvents(AUTO_PAGES, () => gone).catch(() => {});
     return () => {
       gone = true;
     };
-  }, [summary.id, summary.event_count, summary.state]);
+  }, [summary.id, summary.event_count, summary.state, loadEvents]);
 
   const job = full ?? summary;
   const act = async (fn: () => Promise<unknown>) => {
@@ -155,16 +170,14 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
         {job.retry_of ? " · a retry" : ""}
       </p>
       <dl className="doc-grid" style={{ marginTop: 8 }}>
-        <dt>Limits</dt>
-        <dd>
-          {job.budget.max_input_tokens.toLocaleString()} in /{" "}
-          {job.budget.max_output_tokens.toLocaleString()} out tokens, {job.budget.max_seconds} s,
-          cost limit {cents(job.budget.max_cost_cents)}
-        </dd>
-        <dt>Reserved</dt>
-        <dd>{cents(job.reserved_cents)}</dd>
-        <dt>Usage</dt>
+        <dt>Cost</dt>
         <dd>{usageText(job)}</dd>
+        <dt>Reserved</dt>
+        <dd>
+          {job.reserved_cents > 0
+            ? `${cents(job.reserved_cents)} held (worst case, not a charge)`
+            : "Nothing held"}
+        </dd>
         {job.failure && (
           <>
             <dt>Why</dt>
@@ -235,7 +248,30 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
           </>
         )}
       </div>
-      <h4 style={{ fontSize: 14, marginTop: 18 }}>Events</h4>
+      <details className="advanced">
+        <summary>Advanced: limits and provider</summary>
+        <dl className="doc-grid">
+          <dt>Limits</dt>
+          <dd>
+            {job.budget.max_input_tokens.toLocaleString()} input /{" "}
+            {job.budget.max_output_tokens.toLocaleString()} output tokens, {job.budget.max_seconds}{" "}
+            s, cost limit {cents(job.budget.max_cost_cents)}
+          </dd>
+          <dt>Provider</dt>
+          <dd className="mono">
+            {job.provider_config
+              ? `${job.provider_config.id ?? ""} · ${job.provider_config.model ?? ""} · ${job.provider_config.version ?? ""}`
+              : job.provider}
+          </dd>
+          <dt>Tokens</dt>
+          <dd>
+            {job.input_tokens.toLocaleString()} input / {job.output_tokens.toLocaleString()} output
+          </dd>
+        </dl>
+      </details>
+      <h4 style={{ fontSize: 14, marginTop: 18 }}>
+        Events · {events.length} of {job.event_count}
+      </h4>
       <ol className="build-events">
         {events.map((e) => (
           <li key={e.seq}>
@@ -243,7 +279,103 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
           </li>
         ))}
       </ol>
+      {more && (
+        <button
+          type="button"
+          className="btn btn-quiet btn-sm"
+          onClick={() => loadEvents(AUTO_PAGES, () => false).catch(() => {})}
+        >
+          Show more events
+        </button>
+      )}
     </div>
+  );
+}
+
+/**
+ * The business's AI budget in money: exact use, what the budget is charged (rounded up per
+ * job), what is held for unsettled work, and a way to set the limit within the operator's.
+ */
+export function BudgetPanel({
+  businessId,
+  budget,
+  onChanged,
+}: {
+  businessId: string;
+  budget: AiBudget;
+  onChanged: (b: AiBudget) => void;
+}) {
+  const [text, setText] = useState(
+    budget.limit_cents === null ? "" : (budget.limit_cents / 100).toFixed(2),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const most = budget.max_settable_cents;
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    const n = Number(text);
+    if (!Number.isFinite(n) || n < 0) return setError("Enter an amount in dollars, like 2.00");
+    setBusy(true);
+    setError(null);
+    try {
+      onChanged(await productsApi.setBudget(businessId, Math.round(n * 100)));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="check-group budget-panel" aria-label="AI budget">
+      <h3>
+        <Icon name="shield" /> AI budget for this business
+      </h3>
+      <div className="budget-tiles">
+        <div>
+          <span>Limit</span>
+          <strong>{budget.limit_cents === null ? "Not set" : cents(budget.limit_cents)}</strong>
+        </div>
+        <div>
+          <span>Used (computed)</span>
+          <strong>{exact(budget.used_microcents)}</strong>
+        </div>
+        <div>
+          <span>Counted against limit</span>
+          <strong>{cents(budget.counted_cents)}</strong>
+        </div>
+        <div>
+          <span>Held for unsettled work</span>
+          <strong>{cents(budget.reserved_cents)}</strong>
+        </div>
+      </div>
+      <p className="muted" style={{ fontSize: 12.5, margin: "8px 0" }}>
+        Used is computed from reported tokens at the provider's declared prices; it is not an
+        invoice. The limit is counted in whole cents per request, rounded up, and each request holds
+        its worst case until it settles.
+        {budget.unresolved_cents > 0 &&
+          ` ${cents(budget.unresolved_cents)} is held for requests whose final cost is unknown.`}
+      </p>
+      <form className="row" style={{ gap: 8 }} onSubmit={save}>
+        <label className="sr-only" htmlFor={`budget-${businessId}`}>
+          Limit in US dollars
+        </label>
+        <span aria-hidden="true">$</span>
+        <input
+          id={`budget-${businessId}`}
+          className="input"
+          inputMode="decimal"
+          style={{ width: 110 }}
+          value={text}
+          placeholder="2.00"
+          onChange={(e) => setText(e.target.value)}
+        />
+        <button type="submit" className="btn btn-secondary btn-sm" disabled={busy}>
+          {budget.limit_cents === null ? "Set limit" : "Change limit"}
+        </button>
+        {most !== null && <span className="muted">Up to {cents(most)} here</span>}
+      </form>
+      {error && <p className="error-text">{error}</p>}
+    </section>
   );
 }
 
@@ -306,33 +438,44 @@ function StartBuild({
       <h3>
         <Icon name="spark" /> Build revision {revision}
       </h3>
-      <div className="grid-2" style={{ gap: 8 }}>
-        {fields.map(([k, label]) => (
-          <label className="mini-field" key={k}>
-            <span className="mini-label">{label}</span>
+      <p style={{ fontSize: 14 }}>
+        Holds up to <strong>{worst === null ? "an unknown amount" : cents(worst)}</strong> of the
+        budget until it settles; you are charged what it actually uses.
+      </p>
+      <p className="muted" style={{ fontSize: 12.5 }}>
+        The hold is the worst case at the provider's declared prices. It is a real bound only if the
+        provider keeps to the limits; actual use is recorded as reported.
+      </p>
+      <details className="advanced">
+        <summary>Advanced: token and time limits</summary>
+        <div className="grid-2" style={{ gap: 8 }}>
+          {fields.map(([k, label]) => (
+            <label className="mini-field" key={k}>
+              <span className="mini-label">{label}</span>
+              <input
+                className="input"
+                inputMode="numeric"
+                value={budget[k]}
+                onChange={(e) => set(k, e.target.value)}
+              />
+            </label>
+          ))}
+          <label className="mini-field">
+            <span className="mini-label">Cost limit (cents)</span>
             <input
               className="input"
               inputMode="numeric"
-              value={budget[k]}
-              onChange={(e) => set(k, e.target.value)}
+              value={costLimit}
+              onChange={(e) => set("max_cost_cents", e.target.value)}
             />
           </label>
-        ))}
-        <label className="mini-field">
-          <span className="mini-label">Cost limit (cents)</span>
-          <input
-            className="input"
-            inputMode="numeric"
-            value={costLimit}
-            onChange={(e) => set("max_cost_cents", e.target.value)}
-          />
-        </label>
-      </div>
-      <p className="muted" style={{ fontSize: 13 }}>
-        Up to {worst === null ? "an unknown amount" : cents(worst)} at the provider's declared
-        prices for these token limits is reserved before anything is sent. That bound holds only if
-        the provider honours the limits; actual usage is recorded as reported.
-      </p>
+        </div>
+        {list.provider && (
+          <p className="muted mono" style={{ fontSize: 12 }}>
+            {list.provider.id} · {list.provider.model} · {list.provider.version}
+          </p>
+        )}
+      </details>
       {error && <p className="error-text">{error}</p>}
       <button type="button" className="btn btn-primary" disabled={busy} onClick={start}>
         {busy ? "Starting…" : `Start build of revision ${revision}`}
@@ -343,10 +486,12 @@ function StartBuild({
 
 export function BuildsView({
   projectId,
+  businessId,
   headRevision,
   dirty,
 }: {
   projectId: string;
+  businessId: string;
   headRevision: number;
   dirty: boolean;
 }) {
@@ -358,7 +503,7 @@ export function BuildsView({
   const load = useCallback(
     () =>
       productsApi
-        .builds(projectId)
+        .builds(projectId, "build")
         .then((l) => {
           setList(l);
           setError(null);
@@ -389,39 +534,25 @@ export function BuildsView({
   if (error && !list) return <p className="error-text">{error}</p>;
   if (!list) return <p className="muted">Loading builds…</p>;
   const shown = list.jobs.find((j) => j.id === selected) ?? list.jobs[0];
-  const b = list.budget;
 
   return (
     <div style={{ maxWidth: 1000 }}>
+      <p className="muted" style={{ maxWidth: "75ch" }}>
+        A build turns a saved revision into a checked service specification. It does not run the
+        service yet; that comes with the managed runtime.
+      </p>
       {!list.availability.available && (
         <p className="notice">
           <strong>No build provider is connected.</strong> {list.availability.reason} Builds can't
           be started here, and none is simulated.
         </p>
       )}
-      <section className="check-group">
-        <h3>
-          <Icon name="shield" /> Build budget
-        </h3>
-        <p>
-          The build ledger: what AI building costs this business, kept apart from what customers
-          use.
-        </p>
-        <div className="row" style={{ gap: 18, fontSize: 14 }}>
-          <span>
-            Limit <strong>{b.limit_cents === null ? "not set" : cents(b.limit_cents)}</strong>
-          </span>
-          <span>
-            Reserved <strong>{cents(b.reserved_cents)}</strong>
-          </span>
-          <span>
-            Charged <strong>{cents(b.charged_cents)}</strong>
-          </span>
-          {b.unresolved_cents > 0 && (
-            <span className="unknown">Unresolved {cents(b.unresolved_cents)}</span>
-          )}
-        </div>
-      </section>
+      <BudgetPanel
+        key={String(list.budget.limit_cents)}
+        businessId={businessId}
+        budget={list.budget}
+        onChanged={() => refresh()}
+      />
       {list.availability.available && (
         <>
           {dirty && (
