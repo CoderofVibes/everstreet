@@ -35,9 +35,25 @@ that changes the owner. Every operator grant and every signed operator command c
 generation it was issued under. The contract refuses old authority in its current state;
 OpenSeat refuses it when its authority check observes that generation. These checks remove
 the need to revoke each old grant individually, but do not make a chain read and a later
-service write atomic. Job 003b addresses app reconciliation; the proposed managed close
-protocol addresses stronger administration fencing before close. Neither proposal changes
-the evidence already recorded for gate 1 or claims that the stronger protocol is deployed.
+service write atomic. The proposed managed close protocol addresses stronger administration
+fencing before close; it is not built or deployed, and it does not change the evidence already
+recorded for gate 1.
+
+Two different guarantees, kept apart:
+
+- **Atomic close (contract).** Owner and generation change together in one contract call. This
+  is the only atomic step.
+- **Observed-finality reconciliation (Everstreet's records, job 003b).** Everstreet follows a
+  close only after reading it from the contract, and only when the closed deal matches the
+  recorded terms (digest, version, buyer, seller) and control is at exactly the next
+  generation for this buyer. It applies the change once: a compare-and-set inside one local
+  transaction moves the deal to closed and writes the owner, ownership entry, team, listing,
+  access and sale event together, or nothing. It never replaces a newer local owner. A lost
+  acceptance response or an unreadable contract leaves the deal open with "pending" or
+  "unknown", never "failed"; a close that doesn't match is marked "needs reconciling" and is
+  not applied automatically. This is idempotent and monotonic, not atomic with the chain: the
+  app can lag the contract, and it is proven in unit tests against an in-memory chain double,
+  not yet on testnet.
 
 ## Who can change the rules (inspected at deployment)
 

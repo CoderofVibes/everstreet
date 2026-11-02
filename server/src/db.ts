@@ -363,6 +363,12 @@ export function openDb(path: string) {
     db.exec("ALTER TABLE build_jobs ADD COLUMN charged_microcents INTEGER NOT NULL DEFAULT 0");
   if (!jobCols.has("provider_config"))
     db.exec("ALTER TABLE build_jobs ADD COLUMN provider_config TEXT NOT NULL DEFAULT ''");
+  // Job 003b: one ownership entry per closed deal, as a backstop to the reconciler. Installed
+  // only when existing data allows it; earlier duplicates are reported, never deleted.
+  if (ownershipConflicts(db).length === 0)
+    db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS ownership_once_per_deal ON ownership(deal_id) WHERE deal_id IS NOT NULL",
+    );
   // Job 002b: a second intent (`propose`) and a reference to the message a job answers.
   // SQLite cannot change a CHECK, so a table from before is rebuilt once, keeping every row.
   const sql = (
@@ -393,3 +399,12 @@ export function openDb(path: string) {
 }
 
 export type Db = DatabaseSync;
+
+/** Deals with more than one recorded ownership entry (from before reconciliation was fixed). */
+export function ownershipConflicts(db: DatabaseSync) {
+  return db
+    .prepare(
+      "SELECT deal_id, COUNT(*) AS entries FROM ownership WHERE deal_id IS NOT NULL GROUP BY deal_id HAVING COUNT(*) > 1",
+    )
+    .all() as { deal_id: string; entries: number }[];
+}

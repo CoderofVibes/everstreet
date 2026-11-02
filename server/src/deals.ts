@@ -106,6 +106,12 @@ export function changes(a: Terms, b: Terms): string[] {
   return out;
 }
 
+/** What reconciling a close did: applied now, already applied, or why nothing changed. */
+export interface ReconcileOutcome {
+  state: "applied" | "already" | "pending" | "unknown" | "needed";
+  detail: string;
+}
+
 const CHAIN_STATUS: Record<ChainDeal["deal"]["status"], DealRow["status"]> = {
   Open: "open",
   Closed: "closed",
@@ -137,6 +143,9 @@ export class Deals {
     private readonly acquire: Acquisitions,
     private readonly chain: Chain | null,
   ) {}
+
+  /** Where the bounded reconciliation pass resumes (in memory; restarts begin from the start). */
+  private reconcileCursor = "";
 
   private need() {
     if (!this.chain) throw new HttpError(409, "NEAR testnet isn't connected on this computer");
@@ -542,37 +551,85 @@ export class Deals {
     const who = this.party(viewer, d);
     if (who === "team")
       throw new HttpError(403, "Only the seller or the team's accepting account accepts");
+    const kind = who === "seller" ? "seller_accepted" : "buyer_accepted";
+    const mine = (deal: ChainDeal | null) =>
+      who === "seller" ? deal?.deal.seller_accepted : deal?.deal.buyer_accepted;
+
+    // A retry first checks the contract: if this exact deal already closed, reconcile; if this
+    // acceptance is already recorded, there is nothing to send again.
+    const before = await chain.getDeal(d.business_account, dealId).catch(() => null);
+    if (before?.deal.status === "Closed") {
+      await this.reconcile(d, null);
+      return this.view(viewer, dealId);
+    }
+    if (before && before.digest === String(digest) && mine(before) === String(digest))
+      return this.view(viewer, dealId);
+
     const key = await this.payments.signer(viewer);
-    const tx = await chain.acceptSale({
-      party: key.account_id,
-      secret: key.secret,
-      business: d.business_account,
-      dealId,
-      digest: String(digest),
-    });
-    const after = await chain.getDeal(d.business_account, dealId);
+    let tx: Awaited<ReturnType<Chain["acceptSale"]>>;
+    try {
+      tx = await chain.acceptSale({
+        party: key.account_id,
+        secret: key.secret,
+        business: d.business_account,
+        dealId,
+        digest: String(digest),
+      });
+    } catch {
+      // The acceptance was sent but no answer came back. That is not a failure: read the
+      // contract. A sale that closed is reconciled; one we can't read stays "unconfirmed".
+      this.step(
+        dealId,
+        "accept_unconfirmed",
+        viewer,
+        d.version,
+        false,
+        null,
+        "Sent, but no answer came back; checking the contract",
+      );
+      const outcome = await this.reconcile(d, null);
+      if (outcome.state === "applied" || outcome.state === "already")
+        return this.view(viewer, dealId);
+      const readback = await chain.getDeal(d.business_account, dealId).catch(() => null);
+      // Still unreadable: the view derives "unknown" from the recorded step and its own final
+      // read, so a close it observes and reconciles is reported as closed, not as uncertain.
+      if (!readback) return this.view(viewer, dealId);
+      if (readback.digest === String(digest) && mine(readback) === String(digest)) {
+        this.step(
+          dealId,
+          kind,
+          viewer,
+          readback.deal.version,
+          true,
+          null,
+          "Confirmed by reading the contract",
+        );
+        return this.view(viewer, dealId);
+      }
+      throw new HttpError(
+        409,
+        "The contract shows your acceptance wasn't recorded, so nothing changed. You can accept again.",
+      );
+    }
+    const after = await chain.getDeal(d.business_account, dealId).catch(() => null);
     this.step(
       dealId,
-      who === "seller" ? "seller_accepted" : "buyer_accepted",
+      kind,
       viewer,
       after?.deal.version ?? null,
       tx.ok,
       tx.hash,
       tx.ok ? "" : (tx.error ?? ""),
     );
-    if (!tx.ok) throw new HttpError(409, refusal(tx.error));
-    if (after?.deal.status === "Closed") {
-      this.step(
-        dealId,
-        "closed",
-        null,
-        after.deal.version,
-        true,
-        tx.hash,
-        "Control changed on the business's contract",
-      );
-      await this.settle(d, tx.hash);
+    if (!tx.ok) {
+      // Refused because it already closed (e.g. an earlier attempt landed): reconcile instead.
+      if (after?.deal.status === "Closed") {
+        await this.reconcile(d, null);
+        return this.view(viewer, dealId);
+      }
+      throw new HttpError(409, refusal(tx.error));
     }
+    if (after?.deal.status === "Closed") await this.reconcile(d, tx.hash);
     return this.view(viewer, dealId);
   }
 
@@ -594,18 +651,96 @@ export class Deals {
     return this.view(viewer, dealId);
   }
 
-  /** Everstreet follows the contract: run only once the contract shows the buyer as owner. */
-  private async settle(d: DealRow, closeTx: string | null) {
+  /** Records why a close was not applied, once per distinct reason. */
+  private needs(d: DealRow, detail: string): ReconcileOutcome {
+    const last = this.db
+      .prepare("SELECT kind, detail FROM deal_steps WHERE deal_id = ? ORDER BY id DESC LIMIT 1")
+      .get(d.id) as { kind: string; detail: string } | undefined;
+    if (last?.kind !== "reconcile_needed" || last.detail !== detail)
+      this.step(d.id, "reconcile_needed", null, d.version, false, null, detail);
+    return { state: "needed", detail };
+  }
+
+  /**
+   * Everstreet follows the contract, at most once. A close is applied only if the contract
+   * shows *this* deal closed with *these* terms (version, digest, buyer, seller), control is
+   * exactly one generation past the terms with the buyer as owner, and locally the seller still
+   * owns the business with no newer generation recorded. The decision and every write commit
+   * together in one transaction (a compare-and-set on the deal), so concurrent tabs, retries
+   * and restarts converge on one ownership entry and one business-sold event. Anything else is
+   * "pending", "unknown" or "reconciliation needed" and changes nothing. This is observed
+   * finality: a chain read followed by a database write, not an atomic cross-system close.
+   */
+  async reconcile(d: DealRow, closeTx: string | null): Promise<ReconcileOutcome> {
+    const chain = this.need();
+    let onChain: ChainDeal | null;
+    let control: Awaited<ReturnType<Chain["control"]>>;
+    try {
+      onChain = await chain.getDeal(d.business_account, d.id);
+      control = await chain.control(d.business_account);
+    } catch {
+      return { state: "unknown", detail: "NEAR could not be read; nothing was changed" };
+    }
+    if (onChain?.deal.status !== "Closed")
+      return { state: "pending", detail: "The contract doesn't show this sale closed" };
+    const version = this.versions(d.id).find((v) => v.version === onChain.deal.version);
     const fresh = this.row(d.id);
-    if (fresh.status === "closed") return;
-    const control = await this.need().control(d.business_account);
-    if (control.owner !== d.buyer_account) return;
+    if (
+      !version ||
+      version.digest !== onChain.digest ||
+      onChain.deal.version !== fresh.version ||
+      onChain.deal.buyer !== d.buyer_account ||
+      onChain.deal.seller !== d.seller_account
+    )
+      return fresh.status === "closed"
+        ? { state: "already", detail: "" }
+        : this.needs(
+            d,
+            "The contract shows a close that doesn't match these recorded terms; it was not applied automatically.",
+          );
+    const target = onChain.deal.expected_generation + 1;
+    if (control.generation < target)
+      return { state: "pending", detail: "Waiting for the contract's final state" };
+    if (control.generation > target || control.owner !== d.buyer_account)
+      return fresh.status === "closed"
+        ? { state: "already", detail: "" }
+        : this.needs(
+            d,
+            "Control changed again on the contract after this sale; the history needs reconciling before Everstreet records an owner.",
+          );
+
     const at = now();
     const listing = this.db
       .prepare("SELECT id FROM listings WHERE business_id = ?")
       .get(d.business_id) as { id: string } | undefined;
-    this.db.exec("BEGIN");
+    let stale = false;
+    this.db.exec("BEGIN IMMEDIATE");
     try {
+      // The decision, inside the transaction: only one caller moves the deal to closed.
+      const won = this.db
+        .prepare(
+          "UPDATE deals SET status = 'closed', closed_at = ?, generation_after = ?, close_tx = COALESCE(?, close_tx), updated_at = ? WHERE id = ? AND status <> 'closed'",
+        )
+        .run(at, target, closeTx, at, d.id);
+      if (won.changes === 0) {
+        this.db.exec("ROLLBACK");
+        return { state: "already", detail: "" };
+      }
+      // Monotonic: never replace a newer local owner with an older observation.
+      const owner = (
+        this.db.prepare("SELECT owner_id FROM businesses WHERE id = ?").get(d.business_id) as {
+          owner_id: string;
+        }
+      ).owner_id;
+      const newest = (
+        this.db
+          .prepare("SELECT MAX(generation) AS g FROM ownership WHERE business_id = ?")
+          .get(d.business_id) as { g: number | null }
+      ).g;
+      if (owner !== d.seller_id || (newest !== null && newest >= target)) {
+        stale = true;
+        throw new Error("stale");
+      }
       this.db
         .prepare("UPDATE businesses SET owner_id = ?, updated_at = ? WHERE id = ?")
         .run(d.representative_id, at, d.business_id);
@@ -619,7 +754,7 @@ export class Deals {
           d.representative_id,
           d.buyer_id,
           d.id,
-          control.generation,
+          target,
           closeTx,
           at,
         );
@@ -650,11 +785,6 @@ export class Deals {
         .run(at, d.business_id);
       this.db
         .prepare(
-          "UPDATE deals SET status = 'closed', closed_at = ?, generation_after = ?, close_tx = ?, updated_at = ? WHERE id = ?",
-        )
-        .run(at, control.generation, closeTx, at, d.id);
-      this.db
-        .prepare(
           "UPDATE deals SET status = 'void', updated_at = ? WHERE business_id = ? AND id != ? AND status = 'open'",
         )
         .run(at, d.business_id, d.id);
@@ -670,14 +800,55 @@ export class Deals {
         .run(
           d.business_id,
           d.seller_id,
-          JSON.stringify({ deal: d.id, to: d.representative_id, generation: control.generation }),
+          JSON.stringify({ deal: d.id, to: d.representative_id, generation: target }),
           at,
         );
+      this.step(
+        d.id,
+        "closed",
+        null,
+        onChain.deal.version,
+        true,
+        closeTx,
+        "Control changed on the business's contract; Everstreet's records followed",
+      );
       this.db.exec("COMMIT");
     } catch (e) {
       this.db.exec("ROLLBACK");
+      if (stale)
+        return this.needs(
+          d,
+          "Everstreet already records a newer owner for this business; this older close was not applied.",
+        );
       throw e;
     }
+    return { state: "applied", detail: "" };
+  }
+
+  /**
+   * A bounded, read-only pass over open deals awaiting an outcome (an unconfirmed acceptance,
+   * or both acceptances recorded). Uses chain reads only: no signer, no transaction.
+   */
+  async reconcileOpen(limit = 10) {
+    const n = Math.max(1, Math.min(50, limit));
+    // Round-robin from where the last pass stopped, wrapping around, so deals that stay pending
+    // or unreadable can't hold every pass and starve the next eligible one.
+    const candidates = (after: string, cap: number) =>
+      this.db
+        .prepare(
+          `SELECT * FROM deals WHERE status = 'open' AND id > ? AND id IN (
+             SELECT deal_id FROM deal_steps WHERE kind IN ('accept_unconfirmed','seller_accepted','buyer_accepted'))
+           ORDER BY id LIMIT ?`,
+        )
+        .all(after, cap) as unknown as DealRow[];
+    const rows = candidates(this.reconcileCursor, n);
+    if (rows.length < n)
+      for (const r of candidates("", n - rows.length))
+        if (r.id <= this.reconcileCursor && !rows.some((x) => x.id === r.id)) rows.push(r);
+    this.reconcileCursor = rows.at(-1)?.id ?? "";
+    const out: { deal: string; outcome: ReconcileOutcome }[] = [];
+    for (const d of rows) out.push({ deal: d.id, outcome: await this.reconcile(d, null) });
+    return out;
   }
 
   // ---------- after the close ----------
@@ -823,15 +994,32 @@ export class Deals {
     const who = this.party(viewer, d);
     const chain = this.need();
     const onChain = await chain.getDeal(d.business_account, dealId).catch(() => null);
+    let reconciliation: ReconcileOutcome | null = null;
     if (onChain) {
       const s = CHAIN_STATUS[onChain.deal.status];
-      if (s === "closed" && d.status !== "closed") await this.settle(d, null);
-      else if (s !== "closed" && s !== d.status)
+      if (s === "closed" && d.status !== "closed") reconciliation = await this.reconcile(d, null);
+      else if (s !== "closed" && s !== d.status && d.status !== "closed")
         this.db
           .prepare("UPDATE deals SET status = ?, updated_at = ? WHERE id = ?")
           .run(s, now(), dealId);
       d = this.row(dealId);
     }
+    // Durable evidence of an acceptance whose result is still unknown: this person's latest
+    // acceptance attempt for the current version went unanswered, the deal is still open here
+    // and the contract can't be read now. Survives reloads; never prompts another funding.
+    const lastAttempt = this.db
+      .prepare(
+        "SELECT kind FROM deal_steps WHERE deal_id = ? AND person_id = ? AND version = ? AND kind IN ('accept_unconfirmed','seller_accepted','buyer_accepted') ORDER BY id DESC LIMIT 1",
+      )
+      .get(dealId, viewer.id, d.version) as { kind: string } | undefined;
+    const confirmation =
+      !onChain && d.status === "open" && lastAttempt?.kind === "accept_unconfirmed"
+        ? {
+            state: "unknown" as const,
+            detail:
+              "Your acceptance was sent but its result couldn't be confirmed yet. Nothing else is needed from you; check again shortly. Don't fund again.",
+          }
+        : null;
     const versions = this.versions(dealId);
     const current = versions.at(-1) as VersionRow;
     const previous = versions.length > 1 ? versions.at(-2) : undefined;
@@ -935,6 +1123,20 @@ export class Deals {
       steps,
       items,
       first_shift: d.status === "closed" && who !== "seller" ? await this.firstShift(d) : null,
+      /** Set while an acceptance this person sent has no confirmed result (see above). */
+      confirmation,
+      /** Set when the contract shows this sale closed but Everstreet could not follow yet. */
+      reconciliation:
+        reconciliation && reconciliation.state !== "applied" && reconciliation.state !== "already"
+          ? reconciliation
+          : null,
+      /** Older data with more than one ownership entry for this deal; reported, never deleted. */
+      history_conflict:
+        (
+          this.db.prepare("SELECT COUNT(*) AS n FROM ownership WHERE deal_id = ?").get(dealId) as {
+            n: number;
+          }
+        ).n > 1,
     };
   }
 

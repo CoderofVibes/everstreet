@@ -84,6 +84,12 @@ export interface DealView {
     }[];
     business_id: string;
   } | null;
+  /** Your acceptance was sent but its result couldn't be read back yet (job 003b). */
+  confirmation?: { state: "unknown"; detail: string } | null;
+  /** The contract shows a close Everstreet hasn't followed, and why (job 003b). */
+  reconciliation?: { state: "pending" | "unknown" | "needed"; detail: string } | null;
+  /** More than one ownership entry recorded for this deal; shown, never auto-repaired. */
+  history_conflict?: boolean;
   check?: {
     refused: boolean;
     error: string | null;

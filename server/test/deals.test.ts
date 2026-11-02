@@ -203,9 +203,15 @@ describe("agreeing exact terms", () => {
     expect(half.body.deal.status).toBe("open");
     const done = await s.mara(`/api/deals/${v1.id}/accept`, "POST", { digest: v2.deal.digest });
     expect(done.body.deal).toMatchObject({ status: "closed", generation_after: 2 });
+    // Accepting again (e.g. a retry after a lost response) reports the closed sale; it does
+    // not say the sale failed, and it closes nothing twice (job 003b).
     const again = await s.mara(`/api/deals/${v1.id}/accept`, "POST", { digest: v2.deal.digest });
-    expect(again.status).toBe(409);
-    expect(again.body.error).toMatch(/isn't open/);
+    expect(again.status).toBe(200);
+    expect(again.body.deal).toMatchObject({ status: "closed", generation_after: 2 });
+    expect(again.body.steps.filter((x: { kind: string }) => x.kind === "closed")).toHaveLength(1);
+    expect(
+      s.w.store.db.prepare("SELECT COUNT(*) AS n FROM ownership WHERE deal_id = ?").get(v1.id),
+    ).toEqual({ n: 1 });
   });
 });
 

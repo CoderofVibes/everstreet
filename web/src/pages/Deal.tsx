@@ -18,6 +18,8 @@ const STEP_LABEL: Record<string, string> = {
   seller_accepted: "Seller accepted",
   buyer_accepted: "Buyer accepted",
   closed: "Sale closed on NEAR",
+  accept_unconfirmed: "Acceptance sent; no answer yet",
+  reconcile_needed: "Needs reconciling",
   cancelled: "Cancelled",
   proceeds_claimed: "Seller claimed proceeds",
   former_owner_check: "Former owner tried an owner action",
@@ -287,6 +289,36 @@ export function DealPage({ id }: { id: string }) {
 
       <div className="desk" style={{ marginTop: 20 }}>
         <div>
+          {v.confirmation && (
+            <section className="card" style={{ borderColor: "var(--caution)" }}>
+              <h2>Waiting to confirm your acceptance</h2>
+              <p style={{ margin: "0 0 8px" }}>{v.confirmation.detail}</p>
+              <button type="button" className="btn" onClick={load}>
+                Check again
+              </button>
+            </section>
+          )}
+          {v.reconciliation && (
+            <section className="card" style={{ borderColor: "var(--caution)" }}>
+              <h2>
+                {v.reconciliation.state === "needed"
+                  ? "Needs reconciling"
+                  : "The contract shows a close Everstreet hasn't followed yet"}
+              </h2>
+              <p style={{ margin: "0 0 8px" }}>{v.reconciliation.detail}</p>
+              {v.reconciliation.state !== "needed" && (
+                <button type="button" className="btn" onClick={load}>
+                  Check again
+                </button>
+              )}
+            </section>
+          )}
+          {v.history_conflict && (
+            <p className="notice">
+              Everstreet's records show more than one change of hands for this deal. They were kept
+              as they are, not repaired automatically.
+            </p>
+          )}
           {v.changes.length > 0 && open && (
             <section className="card" style={{ borderColor: "var(--caution)" }}>
               <h2>What changed since version {v.previous_version}</h2>
@@ -573,7 +605,7 @@ export function DealPage({ id }: { id: string }) {
             )}
           </section>
 
-          {open && (seller || rep) && (
+          {open && (seller || rep) && !v.confirmation && !v.reconciliation && (
             <section className="card" style={{ padding: 18 }}>
               <strong>Your part</strong>
               {rep && v.wallet && (
