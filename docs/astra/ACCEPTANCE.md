@@ -12,10 +12,10 @@ in `2026-11-02_FoundationReview.md`; no complete milestone is accepted yet.
 | Identity | Home immediately communicates digital creation, discovery and acquisition | Observed in browser at `07d666e`; visual refinement continues |
 | Start | A new founder can understand and start a digital project without terminal/prompt knowledge | Browser: idea -> fictional sign-in -> private studio works; not an AI-generated brief yet |
 | Resume | Refresh/reopen restores the saved brief and correct project | Passed saved revision 2 and reload in browser; independent keyless persistence tests pass |
-| Version | Saving a revision and inspecting/restoring an earlier one preserves history | Server behavior passes; browser shows stale details after restore: 001a open |
+| Version | Saving a revision and inspecting/restoring an earlier one preserves history | Browser restore sequence passed at `45fc476`; selected/detail both show revision 3. Six new race-state tests reported by Claude |
 | Ownership | Another actor's direct API calls cannot read or change the project or revisions | Independent 64-test check includes current-owner and alternate-actor tests; local identity only |
-| Honesty | Prototype, generated artifact, checked build and live release have distinct accurate states | Prototype/provider labels observed; brief-check and readiness copy correction in 001a |
-| Design | 1440/1280px desktop, narrower layout, keyboard focus, readable contrast, no clipping | 1440 preview fits; 1280 Versions overflow: 001a. 390 preliminary pass only; full keyboard/contrast review pending |
+| Honesty | Prototype, generated artifact, checked build and live release have distinct accurate states | Prototype/provider labels and corrected brief-only checks observed at `45fc476`; future M2 states need their own evidence |
+| Design | 1440/1280px desktop, narrower layout, keyboard focus, readable contrast, no clipping | 001a browser: 1280 overflow resolved; 1440 and 390 fit; arrow-key tabs and visible focus pass. Full accessibility/legacy review pending |
 | Continuity | Existing offers, bookings, books and acquisitions still function | Existing keyless tests pass; independent legacy browser/testnet regression remains pending |
 
 ## M2: building and operating a digital product
@@ -35,6 +35,11 @@ in `2026-11-02_FoundationReview.md`; no complete milestone is accepted yet.
 A declarative product implemented by a trusted managed runtime can be a real working product.
 An inert schema preview is a prototype. An arbitrary-code product additionally needs an
 independently tested execution sandbox. Describe the supported capability precisely.
+
+002a at `c0e93ef`/`108bdb3`: Claude reports 89 passing tests. Astra independently reproduced
+failures in usage completeness, over-limit success, provider identity and lease expiry.
+See 002a1; durable job acceptance requires these corrections plus browser review.
+All reproduction providers were explicit keyless test doubles.
 
 ## M3: commerce, performance and transfer
 
