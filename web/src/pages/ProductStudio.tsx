@@ -4,7 +4,14 @@
 // revisions; unsaved edits are also kept in this browser so a refresh or crash never loses
 // them, and a save from an outdated revision is refused rather than overwriting newer work.
 
-import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useReducer,
+  useState,
+} from "react";
 import { ApiError } from "../api.ts";
 import { FOUNDATION_ICON, Icon } from "../icons.tsx";
 import {
@@ -17,9 +24,9 @@ import {
   type Prototype,
   priceText,
   productsApi,
-  type Revision,
   type StudioView,
 } from "../productsApi.ts";
+import { historyReducer, initialHistory, shownRevision } from "../revisionHistory.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { emptySample, PrototypeEditor, PrototypePreview, type SampleState } from "./Prototype.tsx";
@@ -350,9 +357,12 @@ function ChecksView({ view, dirty }: { view: StudioView; dirty: boolean }) {
       )}
       <section className="check-group">
         <h3>
-          <Icon name="check" /> Checked automatically · {c.passed} of {c.deterministic.length}
+          <Icon name="check" /> Brief checks · {c.passed} of {c.deterministic.length} rules met
         </h3>
-        <p>Rules applied to the brief and prototype of revision {view.head.number}.</p>
+        <p>
+          Rules that check whether the brief and prototype of revision {view.head.number} say
+          enough. They do not test a product: no build exists yet.
+        </p>
         {c.deterministic.map((d) => (
           <div className="check-row" key={d.id}>
             <StateIcon state={d.state} />
@@ -452,23 +462,25 @@ function VersionsView({
   onRestore: (n: number) => void;
 }) {
   const head = view.head.number;
-  const [selected, setSelected] = useState(head);
-  const [loaded, setLoaded] = useState<Revision | null>(view.head);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => setSelected(head), [head]);
+  const projectId = view.project.id;
+  const [history, dispatch] = useReducer(historyReducer, null, () =>
+    initialHistory(projectId, view.head),
+  );
+  useEffect(() => dispatch({ type: "head", head: view.head }), [view.head]);
+  const shown = shownRevision(history);
+  const selected = shown.number;
+  const loaded = shown.revision;
+  const error = shown.error;
   useEffect(() => {
-    if (selected === view.head.number) {
-      setLoaded(view.head);
-      return;
-    }
-    setLoaded(null);
-    setError(null);
+    if (!shown.needsFetch) return;
     productsApi
-      .revision(view.project.id, selected)
-      .then(setLoaded)
-      .catch((e) => setError((e as Error).message));
-  }, [selected, view.head, view.project.id]);
-  const changes = loaded && selected !== head ? differences(loaded, view.head) : [];
+      .revision(projectId, selected)
+      .then((revision) => dispatch({ type: "received", projectId, revision }))
+      .catch((e) =>
+        dispatch({ type: "failed", projectId, number: selected, message: (e as Error).message }),
+      );
+  }, [shown.needsFetch, projectId, selected]);
+  const changes = loaded && !shown.isHead ? differences(loaded, view.head) : [];
   return (
     <div className="versions">
       <div className="version-list">
@@ -478,7 +490,7 @@ function VersionsView({
             type="button"
             className="version-item"
             aria-pressed={selected === r.number}
-            onClick={() => setSelected(r.number)}
+            onClick={() => dispatch({ type: "select", number: r.number })}
           >
             <span className="v-top">
               Revision {r.number}
@@ -492,10 +504,14 @@ function VersionsView({
           </button>
         ))}
       </div>
-      <div className="check-group" style={{ margin: 0 }}>
-        {error && <p className="error-text">{error}</p>}
+      <div className="check-group version-detail" style={{ margin: 0 }} aria-live="polite">
+        {error && (
+          <p className="error-text">
+            Revision {selected} could not be loaded: {error}
+          </p>
+        )}
         {!loaded && !error && <p className="muted">Loading revision {selected}…</p>}
-        {loaded && (
+        {loaded && loaded.number === selected && (
           <>
             <h3 style={{ fontSize: 17 }}>Revision {loaded.number}</h3>
             <p className="muted" style={{ fontSize: 13.5 }}>
@@ -517,7 +533,7 @@ function VersionsView({
                 {loaded.content_hash.slice(0, 12)}
               </dd>
             </dl>
-            {selected === head ? (
+            {shown.isHead ? (
               <p className="notice ok" style={{ marginTop: 16 }}>
                 This is the current revision.
               </p>
@@ -829,8 +845,9 @@ export function ProductStudio({ id }: { id: string }) {
     {
       key: "test",
       label: "Test",
-      detail: `${view.checks.passed}/${total} checks`,
-      state: view.checks.passed === total ? "done" : "open",
+      // Brief rules only; nothing is marked tested until a build has been tested.
+      detail: `Brief checks ${view.checks.passed}/${total}`,
+      state: "open",
       current: tab === "checks",
       act: () => setTab("checks"),
     },
@@ -1095,8 +1112,8 @@ export function ProductStudio({ id }: { id: string }) {
               >
                 {t.label}
                 {t.id === "checks" && (
-                  <span className="badge">
-                    {view.checks.passed}/{total}
+                  <span className="badge" title="Brief rules met">
+                    brief {view.checks.passed}/{total}
                   </span>
                 )}
                 {t.id === "versions" && <span className="badge">{view.revisions.length}</span>}

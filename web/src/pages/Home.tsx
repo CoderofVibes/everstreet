@@ -67,20 +67,20 @@ const STAGES: { icon: IconName; title: string; text: string; now: "now" | "parti
     {
       icon: "flask",
       title: "Test",
-      text: "Brief checks now; model evaluations and journey tests later",
+      text: "Brief checks now; product tests and model evaluations come with builds",
       now: "partial",
     },
     {
       icon: "shield",
       title: "Prepare",
-      text: "Customer promises, dependencies and transfer readiness",
-      now: "now",
+      text: "A continuity checklist of promises, dependencies and transfer items; runtime readiness is not verified yet",
+      now: "partial",
     },
     {
       icon: "handshake",
       title: "Launch and hand over",
-      text: "Public page, testnet payments, and sale on NEAR testnet",
-      now: "now",
+      text: "Public page, testnet payments and sale on NEAR testnet; digital products join later",
+      now: "partial",
     },
   ];
 
