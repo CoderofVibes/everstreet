@@ -803,12 +803,18 @@ function ProposalView({
           disabled={busy || dirty || stale || !p.current_owner || p.status === "applied"}
           onClick={apply}
         >
-          {busy ? "Using it…" : "Use this version"}
+          {busy ? "Using it…" : p.status === "applied" ? "Used" : "Use this version"}
         </button>
         <span className="muted" style={{ fontSize: 13 }}>
-          {dirty
-            ? "Save or discard your unsaved edits first; using a proposal never overwrites them."
-            : `Makes revision ${head + 1}. It does not publish anything.`}
+          {p.status === "applied"
+            ? `Used as revision ${p.applied_revision}. Nothing was published.`
+            : !p.current_owner
+              ? "Made for the previous owner; ask again for your own."
+              : stale
+                ? `Revision ${p.head.number} was saved since; ask again on it.`
+                : dirty
+                  ? "Save or discard your unsaved edits first; using a proposal never overwrites them."
+                  : `Makes revision ${head + 1}. It does not publish anything.`}
         </span>
       </div>
       {error && (

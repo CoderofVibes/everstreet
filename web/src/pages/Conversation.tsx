@@ -8,6 +8,15 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../icons.tsx";
 import {
+  classify,
+  type Outbox,
+  retry,
+  type SendResult,
+  settle,
+  start,
+  takeBack,
+} from "../outbox.ts";
+import {
   type AiBudget,
   type BuildJob,
   type Conversation,
@@ -39,9 +48,11 @@ function Message({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
   const line = m.job ? jobLine(m.job) : null;
   return (
-    <li className={`msg ${m.role}`}>
+    // Scoped classes: the older `.founder` profile rule must not reach the work log.
+    <li className={`msg msg-${m.role}`}>
       <div className="msg-head">
         <strong>{m.author}</strong>
         <span className="muted">{new Date(m.created_at).toLocaleTimeString()}</span>
@@ -66,9 +77,12 @@ function Message({
               disabled={busy || m.job.cancel_requested}
               onClick={async () => {
                 setBusy(true);
+                setStopError(null);
                 try {
                   await productsApi.cancelBuild((m.job as BuildJob).id);
                   onChanged();
+                } catch (e) {
+                  setStopError(`Couldn't stop it: ${(e as Error).message}`);
                 } finally {
                   setBusy(false);
                 }
@@ -77,6 +91,7 @@ function Message({
               {m.job.cancel_requested ? "Stopping…" : "Stop"}
             </button>
           )}
+          {stopError && <span className="error-text">{stopError}</span>}
           {!isLive(m.job.state) && m.job.dispatched && (
             <span className="muted" style={{ fontSize: 12 }}>
               {usageText(m.job)}
@@ -107,24 +122,28 @@ export function ConversationPanel({
   const [conv, setConv] = useState<Conversation | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const [key, setKey] = useState(() => newKey("msg"));
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /** The message in flight or unresolved; separate from the composer, which it never writes. */
+  const [outbox, setOutbox] = useState<Outbox | null>(null);
+  const inFlight = useRef(false);
   const [polls, setPolls] = useState(0);
   const seenProposal = useRef<string | null | undefined>(undefined);
   const listEnd = useRef<HTMLLIElement>(null);
+  // Loads can overlap (polling, after a send); only the newest request's answer is shown.
+  const loadSeq = useRef(0);
 
-  const load = useCallback(
-    () =>
-      productsApi
-        .conversation(projectId)
-        .then((c) => {
-          setConv(c);
-          setLoadError(null);
-        })
-        .catch((e) => setLoadError((e as Error).message)),
-    [projectId],
-  );
+  const load = useCallback(() => {
+    const seq = ++loadSeq.current;
+    return productsApi
+      .conversation(projectId)
+      .then((c) => {
+        if (seq !== loadSeq.current) return;
+        setConv(c);
+        setLoadError(null);
+      })
+      .catch((e) => {
+        if (seq === loadSeq.current) setLoadError((e as Error).message);
+      });
+  }, [projectId]);
   useEffect(() => {
     load();
   }, [load]);
@@ -159,23 +178,31 @@ export function ConversationPanel({
     return () => window.clearTimeout(t);
   }, [live, polls, load]);
 
-  const send = async () => {
-    const said = text.trim();
-    if (!said || sending) return;
-    setSending(true);
-    setError(null);
+  /** Sends one outbox entry; its text and key never change, whatever is typed meanwhile. */
+  const dispatch = async (out: Outbox) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setOutbox(out);
+    let result: SendResult;
     try {
-      await productsApi.say(projectId, said, key);
-      setText("");
-      setKey(newKey("msg"));
+      await productsApi.say(projectId, out.text, out.key);
+      result = { kind: "accepted" };
+    } catch (e) {
+      result = classify(e);
+    } finally {
+      inFlight.current = false;
+    }
+    setOutbox(settle(out, result));
+    if (result.kind === "accepted") {
       setPolls(0);
       await load();
-    } catch (e) {
-      // Kept as written, with the same key: sending again cannot make a second request.
-      setError((e as Error).message);
-    } finally {
-      setSending(false);
     }
+  };
+  const send = () => {
+    const out = start(outbox, text, newKey("msg"));
+    if (!out || inFlight.current) return;
+    setText(""); // the box is free for the next thought straight away
+    dispatch(out);
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -201,6 +228,73 @@ export function ConversationPanel({
           ))}
           <li ref={listEnd} aria-hidden="true" className="msgs-end" />
         </ol>
+      )}
+      {outbox && (
+        <div className={`msg msg-founder msg-outbox ${outbox.state}`} aria-live="polite">
+          <div className="msg-head">
+            <strong>You</strong>
+            <span className="muted">
+              {outbox.state === "sending"
+                ? "Sending…"
+                : outbox.state === "unknown"
+                  ? "Not confirmed"
+                  : "Not sent"}
+            </span>
+          </div>
+          <p>{outbox.text}</p>
+          {outbox.reason && <p className="error-text">{outbox.reason}</p>}
+          {outbox.state === "unknown" && (
+            <div className="row" style={{ gap: 6 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  const again = retry(outbox);
+                  if (again) dispatch(again);
+                }}
+              >
+                Send again (it won't be sent twice)
+              </button>
+              <button
+                type="button"
+                className="btn btn-quiet btn-sm"
+                onClick={() => {
+                  setOutbox(null);
+                  load();
+                }}
+              >
+                Check the work log
+              </button>
+            </div>
+          )}
+          {outbox.state === "refused" && (
+            <div className="row" style={{ gap: 6 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={takeBack(outbox, text) === null}
+                title={
+                  takeBack(outbox, text) === null ? "Clear the box first to edit this" : undefined
+                }
+                onClick={() => {
+                  const back = takeBack(outbox, text);
+                  if (back === null) return;
+                  setText(back);
+                  setOutbox(null);
+                }}
+              >
+                Edit it
+              </button>
+              <button
+                type="button"
+                className="btn btn-quiet btn-sm"
+                onClick={() => setOutbox(null)}
+              >
+                Discard
+              </button>
+            </div>
+          )}
+        </div>
       )}
       {live && polls >= MAX_POLLS && (
         <p className="muted" style={{ fontSize: 13 }}>
@@ -270,22 +364,19 @@ export function ConversationPanel({
             <button
               type="button"
               className="btn btn-primary"
-              disabled={sending || !text.trim()}
+              disabled={Boolean(outbox) || !text.trim()}
               onClick={send}
             >
-              {sending ? "Sending…" : "Send"}
+              {outbox?.state === "sending" ? "Sending…" : "Send"}
             </button>
             <span className="muted" style={{ fontSize: 12 }}>
-              {conv.per_request
-                ? `Each request holds up to ${usd(conv.per_request.reserve_cents)} of the budget until it settles`
-                : ""}
+              {outbox && outbox.state !== "sending"
+                ? "Resolve the message above before sending another"
+                : conv.per_request
+                  ? `Each request holds up to ${usd(conv.per_request.reserve_cents)} of the budget until it settles`
+                  : ""}
             </span>
           </div>
-          {error && (
-            <p className="error-text" aria-live="polite">
-              {error}
-            </p>
-          )}
           <details className="advanced">
             <summary>Budget</summary>
             <BudgetPanel

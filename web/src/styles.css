@@ -546,8 +546,13 @@ fieldset.seg { margin: 0; min-width: 0; }
 .msgs { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; max-height: 46vh; overflow-y: auto; }
 .msg { border-radius: var(--radius); padding: 9px 11px; font-size: 14px; overflow-wrap: anywhere; }
 .msg p { margin: 4px 0 6px; white-space: pre-wrap; }
-.msg.founder { background: var(--canvas); border: 1px solid var(--line); }
-.msg.assistant { background: var(--mint-soft); border: 1px solid var(--mint-line); }
+/* `msg-` prefixed so the public profile's `.founder` flex rule never applies here */
+.msg { display: block; }
+.msg-founder { background: var(--canvas); border: 1px solid var(--line); }
+.msg-assistant { background: var(--mint-soft); border: 1px solid var(--mint-line); }
+.msg-outbox { margin-bottom: 10px; }
+.msg-outbox.sending { opacity: 0.8; }
+.msg-outbox.unknown, .msg-outbox.refused { border-color: var(--amber-line); background: var(--amber-soft); }
 .msg-head { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; }
 .msg-status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 .msgs-end { height: 0; padding: 0; border: 0; }
