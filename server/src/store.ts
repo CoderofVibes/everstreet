@@ -717,6 +717,31 @@ export class Store {
     }));
   }
 
+  /**
+   * Job 003f1: who controls a business, and how many times control has changed. Taken before
+   * an awaited read and checked with `stillControls` after it, so a sale (or a sale and a
+   * return) while the read ran yields no private answer and no write.
+   */
+  controlEpoch(viewer: Person, businessId: string) {
+    this.ownedBusiness(viewer, businessId);
+    const n = (
+      this.db
+        .prepare("SELECT COUNT(*) AS n FROM ownership WHERE business_id = ?")
+        .get(businessId) as { n: number }
+    ).n;
+    return { businessId, generation: n };
+  }
+
+  stillControls(viewer: Person, epoch: { businessId: string; generation: number }) {
+    this.ownedBusiness(viewer, epoch.businessId); // a former owner: 404
+    const now = this.controlEpoch(viewer, epoch.businessId);
+    if (now.generation !== epoch.generation)
+      throw new HttpError(
+        409,
+        "Control of this business changed while this was loading, so nothing was shown or saved. Try again.",
+      );
+  }
+
   isOwnerOf(viewer: Person, businessId: string) {
     const b = this.db.prepare("SELECT owner_id FROM businesses WHERE id = ?").get(businessId) as
       | { owner_id: string }

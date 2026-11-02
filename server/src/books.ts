@@ -278,20 +278,30 @@ export class Books {
       )
       .get(costId, businessId) as unknown as CostRow | undefined;
     if (!c) throw new HttpError(404, "No such cost");
+    // Job 003f1: an end date, once set, is immutable. Ending it again changes nothing, so a
+    // repeated request (or a tab left open across a month boundary) can't reopen closed months.
+    if (c.recurring && c.until_yyyymm !== null) return this.costs(founder, businessId);
     const now = ym();
-    if (c.yyyymm >= now) this.db.prepare("DELETE FROM costs WHERE id = ?").run(costId);
-    else if (c.recurring)
+    const audit = (type: string, payload: object) =>
       this.db
-        .prepare("UPDATE costs SET until_yyyymm = ? WHERE id = ?")
-        .run(addMonths(now, -1), costId);
-    else
-      this.db
-        .prepare("UPDATE costs SET voided_at = ?, void_note = ? WHERE id = ?")
-        .run(
-          new Date().toISOString(),
-          String(note || "Corrected by the owner").slice(0, 200),
-          costId,
-        );
+        .prepare("INSERT INTO events (type, subject, actor, payload, at) VALUES (?, ?, ?, ?, ?)")
+        .run(type, costId, founder.id, JSON.stringify(payload), new Date().toISOString());
+    this.store.tx(() => {
+      if (c.yyyymm >= now) {
+        this.db.prepare("DELETE FROM costs WHERE id = ?").run(costId);
+        audit("cost.removed_open_month", { yyyymm: c.yyyymm, amount_cents: c.amount_cents });
+      } else if (c.recurring) {
+        const until = addMonths(now, -1);
+        this.db.prepare("UPDATE costs SET until_yyyymm = ? WHERE id = ?").run(until, costId);
+        audit("cost.ended", { from: c.yyyymm, until });
+      } else {
+        const why = String(note || "Corrected by the owner").slice(0, 200);
+        this.db
+          .prepare("UPDATE costs SET voided_at = ?, void_note = ? WHERE id = ?")
+          .run(new Date().toISOString(), why, costId);
+        audit("cost.corrected", { yyyymm: c.yyyymm, amount_cents: c.amount_cents, note: why });
+      }
+    });
     return this.costs(founder, businessId);
   }
 
@@ -458,7 +468,9 @@ export class Books {
         yyyymm: m,
         label: monthLabel(m),
         coverage,
-        complete: coverage === "complete" || (coverage === "before_start" && m < now),
+        // A month before the account opened is a whole month only if it has (fictional seeded)
+        // records; otherwise there is nothing in it to compare, not an observed zero (003f1).
+        complete: coverage === "complete" || (coverage === "before_start" && m < now && Boolean(s)),
         chain: chainState,
         chain_reason: chainReason,
         revenue_cents: revenue,
@@ -536,20 +548,25 @@ export class Books {
         unknown: number;
         held_cents: number;
       }[];
-    const shape = (rows: ReturnType<typeof by>) => ({
-      months: rows
-        .filter((r) => r.yyyymm >= from && r.yyyymm <= now)
-        .sort((a, b) => a.yyyymm - b.yyyymm)
-        .map((r) => ({
-          yyyymm: r.yyyymm,
-          used_microcents: r.micro,
-          requests: r.requests,
-          unknown_cost_requests: r.unknown,
-          held_cents: r.held_cents,
-        })),
-      total_microcents: rows.reduce((a, r) => a + r.micro, 0),
-      unknown_cost_requests: rows.reduce((a, r) => a + r.unknown, 0),
-    });
+    // Period figures and all-time figures are kept apart and named as such (003f1).
+    const shape = (rows: ReturnType<typeof by>) => {
+      const inPeriod = rows.filter((r) => r.yyyymm >= from && r.yyyymm <= now);
+      return {
+        months: inPeriod
+          .sort((a, b) => a.yyyymm - b.yyyymm)
+          .map((r) => ({
+            yyyymm: r.yyyymm,
+            used_microcents: r.micro,
+            requests: r.requests,
+            unknown_cost_requests: r.unknown,
+            held_cents: r.held_cents,
+          })),
+        period_microcents: inPeriod.reduce((a, r) => a + r.micro, 0),
+        period_unknown_cost_requests: inPeriod.reduce((a, r) => a + r.unknown, 0),
+        total_microcents: rows.reduce((a, r) => a + r.micro, 0),
+        unknown_cost_requests: rows.reduce((a, r) => a + r.unknown, 0),
+      };
+    };
     return {
       unit: "USD" as const,
       basis:

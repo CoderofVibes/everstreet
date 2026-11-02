@@ -491,10 +491,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/businesses/:id/books", async (c) => {
     const p = me(c);
     const id = c.req.param("id");
-    books.costs(p, id); // owner check before reading
+    const epoch = store.controlEpoch(p, id); // owner check before reading
     const n = Math.min(24, Math.max(1, Math.round(Number(c.req.query("months") ?? 12)) || 12));
     const [ledger, now] = await Promise.all([books.months(id, n), books.now(id)]);
-    // Checked again after the reads: a sale while they were in flight returns nothing.
+    // Checked again after the reads: a sale (or a sale and return) while they ran returns nothing.
+    store.stillControls(p, epoch);
     const costs = books.costs(p, id);
     return c.json({
       ...ledger,
@@ -517,11 +518,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/businesses/:id/value", async (c) => {
     const p = me(c);
     const id = c.req.param("id");
-    store.business(p, id);
+    const epoch = store.controlEpoch(p, id);
     const { months, chain_error } = await books.months(id, 12);
-    store.business(p, id); // still the owner after the read, before anything is written
+    store.stillControls(p, epoch); // still in control after the read, before anything is written
     const estimate = await valuation.current(id, months);
-    store.business(p, id);
+    store.stillControls(p, epoch);
     return c.json({
       estimate,
       settings: valuation.settings(id),

@@ -97,7 +97,7 @@ export function estimate(input: Inputs): Estimate {
       high_cents: null,
       label: "No estimate right now · some months couldn't be read",
       explanation: [
-        `The books for ${gaps} couldn't be read from NEAR testnet. No estimate is made from incomplete books, and those months are not counted as zero.`,
+        `The books for ${gaps} couldn't be read (NEAR testnet didn't answer, isn't connected here, or the amount can't be shown exactly). No estimate is made from incomplete books, and those months are not counted as zero.`,
       ],
       missing: [`Try again when ${gaps} can be read.`],
       sources: [],
@@ -322,6 +322,10 @@ export class Valuation {
       multiples_are_default: s.multiple_low === null && s.multiple_high === null,
       price_cents: offer.first_free ? 0 : offer.price_cents,
     };
+    // An exact total that can't be represented safely is unknown too, never 0 (003f1).
+    const exactRevenue = used.length ? revenueOf(used, this.books.decimals) : 0;
+    if (exactRevenue === null)
+      gaps.push("the months used (their total is too large to compute exactly)");
     if (gaps.length)
       return {
         ...base,
@@ -360,7 +364,7 @@ export class Valuation {
       stage: used.length >= 3 ? "operating" : "early",
       months_used: used.map((m) => m.yyyymm),
       // Exact: chain amounts are summed in base units and converted once.
-      revenue_cents: revenueOf(used, this.books.decimals) ?? 0,
+      revenue_cents: exactRevenue as number,
       costs_cents: sum("direct_cents") + sum("overhead_cents"),
       direct_cents: sum("direct_cents"),
       overhead_cents: sum("overhead_cents"),
@@ -461,13 +465,18 @@ export class Valuation {
 
   /** A private what-if on top of today's inputs. */
   async scenario(founder: Person, businessId: string, o: Overrides) {
-    this.store.business(founder, businessId);
+    const epoch = this.store.controlEpoch(founder, businessId);
     const base = await this.inputs(businessId);
+    // Still the same owner, in the same period of control, after the read (003f1).
+    this.store.stillControls(founder, epoch);
     return { base: estimate(base), scenario: estimate(withOverrides(base, o)), overrides: o };
   }
 
   async saveScenario(founder: Person, businessId: string, name: string, o: Overrides) {
+    const epoch = this.store.controlEpoch(founder, businessId);
     const r = await this.scenario(founder, businessId, o);
+    // Checked again right before the write: no row is saved for someone who lost control.
+    this.store.stillControls(founder, epoch);
     this.db
       .prepare(
         "INSERT INTO value_scenarios (id, business_id, name, overrides, result, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -521,6 +530,8 @@ export class Valuation {
         .reverse()
         .find((m) => m.complete && m.revenue_cents !== null && m.revenue_cents > 0) ?? null;
     const e = await this.current(businessId, months, { snapshot: false });
+    // Sharing may have been turned off while the books were read (003f1): nothing then.
+    if (!this.settings(businessId).share_numbers) return null;
     return {
       month: last && {
         label: last.label,

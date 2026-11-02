@@ -624,7 +624,7 @@ export class Payments {
 
   /** The founder's money view, read from the business contract itself. */
   async money(founder: Person, businessId: string) {
-    this.store.business(founder, businessId);
+    const epoch = this.store.controlEpoch(founder, businessId);
     const b = this.businessPayments(businessId);
     if (!b) return { enabled: Boolean(this.chain), active: false as const };
     const chain = this.need();
@@ -635,6 +635,9 @@ export class Payments {
       chain.period(b.account_id, yyyymm).catch(() => null),
       this.wallet(founder).catch(() => null),
     ]);
+    // After the reads and before anything private (balances, orders, customers' names) is
+    // returned: still this owner, in the same period of control (003f1).
+    this.store.stillControls(founder, epoch);
     // Exact conversion (job 003f); null, never 0, for anything not read or not representable.
     const c = (u: string | undefined) =>
       u === undefined ? null : (unitsToCents(BigInt(u), chain.decimals)?.cents ?? null);

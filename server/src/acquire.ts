@@ -63,13 +63,19 @@ export const DISCLOSE_V1_VALUE = "Everstreet estimate and its calculation";
 /** What a grant opens (scope wording version 2). */
 export const CATEGORIES = {
   financials:
-    "Monthly books, the estimate's inputs, and the contract's balances (customer money held, available)",
+    "Monthly books (earned revenue, costs, money in and out, owner withdrawals and sale proceeds), the estimate's inputs, and the contract's balances (customer money held, available)",
   costs: "Every cost line and where it came from",
   customers: "Customer activity in aggregate (no names)",
   operations: "Owner work, helpers, customer promises and what transfers (no balances)",
 } as const;
 /** The wording a version-1 grant was made under: operations also showed balances. */
 export const CATEGORIES_V1_OPERATIONS = "Owner work, helpers, customer promises and what transfers";
+/**
+ * Scope wording versions: 1 operations included balances; 2 balances moved to financials
+ * (003p); 3 financials also covers money in and out, owner withdrawals and sale proceeds
+ * (003f1). Each grant keeps the scope of the wording it was made under.
+ */
+export const SCOPE_VERSION = 3;
 
 type BuyerKind = keyof typeof BUYER_KINDS;
 type Intent = keyof typeof INTENTS;
@@ -132,7 +138,7 @@ export interface CandidateView {
   profit: Fig;
   value: Fig & { basis?: string; low_cents?: number; high_cents?: number };
   founder_hours: Fig;
-  history: Fig & { months?: number; verified?: boolean };
+  history: Fig & { months?: number | null; verified?: boolean | null };
 }
 
 interface ListingRow {
@@ -202,9 +208,12 @@ interface Indexed {
   family: string;
   asking: { lo: number; hi: number } | null;
   value: { lo: number; hi: number } | null;
+  /** Null when not shared or not known; `unknown` says which. */
   months: number | null;
   verified: boolean | null;
   hours: number | null;
+  /** The books couldn't be read: history and revenue are unknown, not absent (003f1). */
+  unknown: boolean;
 }
 
 const usd = (c: number) => `$${Math.round(c / 100).toLocaleString("en-US")}`;
@@ -652,7 +661,7 @@ export class Acquisitions {
         "Its NEAR account and payments are public on testnet; anyone who knows the account can see its activity.",
       );
     const as = async (mode: Mode) =>
-      (await this.index({ ...row, mode, id: row.id || "00000000" }, founder)).view;
+      (await this.index({ ...row, mode, id: row.id || "00000000" }, founder, false)).view;
     return {
       listing: {
         mode: row.mode,
@@ -799,15 +808,29 @@ export class Acquisitions {
       // fictional seeded figures.
       verified: n > 0 && used.every((m) => m.revenue_basis === "observed" && !m.mixed),
       hours: s.founder_hours_week,
+      /**
+       * Job 003f1: the books couldn't be read (an outage, or no chain connected), so history,
+       * revenue and profit are unknown, never "no history" or zero.
+       */
+      unknown: e.inputs.stage === "unavailable",
     };
   }
 
   /** One listing as this viewer may see it, plus the values the index may filter on. */
-  private async index(row: ListingRow, viewer: Person | null): Promise<Indexed> {
+  private async index(
+    given: ListingRow,
+    viewer: Person | null,
+    /** False only for the seller's own preview of a mode they haven't chosen yet. */
+    reread = true,
+  ): Promise<Indexed> {
+    const f = await this.facts(given.business_id);
+    // Job 003f1: what is disclosed is decided after the slow reads, from the listing as it is
+    // now, so a change to anonymous or to fewer disclosures while they ran is respected.
+    const current = reread && given.id ? this.listingRow(given.id) : undefined;
+    const row: ListingRow = current ?? given;
     const b = this.biz(row.business_id);
     const offer = this.store.offerOf(row.business_id);
     const disclose = this.disclosed(row);
-    const f = await this.facts(row.business_id);
     const anonymous = row.mode === "anonymous";
     const where = `${offer.where_text} ${offer.delivery}`.trim();
     const remote = where ? /(online|remote|virtual|anywhere)/i.test(where) : null;
@@ -831,8 +854,10 @@ export class Acquisitions {
       }
     }
 
+    const UNREAD = "Unknown right now: some months' books couldn't be read";
     const money = (key: Disclosed, cents: number | null, perMonth = true): Fig => {
       if (!disclose.has(key)) return notShared;
+      if (f.unknown) return { status: "unknown", text: UNREAD };
       if (cents === null) return { status: "unknown", text: "No complete month yet" };
       const text = anonymous
         ? key === "profit" && cents <= 0
@@ -897,7 +922,10 @@ export class Acquisitions {
     let months: number | null = null;
     let verified: boolean | null = null;
     let historyFig: CandidateView["history"] = notShared;
-    if (disclose.has("history")) {
+    if (disclose.has("history") && f.unknown) {
+      // Unknown, not "no history": months and verification stay null with that reason.
+      historyFig = { status: "unknown", text: UNREAD, months: null, verified: null };
+    } else if (disclose.has("history")) {
       months = f.used.length;
       verified = f.verified;
       historyFig = {
@@ -936,7 +964,16 @@ export class Acquisitions {
       founder_hours: hoursFig,
       history: historyFig,
     };
-    return { view, family: b.family, asking, value, months, verified, hours };
+    return {
+      view,
+      family: b.family,
+      asking,
+      value,
+      months,
+      verified,
+      hours,
+      unknown: f.unknown && disclose.has("history"),
+    };
   }
 
   private criteria(c: Criteria): Criteria {
@@ -1006,6 +1043,7 @@ export class Acquisitions {
     const valueFilter = c.value_max_cents !== undefined || c.value_min_cents !== undefined;
     let unestimated = 0;
     let noAsking = 0;
+    let unverifiable = 0;
     const results: (CandidateView & {
       reasons: string[];
       unknowns: string[];
@@ -1016,6 +1054,14 @@ export class Acquisitions {
     const sortable = new Map<string, Indexed>();
     for (const row of rows) {
       const x = await this.index(row, viewer);
+      // Still listed and visible to this viewer after the reads (003f1)?
+      const now = this.listingRow(row.id);
+      if (
+        !now ||
+        now.mode === "closed" ||
+        !(opts.buyerId ? this.visibleTo(now, opts.buyerId) : this.visibleToViewer(now, viewer))
+      )
+        continue;
       const v = x.view;
       sortable.set(v.listing_id, x);
       const reasons: string[] = [];
@@ -1085,13 +1131,22 @@ export class Acquisitions {
         }
       }
       if (c.min_months !== undefined) {
-        if (x.months === null) unknowns.push("History not shared");
+        // Unknown history is kept and labelled (like history that isn't shared); only a known
+        // shorter history is ruled out (job 003f1).
+        if (x.unknown) unknowns.push("History couldn't be read right now (kept, not ruled out)");
+        else if (x.months === null) unknowns.push("History not shared");
         else if (x.months < c.min_months) {
           out("months of history");
           continue;
         } else reasons.push(`${plural(x.months, "complete month")} of history`);
       }
       if (c.verified_only) {
+        // Verification can't come from missing observations: unknown is set aside, and counted
+        // separately so the buyer knows why.
+        if (x.unknown) {
+          unverifiable++;
+          continue;
+        }
         if (x.verified !== true) {
           out("verified on NEAR");
           continue;
@@ -1138,6 +1193,11 @@ export class Acquisitions {
         text: `${plural(noAsking, "business", "businesses")} without an asking price ${noAsking === 1 ? "is" : "are"} set aside`,
         relax: { require_asking: false },
       });
+    if (unverifiable)
+      hidden.push({
+        text: `${plural(unverifiable, "business", "businesses")} whose books couldn't be read right now ${unverifiable === 1 ? "is" : "are"} set aside by the verified filter: verification can't come from missing records`,
+        relax: { verified_only: false },
+      });
     return {
       criteria: c,
       results,
@@ -1149,16 +1209,24 @@ export class Acquisitions {
 
   /** A candidate's overview: what customers buy, why it's open, and could I operate it? */
   async candidate(viewer: Person | null, listingId: string, buyerId?: string) {
-    const row = this.listingRow(listingId);
-    if (!row || row.mode === "closed") throw new HttpError(404, "No such listing");
+    const visible = (r: ListingRow | undefined): r is ListingRow =>
+      Boolean(
+        r &&
+          r.mode !== "closed" &&
+          (buyerId ? this.visibleTo(r, buyerId) : this.visibleToViewer(r, viewer)),
+      );
+    const before = this.listingRow(listingId);
     if (buyerId && viewer) this.role(viewer, buyerId);
-    const ok = buyerId ? this.visibleTo(row, buyerId) : this.visibleToViewer(row, viewer);
-    if (!ok) throw new HttpError(404, "No such listing");
-    const x = await this.index(row, viewer);
+    if (!visible(before)) throw new HttpError(404, "No such listing");
+    const x = await this.index(before, viewer);
+    const f = await this.facts(before.business_id);
+    // Checked again after the reads (003f1): visibility, role and what is disclosed now.
+    const row = this.listingRow(listingId);
+    if (buyerId && viewer) this.role(viewer, buyerId);
+    if (!visible(row)) throw new HttpError(404, "No such listing");
     const anonymous = row.mode === "anonymous";
     const offer = this.store.offerOf(row.business_id);
     const disclose = this.disclosed(row);
-    const f = await this.facts(row.business_id);
     const helpers = (
       this.db
         .prepare("SELECT COUNT(*) AS n FROM team WHERE business_id = ? AND revoked_at IS NULL")
@@ -1360,13 +1428,14 @@ export class Acquisitions {
     if (!(days >= 1 && days <= r.days)) throw new HttpError(400, `Grant 1 to ${r.days} days`);
     this.db
       .prepare(
-        "UPDATE access_requests SET status = 'granted', granted = ?, expires_at = ?, decided_at = ?, decision_note = ?, scope_version = 2, access_version = access_version + 1 WHERE id = ?",
+        "UPDATE access_requests SET status = 'granted', granted = ?, expires_at = ?, decided_at = ?, decision_note = ?, scope_version = ?, access_version = access_version + 1 WHERE id = ?",
       )
       .run(
         JSON.stringify(granted),
         new Date(Date.now() + days * DAY).toISOString(),
         now(),
         note,
+        SCOPE_VERSION,
         requestId,
       );
     return this.requestView(this.requestRow(requestId));
@@ -1513,7 +1582,19 @@ export class Acquisitions {
     };
     if (granted.has("financials")) {
       room.financials = {
-        months: f.months.map(financialMonth),
+        // Scope 3 (003f1) includes money in and out, owner withdrawals and sale proceeds. A
+        // grant made under earlier wording ("monthly books") keeps exactly what it covered.
+        months: f.months.map((m) => {
+          const fm = financialMonth(m);
+          return r.scope_version >= 3 ? fm : { ...fm, cash: null };
+        }),
+        cash_included: r.scope_version >= 3,
+        ...(r.scope_version < 3
+          ? {
+              cash_note:
+                "This access was granted under earlier wording that didn't include money in and out, owner withdrawals or sale proceeds, so they aren't shown.",
+            }
+          : {}),
         basis: BOOKS_BASIS,
         estimate: {
           low_cents: e.low_cents,
@@ -1530,6 +1611,10 @@ export class Acquisitions {
             direct_cents: m.direct_cents,
             overhead_cents: m.overhead_cents,
           })),
+          // The exact totals the estimate used (chain amounts summed in base units and
+          // converted once), so the buyer's check uses the same arithmetic as the owner's.
+          revenue_cents: e.inputs.revenue_cents,
+          costs_cents: e.inputs.costs_cents,
           labor_month_cents: e.inputs.labor_month_cents,
           annualize_by: e.inputs.annualize_by,
           multiple_low: e.inputs.multiple_low,
