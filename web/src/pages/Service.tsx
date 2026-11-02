@@ -13,7 +13,19 @@ import {
   type RuntimeList,
   runtimeApi,
 } from "../runtimeApi.ts";
-import { type Attempt, begin, nextAction, POLL, settle } from "../serviceAttempt.ts";
+import {
+  type Attempt,
+  describeAttempt,
+  empty,
+  inFlight,
+  POLL,
+  type Requests,
+  recover,
+  runAction,
+  settle,
+  start,
+  unresolved,
+} from "../serviceAttempt.ts";
 import {
   caseFrom,
   OUTCOME_TEXT,
@@ -144,13 +156,14 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState<string>("");
   const [text, setText] = useState("");
-  const [last, setLast] = useState<Invocation | null>(null);
-  const [lastText, setLastText] = useState("");
+  /** The latest answer shown, with the request it belongs to (which may be an earlier one). */
+  const [last, setLast] = useState<{ invocation: Invocation; attempt: Attempt } | null>(null);
   /**
-   * The request's fixed identity (serviceAttempt.ts). This view stays mounted across studio tabs
-   * (job 002c1), so leaving Service and coming back keeps the text, target and request.
+   * Requests with their fixed identities (serviceAttempt.ts), kept apart from the draft. This
+   * view stays mounted across studio tabs (002c1); a lost one stays recoverable whatever the
+   * draft holds (002c2).
    */
-  const [attempt, setAttempt] = useState<Attempt | null>(null);
+  const [requests, setRequests] = useState<Requests>(empty);
   const [budgetText, setBudgetText] = useState("");
   const [checking, setChecking] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -198,7 +211,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
         setFix(null);
         setRuns([]);
         setLast(null);
-        setAttempt(null);
+        setRequests(empty());
         setText("");
       }
       setError((e as Error).message);
@@ -212,7 +225,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
   // gaps, only while the page is visible, and at most POLL.maxPolls times.
   const running = runs.find((r) => r.state === "running");
   const pendingRequest = list?.invocations.some((i) => i.state === "running") ?? false;
-  const following = Boolean(running) || pendingRequest || attempt?.state === "sending";
+  const following = Boolean(running) || pendingRequest || inFlight(requests) !== null;
   useEffect(() => {
     if (!following || polls >= POLL.maxPolls) return;
     const t = window.setTimeout(() => {
@@ -236,12 +249,16 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
   const budgetSet = list.budget.limit_cents !== null;
   const candidates = rel.candidates;
 
-  const action = nextAction(attempt, text, version);
-  const busy = attempt?.state === "sending";
+  const action = runAction(requests);
+  const busy = action === "wait";
+  const lostOnes = unresolved(requests);
+  const latest = requests.attempts.at(-1);
 
-  /** Sends one attempt: a new request, or the same key again to ask about a recorded one. */
+  /**
+   * Sends one request from its own fixed fields (never the draft): new work, or the same key
+   * again to ask about a recorded one. The draft is never read or changed here.
+   */
   const send = async (a: Attempt) => {
-    setAttempt(a);
     setPolls(0);
     setNotice(null);
     try {
@@ -253,37 +270,41 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
           : { artifact_job: a.target.replace(/^job:/, "") }),
       });
       if (!live.current) return;
-      setAttempt(settle(a, { ok: true, invocationId: invocation.id }));
-      setLast(invocation);
-      setLastText(a.text);
+      setRequests((r) => settle(r, a.key, { ok: true, invocationId: invocation.id }));
+      setLast({ invocation, attempt: a });
     } catch (e) {
       if (!live.current) return;
       const status = e instanceof ApiError ? e.status : 0;
-      setAttempt(settle(a, { ok: false, status, message: (e as Error).message }));
+      setRequests((r) => settle(r, a.key, { ok: false, status, message: (e as Error).message }));
       if (status === 401 || status === 404) setLast(null);
     }
     load();
   };
-  const run = () => {
-    const a = begin(attempt, text, version, () => newKey("run"));
-    if (a) send(a);
-  };
-  /** After a lost answer: new paid work only by this explicit choice. */
-  const runNew = () => {
-    if (!text.trim() || busy) return;
-    send({
-      key: newKey("run"),
+  /** New work from the draft; `explicitNew` only from the separately labelled paid action. */
+  const run = (explicitNew = false) => {
+    const s = start(
+      requests,
       text,
-      target: version,
-      state: "sending",
-      invocationId: null,
-      message: null,
-    });
+      version,
+      () => newKey("run"),
+      new Date().toISOString(),
+      explicitNew,
+    );
+    if (!s) return;
+    setRequests(s.requests);
+    send(s.attempt);
+  };
+  /** Recovers an earlier request from its stored fields; the draft stays as typed. */
+  const recoverOne = (key: string) => {
+    const s = recover(requests, key);
+    if (!s) return;
+    setRequests(s.requests);
+    send(s.attempt);
   };
 
   const saveCase = async () => {
-    if (!last?.result) return;
-    const c = caseFrom(lastText, last.result, fix.cases);
+    if (!last?.invocation.result) return;
+    const c = caseFrom(last.attempt.text, last.invocation.result, fix.cases);
     if (
       !window.confirm(
         `Save "${c.name}" as a test case expecting: ${c.expect.outcomes.join(" or ")}${
@@ -419,26 +440,24 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
               />
             </label>
             <div className="row" style={{ gap: 8, alignItems: "center" }}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy || !text.trim() || (action === "run" && (!available || !budgetSet))}
-                onClick={run}
-              >
-                {busy
-                  ? "Processing…"
-                  : action === "check"
-                    ? "Check on the earlier request (won't run it again)"
-                    : "Run"}
-              </button>
-              {action === "check" && (
+              {action === "new_paid_only" ? (
+                // While an earlier request is unresolved, new work is only this explicit action.
                 <button
                   type="button"
-                  className="btn btn-quiet btn-sm"
-                  disabled={!available || !budgetSet}
-                  onClick={runNew}
+                  className="btn btn-secondary"
+                  disabled={!text.trim() || !available || !budgetSet}
+                  onClick={() => run(true)}
                 >
-                  Run it as a new, separately paid request
+                  Run this text as a new, separately paid request
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy || !text.trim() || !available || !budgetSet}
+                  onClick={() => run()}
+                >
+                  {busy ? "Processing…" : "Run"}
                 </button>
               )}
               <span className="muted" style={{ fontSize: 12.5 }}>
@@ -447,10 +466,26 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
                   : `Each request holds up to ${list.budget.per_request_cents}¢ until it settles.`}
               </span>
             </div>
-            {attempt?.message && (
-              <p className={attempt.state === "refused" ? "error-text" : "notice"}>
-                {attempt.message}
-              </p>
+            {/* Lost answers stay recoverable from their own stored request, whatever the draft. */}
+            {lostOnes.map((a) => (
+              <div key={a.key} className="notice" style={{ fontSize: 13.5 }}>
+                <strong>An earlier request has no answer yet</strong> ({describeAttempt(a)}).{" "}
+                {a.message}{" "}
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={busy}
+                  onClick={() => recoverOne(a.key)}
+                >
+                  Check on that request (won't run it again)
+                </button>
+                <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
+                  Your current text above stays as it is.
+                </div>
+              </div>
+            ))}
+            {latest?.state === "refused" && latest.message && (
+              <p className="error-text">{latest.message}</p>
             )}
             {list.invocations
               .filter((i) => i.state === "running")
@@ -489,7 +524,16 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
               ))}
             {last && (
               <div style={{ marginTop: 12 }}>
-                <Result i={last} onSaveCase={last.result ? saveCase : undefined} />
+                <p className="muted" style={{ fontSize: 13, margin: "0 0 6px" }}>
+                  {last.attempt.key === latest?.key && latest.state === "answered"
+                    ? "Result of your latest request"
+                    : "Result of an earlier request"}{" "}
+                  ({describeAttempt(last.attempt)})
+                </p>
+                <Result
+                  i={last.invocation}
+                  onSaveCase={last.invocation.result ? saveCase : undefined}
+                />
               </div>
             )}
           </>

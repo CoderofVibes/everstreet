@@ -1,8 +1,10 @@
-// Job 002c1: one Service request's identity in the browser. The text, the chosen target and the
-// request key are fixed when it starts. Until an answer arrives, running the same text on the
-// same target again re-sends that key, which the server answers from its record without
-// running anything new. Anything else while it's in flight waits. After a lost answer, new
-// paid work needs an explicit choice. Pure, so these rules are tested without a browser.
+// Jobs 002c1 and 002c2: Service requests in the browser, kept apart from the editable draft.
+// Each request's text, target and key are fixed when it starts. A request whose answer was lost
+// stays recoverable from its own stored fields, whatever the founder has typed or chosen since
+// (or if the box is empty). Recovering re-sends that same key, which the server answers from its
+// record without running anything new, and leaves the draft untouched. While a request whose
+// answer was lost is unresolved, new paid work needs its own explicitly labelled action; a
+// plain Run never replaces it. Pure, so these rules are tested without a browser.
 
 export type AttemptState = "sending" | "answered" | "unknown" | "refused";
 
@@ -14,53 +16,116 @@ export interface Attempt {
   state: AttemptState;
   invocationId: string | null;
   message: string | null;
+  /** When it was first sent (ISO), to identify it to the founder. */
+  startedAt: string;
 }
 
-export type Action =
-  /** A new request (new key, may be paid). */
+/** All Service requests this view knows about, newest last (bounded). */
+export interface Requests {
+  attempts: Attempt[];
+}
+
+export const MAX_TRACKED = 10;
+
+export const empty = (): Requests => ({ attempts: [] });
+
+/** The request being sent right now, if any. */
+export const inFlight = (r: Requests) => r.attempts.find((a) => a.state === "sending") ?? null;
+
+/** Requests whose answer was lost, oldest first: each can be recovered. */
+export const unresolved = (r: Requests) => r.attempts.filter((a) => a.state === "unknown");
+
+export type RunAction =
+  /** Nothing is unresolved: an ordinary new request. */
   | "run"
-  /** Ask the server about the recorded request (same key; never runs it again). */
-  | "check"
-  /** A request is in flight; wait for it. */
+  /** An earlier request is unresolved: new work only by the explicit "new, separately paid" action. */
+  | "new_paid_only"
+  /** A request is being sent; wait. */
   | "wait";
 
-/** What the main button does for this text and target now. */
-export function nextAction(current: Attempt | null, text: string, target: string): Action {
-  if (!current) return "run";
-  if (current.state === "sending") return "wait";
-  const same = current.text === text && current.target === target;
-  if (current.state === "unknown" && same) return "check";
-  return "run";
+/** What the draft's Run control may do now. Independent of the draft's content. */
+export function runAction(r: Requests): RunAction {
+  if (inFlight(r)) return "wait";
+  return unresolved(r).length ? "new_paid_only" : "run";
 }
 
-/** Starts or re-sends. Returns null when nothing may be sent now. */
-export function begin(
-  current: Attempt | null,
+const put = (r: Requests, a: Attempt): Requests => {
+  const rest = r.attempts.filter((x) => x.key !== a.key);
+  return { attempts: [...rest, a].slice(-MAX_TRACKED) };
+};
+
+/**
+ * Starts new paid work from the draft. Refused (null) while one is in flight, for empty text,
+ * or while an earlier request is unresolved unless `explicitNew` is set by its own action.
+ */
+export function start(
+  r: Requests,
   text: string,
   target: string,
   mint: () => string,
-): Attempt | null {
-  const action = nextAction(current, text, target);
+  now: string,
+  explicitNew = false,
+): { requests: Requests; attempt: Attempt } | null {
+  const action = runAction(r);
   if (action === "wait" || !text.trim()) return null;
-  if (action === "check" && current) return { ...current, state: "sending", message: null };
-  return { key: mint(), text, target, state: "sending", invocationId: null, message: null };
+  if (action === "new_paid_only" && !explicitNew) return null;
+  const attempt: Attempt = {
+    key: mint(),
+    text,
+    target,
+    state: "sending",
+    invocationId: null,
+    message: null,
+    startedAt: now,
+  };
+  return { requests: put(r, attempt), attempt };
 }
 
-/** The answer (or its absence). A 4xx means the server refused; anything else is unknown. */
+/**
+ * Recovers an unresolved request from its own stored key, text and target; the draft plays no
+ * part. Null if that request isn't unresolved or something is in flight.
+ */
+export function recover(r: Requests, key: string): { requests: Requests; attempt: Attempt } | null {
+  if (inFlight(r)) return null;
+  const a = r.attempts.find((x) => x.key === key && x.state === "unknown");
+  if (!a) return null;
+  const attempt = { ...a, state: "sending" as const, message: null };
+  return { requests: put(r, attempt), attempt };
+}
+
+/** The answer (or its absence) for one request. A 4xx is a refusal; anything else is unknown. */
 export function settle(
-  a: Attempt,
+  r: Requests,
+  key: string,
   answer: { ok: true; invocationId: string } | { ok: false; status: number; message: string },
-): Attempt {
+): Requests {
+  const a = r.attempts.find((x) => x.key === key);
+  if (!a) return r;
+  let next: Attempt;
   if (answer.ok)
-    return { ...a, state: "answered", invocationId: answer.invocationId, message: null };
-  if (answer.status >= 400 && answer.status < 500)
-    return { ...a, state: "refused", message: answer.message };
-  return {
-    ...a,
-    state: "unknown",
-    message:
-      "No answer arrived. It may still be running or may have finished. Check on it: that asks about this same request and won't run it again.",
-  };
+    next = { ...a, state: "answered", invocationId: answer.invocationId, message: null };
+  else if (answer.status >= 400 && answer.status < 500)
+    next = { ...a, state: "refused", message: answer.message };
+  else
+    next = {
+      ...a,
+      state: "unknown",
+      message:
+        "No answer arrived. It may still be running or may have finished. Checking on it asks about this same request and won't run it again.",
+    };
+  return put(r, next);
+}
+
+/** A short way to identify a request to the founder. */
+export function describeAttempt(a: Pick<Attempt, "text" | "target" | "startedAt">): string {
+  const first =
+    a.text
+      .split("\n")
+      .find((l) => l.trim())
+      ?.trim() ?? "(empty)";
+  const t = new Date(a.startedAt);
+  const time = Number.isNaN(t.getTime()) ? a.startedAt : t.toLocaleTimeString();
+  return `sent ${time} on ${a.target === "release" ? "the released version" : `build ${a.target.replace(/^job:/, "").slice(0, 8)}`}: "${first.slice(0, 60)}${first.length > 60 ? "…" : ""}"`;
 }
 
 /** Polling for running work: growing gaps, a fixed cap, only while the page is visible. */
