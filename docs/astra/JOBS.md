@@ -7,8 +7,8 @@ when it starts and `done` (with the commit) when it lands.
 
 | Date | Job | Status | Notes |
 |---|---|---|---|
-| 2026-11-02 | [002c2 Recover while drafting](jobs/2026-11-02_002c2_runtime-recovery-draft.md) | open | P0/S; browser recovery disappears when typed-ahead text differs; same-text retry is independently verified |
-| 2026-11-02 | [003f1 Financial review corrections](jobs/2026-11-02_003f1_financial-review-corrections.md) | open | P0/M–L; five independent server reproductions, mobile table overflow and source-reviewed precision/provenance issues |
+| 2026-11-02 | [002c2 Recover while drafting](jobs/2026-11-02_002c2_runtime-recovery-draft.md) | done | P0/S; `2c38d57`, report in `reports/2026-11-02_002c2_runtime-recovery-draft.md`; 320 tests, web build passed; browser repeat pending; browser recovery disappears when typed-ahead text differs; same-text retry is independently verified |
+| 2026-11-02 | [003f1 Financial review corrections](jobs/2026-11-02_003f1_financial-review-corrections.md) | taken | P0/M–L; Claude building; five independent server reproductions, mobile table overflow and source-reviewed precision/provenance issues |
 | 2026-11-02 | [003e Entitlement contract core](jobs/2026-11-02_003e_entitlement-contract-core.md) | open | P0/L; new undeployed business-v3 unit-tested core only; no managed-close/recovery acceptance or v2 migration |
 | 2026-11-02 | [002c1 Runtime review corrections](jobs/2026-11-02_002c1_runtime-review-corrections.md) | done | P0; `3732fef` server, `50a002c` Service continuity/UI, report in `reports/2026-11-02_002c1_runtime-corrections.md`; 295 tests, web build passed; browser repeat and live gate pending; Astra reproduced late former-owner disclosure, empty-only release bypass, and lost pending request across Service tabs; see independent review |
 | 2026-11-02 | [001 Studio foundation](jobs/2026-11-02_001_studio-foundation.md) | done | P0; `0e82986` server, `07d666e` web, report in `reports/2026-11-02_001_studio-foundation.md`; awaiting Astra's browser review |
