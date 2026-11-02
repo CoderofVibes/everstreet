@@ -7,8 +7,8 @@ when it starts and `done` (with the commit) when it lands.
 
 | Date | Job | Status | Notes |
 |---|---|---|---|
-| 2026-11-02 | [002c3 Recovery capacity](jobs/2026-11-02_002c3_recovery-capacity-and-capability-copy.md) | open | P1/S; independently reproduced unresolved request eviction at capacity; truthful Home/Build capability copy |
-| 2026-11-02 | [003f2 Zero observation source](jobs/2026-11-02_003f2_zero-observation-source.md) | open | P1/S; observed zero loses source badge in owner table; preserve buyer provenance too |
+| 2026-11-02 | [002c3 Recovery capacity](jobs/2026-11-02_002c3_recovery-capacity-and-capability-copy.md) | done | P1/S; `1733995`, report in `reports/2026-11-02_002c3_recovery-capacity-and-capability-copy.md`; 346 tests, web build passed; browser repeat pending; independently reproduced unresolved request eviction at capacity; truthful Home/Build capability copy |
+| 2026-11-02 | [003f2 Zero observation source](jobs/2026-11-02_003f2_zero-observation-source.md) | taken | P1/S; observed zero loses source badge in owner table; preserve buyer provenance too |
 | 2026-11-02 | [003e1 Core review corrections](jobs/2026-11-02_003e1_core-review-corrections.md) | open | P0/M; bounded deadlines, exact readback, claim categories, source overflow flags, payout capacity; weak-key hypothesis requires pinned reproduction first |
 | 2026-11-02 | [004a Existing product intake](jobs/2026-11-02_004a_existing-product-intake.md) | open | P1/M-L; genuine supplied-manifest inspection, persistent private import and dependency readiness; external connectors later; M4 open |
 | 2026-11-02 | [002c2 Recover while drafting](jobs/2026-11-02_002c2_runtime-recovery-draft.md) | done | P0/S; `2c38d57`, report in `reports/2026-11-02_002c2_runtime-recovery-draft.md`; 320 tests, web build passed; browser repeat pending; browser recovery disappears when typed-ahead text differs; same-text retry is independently verified |
