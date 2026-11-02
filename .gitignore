@@ -6,3 +6,4 @@ data/runtime/
 *.db
 *.db-wal
 *.db-shm
+docs/astra/*.last-message.txt
