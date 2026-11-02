@@ -1,0 +1,206 @@
+// Shared pieces: avatar, money, the offer card (the same card in the studio, the preview, the
+// public page and search), and the sign-in dialog.
+
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type Action, api, type Offer, type Person } from "./api.ts";
+import { useSession } from "./session.tsx";
+
+export function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join("");
+}
+
+export function Avatar({ name, large }: { name: string; large?: boolean }) {
+  return (
+    <span className={`avatar${large ? " lg" : ""}`} aria-hidden="true">
+      {initials(name) || "?"}
+    </span>
+  );
+}
+
+export function money(cents: number | null) {
+  if (cents === null) return null;
+  return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+}
+
+export const FAMILY_LABEL: Record<string, string> = {
+  class: "Class or workshop",
+  service: "Service",
+  product: "Physical product",
+  software: "Software or API",
+  undecided: "New business",
+};
+
+export const STAGE_LABEL: Record<string, string> = {
+  shape: "Shaping",
+  test: "Testing interest",
+  launch: "Launched",
+  grow: "Growing",
+};
+
+type OfferView = Pick<
+  Offer,
+  | "title"
+  | "outcome"
+  | "audience"
+  | "deliverable"
+  | "includes"
+  | "price_cents"
+  | "price_unit"
+  | "first_free"
+  | "when_text"
+  | "where_text"
+  | "capacity"
+  | "confirmed"
+> & { not_for?: string };
+
+function Fact({ value, missing }: { value: string; missing: string }) {
+  return value ? (
+    <dd>{value}</dd>
+  ) : (
+    <dd>
+      <em className="unknown">{missing}</em>
+    </dd>
+  );
+}
+
+/** The customer's view of an offer: why this, how much, can I use it, what happens next. */
+export function OfferCard({
+  offer,
+  family,
+  action,
+  footer,
+}: {
+  offer: OfferView;
+  family: string;
+  action?: Action;
+  footer?: ReactNode;
+}) {
+  const price = offer.first_free ? "First one free" : money(offer.price_cents);
+  return (
+    <article className="offer-card" aria-label="Offer">
+      <div className="band">
+        <div className="kind">{FAMILY_LABEL[family] ?? "Offer"}</div>
+        <h3>{offer.title || <span className="muted">Your offer's title appears here</span>}</h3>
+      </div>
+      <div className="body">
+        {offer.outcome && offer.outcome !== offer.title && <p>{offer.outcome}</p>}
+        <div className="price" style={{ marginBottom: 14 }}>
+          {price ?? (
+            <em className="unknown" style={{ fontSize: 17, fontWeight: 500 }}>
+              Price not set yet
+            </em>
+          )}
+          {price && !offer.first_free && <small> {offer.price_unit}</small>}
+        </div>
+        <dl className="facts">
+          <dt>For</dt>
+          <Fact value={offer.audience} missing="Not said yet" />
+          <dt>You get</dt>
+          <Fact value={offer.deliverable} missing="Not described yet" />
+          <dt>When</dt>
+          <Fact value={offer.when_text} missing="Date not set" />
+          <dt>Where</dt>
+          <Fact value={offer.where_text} missing="Place not set" />
+          {offer.capacity !== null && (
+            <>
+              <dt>Places</dt>
+              <dd>{offer.capacity}</dd>
+            </>
+          )}
+          <dt>Status</dt>
+          <dd>
+            {offer.confirmed ? (
+              <span className="pill lime">Confirmed by the founder</span>
+            ) : (
+              <span className="pill caution">Proposed, not confirmed yet</span>
+            )}
+          </dd>
+        </dl>
+        {action && (
+          <p className="muted" style={{ fontSize: 14, margin: 0 }}>
+            Next step for a customer: <strong>{action.label}</strong>
+          </p>
+        )}
+        {footer}
+      </div>
+    </article>
+  );
+}
+
+export function SignInDialog() {
+  const { signInReason, finishSignIn, localPreview } = useSession();
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [people, setPeople] = useState<{ id: string; display_name: string }[]>([]);
+  useEffect(() => {
+    if (signInReason && localPreview)
+      api
+        .people()
+        .then((r) => setPeople(r.people))
+        .catch(() => {});
+  }, [signInReason, localPreview]);
+  if (!signInReason) return null;
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      const { person } = await api.join(name);
+      finishSignIn(person);
+      setName("");
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  const actAs = async (id: string) => finishSignIn((await api.actAs(id)).person as Person);
+  return (
+    <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="signin-title">
+      <form className="dialog" onSubmit={submit}>
+        <h2 id="signin-title">Join Everstreet</h2>
+        <p className="muted">{signInReason}</p>
+        <label className="field">
+          <span>What should we call you?</span>
+          <input
+            className="input"
+            // biome-ignore lint/a11y/noAutofocus: first field of a dialog the person opened
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your name"
+          />
+        </label>
+        {error && <p className="error-text">{error}</p>}
+        <div className="row">
+          <button className="btn btn-primary" type="submit" disabled={!name.trim()}>
+            Continue
+          </button>
+          <button className="btn btn-quiet" type="button" onClick={() => finishSignIn(null)}>
+            Not now
+          </button>
+        </div>
+        {localPreview && people.length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <p className="muted" style={{ fontSize: 14, marginBottom: 8 }}>
+              Local preview: continue as someone already here
+            </p>
+            <div className="row">
+              {people.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => actAs(p.id)}
+                >
+                  <Avatar name={p.display_name} /> {p.display_name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </form>
+    </div>
+  );
+}

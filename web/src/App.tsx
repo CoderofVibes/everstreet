@@ -1,0 +1,204 @@
+// The shell: environment strip, the rail with the four entrances, the acting-context switcher,
+// and the routes.
+
+import { useEffect, useRef, useState } from "react";
+import { api } from "./api.ts";
+import { Acquire } from "./pages/Acquire.tsx";
+import { DeskList, DeskPage } from "./pages/Desk.tsx";
+import { Find } from "./pages/Find.tsx";
+import { Home } from "./pages/Home.tsx";
+import { Inbox } from "./pages/Inbox.tsx";
+import { Profile } from "./pages/Profile.tsx";
+import { PublicPage } from "./pages/PublicPage.tsx";
+import { Start } from "./pages/Start.tsx";
+import { Studio } from "./pages/Studio.tsx";
+import { Link, match, useRouter } from "./router.tsx";
+import { useSession } from "./session.tsx";
+import { Avatar, SignInDialog } from "./ui.tsx";
+
+function Nav({ to, label, count }: { to: string; label: string; count?: number }) {
+  const { path } = useRouter();
+  const active = to === "/" ? path === "/" : path.startsWith(to);
+  return (
+    <Link to={to} className={`nav${active ? " active" : ""}`}>
+      <span>{label}</span>
+      {count ? <span className="count">{count}</span> : null}
+    </Link>
+  );
+}
+
+function ActingContext() {
+  const { person, setPerson, requireSignIn, localPreview } = useSession();
+  const { go } = useRouter();
+  const [open, setOpen] = useState(false);
+  const [people, setPeople] = useState<{ id: string; display_name: string }[]>([]);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open && localPreview)
+      api
+        .people()
+        .then((r) => setPeople(r.people))
+        .catch(() => {});
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open, localPreview]);
+
+  if (!person) {
+    return (
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => requireSignIn("Join to start a business, follow one, or ask for a service.")}
+      >
+        Sign in or join
+      </button>
+    );
+  }
+  const switchTo = async (id: string) => {
+    setPerson((await api.actAs(id)).person);
+    setOpen(false);
+    go("/");
+  };
+  return (
+    <div className="acting" ref={ref}>
+      <button
+        type="button"
+        className="acting-button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Avatar name={person.display_name} />
+        <span>
+          <span className="muted" style={{ fontSize: 13 }}>
+            Acting as{" "}
+          </span>
+          <strong>{person.display_name}</strong>
+        </span>
+      </button>
+      {open && (
+        <div className="menu" role="menu">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              go("/profile");
+            }}
+          >
+            Your profile
+          </button>
+          {localPreview && people.filter((p) => p.id !== person.id).length > 0 && (
+            <>
+              <hr />
+              <div className="menu-label">Local preview: switch to another fictional person</div>
+              {people
+                .filter((p) => p.id !== person.id)
+                .map((p) => (
+                  <button key={p.id} type="button" onClick={() => switchTo(p.id)}>
+                    <Avatar name={p.display_name} /> {p.display_name}
+                  </button>
+                ))}
+            </>
+          )}
+          <hr />
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              requireSignIn(
+                "Join as a new person. You can switch back any time from this menu.",
+                true,
+              );
+            }}
+          >
+            Join as someone new
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              await api.signOut();
+              setPerson(null);
+              setOpen(false);
+              go("/");
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Routes() {
+  const { path } = useRouter();
+  if (path === "/") return <Home />;
+  if (path === "/start") return <Start />;
+  const studio = match("/studio/:id", path);
+  if (studio) return <Studio id={studio.id as string} />;
+  const store = match("/b/:slug", path);
+  if (store) return <PublicPage slug={store.slug as string} />;
+  if (path === "/desk") return <DeskList />;
+  const desk = match("/desk/:id", path);
+  if (desk) return <DeskPage id={desk.id as string} />;
+  if (path === "/inbox") return <Inbox />;
+  if (path === "/find") return <Find />;
+  if (path === "/acquire") return <Acquire />;
+  if (path === "/profile") return <Profile />;
+  return (
+    <div className="page empty">
+      <h2>That page does not exist</h2>
+      <Link to="/">Go home</Link>
+    </div>
+  );
+}
+
+export function App() {
+  const { person, environment, ready } = useSession();
+  const [counts, setCounts] = useState({ inbox: 0 });
+  const { path } = useRouter();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: path is a trigger: recount unanswered messages on every navigation
+  useEffect(() => {
+    if (!person) return setCounts({ inbox: 0 });
+    api
+      .inbox()
+      .then((r) => setCounts({ inbox: r.received.filter((i) => !i.reply).length }))
+      .catch(() => {});
+  }, [person, path]);
+
+  return (
+    <>
+      <div className="env-strip" role="note">
+        <span>
+          <strong>{environment}</strong> · fictional businesses and people · no real money moves
+        </span>
+        <span>NEAR testnet when payments arrive</span>
+      </div>
+      <div className="shell">
+        <nav className="rail" aria-label="Main">
+          <Link to="/" className="wordmark">
+            <img src="/favicon.svg" alt="" /> Everstreet
+          </Link>
+          <Nav to="/" label="Home" />
+          <div className="rail-label">Start and run</div>
+          <Nav to="/start" label="Start a business" />
+          <Nav to="/desk" label="My businesses" />
+          <Nav to="/inbox" label="Inbox" count={counts.inbox} />
+          <div className="rail-label">Explore</div>
+          <Nav to="/find" label="Find a solution" />
+          <Nav to="/acquire" label="Explore acquisitions" />
+          <div className="rail-foot">Built to change hands intact.</div>
+        </nav>
+        <div className="main">
+          <header className="topbar">
+            <ActingContext />
+          </header>
+          {ready ? <Routes /> : <div className="page muted">Loading…</div>}
+        </div>
+      </div>
+      <SignInDialog />
+    </>
+  );
+}

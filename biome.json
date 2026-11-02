@@ -2,9 +2,12 @@
   "files": {
     "includes": [
       "**/*.ts",
+      "**/*.tsx",
       "**/*.json",
       "!**/node_modules",
       "!**/target",
+      "!web/dist",
+      "!.claude",
       "!docs",
       "!data",
       "!package-lock.json"
