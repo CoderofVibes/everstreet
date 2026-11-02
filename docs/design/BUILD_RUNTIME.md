@@ -1,8 +1,10 @@
 # Build runtime: from a saved revision to a checked build
 
-Status as of job 002a (2026-11-02). Sections 1–7 describe code that exists and is covered by
-keyless tests (`server/test/products.test.ts`, `server/test/builds.test.ts`); every provider
-in those tests is a scripted double. Sections 8–10 are design for later slices. Job 002a's
+Status as of job 002b (2026-11-02). Sections 1–7 and 11–12 describe code that exists and is
+covered by keyless tests (`server/test/products.test.ts`, `builds*.test.ts`,
+`authoring.test.ts`, `anthropic.test.ts`); every provider in those tests is a scripted double
+or the real adapter over an injected transport. No live model call has been made. Sections
+8–10 are design for later slices. Job 002a's
 constraints replaced several optimistic proposals in the first version of this file: WSL is
 not treated as a secure boundary, separate host names are not the whole preview design,
 paid calls are never retried automatically, and jobs requested by a former owner do not keep
@@ -18,8 +20,8 @@ their authority.
   `ownership` (`server/src/deals.ts`). Builds use (owner id, count of `ownership` rows) as the
   owner epoch. **Chain-to-database reconciliation of a close remains an M3 dependency**: if
   the chain closes and the database is not updated, builds see the old owner.
-- No build worker runs in `main.ts`, because no provider is configured. Normal mode reports
-  "not connected" and never dispatches (tested).
+- A build worker runs in `main.ts` only when the AI configuration (section 12) is complete.
+  Without it, normal mode reports "not connected" and never dispatches (tested).
 
 ## 2. Records (implemented)
 
@@ -158,9 +160,73 @@ reachable from it.
 
 ## 10. Next slices
 
-- 002b: guided authoring and the first real provider adapter behind `BuildProvider` (bounded,
-  priced, configured server-side; not a personal login).
 - 002c: managed runtime that executes `extraction_spec/1`, evaluations, releases, runtime
   usage ledger.
 - Reconciliation tooling for `needs_reconciliation` and unresolved reservations.
 - M3: chain-to-database close reconciliation, production identity.
+
+## 11. Guided authoring (implemented, job 002b)
+
+- **Work log.** `product_messages` holds the business's product work log: founder messages
+  and the assistant's replies. It belongs to the business and moves with it on a sale; it is
+  labelled as such in the studio. There is no personal-notes scope yet.
+- **Proposals are build jobs.** A message creates a `propose` job against the current
+  revision (same budgets, fencing, cancellation, recovery). The provider receives the
+  revision snapshot and the last 12 work-log entries as data. Output is
+  `product_proposal/1` (reply, summary, brief, screens, assumptions, at most 3 questions),
+  rebuilt through the same validators as a founder's save; anything else fails the job.
+  The proposal, the artifact and the assistant's reply are recorded in the transaction
+  that marks the job succeeded.
+- **Applying** (`POST …/proposals/:id/apply`) is idempotent and atomic: an applied proposal
+  returns its revision; a proposal whose base is no longer the head is a 409 (nothing
+  overwritten); a proposal made under a former owner epoch is a 409 for the new owner.
+  The studio refuses to apply while there are unsaved edits.
+- **Browser scope.** Unsaved drafts are keyed by person, project and owner epoch; the studio
+  remounts when the acting person changes, so late responses for a previous person are
+  dropped. The old project-only draft key is not offered to anyone.
+
+## 12. Anthropic adapter and configuration (implemented; no live call made)
+
+- **Configuration** (`server/src/ai-config.ts`), read once at server start:
+  - `EVERSTREET_AI_CONFIG`: path to a JSON file outside the repository with
+    `config_version`, `provider: "anthropic"`, `model` (`claude-sonnet-5-5` or
+    `claude-haiku-5-5`), `pricing_version: "2026-11-02"`, `operator_ceiling_cents`
+    (1–100,000). Secrets in this file are refused.
+  - `ANTHROPIC_API_KEY`: the platform's own API key in the server's environment. Nothing
+    else is searched; no personal Claude login is used for customer work; the key is never
+    printed, logged, stored in events or included in identity.
+- **Pinned per model** (prices and thinking as documented 2026-11-02): Sonnet 5.5 at
+  200/1,000 cents per million tokens with `thinking: {type: "between_tools"}`; Haiku 5.5 at
+  10/50 with `thinking: {type: "disabled"}` and prompts refused above 100,000 tokens (a higher
+  price applies there); both at `output_config.effort: "medium"`. The job's pinned identity
+  includes config, pricing, thinking and effort versions.
+- **One attempt.** Free `count_tokens` of the exact request (prompt, schema, thinking,
+  effort), refused above 95% of the input limit; then one `POST /v1/messages` with
+  `output_config.format` JSON schema. No retries, tools, caching, streaming, batch or
+  `inference_geo`. HTTPS to `api.anthropic.com` only, redirects refused, 512 KB and 120 s
+  bounds.
+- **Usage.** A final receipt only when actual usage is within the request's limits and the
+  model's priced band. If nothing billable was sent (limits above the model's caps, count
+  refused, unreachable or over the limit) the receipt is 0/0 and the hold is released. A
+  response with cache or server-tool usage, or outside the band, is reported as "at least"
+  and stays unresolved. A generation that errors or is unreachable keeps its hold.
+- **Not success:** `refusal`, `max_tokens`, `model_context_window_exceeded`, `tool_use`,
+  `pause_turn`, `stop_sequence`, any block other than one text block plus discarded
+  `thinking`/`redacted_thinking`, unparsable JSON, a schema the platform rejects.
+- **Operator ceiling.** Every dispatch checks, in the same transaction as the business
+  budget, that all build-ledger holds and charges across all businesses stay under the
+  operator ceiling. A business budget cannot be set above it. No ceiling ⇒ unavailable.
+
+### Live verification plan (not run; needs Tony's go-ahead and a configured key)
+
+1. Write the config file outside the repo with `claude-haiku-5-5` and a small ceiling (e.g.
+   50 cents); set the key in the server's environment; start the server; confirm the log
+   line names the model and does not print the key.
+2. In the studio, set a business budget of $0.20; send the invoice idea once. Expect one
+   count and one generation, a proposal, a `final` receipt whose tokens match the console's
+   usage page, and the hold released.
+3. Send "Also return the invoice date"; expect a second proposal on the new revision.
+4. Edit and save the brief while a request runs; expect the stale-base refusal on apply.
+5. Stop a request mid-flight; expect "unknown"/held, and a retry that asks for consent.
+6. Compare the computed cost with the Anthropic console for the same requests; record any
+   difference before raising limits. Do not run unattended until these match.
