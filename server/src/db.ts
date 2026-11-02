@@ -3,6 +3,71 @@
 
 import { DatabaseSync } from "node:sqlite";
 
+/** Build jobs. Intents: `build` (a product spec) and `propose` (a brief/screens proposal). */
+function buildJobsTable(name: string) {
+  return `CREATE TABLE IF NOT EXISTS ${name} (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id), revision INTEGER NOT NULL,
+  content_hash TEXT NOT NULL, intent TEXT NOT NULL CHECK (intent IN ('build','propose')),
+  idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, provider TEXT NOT NULL,
+  budget TEXT NOT NULL, pricing TEXT NOT NULL, retry_of TEXT REFERENCES build_jobs(id),
+  requested_by TEXT NOT NULL REFERENCES people(id), owner_id TEXT NOT NULL REFERENCES people(id),
+  owner_generation INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('queued','running','validating','succeeded','failed','cancelled','needs_reconciliation')),
+  attempt INTEGER NOT NULL DEFAULT 0, lease_owner TEXT, lease_expires_at TEXT, started_at TEXT,
+  dispatched_at TEXT, cancel_requested_at TEXT, failure_code TEXT, failure_detail TEXT,
+  reserved_cents INTEGER NOT NULL CHECK (reserved_cents >= 0),
+  charged_cents INTEGER NOT NULL DEFAULT 0 CHECK (charged_cents >= 0),
+  usage_state TEXT NOT NULL DEFAULT 'none' CHECK (usage_state IN ('none','reported','unknown')),
+  input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+  event_count INTEGER NOT NULL DEFAULT 0, artifact_digest TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT,
+  usage_final INTEGER NOT NULL DEFAULT 0, charged_microcents INTEGER NOT NULL DEFAULT 0,
+  provider_config TEXT NOT NULL DEFAULT '', request_ref TEXT,
+  UNIQUE (project_id, idempotency_key)
+) STRICT;`;
+}
+
+const BUILD_JOB_COLUMNS = [
+  "id",
+  "project_id",
+  "business_id",
+  "revision",
+  "content_hash",
+  "intent",
+  "idempotency_key",
+  "fingerprint",
+  "provider",
+  "budget",
+  "pricing",
+  "retry_of",
+  "requested_by",
+  "owner_id",
+  "owner_generation",
+  "state",
+  "attempt",
+  "lease_owner",
+  "lease_expires_at",
+  "started_at",
+  "dispatched_at",
+  "cancel_requested_at",
+  "failure_code",
+  "failure_detail",
+  "reserved_cents",
+  "charged_cents",
+  "usage_state",
+  "input_tokens",
+  "output_tokens",
+  "event_count",
+  "artifact_digest",
+  "created_at",
+  "updated_at",
+  "finished_at",
+  "usage_final",
+  "charged_microcents",
+  "provider_config",
+];
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS people (
   id TEXT PRIMARY KEY, display_name TEXT NOT NULL, headline TEXT NOT NULL DEFAULT '',
@@ -227,27 +292,28 @@ CREATE TABLE IF NOT EXISTS build_budgets (
   limit_cents INTEGER NOT NULL CHECK (limit_cents >= 0), updated_by TEXT NOT NULL REFERENCES people(id),
   updated_at TEXT NOT NULL
 ) STRICT;
-CREATE TABLE IF NOT EXISTS build_jobs (
-  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
-  business_id TEXT NOT NULL REFERENCES businesses(id), revision INTEGER NOT NULL,
-  content_hash TEXT NOT NULL, intent TEXT NOT NULL CHECK (intent IN ('build')),
-  idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, provider TEXT NOT NULL,
-  budget TEXT NOT NULL, pricing TEXT NOT NULL, retry_of TEXT REFERENCES build_jobs(id),
-  requested_by TEXT NOT NULL REFERENCES people(id), owner_id TEXT NOT NULL REFERENCES people(id),
-  owner_generation INTEGER NOT NULL,
-  state TEXT NOT NULL CHECK (state IN ('queued','running','validating','succeeded','failed','cancelled','needs_reconciliation')),
-  attempt INTEGER NOT NULL DEFAULT 0, lease_owner TEXT, lease_expires_at TEXT, started_at TEXT,
-  dispatched_at TEXT, cancel_requested_at TEXT, failure_code TEXT, failure_detail TEXT,
-  reserved_cents INTEGER NOT NULL CHECK (reserved_cents >= 0),
-  charged_cents INTEGER NOT NULL DEFAULT 0 CHECK (charged_cents >= 0),
-  usage_state TEXT NOT NULL DEFAULT 'none' CHECK (usage_state IN ('none','reported','unknown')),
-  input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
-  event_count INTEGER NOT NULL DEFAULT 0, artifact_digest TEXT,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT,
-  UNIQUE (project_id, idempotency_key)
-) STRICT;
+${buildJobsTable("build_jobs")}
 CREATE INDEX IF NOT EXISTS build_jobs_state ON build_jobs(state, created_at);
 CREATE INDEX IF NOT EXISTS build_jobs_business ON build_jobs(business_id);
+CREATE TABLE IF NOT EXISTS product_messages (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  seq INTEGER NOT NULL, role TEXT NOT NULL CHECK (role IN ('founder','assistant')),
+  text TEXT NOT NULL, author_id TEXT REFERENCES people(id), idempotency_key TEXT,
+  job_id TEXT REFERENCES build_jobs(id), proposal_id TEXT, created_at TEXT NOT NULL,
+  UNIQUE (project_id, seq), UNIQUE (project_id, idempotency_key)
+) STRICT;
+CREATE TABLE IF NOT EXISTS product_proposals (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  job_id TEXT NOT NULL UNIQUE REFERENCES build_jobs(id), message_id TEXT NOT NULL,
+  base_revision INTEGER NOT NULL, base_hash TEXT NOT NULL, brief TEXT NOT NULL,
+  prototype TEXT NOT NULL, content_hash TEXT NOT NULL, summary TEXT NOT NULL,
+  assumptions TEXT NOT NULL, questions TEXT NOT NULL, provider_config TEXT NOT NULL,
+  requested_by TEXT NOT NULL REFERENCES people(id), owner_epoch TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open','applied','superseded')),
+  applied_revision INTEGER, applied_by TEXT REFERENCES people(id), applied_at TEXT,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS product_proposals_project ON product_proposals(project_id, created_at);
 CREATE TABLE IF NOT EXISTS build_events (
   job_id TEXT NOT NULL REFERENCES build_jobs(id), seq INTEGER NOT NULL, attempt INTEGER NOT NULL,
   type TEXT NOT NULL, data TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (job_id, seq)
@@ -297,6 +363,32 @@ export function openDb(path: string) {
     db.exec("ALTER TABLE build_jobs ADD COLUMN charged_microcents INTEGER NOT NULL DEFAULT 0");
   if (!jobCols.has("provider_config"))
     db.exec("ALTER TABLE build_jobs ADD COLUMN provider_config TEXT NOT NULL DEFAULT ''");
+  // Job 002b: a second intent (`propose`) and a reference to the message a job answers.
+  // SQLite cannot change a CHECK, so a table from before is rebuilt once, keeping every row.
+  const sql = (
+    db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'build_jobs'")
+      .get() as { sql: string } | undefined
+  )?.sql;
+  if (sql && !sql.includes("'propose'")) {
+    const cols = BUILD_JOB_COLUMNS.join(", ");
+    db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      db.exec("BEGIN IMMEDIATE");
+      db.exec(buildJobsTable("build_jobs_next"));
+      db.exec(`INSERT INTO build_jobs_next (${cols}) SELECT ${cols} FROM build_jobs`);
+      db.exec("DROP TABLE build_jobs");
+      db.exec("ALTER TABLE build_jobs_next RENAME TO build_jobs");
+      db.exec("CREATE INDEX IF NOT EXISTS build_jobs_state ON build_jobs(state, created_at)");
+      db.exec("CREATE INDEX IF NOT EXISTS build_jobs_business ON build_jobs(business_id)");
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      db.exec("PRAGMA foreign_keys = ON");
+    }
+  }
   return db;
 }
 

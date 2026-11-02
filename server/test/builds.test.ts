@@ -90,7 +90,11 @@ const BUDGET = {
 function world(provider: BuildProvider | null = new Scripted(), maxProgressEvents = 200) {
   const store = new Store(openDb(":memory:"));
   const clock = { t: Date.parse("2026-11-02T12:00:00.000Z") };
-  const builds = new Builds(store.db, store, provider, { now: () => clock.t, maxProgressEvents });
+  const builds = new Builds(store.db, store, provider, {
+    now: () => clock.t,
+    maxProgressEvents,
+    operatorCeilingCents: 100_000,
+  });
   const app = everstreetApi(store, {
     localPreview: true,
     environment: "test",
@@ -260,7 +264,7 @@ describe("build requests", () => {
     ).body;
     const none = await request(ava, unbudgeted.project.id);
     expect(none.status).toBe(409);
-    expect(none.body.error).toMatch(/Set a build budget/);
+    expect(none.body.error).toMatch(/Set an AI budget/);
 
     const p = await project(ava, 10);
     const first = (await request(ava, p.id)).body.job;
@@ -268,7 +272,7 @@ describe("build requests", () => {
     expect(budget).toMatchObject({ limit_cents: 10, reserved_cents: 6, available_cents: 4 });
     const second = await request(ava, p.id, "build-key-0002");
     expect(second.status).toBe(409);
-    expect(second.body.error).toMatch(/Not enough build budget/);
+    expect(second.body.error).toMatch(/Not enough AI budget/);
 
     const cancelled = (await ava(`/api/builds/${first.id}/cancel`, "POST")).body.job;
     expect(cancelled).toMatchObject({ state: "cancelled", reserved_cents: 0, usage_state: "none" });
@@ -454,9 +458,11 @@ describe("build worker", () => {
       artifact_digest: null,
     });
     expect(provider.aborted).toBe(1);
+    // Exact computed use and rounded budget consumption are reported separately.
     expect((await ava(`/api/businesses/${p.business}/build-budget`)).body).toMatchObject({
       reserved_cents: 6,
-      charged_cents: 1,
+      used_microcents: 600_000,
+      counted_cents: 1,
       unresolved_cents: 6,
     });
     await ava(`/api/builds/${j.id}/cancel`, "POST");

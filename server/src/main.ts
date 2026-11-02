@@ -16,8 +16,11 @@ import { NearRpcAuthority } from "../../services/openseat/src/authority.ts";
 import { openSeatApp } from "../../services/openseat/src/http.ts";
 import { OpenSeat } from "../../services/openseat/src/service.ts";
 import { PromotionWorker } from "../../services/openseat/src/worker.ts";
+import { parseAiConfig } from "./ai-config.ts";
+import { AnthropicProvider, httpsTransport } from "./anthropic.ts";
 import { everstreetApi } from "./app.ts";
 import { openSeatProvider } from "./bookings.ts";
+import { Builds, startBuildWorker } from "./builds.ts";
 import { NearChain } from "./chain.ts";
 import { openDb } from "./db.ts";
 import { Store } from "./store.ts";
@@ -116,6 +119,24 @@ tick();
 // Payments: real NEAR testnet accounts and the v2 contract, when this computer has the root key.
 const chain = NearChain.fromLocalConfig();
 
+// AI drafting: only with an explicit configuration file and the platform's own key (see
+// server/src/ai-config.ts). Nothing else is searched for, and no value is printed.
+const aiFile = process.env.EVERSTREET_AI_CONFIG;
+let aiText: string | null = null;
+if (aiFile) {
+  try {
+    aiText = readFileSync(aiFile, "utf8");
+  } catch {
+    aiText = "";
+  }
+}
+const ai = parseAiConfig(aiText, process.env.ANTHROPIC_API_KEY);
+const buildProvider = ai.ok ? new AnthropicProvider(ai.config, httpsTransport(ai.apiKey)) : null;
+const builds = new Builds(store.db, store, buildProvider, {
+  operatorCeilingCents: ai.ok ? ai.config.operatorCeilingCents : null,
+});
+if (buildProvider) startBuildWorker(builds, buildProvider);
+
 const app = new Hono();
 app.route("/svc/openseat", openseatHttp);
 app.get("/api/system", (c) =>
@@ -140,6 +161,8 @@ app.route(
     environment: "Local preview",
     bookingProvider: provider,
     chain,
+    buildProvider,
+    builds,
   }),
 );
 
@@ -167,6 +190,11 @@ app.get("*", (c) => {
 
 serve({ fetch: app.fetch, port });
 console.log(`Everstreet is running: http://localhost:${port}`);
+console.log(
+  ai.ok
+    ? `AI drafting: ${ai.config.model.model}, config ${ai.config.configVersion}, operator ceiling set`
+    : `AI drafting off: ${ai.reason}`,
+);
 console.log(
   worker
     ? `Waitlist promotions: ${workerAccount}, checked against ${testnet.business} on NEAR testnet`

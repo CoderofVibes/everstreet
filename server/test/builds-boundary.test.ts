@@ -80,7 +80,11 @@ const BUDGET = {
 async function world(provider: Scripted, maxProgressEvents = 200) {
   const store = new Store(openDb(":memory:"));
   const clock = { t: Date.parse("2026-11-02T12:00:00.000Z") };
-  const builds = new Builds(store.db, store, provider, { now: () => clock.t, maxProgressEvents });
+  const builds = new Builds(store.db, store, provider, {
+    now: () => clock.t,
+    maxProgressEvents,
+    operatorCeilingCents: 100_000,
+  });
   const app = everstreetApi(store, {
     localPreview: true,
     environment: "test",
@@ -361,7 +365,10 @@ describe("002a1 #3: a job is pinned to its provider configuration", () => {
     const different = new Scripted(async function* () {
       yield { type: "output", artifact: SPEC };
     }, "different-test");
-    const restarted = new Builds(w.store.db, w.store, different, { now: () => w.clock.t });
+    const restarted = new Builds(w.store.db, w.store, different, {
+      now: () => w.clock.t,
+      operatorCeilingCents: 100_000,
+    });
     await w.worker("w2", {}, restarted, different).runNext();
     expect(different.calls).toBe(0);
     expect(w.row(job.id)).toMatchObject({

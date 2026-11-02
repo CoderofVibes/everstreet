@@ -14,6 +14,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { MAX_ARTIFACT_BYTES, validateArtifact } from "./artifacts.ts";
 import {
+  conversationFor,
+  PROPOSAL_SCHEMA,
+  type Proposal,
+  recordProposal,
+  validateProposal,
+} from "./authoring.ts";
+import {
   type BuildAvailability,
   type BuildEvent,
   type BuildLimits,
@@ -69,9 +76,10 @@ interface JobRow {
   business_id: string;
   revision: number;
   content_hash: string;
-  intent: "build";
+  intent: "build" | "propose";
   idempotency_key: string;
   fingerprint: string;
+  request_ref: string | null;
   provider: string;
   provider_config: string;
   budget: string;
@@ -183,11 +191,18 @@ export interface BuildsOptions {
   now?: () => number;
   /** Most progress events kept per job; state events are always kept. */
   maxProgressEvents?: number;
+  /**
+   * The operator's overall spending ceiling for AI building across every business, in cents.
+   * Required for dispatch: a founder raising their own budget never authorizes more of the
+   * operator's credit. Null means no ceiling was set, so nothing dispatches.
+   */
+  operatorCeilingCents?: number | null;
 }
 
 export class Builds {
   readonly now: () => number;
   readonly maxProgressEvents: number;
+  readonly operatorCeilingCents: number | null;
   /** Abort functions of attempts running in this process, by job id. */
   readonly active = new Map<string, (reason: "cancelled" | "fenced") => void>();
 
@@ -199,6 +214,9 @@ export class Builds {
   ) {
     this.now = options.now ?? Date.now;
     this.maxProgressEvents = options.maxProgressEvents ?? 200;
+    const c = options.operatorCeilingCents;
+    this.operatorCeilingCents =
+      typeof c === "number" && Number.isSafeInteger(c) && c >= 0 ? c : null;
   }
 
   iso(offsetMs = 0) {
@@ -206,7 +224,25 @@ export class Builds {
   }
 
   availability(): BuildAvailability {
-    return buildAvailability(this.provider);
+    const a = buildAvailability(this.provider);
+    if (a.available && this.operatorCeilingCents === null)
+      return {
+        available: false,
+        provider: a.provider,
+        reason: "The operator has not set an overall AI spending ceiling, so nothing is sent.",
+      };
+    return a;
+  }
+
+  /** Everything committed on the build ledger across all businesses. */
+  operatorCommitted() {
+    return (
+      this.db
+        .prepare(
+          "SELECT COALESCE(SUM(reserved_cents), 0) + COALESCE(SUM(charged_cents), 0) AS n FROM build_jobs",
+        )
+        .get() as { n: number }
+    ).n;
   }
 
   // ---------- records ----------
@@ -381,10 +417,15 @@ export class Builds {
 
   budget(viewer: Person, businessId: string) {
     this.store.ownedBusiness(viewer, businessId);
-    return this.budgetView(businessId);
+    return this.budgetFor(businessId);
   }
 
-  private budgetView(businessId: string) {
+  /**
+   * The business's AI budget. Two different amounts are kept apart: `used_microcents` is the
+   * exact cost computed from reported tokens at declared prices; `counted_cents` is what the
+   * budget is charged, rounded up to whole cents per job (conservative).
+   */
+  budgetFor(businessId: string) {
     const row = this.db
       .prepare("SELECT limit_cents, updated_at FROM build_budgets WHERE business_id = ?")
       .get(businessId) as { limit_cents: number; updated_at: string } | undefined;
@@ -392,25 +433,30 @@ export class Builds {
     return {
       limit_cents: row?.limit_cents ?? null,
       reserved_cents: c.held,
-      charged_cents: c.charged,
-      charged_microcents: c.charged_micro,
+      counted_cents: c.charged,
+      used_microcents: c.charged_micro,
       unresolved_cents: c.unresolved,
       available_cents: row ? Math.max(0, row.limit_cents - c.held - c.charged) : null,
+      max_settable_cents: this.operatorCeilingCents,
       basis:
-        "Charges are computed from reported tokens at the declared prices, rounded up per job; they are not a provider invoice.",
+        "Used is computed from reported tokens at the declared prices; it is not a provider invoice. Counted rounds each job up to whole cents. Reserved is the worst case held for work not yet settled.",
       ledger: "build" as const,
     };
   }
 
   setBudget(viewer: Person, businessId: string, input: { limit_cents?: unknown }) {
     this.store.ownedBusiness(viewer, businessId);
-    const limit = whole(input.limit_cents, 0, BUILD_LIMITS.maxBudgetCents, "The build budget");
+    const most =
+      this.operatorCeilingCents === null
+        ? BUILD_LIMITS.maxBudgetCents
+        : Math.min(BUILD_LIMITS.maxBudgetCents, this.operatorCeilingCents);
+    const limit = whole(input.limit_cents, 0, most, "The AI budget (cents)");
     this.db
       .prepare(
         "INSERT INTO build_budgets (business_id, limit_cents, updated_by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (business_id) DO UPDATE SET limit_cents = excluded.limit_cents, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
       )
       .run(businessId, limit, viewer.id, this.iso());
-    return this.budgetView(businessId);
+    return this.budgetFor(businessId);
   }
 
   // ---------- requests ----------
@@ -441,14 +487,18 @@ export class Builds {
     projectId: string,
     input: Record<string, unknown>,
     retryOf: JobRow | null = null,
+    /** For `propose`: the work-log message this job answers. Set by the server, never a browser. */
+    requestRef: string | null = null,
   ): { job: ReturnType<Builds["view"]>; created: boolean } {
     const project = this.ownedProject(viewer, projectId);
     this.fenceStale(project.business_id);
     const key = typeof input.idempotency_key === "string" ? input.idempotency_key : "";
     if (!KEY.test(key))
       bad("idempotency_key must be 8 to 80 letters, digits, dashes or underscores");
-    if ((input.intent ?? "build") !== "build") bad("Unknown build intent");
-    const intent = "build" as const;
+    const asked = input.intent ?? "build";
+    if (asked !== "build" && asked !== "propose") bad("Unknown build intent");
+    const intent = asked as "build" | "propose";
+    if (intent === "propose" && !requestRef) bad("A proposal answers a message in the work log");
     const revision = whole(input.revision, 1, 1_000_000, "The revision");
     const budget = parseBudget(input.budget);
     const rev = this.db
@@ -469,6 +519,7 @@ export class Builds {
         intent,
         budget,
         retry_of: retryOf?.id ?? null,
+        request_ref: requestRef,
       }),
     );
     const same = (j: JobRow) => {
@@ -507,20 +558,25 @@ export class Builds {
         const limit = this.db
           .prepare("SELECT limit_cents FROM build_budgets WHERE business_id = ?")
           .get(project.business_id) as { limit_cents: number } | undefined;
-        if (!limit)
-          throw new HttpError(409, "Set a build budget for this business before starting a build");
+        if (!limit) throw new HttpError(409, "Set an AI budget for this business before starting");
         const c = this.committed(project.business_id);
         if (c.held + c.charged + worst > limit.limit_cents)
           throw new HttpError(
             409,
-            `Not enough build budget: this build reserves up to ${worst} cents and ${Math.max(0, limit.limit_cents - c.held - c.charged)} cents are available`,
+            `Not enough AI budget: this reserves up to ${worst} cents and ${Math.max(0, limit.limit_cents - c.held - c.charged)} cents are available`,
+          );
+        // The operator's overall ceiling, checked in the same transaction.
+        if (this.operatorCommitted() + worst > (this.operatorCeilingCents ?? 0))
+          throw new HttpError(
+            409,
+            "The platform's overall AI spending limit has been reached. Nothing was sent.",
           );
         const epoch = this.ownerEpoch(project.business_id);
         const t = this.iso();
         this.db
           .prepare(
-            `INSERT INTO build_jobs (id, project_id, business_id, revision, content_hash, intent, idempotency_key, fingerprint, provider, provider_config, budget, pricing, retry_of, requested_by, owner_id, owner_generation, state, reserved_cents, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)`,
+            `INSERT INTO build_jobs (id, project_id, business_id, revision, content_hash, intent, idempotency_key, fingerprint, provider, provider_config, budget, pricing, retry_of, requested_by, owner_id, owner_generation, state, reserved_cents, created_at, updated_at, request_ref)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
           )
           .run(
             id,
@@ -542,9 +598,11 @@ export class Builds {
             worst,
             t,
             t,
+            requestRef,
           );
         this.ledger(id, 0, "reservation", worst, "Worst case at declared prices and limits");
         this.event({ id }, 0, "queued", {
+          intent,
           revision,
           reserved_cents: worst,
           retry_of: retryOf?.id ?? null,
@@ -603,20 +661,24 @@ export class Builds {
         budget: JSON.parse(job.budget),
       },
       job,
+      job.request_ref,
     );
   }
 
-  list(viewer: Person, projectId: string) {
+  list(viewer: Person, projectId: string, intent: "build" | "propose" | null = null) {
     const project = this.ownedProject(viewer, projectId);
     this.fenceStale(project.business_id);
     const rows = this.db
-      .prepare("SELECT * FROM build_jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT 50")
-      .all(project.id) as unknown as JobRow[];
+      .prepare(
+        "SELECT * FROM build_jobs WHERE project_id = ? AND (? IS NULL OR intent = ?) ORDER BY created_at DESC LIMIT 50",
+      )
+      .all(project.id, intent, intent) as unknown as JobRow[];
     const availability = this.availability();
     return {
       availability,
       pricing: availability.available ? (this.provider?.pricing() ?? null) : null,
-      budget: this.budgetView(project.business_id),
+      provider: availability.available && this.provider ? this.provider.identity() : null,
+      budget: this.budgetFor(project.business_id),
       limits: BUILD_LIMITS,
       jobs: rows.map((r) => this.view(r)),
     };
@@ -643,10 +705,14 @@ export class Builds {
       data: string;
       at: string;
     }[];
+    const last = rows.at(-1)?.seq ?? from;
     return {
       job_state: job.state,
       events: rows.map((r) => ({ ...r, data: JSON.parse(r.data) as object })),
       last_seq: job.event_count,
+      /** Pass `next_after` as `after` to read the next page. */
+      next_after: last,
+      has_more: last < job.event_count,
     };
   }
 
@@ -999,12 +1065,17 @@ export class BuildWorker {
             brief: JSON.parse(snapshot.brief) as Brief,
             prototype: JSON.parse(snapshot.prototype) as Prototype,
           },
+          intent: job.intent,
+          conversation:
+            job.intent === "propose"
+              ? conversationFor(this.db, job.project_id, job.request_ref)
+              : [],
           limits: {
             maxInputTokens: budget.max_input_tokens,
             maxOutputTokens: budget.max_output_tokens,
             maxSeconds: budget.max_seconds,
           },
-          outputSchema: "extraction_spec/1",
+          outputSchema: job.intent === "propose" ? PROPOSAL_SCHEMA : "extraction_spec/1",
         },
         controller.signal,
       );
@@ -1209,6 +1280,7 @@ export class BuildWorker {
     b.event(job, attempt, ev.type === "usage_final" ? "usage_final" : "usage", {
       input_tokens: input,
       output_tokens: output,
+      microcents: micro,
       cents,
     });
     const budget = JSON.parse(job.budget) as BuildBudget;
@@ -1256,46 +1328,98 @@ export class BuildWorker {
         b.fenceStale((b.row(jobId) as JobRow).business_id);
         return;
       }
-      const result = validateArtifact(raw, prototype);
+      const intent = (b.row(jobId) as JobRow).intent;
+      // One validator per intent; both rebuild the output from checked parts.
+      const checked:
+        | {
+            ok: true;
+            kind: string;
+            schema: string;
+            digest: string;
+            bytes: number;
+            canonical: string;
+            checks: { id: string; passed: boolean }[];
+            proposal: Proposal | null;
+          }
+        | { ok: false; reason: string; checks: { id: string; passed: boolean }[] } = (() => {
+        if (intent === "propose") {
+          const r = validateProposal(raw);
+          return r.ok
+            ? {
+                ok: true as const,
+                kind: "product_proposal",
+                schema: PROPOSAL_SCHEMA,
+                digest: r.digest,
+                bytes: r.bytes,
+                canonical: r.canonical,
+                checks: [{ id: "proposal_schema", passed: true }],
+                proposal: r.proposal,
+              }
+            : {
+                ok: false as const,
+                reason: r.reason,
+                checks: [{ id: "proposal_schema", passed: false }],
+              };
+        }
+        const r = validateArtifact(raw, prototype);
+        return r.ok
+          ? {
+              ok: true as const,
+              kind: "extraction_spec",
+              schema: "extraction_spec/1",
+              digest: r.digest,
+              bytes: r.bytes,
+              canonical: r.canonical,
+              checks: r.checks.map((c) => ({ id: c.id, passed: c.passed })),
+              proposal: null,
+            }
+          : {
+              ok: false as const,
+              reason: r.reason,
+              checks: r.checks.map((c) => ({ id: c.id, passed: c.passed })),
+            };
+      })();
       this.guarded(jobId, attempt, (j) => {
         // Ownership is checked once more right before output is applied.
         if (b.isStaleOwner(j)) throw new Stale();
-        if (!result.ok) {
-          b.event(j, attempt, "checks", {
-            checks: result.checks.map((c) => ({ id: c.id, passed: c.passed })),
-          });
-          b.finish(j, "failed", { code: "invalid_output", detail: result.reason });
+        if (!checked.ok) {
+          b.event(j, attempt, "checks", { checks: checked.checks });
+          b.finish(j, "failed", { code: "invalid_output", detail: checked.reason });
           return;
         }
         this.db
           .prepare(
-            "INSERT INTO build_artifacts (job_id, attempt, kind, schema_version, digest, bytes, content, checks, provenance, created_at) VALUES (?, ?, 'extraction_spec', 1, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO build_artifacts (job_id, attempt, kind, schema_version, digest, bytes, content, checks, provenance, created_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
           )
           .run(
             j.id,
             attempt,
-            result.digest,
-            result.bytes,
-            result.canonical,
-            JSON.stringify(result.checks),
+            checked.kind,
+            checked.digest,
+            checked.bytes,
+            checked.canonical,
+            JSON.stringify(checked.checks),
             JSON.stringify({
-              schema: "extraction_spec/1",
+              schema: checked.schema,
               provider: JSON.parse(j.provider_config || "{}"),
               job: j.id,
               attempt,
               project: j.project_id,
               revision: j.revision,
               content_hash: j.content_hash,
-              validator: "artifacts.ts extraction_spec/1",
+              validator: `platform ${checked.schema}`,
             }),
             b.iso(),
           );
         this.db
           .prepare("UPDATE build_jobs SET artifact_digest = ? WHERE id = ?")
-          .run(result.digest, j.id);
-        b.event(j, attempt, "checks", {
-          checks: result.checks.map((c) => ({ id: c.id, passed: c.passed })),
-        });
+          .run(checked.digest, j.id);
+        b.event(j, attempt, "checks", { checks: checked.checks });
+        // A proposal is recorded with the job's success, in the same transaction.
+        if (checked.proposal) {
+          const id = recordProposal(this.db, j, checked.proposal, b.iso());
+          b.event(j, attempt, "proposal_recorded", { proposal: id });
+        }
         b.finish(j, "succeeded", null);
       });
     } catch (e) {
@@ -1307,4 +1431,49 @@ export class BuildWorker {
       }
     }
   }
+}
+
+/**
+ * Runs a worker inside this server process: settles anything a previous run left behind
+ * (requeue what was never sent, hold what may have been), then takes queued jobs one at a
+ * time. Only started when a real, priced provider and an operator ceiling are configured.
+ */
+export function startBuildWorker(
+  builds: Builds,
+  provider: BuildProvider,
+  options: WorkerOptions & { pollMs?: number } = {},
+) {
+  const worker = new BuildWorker(builds, provider, options);
+  worker.recover({ orphanAll: true });
+  let busy = false;
+  const timer = setInterval(async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      while (await worker.runNext()) {}
+    } catch {
+      console.error("Build worker: a job could not be processed; it will be recovered");
+    } finally {
+      busy = false;
+    }
+  }, options.pollMs ?? 2000);
+  timer.unref?.();
+  return { worker, stop: () => clearInterval(timer) };
+}
+
+/** The server's limits for one proposal; founders never choose tokens. */
+export function proposalBudget(
+  provider: BuildProvider | null,
+  limits = { max_input_tokens: 24_000, max_output_tokens: 6_000, max_seconds: 120 },
+): BuildBudget | null {
+  const pricing = provider?.pricing();
+  if (!validPricing(pricing)) return null;
+  return {
+    ...limits,
+    max_cost_cents: worstCaseCents(pricing, {
+      maxInputTokens: limits.max_input_tokens,
+      maxOutputTokens: limits.max_output_tokens,
+      maxSeconds: limits.max_seconds,
+    }),
+  };
 }

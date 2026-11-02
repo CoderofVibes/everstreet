@@ -418,7 +418,7 @@ export function parsePrototype(input: unknown): Prototype {
   return { schema: 1, screens };
 }
 
-const hashOf = (brief: Brief, prototype: Prototype) =>
+export const hashOf = (brief: Brief, prototype: Prototype) =>
   createHash("sha256").update(JSON.stringify({ brief, prototype })).digest("hex");
 
 // ---------- checks and continuity: only what is actually known ----------
@@ -853,32 +853,62 @@ export class Products {
     note: string,
     restoredFrom: number | null,
   ) {
+    let created = false;
+    this.store.tx(() => {
+      created = this.commitCore(viewer, p.id, base, brief, prototype, note, restoredFrom).created;
+    });
+    return { created, view: this.afterCommit(viewer, p.id, created, brief) };
+  }
+
+  /**
+   * Writes a new revision if the content differs from the head, in the caller's transaction.
+   * Refuses (409) unless `base` is the current head. Returns the resulting head number.
+   */
+  commitCore(
+    viewer: Person,
+    projectId: string,
+    base: unknown,
+    brief: Brief,
+    prototype: Prototype,
+    note: string,
+    restoredFrom: number | null,
+  ): { created: boolean; number: number } {
+    const p = this.owned(viewer, projectId);
     const baseN = Number(base);
     if (!Number.isInteger(baseN) || baseN < 1)
       bad("Say which revision your changes start from (base_revision)");
-    let created = false;
-    this.store.tx(() => {
-      const head = this.headNumber(p.id);
-      if (baseN !== head)
-        throw new HttpError(
-          409,
-          `Revision ${head} was saved after the one you started from (${baseN}). Nothing was overwritten; reload to see it, then apply your change again.`,
-        );
-      const headRow = this.revisionRow(p.id, head);
-      if (headRow?.content_hash === hashOf(brief, prototype)) return;
-      this.insertRevision(p.id, head + 1, brief, prototype, viewer, note, restoredFrom);
-      this.event("product_revision_saved", p.business_id, viewer.id, {
-        project: p.id,
-        number: head + 1,
-        restored_from: restoredFrom,
-      });
-      created = true;
+    const head = this.headNumber(p.id);
+    if (baseN !== head)
+      throw new HttpError(
+        409,
+        `Revision ${head} was saved after the one you started from (${baseN}). Nothing was overwritten; reload to see it, then apply your change again.`,
+      );
+    const headRow = this.revisionRow(p.id, head);
+    if (headRow?.content_hash === hashOf(brief, prototype)) return { created: false, number: head };
+    this.insertRevision(p.id, head + 1, brief, prototype, viewer, note, restoredFrom);
+    this.event("product_revision_saved", p.business_id, viewer.id, {
+      project: p.id,
+      number: head + 1,
+      restored_from: restoredFrom,
     });
-    // A business made for this project takes the product's name until the founder names it.
+    return { created: true, number: head + 1 };
+  }
+
+  /** After a committed revision: name an untitled business after the product, then the view. */
+  afterCommit(viewer: Person, projectId: string, created: boolean, brief: Brief) {
+    const p = this.owned(viewer, projectId);
     const business = this.store.ownedBusiness(viewer, p.business_id);
     if (created && business.name === "Untitled business" && brief.name !== "Untitled product")
       this.store.updateBusiness(viewer, business.id, { name: brief.name });
-    return { created, view: this.view(viewer, p.id) };
+    return this.view(viewer, p.id);
+  }
+
+  /** The head revision's number and content hash, for an owner. */
+  head(viewer: Person, projectId: string) {
+    const p = this.owned(viewer, projectId);
+    const n = this.headNumber(p.id);
+    const r = this.revisionRow(p.id, n) as RevisionRow;
+    return this.revisionView(r);
   }
 
   save(viewer: Person, projectId: string, input: Record<string, unknown>) {

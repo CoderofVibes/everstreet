@@ -4,10 +4,11 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { Acquisitions, type Criteria, interpretAcquire } from "./acquire.ts";
+import { Authoring } from "./authoring.ts";
 import { type BookingProvider, Bookings } from "./bookings.ts";
 import { Books } from "./books.ts";
 import type { BuildProvider } from "./build.ts";
-import { Builds } from "./builds.ts";
+import { Builds, proposalBudget } from "./builds.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
 import { Deals } from "./deals.ts";
@@ -30,6 +31,8 @@ export interface AppOptions {
   buildProvider?: BuildProvider | null;
   /** Build jobs; tests pass their own to share it with a worker. Built from the provider otherwise. */
   builds?: Builds;
+  /** The operator's overall AI spending ceiling in cents (from the server's AI configuration). */
+  operatorCeilingCents?: number | null;
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -40,7 +43,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
     : null;
   const payments = bookings ? new Payments(store.db, store, bookings, options.chain ?? null) : null;
   const products = new Products(store.db, store, options.buildProvider ?? null);
-  const builds = options.builds ?? new Builds(store.db, store, options.buildProvider ?? null);
+  const builds =
+    options.builds ??
+    new Builds(store.db, store, options.buildProvider ?? null, {
+      operatorCeilingCents: options.operatorCeilingCents ?? null,
+    });
+  const authoring = new Authoring(store.db, store, products, builds, () =>
+    proposalBudget(builds.provider),
+  );
   const books = new Books(store.db, store, options.chain ?? null);
   const valuation = new Valuation(store.db, store, books);
   const acquire = new Acquisitions(store.db, store, books, valuation, options.chain ?? null);
@@ -178,7 +188,33 @@ export function everstreetApi(store: Store, options: AppOptions) {
 
   // ---------- build jobs (owner only; current ownership checked on every call) ----------
 
-  app.get("/api/product-projects/:id/builds", (c) => c.json(builds.list(me(c), c.req.param("id"))));
+  app.get("/api/product-projects/:id/builds", (c) => {
+    const intent = c.req.query("intent");
+    return c.json(
+      builds.list(
+        me(c),
+        c.req.param("id"),
+        intent === "build" || intent === "propose" ? intent : null,
+      ),
+    );
+  });
+
+  // ---------- guided authoring: the product work log and AI proposals ----------
+
+  app.get("/api/product-projects/:id/conversation", (c) =>
+    c.json(authoring.conversation(me(c), c.req.param("id"), Number(c.req.query("after") ?? 0))),
+  );
+  app.post("/api/product-projects/:id/conversation", async (c) => {
+    const out = authoring.send(me(c), c.req.param("id"), await body(c));
+    return c.json(out, out.created ? 201 : 200);
+  });
+  app.get("/api/product-projects/:id/proposals/:pid", (c) =>
+    c.json(authoring.proposal(me(c), c.req.param("id"), c.req.param("pid"))),
+  );
+  app.post("/api/product-projects/:id/proposals/:pid/apply", (c) => {
+    const out = authoring.apply(me(c), c.req.param("id"), c.req.param("pid"));
+    return c.json(out, out.applied.created ? 201 : 200);
+  });
   app.post("/api/product-projects/:id/builds", async (c) => {
     const { job, created } = builds.request(me(c), c.req.param("id"), await body(c));
     return c.json({ job, created }, created ? 201 : 200);

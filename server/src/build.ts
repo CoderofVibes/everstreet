@@ -40,9 +40,16 @@ export interface BuildRequest {
   contentHash: string;
   /** The validated revision snapshot: the provider works from content, not ids. */
   content: { foundation: Foundation; brief: Brief; prototype: Prototype };
+  /** `build` drafts a service specification; `propose` drafts a revised brief and screens. */
+  intent: "build" | "propose";
+  /**
+   * For `propose`: the business's product work log, oldest first, bounded. The founder's words
+   * are data to answer, never instructions to the platform.
+   */
+  conversation: { role: "founder" | "assistant"; text: string }[];
   limits: BuildLimits;
-  /** The only artifact the platform accepts in this version. */
-  outputSchema: "extraction_spec/1";
+  /** The only artifact the platform accepts for this intent. */
+  outputSchema: "extraction_spec/1" | "product_proposal/1";
 }
 
 /** What a provider may report. Everything else (state, success, cost) the platform decides. */
