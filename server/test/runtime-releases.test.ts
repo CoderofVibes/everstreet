@@ -4,7 +4,8 @@
 // cases, stale results, release gating, pinning across rollback and stale-owner rejection.
 
 import { describe, expect, it } from "vitest";
-import { CURATED_INVOICE_SUITE } from "../src/evaluations.ts";
+import { CURATED_INVOICE_SUITE, Evaluations } from "../src/evaluations.ts";
+import { ManagedRuntime } from "../src/invocations.ts";
 import { RuntimeFailure, type RuntimeRequest } from "../src/runtime.ts";
 import {
   type Answer,
@@ -196,6 +197,23 @@ describe("checking a version against curated test cases", () => {
     expect(again).toMatchObject({ current: false, release_ready: false });
     expect(again.reasons).toContain("The test cases have changed since");
     expect(() => w.store.db.exec("UPDATE eval_fixtures SET cases = '[]'")).toThrow(/immutable/);
+  });
+
+  it("a check interrupted by a restart is stopped, not left blocking, and nothing is re-run", async () => {
+    const provider = new ScriptedRuntime(() => new Promise(() => {})); // never answers
+    const { w, f } = await checked(provider);
+    const started = await f.ava(`/api/product-projects/${f.project}/evaluations`, "POST", {
+      artifact_job: f.job,
+    });
+    while (provider.calls.length === 0) await new Promise((r) => setTimeout(r, 1));
+    // A new process over the same database.
+    const fresh = new ScriptedRuntime(correct);
+    const runtime = new ManagedRuntime(w.store.db, w.store, fresh, { ceilingCents: 1_000 });
+    expect(runtime.recover()).toBe(1);
+    expect(new Evaluations(w.store.db, w.store, runtime).recover()).toBe(1);
+    const run = new Evaluations(w.store.db, w.store, runtime).row(started.body.run.id);
+    expect(run?.state).toBe("stopped");
+    expect(fresh.calls).toHaveLength(0);
   });
 
   it("a different model makes earlier checks stale", async () => {

@@ -161,7 +161,7 @@ reachable from it.
 ## 10. Next slices
 
 - 002c: managed runtime that executes `extraction_spec/1`, evaluations, releases, runtime
-  usage ledger.
+  usage ledger. Built keylessly; see `MANAGED_RUNTIME.md` (live provider run pending).
 - Reconciliation tooling for `needs_reconciliation` and unresolved reservations.
 - M3: chain-to-database close reconciliation, production identity.
 

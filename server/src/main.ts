@@ -23,6 +23,7 @@ import { openSeatProvider } from "./bookings.ts";
 import { Builds, startBuildWorker } from "./builds.ts";
 import { NearChain } from "./chain.ts";
 import { openDb } from "./db.ts";
+import { Evaluations } from "./evaluations.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { AnthropicRuntime } from "./runtime.ts";
 import { Store } from "./store.ts";
@@ -147,6 +148,7 @@ const runtime = new ManagedRuntime(
   { ceilingCents: ai.ok ? ai.config.runtimeCeilingCents : null },
 );
 runtime.recover();
+new Evaluations(store.db, store, runtime).recover();
 
 const app = new Hono();
 app.route("/svc/openseat", openseatHttp);

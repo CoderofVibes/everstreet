@@ -296,6 +296,19 @@ export class Evaluations {
     readonly runtime: ManagedRuntime,
   ) {}
 
+  /**
+   * After a restart: a check that was running can't continue (its loop lived in the old
+   * process). It is marked stopped; finished cases keep their results, and an unfinished
+   * request was already marked unknown by the runtime's own recovery. Nothing is re-run.
+   */
+  recover() {
+    return Number(
+      this.db
+        .prepare("UPDATE eval_runs SET state = 'stopped', finished_at = ? WHERE state = 'running'")
+        .run(this.runtime.iso()).changes,
+    );
+  }
+
   latest(projectId: string) {
     return this.db
       .prepare("SELECT * FROM eval_fixtures WHERE project_id = ? ORDER BY version DESC LIMIT 1")
