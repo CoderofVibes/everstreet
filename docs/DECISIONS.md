@@ -215,3 +215,19 @@ Built from Astra's launch-pad pass, for Tony's computer rather than a phone (Ton
    period before a close and retained operators in the terms. The product shows neither as
    enforced; the buyer appoints their own team in the first shift. Cut for now: financing,
    earn-outs, fractional interests, automated provider transfers, group ownership.
+
+## 2026-11-02 · Tony authorizes the AI-economy platform buildout
+
+Tony clarified that digital builders are the primary audience: AI tools, SaaS, APIs, agents,
+websites, NEAR solutions and online services. Both creating with AI inside Everstreet and
+bringing an existing product are wanted. Seamless acquisition and operational transfer on
+NEAR stays central. The earlier local/craft examples are regression fixtures, not the new
+flagship direction.
+
+Tony authorized Astra to drive development with Claude as builder across the six proposed
+milestones and additional functions, using Claude Code usage and API credit. Astra may build
+within its repo role when Claude usage is exhausted. The first complete creative walkthrough
+comes after buildout; seven to ten days is a planning horizon, not a completion guarantee.
+Public release, pushing, mainnet, new service spending and billing changes remain unapproved.
+
+See `docs/design/PLATFORM_VISION.md`, `docs/astra/2026-11-02_BuildMandate.md`, and the job queue.

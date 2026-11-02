@@ -1,5 +1,13 @@
 # Build brief · Going Concern (working title) → public name **Everstreet**
 
+> **Direction updated by Tony, November 2:** The primary audience is entrepreneurs building
+> AI tools, SaaS, APIs, agents, websites, NEAR applications and online services. Support both
+> building inside Everstreet and bringing an existing product. Seamless purchase and transfer
+> on NEAR remains central. See [the current platform direction](design/PLATFORM_VISION.md)
+> and [the authorized build mandate](astra/2026-11-02_BuildMandate.md). These supersede older
+> example choices and craft/local-business defaults below; existing contract authority and
+> evidence limitations still apply.
+
 Prepared for Tony and Claude · NEAR HACKATHON · November 2026 · v1. Received from Tony on
 2026-11-01 (drafted with GPT). Tony chose the name **Everstreet** the same day; the text below
 keeps the original working title. Product status: concept selected for detailed design. Public
