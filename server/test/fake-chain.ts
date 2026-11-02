@@ -201,9 +201,41 @@ export class FakeChain implements Chain {
     };
   }
 
-  async period(business: string): Promise<Period> {
+  /**
+   * Job 003f: explicit monthly ledgers per business account (base units). A business with any
+   * entry here answers from them (zeros for months not listed). Otherwise the live counters
+   * belong to the current month, where test activity happens, and other months are zero.
+   */
+  periods = new Map<string, Map<number, Partial<Period>>>();
+  /** Months whose read fails, as an RPC outage would. */
+  failPeriods = new Set<number>();
+
+  setPeriod(business: string, yyyymm: number, p: Partial<Period>) {
+    const m = this.periods.get(business) ?? new Map<number, Partial<Period>>();
+    m.set(yyyymm, p);
+    this.periods.set(business, m);
+  }
+
+  async period(business: string, yyyymm?: number): Promise<Period> {
     const b = this.businesses.get(business);
     if (!b) throw new Error("no business");
+    if (yyyymm !== undefined && this.failPeriods.has(yyyymm))
+      throw new Error(`RPC unavailable for ${yyyymm}`);
+    const zero: Period = {
+      orders_in: "0",
+      prepaid_in: "0",
+      earned: "0",
+      refunds: "0",
+      credit_used: "0",
+      credit_withdrawn: "0",
+      owner_withdrawals: "0",
+      sale_proceeds: "0",
+    };
+    const fixtures = this.periods.get(business);
+    if (fixtures && yyyymm !== undefined) return { ...zero, ...(fixtures.get(yyyymm) ?? {}) };
+    const now = new Date();
+    const current = now.getUTCFullYear() * 100 + now.getUTCMonth() + 1;
+    if (yyyymm !== undefined && yyyymm !== current) return zero;
     return {
       orders_in: String(b.ordersIn),
       prepaid_in: "0",

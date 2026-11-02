@@ -12,7 +12,7 @@
 // private to the founder.
 
 import { createHash, randomUUID } from "node:crypto";
-import type { Books, Month } from "./books.ts";
+import { type Books, type Month, revenueOf } from "./books.ts";
 import type { Db } from "./db.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 
@@ -49,7 +49,10 @@ export interface Overrides {
 
 export interface Inputs {
   model: string;
-  stage: "plan" | "early" | "operating";
+  /** `unavailable`: some complete months couldn't be read, so no estimate is made (job 003f). */
+  stage: "plan" | "early" | "operating" | "unavailable";
+  /** Months whose books couldn't be read; never treated as zero. */
+  gaps?: string[];
   months_used: number[];
   revenue_cents: number;
   costs_cents: number;
@@ -85,6 +88,21 @@ const usd = (c: number) =>
   `${c < 0 ? "−" : ""}$${Math.abs(Math.round(c / 100)).toLocaleString("en-US")}`;
 
 export function estimate(input: Inputs): Estimate {
+  if (input.stage === "unavailable") {
+    const gaps = (input.gaps ?? []).join(", ");
+    return {
+      inputs: input,
+      normalized_annual_cents: 0,
+      low_cents: null,
+      high_cents: null,
+      label: "No estimate right now · some months couldn't be read",
+      explanation: [
+        `The books for ${gaps} couldn't be read from NEAR testnet. No estimate is made from incomplete books, and those months are not counted as zero.`,
+      ],
+      missing: [`Try again when ${gaps} can be read.`],
+      sources: [],
+    };
+  }
   const n = input.months_used.length;
   const profit = input.revenue_cents - input.costs_cents;
   const labor = input.labor_month_cents * (input.stage === "plan" ? 12 : n);
@@ -282,15 +300,17 @@ export class Valuation {
     const d = DEFAULTS[b.family] ?? (DEFAULTS.undecided as (typeof DEFAULTS)["class"]);
     const s = this.settings(businessId);
     const all = months ?? (await this.books.months(businessId, 12)).months;
+    // Only whole months count: the current month and the account's first partial month are
+    // never annualized. A complete month that couldn't be read stops the estimate (job 003f).
     const complete = all.filter((m) => m.complete);
-    const firstEarning = complete.findIndex((m) => m.revenue_cents > 0);
+    const gaps = complete.filter((m) => m.revenue_cents === null).map((m) => m.label);
+    const firstEarning = complete.findIndex((m) => (m.revenue_cents ?? 0) > 0);
     const operating = firstEarning < 0 ? [] : complete.slice(firstEarning);
     const used = operating.slice(-3);
     const hours = s.founder_hours_week ?? d.hours;
     const rate = s.hourly_rate_cents ?? DEFAULT_RATE_CENTS;
     const offer = this.store.offerOf(businessId);
-    const sum = (k: "revenue_cents" | "direct_cents" | "overhead_cents") =>
-      used.reduce((a, m) => a + m[k], 0);
+    const sum = (k: "direct_cents" | "overhead_cents") => used.reduce((a, m) => a + m[k], 0);
     const base = {
       model: MODEL,
       founder_hours_week: hours,
@@ -302,6 +322,21 @@ export class Valuation {
       multiples_are_default: s.multiple_low === null && s.multiple_high === null,
       price_cents: offer.first_free ? 0 : offer.price_cents,
     };
+    if (gaps.length)
+      return {
+        ...base,
+        stage: "unavailable",
+        gaps,
+        months_used: [],
+        revenue_cents: 0,
+        costs_cents: 0,
+        direct_cents: 0,
+        overhead_cents: 0,
+        annualize_by: 1,
+        plan_customers_month: null,
+        revenue_sources: [],
+        cost_sources: [],
+      };
     if (used.length === 0) {
       const customers = s.plan_customers_month ?? d.plan;
       const current = all[all.length - 1] as Month;
@@ -324,7 +359,8 @@ export class Valuation {
       ...base,
       stage: used.length >= 3 ? "operating" : "early",
       months_used: used.map((m) => m.yyyymm),
-      revenue_cents: sum("revenue_cents"),
+      // Exact: chain amounts are summed in base units and converted once.
+      revenue_cents: revenueOf(used, this.books.decimals) ?? 0,
       costs_cents: sum("direct_cents") + sum("overhead_cents"),
       direct_cents: sum("direct_cents"),
       overhead_cents: sum("overhead_cents"),
@@ -345,13 +381,16 @@ export class Valuation {
       | undefined;
   }
 
-  /** Computes the estimate; keeps a snapshot whenever the inputs changed. */
-  async current(businessId: string, months?: Month[]) {
+  /**
+   * Computes the estimate; keeps a snapshot whenever the inputs changed. Never from incomplete
+   * books (an outage is not a change), and not from an anonymous public read.
+   */
+  async current(businessId: string, months?: Month[], options: { snapshot?: boolean } = {}) {
     const inputs = await this.inputs(businessId, months);
     const result = estimate(inputs);
     const h = hash(inputs);
     const last = this.latest(businessId);
-    if (last?.inputs_hash !== h) {
+    if (options.snapshot !== false && inputs.stage !== "unavailable" && last?.inputs_hash !== h) {
       this.db
         .prepare(
           "INSERT INTO value_snapshots (id, business_id, model, inputs_hash, inputs, output, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -475,13 +514,13 @@ export class Valuation {
   async publicNumbers(businessId: string) {
     if (!this.settings(businessId).share_numbers) return null;
     const { months } = await this.books.months(businessId, 12);
+    // The latest whole month with revenue actually known and earned: never a month that
+    // couldn't be read, and never a "loss" made of costs alone (job 003f).
     const last =
       [...months]
         .reverse()
-        .find(
-          (m) => m.complete && (m.revenue_cents > 0 || m.direct_cents + m.overhead_cents > 0),
-        ) ?? null;
-    const e = await this.current(businessId, months);
+        .find((m) => m.complete && m.revenue_cents !== null && m.revenue_cents > 0) ?? null;
+    const e = await this.current(businessId, months, { snapshot: false });
     return {
       month: last && {
         label: last.label,

@@ -12,7 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 import { firstName } from "./bookings.ts";
-import type { Books } from "./books.ts";
+import { BOOKS_BASIS, type Books, financialMonth, revenueOf } from "./books.ts";
 import type { Chain } from "./chain.ts";
 import type { Db } from "./db.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
@@ -775,11 +775,16 @@ export class Acquisitions {
 
   async facts(businessId: string) {
     const { months, chain_error } = await this.books.months(businessId, 12);
-    const e = await this.valuation.current(businessId, months);
+    // A buyer's read never writes the owner's estimate history (job 003f).
+    const e = await this.valuation.current(businessId, months, { snapshot: false });
     const used = months.filter((m) => e.inputs.months_used.includes(m.yyyymm));
     const n = used.length;
-    const revenue = n ? Math.round(used.reduce((a, m) => a + m.revenue_cents, 0) / n) : null;
-    const profit = n ? Math.round(used.reduce((a, m) => a + m.profit_cents, 0) / n) : null;
+    // Monthly averages over the months the estimate used; unknown when none or when the books
+    // couldn't be read (those months are never counted as zero).
+    const total = n ? revenueOf(used, this.books.decimals) : null;
+    const costs = used.reduce((a, m) => a + m.direct_cents + m.overhead_cents, 0);
+    const revenue = total === null ? null : Math.round(total / n);
+    const profit = total === null ? null : Math.round((total - costs) / n);
     const sources = [...new Set(used.flatMap((m) => m.revenue_sources))];
     const s = this.valuation.settings(businessId);
     return {
@@ -790,7 +795,9 @@ export class Acquisitions {
       revenue,
       profit,
       sources,
-      verified: sources.includes("Verified on NEAR · testnet"),
+      // Verified only when every month used was read from the contract and none mixes in
+      // fictional seeded figures.
+      verified: n > 0 && used.every((m) => m.revenue_basis === "observed" && !m.mixed),
       hours: s.founder_hours_week,
     };
   }
@@ -845,7 +852,9 @@ export class Acquisitions {
           text:
             f.estimate.inputs.stage === "plan"
               ? "No estimate yet (no earned month)"
-              : "No earnings-based estimate yet",
+              : f.estimate.inputs.stage === "unavailable"
+                ? "Unknown right now: some months' books couldn't be read"
+                : "No earnings-based estimate yet",
           basis,
         };
       } else if (anonymous) {
@@ -1504,17 +1513,8 @@ export class Acquisitions {
     };
     if (granted.has("financials")) {
       room.financials = {
-        months: f.months.map((m) => ({
-          yyyymm: m.yyyymm,
-          label: m.label,
-          complete: m.complete,
-          revenue_cents: m.revenue_cents,
-          direct_cents: m.direct_cents,
-          overhead_cents: m.overhead_cents,
-          profit_cents: m.profit_cents,
-          revenue_sources: m.revenue_sources,
-          cost_sources: m.cost_sources,
-        })),
+        months: f.months.map(financialMonth),
+        basis: BOOKS_BASIS,
         estimate: {
           low_cents: e.low_cents,
           high_cents: e.high_cents,

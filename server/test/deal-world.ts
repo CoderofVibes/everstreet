@@ -73,8 +73,8 @@ export class GatedChain extends FakeChain {
   /** Opens once a held monthly read has started. */
   periodEntered = gate();
 
-  override async period(business: string) {
-    const answer = await super.period(business); // read now...
+  override async period(business: string, yyyymm?: number) {
+    const answer = await super.period(business, yyyymm); // read now...
     if (this.periodGate) {
       this.periodEntered.open();
       await this.periodGate; // ...delivered later

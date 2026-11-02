@@ -445,6 +445,11 @@ export function openDb(path: string) {
     db.exec("ALTER TABLE access_requests ADD COLUMN access_version INTEGER NOT NULL DEFAULT 0");
   if (!requestCols.has("scope_version"))
     db.exec("ALTER TABLE access_requests ADD COLUMN scope_version INTEGER NOT NULL DEFAULT 1");
+  // Job 003f: a one-off cost in a closed month is never deleted; a correction marks it.
+  const costCols = columns("costs");
+  if (!costCols.has("voided_at")) db.exec("ALTER TABLE costs ADD COLUMN voided_at TEXT");
+  if (!costCols.has("void_note"))
+    db.exec("ALTER TABLE costs ADD COLUMN void_note TEXT NOT NULL DEFAULT ''");
   // Job 002c1: the release policy a check ran under and a release was made with. Rows from
   // before have an empty policy, so they read as stale and need a new check.
   if (!columns("eval_runs").has("policy"))

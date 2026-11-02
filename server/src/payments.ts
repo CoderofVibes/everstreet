@@ -8,6 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { Bookings } from "./bookings.ts";
+import { unitsToCents } from "./books.ts";
 import type { Chain, ChainOrder } from "./chain.ts";
 import type { Db } from "./db.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
@@ -634,7 +635,9 @@ export class Payments {
       chain.period(b.account_id, yyyymm).catch(() => null),
       this.wallet(founder).catch(() => null),
     ]);
-    const c = (u: string | undefined) => (u === undefined ? null : this.cents(u));
+    // Exact conversion (job 003f); null, never 0, for anything not read or not representable.
+    const c = (u: string | undefined) =>
+      u === undefined ? null : (unitsToCents(BigInt(u), chain.decimals)?.cents ?? null);
     const orders = (
       this.db
         .prepare("SELECT * FROM payments WHERE business_id = ? ORDER BY created_at DESC LIMIT 50")
@@ -659,20 +662,31 @@ export class Payments {
       owner_wallet: wallet,
       source: "Read from the business's contract on NEAR testnet just now",
       treasury: t && {
+        /** Everything the contract holds, including buyer escrow: not the business's money. */
         held: c(t.held),
         customer_money: c(t.unearned_orders),
         customer_credit: c(t.customer_credit),
         available: c(t.available),
         withdrawable: c(t.withdrawable),
         pending: c(t.pending_payouts),
+        /** A buyer's funded deal price, held for the deal: not business money. */
+        buyer_escrow: c(t.deal_holds),
+        /** A former owner's unclaimed sale proceeds: not business money. */
+        seller_proceeds: c(t.seller_proceeds),
       },
+      treasury_state: t ? "observed" : "unavailable",
       month: p && {
         yyyymm,
         orders_in: c(p.orders_in),
+        prepaid_in: c(p.prepaid_in),
         earned: c(p.earned),
+        credit_used: c(p.credit_used),
         refunds: c(p.refunds),
+        credit_withdrawn: c(p.credit_withdrawn),
         owner_withdrawals: c(p.owner_withdrawals),
+        sale_proceeds: c(p.sale_proceeds),
       },
+      month_state: p ? "observed" : "unavailable",
       orders,
     };
   }
