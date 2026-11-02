@@ -200,9 +200,15 @@ export function missingFacts(o: OfferLike): string[] {
 }
 
 /** What a visitor can do: interest until the details are confirmed, then an inquiry. */
-export function customerAction(o: OfferLike) {
+export function customerAction(o: OfferLike, family = "class") {
+  const ask: Record<string, string> = {
+    software: "Ask for access",
+    product: "Ask to order",
+    service: "Ask to book",
+    class: "Ask to book",
+  };
   return o.confirmed && missingFacts(o).length === 0
-    ? { kind: "question" as const, label: "Ask to book" }
+    ? { kind: "question" as const, label: ask[family] ?? "Get in touch" }
     : { kind: "interest" as const, label: "Tell me when it opens" };
 }
 

@@ -169,3 +169,11 @@ describe("launch pad", () => {
     expect((await anon("/api/projects")).status).toBe(401);
   });
 });
+
+describe("search terms", () => {
+  it("folds plurals and drops filler words", async () => {
+    const { terms } = await import("../src/store.ts");
+    expect(terms("Receipts for my online shops")).toEqual(["receipt", "online", "shop"]);
+    expect(terms("classes and bookkeeping studies")).toEqual(["class", "bookkeeping", "study"]);
+  });
+});

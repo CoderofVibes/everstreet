@@ -97,6 +97,23 @@ const OFFER_FIELDS = [
   "confirmed",
 ] as const;
 
+const STOPWORDS = new Set(
+  "a an and are as at be but by can do for from get have help i in into is it its me my need of on or our so some that the their them this to want we with you your".split(
+    " ",
+  ),
+);
+
+/** Lower-cased words without common filler, with simple plurals folded ("receipts" → "receipt"). */
+export function terms(text: string): string[] {
+  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+    .map((w) => (w.length > 4 && w.endsWith("ies") ? `${w.slice(0, -3)}y` : w))
+    .map((w) =>
+      w.length > 4 && w.endsWith("es") && /(ch|sh|x|ss)es$/.test(w) ? w.slice(0, -2) : w,
+    )
+    .map((w) => (w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w));
+}
+
 function slugify(text: string) {
   return (
     text
@@ -283,7 +300,7 @@ export class Store {
       idea: this.ideaOf(business.id),
       owner: viewer,
       missing: missingFacts(offer),
-      action: customerAction(offer),
+      action: customerAction(offer, business.family),
       plan: firstWeekPlan(offer),
       updated_at: row.updated_at,
     };
@@ -411,7 +428,7 @@ export class Store {
       idea: this.ideaOf(b.id),
       project_id: project?.id ?? null,
       missing: missingFacts(offer),
-      action: customerAction(offer),
+      action: customerAction(offer, b.family),
       tasks: this.tasks(b.id),
       inquiries: this.inquiriesFor(b.id),
     };
@@ -652,7 +669,7 @@ export class Store {
           }
         : null,
       unknown: missingFacts(offer),
-      action: customerAction(offer),
+      action: customerAction(offer, b.family),
       interested: this.inquiryCount(b.id),
     };
   }
@@ -670,26 +687,26 @@ export class Store {
         "SELECT slug FROM businesses WHERE published_at IS NOT NULL ORDER BY published_at DESC",
       )
       .all() as { slug: string }[];
-    const words = query
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 2);
+    const words = [...new Set(terms(query))];
     return rows
       .map((r) => this.publicBusiness(r.slug))
       .map((b) => {
-        const text = [
-          b.name,
-          b.tagline,
-          b.about,
-          b.offer?.title,
-          b.offer?.outcome,
-          b.offer?.audience,
-          b.offer?.deliverable,
-          b.founder.headline,
-        ]
-          .join(" ")
-          .toLowerCase();
-        const matched = words.filter((w) => text.includes(w));
+        const text = new Set(
+          terms(
+            [
+              b.name,
+              b.tagline,
+              b.about,
+              b.offer?.title,
+              b.offer?.outcome,
+              b.offer?.audience,
+              b.offer?.deliverable,
+              b.offer?.includes,
+              b.founder.headline,
+            ].join(" "),
+          ),
+        );
+        const matched = words.filter((w) => text.has(w));
         return { ...b, matched };
       })
       .filter((b) => words.length === 0 || b.matched.length > 0)

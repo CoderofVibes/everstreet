@@ -4,11 +4,37 @@ Start a business, get found by people who need it, and, if you ever sell, hand i
 breaking a single customer's booking. Built for NEAR HACKATHON (November 2026). Fictional data,
 NEAR testnet only.
 
-> Status: gate 1 of the build. The ownership handoff works on testnet; the storefront, search and
-> diligence room are next. Everstreet is a separate project from the same team's other entry,
-> Day One (an AI purchasing assistant); the two share no code, data or deployments.
+> Status: the launch pad (phase 1) runs on your computer, and the ownership handoff works on
+> testnet. Payments on NEAR, real numbers on profiles, and the acquisition marketplace are next
+> (design: `docs/astra/`, `docs/design/BUSINESS_V2.md`). Everstreet is a separate project from the
+> same team's other entry, Day One (an AI purchasing assistant); the two share no code, data or
+> deployments.
 
-## What works today
+## Open it
+
+Double-click **`Start Everstreet.cmd`**, or run `npm run app`, then open http://localhost:8800.
+The first run installs and fills in four fictional example businesses. Close the window to stop.
+
+What you can do today:
+
+- **Start a business** three ways: with an idea, with help finding one (four questions → three
+  small directions), or from something you already sell.
+- **Shape the offer** in a six-question interview while the customer's view of your offer fills in
+  beside you; anything still undecided is listed and shown to customers as undecided.
+- **Make it yours**, **preview** exactly what a visitor sees, then **publish** after a plain review of
+  what publishing does. Drafts stay private until then.
+- **Find a solution**: search everything published, with the words each result matched. Nobody
+  pays to rank higher.
+- **Respond as a visitor** ("Tell me when it opens", or ask to book / order / get access once the
+  founder confirms the details). Contact details are shared only if the visitor ticks the box.
+- **Run it from your desk**: responses arrive as tasks, replies go back to the visitor's inbox, and
+  the first-week plan ticks itself off as you fill in what was missing.
+- **Switch people** from the top-right menu (local preview only) to see each side.
+
+Not yet: payments, financials and valuations on profiles, the acquisition marketplace (its page
+says so), AI drafting (drafts come from templates today), sign-in with a real identity.
+
+## The ownership handoff on NEAR testnet
 
 A sample business, **OpenSeat** (class booking with a waitlist), is controlled by a NEAR contract.
 On testnet, its founder sold control to a buyer, Northline, and:
@@ -30,7 +56,10 @@ Requirements: Node 24+. For the contract: WSL Ubuntu with Rust and `cargo-near`.
 | Task | Command |
 |---|---|
 | Install | `npm install` |
-| Lint, typecheck, OpenSeat tests | `npm run check` |
+| Build and run the app | `npm run app` → http://localhost:8800 |
+| Fill an empty local database with fictional examples | `npm run seed:demo` (`-- --reset` starts over; stop the app first) |
+| Work on the UI with live reload | `npm run serve` and, beside it, `npm run web:dev` → http://localhost:5173 |
+| Lint, typecheck, all tests (16) | `npm run check` |
 | Contract unit tests (WSL, `contracts/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --lib` → 21 tests |
 | Contract on a local NEAR node (WSL) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --test sandbox` |
 | Build the wasm (WSL, `contracts/business/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo near build non-reproducible-wasm` |
