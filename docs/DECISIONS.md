@@ -65,3 +65,21 @@ Assumptions that weaken the promise (flagged for Tony and Astra):
 Not done in gate 1 (next gates): founder launch flow, catalog and search, web UI, evidence room,
 rehearsal mode, external simulated asset with its own completion evidence, sandbox replay of
 the whole run from TypeScript, Chain Signatures action.
+
+## 2026-11-01 (night) · Launch pad phase 1, desktop
+
+Built from Astra's launch-pad pass, for Tony's computer rather than a phone (Tony, Nov 1).
+
+1. **One local program.** `npm run app` (or `Start Everstreet.cmd`) builds the React app and serves
+   it with the API on http://localhost:8800; data in `data/runtime/everstreet.db` (Node's SQLite).
+2. **No AI calls yet.** Directions and offer drafts come from templates in `server/src/drafting.ts`
+   so nothing is spent without Tony's yes; Astra's design keeps AI behind the same form, and the
+   app works the same when AI is off.
+3. **Local identities.** A person is created with just a name; the top-right menu can switch
+   between local people so one person can try founder and visitor. This is local-preview only
+   (`localPreview` flag); real sign-in (NEAR Auth) comes with payments.
+4. **Honest actions.** A visitor can only say "Tell me when it opens" until the founder confirms
+   date, place and price; then "Ask to book / order / get access". No payment in this phase.
+5. **Privacy defaults.** Drafts are invisible to every public route; a founder sees a visitor's
+   first name only unless the visitor ticks "share my name and contact"; a business's page address
+   follows its name until first published, then never changes.
