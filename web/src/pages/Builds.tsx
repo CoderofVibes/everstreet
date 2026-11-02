@@ -31,9 +31,15 @@ const STATE_CLASS: Record<BuildJob["state"], string> = {
   needs_reconciliation: "caution",
 };
 
+/** Exact computed cost, to a hundredth of a cent, from reported tokens at declared prices. */
+const exact = (micro: number) => `$${(micro / 100_000_000).toFixed(4)}`;
+
 function usageText(job: BuildJob) {
-  if (job.usage_state === "reported")
-    return `${cents(job.charged_cents)} · ${job.input_tokens.toLocaleString()} in / ${job.output_tokens.toLocaleString()} out tokens`;
+  const tokens = `${job.input_tokens.toLocaleString()} in / ${job.output_tokens.toLocaleString()} out tokens`;
+  if (job.usage_state === "final")
+    return `${exact(job.charged_microcents)} computed from the provider's final receipt (${tokens}); not an invoice`;
+  if (job.usage_state === "partial")
+    return `At least ${exact(job.charged_microcents)} (${tokens}). Final cost not yet known; ${cents(job.reserved_cents)} stays reserved`;
   if (job.usage_state === "unknown")
     return `Unknown: ${cents(job.reserved_cents)} stays reserved until it is reconciled`;
   return job.dispatched ? "Not reported yet" : "None: nothing was sent";
@@ -52,6 +58,14 @@ function describe(e: BuildEventRow): string {
       return String(d.message ?? "");
     case "usage":
       return `Usage reported: ${d.input_tokens} in / ${d.output_tokens} out tokens, ${cents(Number(d.cents))}`;
+    case "usage_final":
+      return `Final usage receipt: ${d.input_tokens} in / ${d.output_tokens} out tokens`;
+    case "usage_duplicate":
+      return "The same final receipt again; counted once";
+    case "usage_mismatch":
+      return "A receipt disagreed with earlier usage; the higher figure is kept";
+    case "usage_after_final":
+      return "Usage reported after the final receipt; ignored";
     case "output_received":
       return "Output received";
     case "validating":

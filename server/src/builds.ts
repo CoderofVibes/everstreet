@@ -1,15 +1,18 @@
-// Durable build jobs. A job builds one immutable product revision with one provider under a
-// budget reserved before anything is dispatched. Workers claim jobs atomically and every
-// worker write is fenced by (attempt, lease owner, live state), so a cancelled, timed-out or
-// superseded worker can never record success. Dispatch intent is persisted before the
-// provider is called; after a restart, work that was never dispatched is safely requeued and
-// work that may have reached the provider is held for reconciliation, never re-run on its own.
-// Ownership is captured at request time and rechecked before claiming and before applying
-// output; a job requested under a former owner is fenced as soon as the change is observed.
-// Build-time usage is its own ledger ("build"), separate from any customer runtime usage.
+// Durable build jobs. A job builds one immutable product revision with one pinned provider
+// configuration under a budget reserved before anything is dispatched. Workers claim jobs
+// atomically and every worker write is fenced by (attempt, lease owner, unexpired lease, live
+// state), so a cancelled, expired or superseded worker can never dispatch or record success.
+// Dispatch intent is persisted before the provider is called; after a restart or a lapsed
+// lease, work that was never dispatched is requeued and work that may have reached the
+// provider is held for reconciliation, never re-run on its own. Usage is settled only by the
+// provider's complete receipt; partial reports and silence keep the reservation held. Usage
+// over the request's limits stops the attempt and its output is never used. Ownership is
+// captured at request time and rechecked before claiming, before dispatch, on every stream
+// event, in quiet heartbeats and before applying output. Build-time usage is its own ledger
+// ("build"), separate from any customer runtime usage.
 
 import { createHash, randomUUID } from "node:crypto";
-import { validateArtifact } from "./artifacts.ts";
+import { MAX_ARTIFACT_BYTES, validateArtifact } from "./artifacts.ts";
 import {
   type BuildAvailability,
   type BuildEvent,
@@ -17,7 +20,9 @@ import {
   type BuildPricing,
   type BuildProvider,
   buildAvailability,
-  costCents,
+  ceilCents,
+  costMicroCents,
+  validPricing,
   worstCaseCents,
 } from "./build.ts";
 import type { Db } from "./db.ts";
@@ -32,6 +37,8 @@ export const BUILD_LIMITS = {
   maxCostCents: 100_000,
   maxBudgetCents: 1_000_000,
   eventsPage: 100,
+  /** Largest token count accepted in any one usage report. */
+  maxReportedTokens: 1_000_000_000,
 } as const;
 
 export type JobState =
@@ -53,6 +60,9 @@ export interface BuildBudget {
   max_cost_cents: number;
 }
 
+/** How much of the attempt's usage is known. */
+export type UsageView = "none" | "partial" | "final" | "unknown";
+
 interface JobRow {
   id: string;
   project_id: string;
@@ -63,6 +73,7 @@ interface JobRow {
   idempotency_key: string;
   fingerprint: string;
   provider: string;
+  provider_config: string;
   budget: string;
   pricing: string;
   retry_of: string | null;
@@ -80,7 +91,9 @@ interface JobRow {
   failure_detail: string | null;
   reserved_cents: number;
   charged_cents: number;
+  charged_microcents: number;
   usage_state: "none" | "reported" | "unknown";
+  usage_final: number;
   input_tokens: number;
   output_tokens: number;
   event_count: number;
@@ -148,6 +161,21 @@ export function parseBudget(input: unknown): BuildBudget {
 
 const KEY = /^[A-Za-z0-9_-]{8,80}$/;
 
+/** A token count a provider may report: a safe, non-negative, bounded integer. */
+const tokenCount = (n: unknown): n is number =>
+  typeof n === "number" && Number.isSafeInteger(n) && n >= 0 && n <= BUILD_LIMITS.maxReportedTokens;
+
+/** The provider configuration a job is pinned to: identity and prices, never secrets. */
+export function providerConfig(provider: BuildProvider) {
+  const i = provider.identity();
+  return canon({
+    id: String(i.id).slice(0, 80),
+    model: String(i.model).slice(0, 120),
+    version: String(i.version).slice(0, 80),
+    pricing: provider.pricing(),
+  });
+}
+
 // ---------- the service ----------
 
 export interface BuildsOptions {
@@ -194,13 +222,13 @@ export class Builds {
     const j = this.db.prepare("SELECT event_count FROM build_jobs WHERE id = ?").get(job.id) as {
       event_count: number;
     };
-    if (type === "progress") {
+    if (type === "progress" || type === "ignored") {
       const kept = (
         this.db
-          .prepare("SELECT COUNT(*) AS n FROM build_events WHERE job_id = ? AND type = 'progress'")
-          .get(job.id) as { n: number }
+          .prepare("SELECT COUNT(*) AS n FROM build_events WHERE job_id = ? AND type = ?")
+          .get(job.id, type) as { n: number }
       ).n;
-      if (kept >= this.maxProgressEvents) return;
+      if (kept >= (type === "progress" ? this.maxProgressEvents : 5)) return;
     }
     const payload = JSON.stringify(data);
     const seq = j.event_count + 1;
@@ -264,8 +292,9 @@ export class Builds {
   }
 
   /**
-   * Ends a job for good, in the caller's transaction. Usage is settled truthfully: reported
-   * usage releases the reservation; dispatched work without a usage report keeps it held.
+   * Ends a job for good, in the caller's transaction. The reservation is released only when
+   * nothing was dispatched, or when the provider's complete usage receipt arrived. Partial
+   * reports or silence after dispatch leave it held as unresolved.
    */
   finish(
     job: JobRow,
@@ -274,9 +303,18 @@ export class Builds {
   ) {
     const fresh = this.row(job.id) as JobRow;
     let usage = fresh.usage_state;
-    if (fresh.dispatched_at && usage !== "reported") {
-      usage = "unknown";
-      this.ledger(job.id, fresh.attempt, "unknown", null, "Dispatched without a usage report");
+    const complete = fresh.usage_final === 1;
+    if (fresh.dispatched_at && !complete) {
+      if (usage === "none") usage = "unknown";
+      this.ledger(
+        job.id,
+        fresh.attempt,
+        "unknown",
+        null,
+        usage === "reported"
+          ? "Usage incomplete: no final receipt"
+          : "Dispatched without a usage report",
+      );
     }
     this.db
       .prepare(
@@ -292,8 +330,8 @@ export class Builds {
         job.id,
       );
     if (!fresh.dispatched_at) this.release(fresh, fresh.attempt, "Never dispatched");
-    else if (usage === "reported" && state !== "needs_reconciliation")
-      this.release(fresh, fresh.attempt, "Usage reported");
+    else if (complete && state !== "needs_reconciliation")
+      this.release(fresh, fresh.attempt, "Final usage receipt");
     this.event(job, fresh.attempt, state, failure ? { code: failure.code } : {});
   }
 
@@ -324,12 +362,21 @@ export class Builds {
   // ---------- budgets ----------
 
   committed(businessId: string) {
-    const r = this.db
+    return this.db
       .prepare(
-        "SELECT COALESCE(SUM(reserved_cents), 0) AS held, COALESCE(SUM(charged_cents), 0) AS charged, COALESCE(SUM(CASE WHEN usage_state = 'unknown' THEN reserved_cents ELSE 0 END), 0) AS unresolved FROM build_jobs WHERE business_id = ?",
+        `SELECT COALESCE(SUM(reserved_cents), 0) AS held, COALESCE(SUM(charged_cents), 0) AS charged,
+           COALESCE(SUM(charged_microcents), 0) AS charged_micro,
+           COALESCE(SUM(CASE WHEN dispatched_at IS NOT NULL AND usage_final = 0
+             AND state IN ('succeeded','failed','cancelled','needs_reconciliation')
+             THEN reserved_cents ELSE 0 END), 0) AS unresolved
+         FROM build_jobs WHERE business_id = ?`,
       )
-      .get(businessId) as { held: number; charged: number; unresolved: number };
-    return r;
+      .get(businessId) as {
+      held: number;
+      charged: number;
+      charged_micro: number;
+      unresolved: number;
+    };
   }
 
   budget(viewer: Person, businessId: string) {
@@ -346,8 +393,11 @@ export class Builds {
       limit_cents: row?.limit_cents ?? null,
       reserved_cents: c.held,
       charged_cents: c.charged,
+      charged_microcents: c.charged_micro,
       unresolved_cents: c.unresolved,
       available_cents: row ? Math.max(0, row.limit_cents - c.held - c.charged) : null,
+      basis:
+        "Charges are computed from reported tokens at the declared prices, rounded up per job; they are not a provider invoice.",
       ledger: "build" as const,
     };
   }
@@ -405,22 +455,22 @@ export class Builds {
       .prepare("SELECT content_hash FROM product_revisions WHERE project_id = ? AND number = ?")
       .get(project.id, revision) as { content_hash: string } | undefined;
     if (!rev) throw new HttpError(404, "No such revision");
-    const providerId = this.provider?.id ?? "none";
+
+    const existing = () =>
+      this.db
+        .prepare("SELECT * FROM build_jobs WHERE project_id = ? AND idempotency_key = ?")
+        .get(project.id, key) as unknown as JobRow | undefined;
+    // The request as asked, without the provider: a duplicate is recognized even if the
+    // provider has since changed, and a different request under the same key is a conflict.
     const fingerprint = sha(
       canon({
         revision,
         content_hash: rev.content_hash,
         intent,
         budget,
-        provider: providerId,
         retry_of: retryOf?.id ?? null,
       }),
     );
-
-    const existing = () =>
-      this.db
-        .prepare("SELECT * FROM build_jobs WHERE project_id = ? AND idempotency_key = ?")
-        .get(project.id, key) as unknown as JobRow | undefined;
     const same = (j: JobRow) => {
       if (j.fingerprint !== fingerprint)
         throw new HttpError(
@@ -435,7 +485,9 @@ export class Builds {
     const availability = this.availability();
     if (!availability.available || !this.provider) throw new HttpError(409, availability.reason);
     const pricing = this.provider.pricing();
-    if (!pricing) throw new HttpError(409, "The build provider has no declared prices");
+    if (!validPricing(pricing))
+      throw new HttpError(409, "The build provider's prices are not usable");
+    const config = providerConfig(this.provider);
     const limits: BuildLimits = {
       maxInputTokens: budget.max_input_tokens,
       maxOutputTokens: budget.max_output_tokens,
@@ -467,8 +519,8 @@ export class Builds {
         const t = this.iso();
         this.db
           .prepare(
-            `INSERT INTO build_jobs (id, project_id, business_id, revision, content_hash, intent, idempotency_key, fingerprint, provider, budget, pricing, retry_of, requested_by, owner_id, owner_generation, state, reserved_cents, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)`,
+            `INSERT INTO build_jobs (id, project_id, business_id, revision, content_hash, intent, idempotency_key, fingerprint, provider, provider_config, budget, pricing, retry_of, requested_by, owner_id, owner_generation, state, reserved_cents, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)`,
           )
           .run(
             id,
@@ -479,7 +531,8 @@ export class Builds {
             intent,
             key,
             fingerprint,
-            providerId,
+            this.provider?.id ?? "none",
+            config,
             JSON.stringify(budget),
             JSON.stringify(pricing),
             retryOf?.id ?? null,
@@ -535,14 +588,10 @@ export class Builds {
     const job = this.ownedJob(viewer, jobId);
     if (!["failed", "cancelled", "needs_reconciliation"].includes(job.state))
       throw new HttpError(409, "Only a failed, cancelled or unreconciled build can be retried");
-    if (
-      job.dispatched_at &&
-      job.usage_state !== "reported" &&
-      input.acknowledge_unknown_cost !== true
-    )
+    if (job.dispatched_at && job.usage_final !== 1 && input.acknowledge_unknown_cost !== true)
       throw new HttpError(
         409,
-        "The earlier attempt may have reached the provider and cost money. Confirm that a new, separately reserved attempt is wanted (acknowledge_unknown_cost).",
+        "The earlier attempt may have reached the provider and its full cost is not known. Confirm that a new, separately reserved attempt is wanted (acknowledge_unknown_cost).",
       );
     return this.request(
       viewer,
@@ -563,9 +612,10 @@ export class Builds {
     const rows = this.db
       .prepare("SELECT * FROM build_jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT 50")
       .all(project.id) as unknown as JobRow[];
+    const availability = this.availability();
     return {
-      availability: this.availability(),
-      pricing: this.availability().available ? (this.provider?.pricing() ?? null) : null,
+      availability,
+      pricing: availability.available ? (this.provider?.pricing() ?? null) : null,
       budget: this.budgetView(project.business_id),
       limits: BUILD_LIMITS,
       jobs: rows.map((r) => this.view(r)),
@@ -600,6 +650,13 @@ export class Builds {
     };
   }
 
+  usageView(job: JobRow): UsageView {
+    if (job.usage_final === 1) return "final";
+    if (job.usage_state === "reported") return "partial";
+    if (job.usage_state === "unknown" || job.dispatched_at) return "unknown";
+    return "none";
+  }
+
   view(job: JobRow, withArtifact = false) {
     const requester = this.db
       .prepare("SELECT display_name FROM people WHERE id = ?")
@@ -623,7 +680,7 @@ export class Builds {
               }
             | undefined)
         : undefined;
-    const unknownCost = Boolean(job.dispatched_at) && job.usage_state !== "reported";
+    const config = job.provider_config ? (JSON.parse(job.provider_config) as object) : null;
     return {
       id: job.id,
       project_id: job.project_id,
@@ -631,12 +688,14 @@ export class Builds {
       content_hash: job.content_hash,
       intent: job.intent,
       provider: job.provider,
+      provider_config: config,
       state: job.state,
       attempt: job.attempt,
       budget: JSON.parse(job.budget) as BuildBudget,
       reserved_cents: job.reserved_cents,
       charged_cents: job.charged_cents,
-      usage_state: job.usage_state,
+      charged_microcents: job.charged_microcents,
+      usage_state: this.usageView(job),
       input_tokens: job.input_tokens,
       output_tokens: job.output_tokens,
       dispatched: Boolean(job.dispatched_at),
@@ -661,7 +720,7 @@ export class Builds {
       event_count: job.event_count,
       can_cancel: LIVE.includes(job.state),
       can_retry: ["failed", "cancelled", "needs_reconciliation"].includes(job.state),
-      retry_needs_ack: unknownCost,
+      retry_needs_ack: Boolean(job.dispatched_at) && job.usage_final !== 1,
       created_at: job.created_at,
       started_at: job.started_at,
       finished_at: job.finished_at,
@@ -677,18 +736,30 @@ export interface WorkerOptions {
   maxConcurrent?: number;
   /** How long a claim stays valid without a heartbeat. */
   leaseMs?: number;
+  /** Real milliseconds between heartbeats; defaults to a third of the lease, at least 1 s. */
+  heartbeatMs?: number;
   /** Real milliseconds per budget second (1000); tests shrink it to exercise timeouts. */
   msPerSecond?: number;
+  /** Most events read from one provider stream before the attempt is stopped. */
+  maxStreamEvents?: number;
 }
 
 class Stale extends Error {}
-type Abort = "cancelled" | "fenced" | "timeout";
+
+/** Why an attempt stopped early, and what to tell the founder. */
+type StopReason =
+  | { kind: "cancelled" }
+  | { kind: "fenced" }
+  | { kind: "timeout" }
+  | { kind: "fail"; code: string; detail: string };
 
 export class BuildWorker {
   readonly id: string;
   readonly maxConcurrent: number;
   readonly leaseMs: number;
+  readonly heartbeatMs: number;
   readonly msPerSecond: number;
+  readonly maxStreamEvents: number;
 
   constructor(
     private readonly builds: Builds,
@@ -698,7 +769,9 @@ export class BuildWorker {
     this.id = options.id ?? `worker-${randomUUID()}`;
     this.maxConcurrent = options.maxConcurrent ?? 1;
     this.leaseMs = options.leaseMs ?? 30_000;
+    this.heartbeatMs = options.heartbeatMs ?? Math.max(1000, Math.floor(this.leaseMs / 3));
     this.msPerSecond = options.msPerSecond ?? 1000;
+    this.maxStreamEvents = options.maxStreamEvents ?? 1000;
   }
 
   private get db() {
@@ -707,7 +780,8 @@ export class BuildWorker {
 
   /**
    * After a restart (`orphanAll`) or when leases lapse: never-dispatched work goes back to the
-   * queue; work that may have reached the provider is held for reconciliation, not re-run.
+   * queue (or ends, if a cancel was pending); work that may have reached the provider is held
+   * for reconciliation, not re-run.
    */
   recover(options: { orphanAll?: boolean } = {}) {
     const b = this.builds;
@@ -798,7 +872,10 @@ export class BuildWorker {
     }
   }
 
-  /** Runs one write only if this worker still holds this attempt of a live job. */
+  /**
+   * Runs one write only if this worker still holds this attempt of a live job under an
+   * unexpired lease, and renews the lease. An expired lease is never revived.
+   */
   private guarded<T>(jobId: string, attempt: number, fn: (job: JobRow) => T): T {
     const b = this.builds;
     return b.store.tx(() => {
@@ -807,7 +884,9 @@ export class BuildWorker {
         !job ||
         job.attempt !== attempt ||
         job.lease_owner !== this.id ||
-        (job.state !== "running" && job.state !== "validating")
+        (job.state !== "running" && job.state !== "validating") ||
+        !job.lease_expires_at ||
+        Date.parse(job.lease_expires_at) <= b.now()
       )
         throw new Stale();
       this.db
@@ -839,27 +918,32 @@ export class BuildWorker {
       | undefined;
     const controller = new AbortController();
     // An object, not a let: it is changed from callbacks while this function awaits.
-    const stop: { reason: Abort | null } = { reason: null };
-    const abort = (why: Abort) => {
+    const stop: { reason: StopReason | null } = { reason: null };
+    const abort = (reason: StopReason) => {
       if (stop.reason) return;
-      stop.reason = why;
-      controller.abort(why);
+      stop.reason = reason;
+      controller.abort(reason.kind);
     };
-    b.active.set(job.id, abort);
-    const timer = setTimeout(() => abort("timeout"), budget.max_seconds * this.msPerSecond);
-    timer.unref?.();
-    // Keep the lease alive while a provider is quiet; losing it means another worker or a
-    // recovery has taken over, so this attempt stops.
-    const heartbeat = setInterval(
-      () => {
-        try {
-          this.guarded(job.id, attempt, () => undefined);
-        } catch (e) {
-          if (e instanceof Stale) abort("fenced");
-        }
-      },
-      Math.max(1000, Math.floor(this.leaseMs / 3)),
+    const external = (why: "cancelled" | "fenced") => abort({ kind: why });
+    b.active.set(job.id, external);
+    const timer = setTimeout(
+      () => abort({ kind: "timeout" }),
+      budget.max_seconds * this.msPerSecond,
     );
+    timer.unref?.();
+    // Quiet heartbeats keep the lease, and notice a cancel or a change of owner even when the
+    // provider says nothing. Losing the lease stops this attempt.
+    const heartbeat = setInterval(() => {
+      try {
+        const seen = this.guarded(job.id, attempt, (j) =>
+          b.isStaleOwner(j) ? "stale" : j.cancel_requested_at ? "cancel" : "ok",
+        );
+        if (seen === "stale") b.fenceStale(job.business_id);
+        else if (seen === "cancel") abort({ kind: "cancelled" });
+      } catch (e) {
+        if (e instanceof Stale) abort({ kind: "fenced" });
+      }
+    }, this.heartbeatMs);
     heartbeat.unref?.();
     try {
       // Last checks, then record the intent to dispatch before anything is sent.
@@ -867,6 +951,9 @@ export class BuildWorker {
         if (b.isStaleOwner(j)) return "fenced" as const;
         if (j.cancel_requested_at) return "cancelled" as const;
         if (!snapshot || snapshot.content_hash !== j.content_hash) return "missing" as const;
+        if (this.provider.id !== j.provider || providerConfig(this.provider) !== j.provider_config)
+          return "changed" as const;
+        if (!this.provider.availability().available) return "unavailable" as const;
         this.db
           .prepare("UPDATE build_jobs SET dispatched_at = ?, updated_at = ? WHERE id = ?")
           .run(b.iso(), b.iso(), j.id);
@@ -881,6 +968,22 @@ export class BuildWorker {
         return this.end(job.id, attempt, "cancelled", "cancelled", "Cancelled before it ran");
       if (ready === "missing" || !snapshot)
         return this.end(job.id, attempt, "failed", "revision_missing", "The revision changed");
+      if (ready === "changed")
+        return this.end(
+          job.id,
+          attempt,
+          "failed",
+          "provider_changed",
+          "The build provider or its prices changed after this build was requested. Nothing was sent; start a new build to use the current provider.",
+        );
+      if (ready === "unavailable")
+        return this.end(
+          job.id,
+          attempt,
+          "failed",
+          "provider_unavailable",
+          "The build provider was not available. Nothing was sent; start a new build when it is.",
+        );
 
       const stream = this.provider.start(
         {
@@ -905,11 +1008,18 @@ export class BuildWorker {
         },
         controller.signal,
       );
-      const outputs = await this.consume(job.id, attempt, stream, controller.signal, pricing);
-      if (stop.reason === "fenced") return;
-      if (stop.reason === "cancelled")
-        return this.end(job.id, attempt, "cancelled", "cancelled", "Cancelled while running");
-      if (stop.reason === "timeout")
+      const result = await this.consume(job.id, attempt, stream, controller.signal, pricing, abort);
+      const reason = stop.reason as StopReason | null;
+      if (reason?.kind === "fenced") return;
+      if (reason?.kind === "cancelled")
+        return this.end(
+          job.id,
+          attempt,
+          "cancelled",
+          "cancelled",
+          "Stopped; the final cost is not yet known unless shown",
+        );
+      if (reason?.kind === "timeout")
         return this.end(
           job.id,
           attempt,
@@ -917,9 +1027,10 @@ export class BuildWorker {
           "timeout",
           `Stopped after ${budget.max_seconds} seconds`,
         );
-      if (outputs.error)
-        return this.end(job.id, attempt, "failed", "provider_error", outputs.error);
-      if (outputs.artifacts.length === 0)
+      if (reason?.kind === "fail")
+        return this.end(job.id, attempt, "failed", reason.code, reason.detail);
+      if (result.error) return this.end(job.id, attempt, "failed", "provider_error", result.error);
+      if (result.artifact === undefined)
         return this.end(
           job.id,
           attempt,
@@ -927,25 +1038,16 @@ export class BuildWorker {
           "no_output",
           "The provider finished without an artifact",
         );
-      if (outputs.artifacts.length > 1)
-        return this.end(
-          job.id,
-          attempt,
-          "failed",
-          "invalid_output",
-          "The provider returned more than one artifact",
-        );
-      this.validateAndApply(job.id, attempt, outputs.artifacts[0], JSON.parse(snapshot.prototype));
+      this.validateAndApply(job.id, attempt, result.artifact, JSON.parse(snapshot.prototype));
     } catch (e) {
-      if (e instanceof Stale) {
-        controller.abort("fenced");
-        return;
-      }
-      throw e;
+      if (!(e instanceof Stale)) throw e;
+      controller.abort("fenced");
+      // The claim lapsed or was taken over. Settle any expired claim by whether it was sent.
+      this.recover();
     } finally {
       clearTimeout(timer);
       clearInterval(heartbeat);
-      if (b.active.get(job.id) === abort) b.active.delete(job.id);
+      if (b.active.get(job.id) === external) b.active.delete(job.id);
     }
   }
 
@@ -955,10 +1057,12 @@ export class BuildWorker {
     stream: AsyncIterable<BuildEvent>,
     signal: AbortSignal,
     pricing: BuildPricing,
+    abort: (reason: StopReason) => void,
   ) {
     const b = this.builds;
-    const artifacts: unknown[] = [];
+    let artifact: unknown;
     let error: string | null = null;
+    let count = 0;
     const it = stream[Symbol.asyncIterator]();
     const aborted = new Promise<"aborted">((resolve) => {
       if (signal.aborted) resolve("aborted");
@@ -970,26 +1074,66 @@ export class BuildWorker {
         // If the abort wins the race, a later rejection from the provider is not unhandled.
         pending.catch(() => {});
         const next = await Promise.race([pending, aborted]);
-        if (next === "aborted" || signal.aborted) break;
-        if (next.done) break;
-        const ev = next.value;
-        const cancelled = this.guarded(jobId, attempt, (j) => {
-          if (ev?.type === "progress")
-            b.event(j, attempt, "progress", { message: redact(ev.message, 200) });
-          else if (ev?.type === "usage") this.recordUsage(j, attempt, ev, pricing);
-          else if (ev?.type === "output") {
-            artifacts.push(ev.artifact);
-            b.event(j, attempt, "output_received", {});
-          } else b.event(j, attempt, "ignored", { reason: "Unknown event from the provider" });
-          return Boolean(j.cancel_requested_at) || b.isStaleOwner(j);
-        });
-        if (cancelled) {
-          const j = b.row(jobId) as JobRow;
-          // A change of owner fences the job in the database too (which also aborts this run).
-          if (b.isStaleOwner(j)) b.fenceStale(j.business_id);
-          else b.active.get(jobId)?.("cancelled");
+        if (next === "aborted" || signal.aborted || next.done) break;
+        count++;
+        // A stream that never waits must still let cancels, timers and requests run.
+        if (count % 25 === 0) await new Promise<void>((r) => setImmediate(r));
+        if (count > this.maxStreamEvents) {
+          abort({
+            kind: "fail",
+            code: "stream_limit",
+            detail: `The provider sent more than ${this.maxStreamEvents} events; the attempt was stopped`,
+          });
           break;
         }
+        const ev = next.value as BuildEvent | undefined;
+        const seen = this.guarded(jobId, attempt, (j) => {
+          if (ev?.type === "progress")
+            b.event(j, attempt, "progress", { message: redact(ev.message, 200) });
+          else if (ev?.type === "usage" || ev?.type === "usage_final") {
+            const stopped = this.recordUsage(j, attempt, ev, pricing);
+            if (stopped) abort(stopped);
+          } else if (ev?.type === "output") {
+            if (artifact !== undefined) {
+              abort({
+                kind: "fail",
+                code: "invalid_output",
+                detail: "The provider returned more than one artifact",
+              });
+            } else {
+              let size = 0;
+              try {
+                size =
+                  typeof ev.artifact === "string"
+                    ? Buffer.byteLength(ev.artifact, "utf8")
+                    : Buffer.byteLength(JSON.stringify(ev.artifact) ?? "", "utf8");
+              } catch {
+                size = Number.POSITIVE_INFINITY;
+              }
+              if (size > MAX_ARTIFACT_BYTES)
+                abort({
+                  kind: "fail",
+                  code: "invalid_output",
+                  detail: "The output is larger than 64 KB",
+                });
+              else {
+                artifact = ev.artifact;
+                b.event(j, attempt, "output_received", { bytes: size });
+              }
+            }
+          } else b.event(j, attempt, "ignored", { reason: "Unknown event from the provider" });
+          return b.isStaleOwner(j) ? "stale" : j.cancel_requested_at ? "cancel" : "ok";
+        });
+        if (seen === "stale") {
+          // A change of owner fences the job in the database too (which also aborts this run).
+          b.fenceStale((b.row(jobId) as JobRow).business_id);
+          break;
+        }
+        if (seen === "cancel") {
+          abort({ kind: "cancelled" });
+          break;
+        }
+        if (signal.aborted) break;
       }
     } catch (e) {
       if (e instanceof Stale) throw e;
@@ -998,40 +1142,90 @@ export class BuildWorker {
       // Ask the provider to stop; don't wait on one that ignores it.
       void Promise.resolve(it.return?.()).catch(() => {});
     }
-    return { artifacts, error };
+    return { artifact, error };
   }
 
+  /**
+   * Records a usage report in the caller's transaction and says whether to stop. Deltas add
+   * to the totals; the final receipt sets them (never below what was already reported) and
+   * settles usage. Known spend is always recorded before any stop.
+   */
   private recordUsage(
     job: JobRow,
     attempt: number,
-    ev: { inputTokens: number; outputTokens: number },
+    ev: { type: "usage" | "usage_final"; inputTokens: number; outputTokens: number },
     pricing: BuildPricing,
-  ) {
+  ): StopReason | null {
     const b = this.builds;
-    const okInt = (n: unknown) => typeof n === "number" && Number.isInteger(n) && n >= 0;
-    if (!okInt(ev.inputTokens) || !okInt(ev.outputTokens)) {
+    if (!tokenCount(ev.inputTokens) || !tokenCount(ev.outputTokens)) {
       b.event(job, attempt, "usage_unreadable", {});
-      return;
+      return {
+        kind: "fail",
+        code: "invalid_usage",
+        detail:
+          "The provider reported usage that is not a valid token count; the attempt was stopped",
+      };
     }
-    const input = job.input_tokens + ev.inputTokens;
-    const output = job.output_tokens + ev.outputTokens;
-    const charged = costCents(pricing, input, output);
-    const cents = charged - job.charged_cents;
+    let input = job.input_tokens;
+    let output = job.output_tokens;
+    if (ev.type === "usage") {
+      if (job.usage_final === 1) {
+        b.event(job, attempt, "usage_after_final", {});
+        return null;
+      }
+      input += ev.inputTokens;
+      output += ev.outputTokens;
+    } else {
+      if (job.usage_final === 1) {
+        const same = ev.inputTokens === job.input_tokens && ev.outputTokens === job.output_tokens;
+        b.event(job, attempt, same ? "usage_duplicate" : "usage_mismatch", {
+          input_tokens: ev.inputTokens,
+          output_tokens: ev.outputTokens,
+        });
+        if (same) return null;
+      } else if (ev.inputTokens < input || ev.outputTokens < output)
+        b.event(job, attempt, "usage_mismatch", {
+          detail:
+            "The final receipt is lower than the usage already reported; the higher figure is kept",
+        });
+      input = Math.max(input, ev.inputTokens);
+      output = Math.max(output, ev.outputTokens);
+    }
+    const micro = costMicroCents(pricing, input, output);
+    const cents = ceilCents(micro);
     this.db
       .prepare(
-        "UPDATE build_jobs SET input_tokens = ?, output_tokens = ?, charged_cents = ?, usage_state = 'reported' WHERE id = ?",
+        "UPDATE build_jobs SET input_tokens = ?, output_tokens = ?, charged_microcents = ?, charged_cents = ?, usage_state = 'reported', usage_final = CASE WHEN ? THEN 1 ELSE usage_final END WHERE id = ?",
       )
-      .run(input, output, charged, job.id);
-    b.ledger(job.id, attempt, "actual", cents, "Reported by the provider", {
-      input: ev.inputTokens,
-      output: ev.outputTokens,
+      .run(input, output, micro, cents, ev.type === "usage_final" ? 1 : 0, job.id);
+    b.ledger(
+      job.id,
+      attempt,
+      "actual",
+      cents - job.charged_cents,
+      ev.type === "usage_final" ? "Final receipt from the provider" : "Provisional usage report",
+      { input: input - job.input_tokens, output: output - job.output_tokens },
+    );
+    b.event(job, attempt, ev.type === "usage_final" ? "usage_final" : "usage", {
+      input_tokens: input,
+      output_tokens: output,
+      cents,
     });
-    b.event(job, attempt, "usage", { input_tokens: input, output_tokens: output, cents: charged });
     const budget = JSON.parse(job.budget) as BuildBudget;
-    if (input > budget.max_input_tokens || output > budget.max_output_tokens)
+    if (input > budget.max_input_tokens || output > budget.max_output_tokens) {
       b.event(job, attempt, "limit_exceeded", {
-        detail: "The provider reported more tokens than the request allowed",
+        input_tokens: input,
+        output_tokens: output,
+        max_input_tokens: budget.max_input_tokens,
+        max_output_tokens: budget.max_output_tokens,
       });
+      return {
+        kind: "fail",
+        code: "limit_exceeded",
+        detail: `The provider used ${input} input and ${output} output tokens, over this build's limits of ${budget.max_input_tokens} and ${budget.max_output_tokens}. The attempt was stopped and its output is not used; the usage is still recorded.`,
+      };
+    }
+    return null;
   }
 
   private end(
@@ -1045,6 +1239,7 @@ export class BuildWorker {
       this.guarded(jobId, attempt, (j) => this.builds.finish(j, state, { code, detail }));
     } catch (e) {
       if (!(e instanceof Stale)) throw e;
+      this.recover();
     }
   }
 
@@ -1085,7 +1280,7 @@ export class BuildWorker {
             JSON.stringify(result.checks),
             JSON.stringify({
               schema: "extraction_spec/1",
-              provider: j.provider,
+              provider: JSON.parse(j.provider_config || "{}"),
               job: j.id,
               attempt,
               project: j.project_id,
@@ -1104,12 +1299,12 @@ export class BuildWorker {
         b.finish(j, "succeeded", null);
       });
     } catch (e) {
-      if (e instanceof Stale) {
-        const j = b.row(jobId);
-        if (j && LIVE.includes(j.state)) b.fenceStale(j.business_id);
-        return;
+      if (!(e instanceof Stale)) throw e;
+      const j = b.row(jobId);
+      if (j && LIVE.includes(j.state)) {
+        if (b.isStaleOwner(j)) b.fenceStale(j.business_id);
+        else this.recover();
       }
-      throw e;
     }
   }
 }

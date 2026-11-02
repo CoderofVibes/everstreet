@@ -9,24 +9,32 @@ import { describe, expect, it } from "vitest";
 import { everstreetApi } from "../src/app.ts";
 import { canonicalJson } from "../src/artifacts.ts";
 import type { BuildEvent, BuildProvider, BuildRequest } from "../src/build.ts";
-import { Builds, BuildWorker, redact } from "../src/builds.ts";
+import { Builds, BuildWorker, redact, type WorkerOptions } from "../src/builds.ts";
 import { openDb } from "../src/db.ts";
 import { Store } from "../src/store.ts";
 
 type Script = (req: BuildRequest, signal: AbortSignal) => AsyncIterable<BuildEvent>;
 
 class Scripted implements BuildProvider {
-  readonly id = "scripted-test";
   calls: BuildRequest[] = [];
   aborted = 0;
   priced = true;
-  constructor(public script: Script = succeed()) {}
+  available = true;
+  model = "scripted-model";
+  inputPrice: number = 300;
+  constructor(
+    public script: Script = succeed(),
+    readonly id = "scripted-test",
+  ) {}
+  identity() {
+    return { id: this.id, model: this.model, version: "1" };
+  }
   availability() {
-    return { available: true, provider: this.id, reason: "Scripted test provider" };
+    return { available: this.available, provider: this.id, reason: "Scripted test provider" };
   }
   pricing() {
     return this.priced
-      ? { inputCentsPerMillionTokens: 300, outputCentsPerMillionTokens: 1500 }
+      ? { inputCentsPerMillionTokens: this.inputPrice, outputCentsPerMillionTokens: 1500 }
       : null;
   }
   start(req: BuildRequest, signal: AbortSignal) {
@@ -66,8 +74,8 @@ const SPEC = {
 function succeed(artifact: unknown = SPEC): Script {
   return async function* () {
     yield { type: "progress", message: "Drafting the fields" };
-    yield { type: "usage", inputTokens: 4000, outputTokens: 1000 };
     yield { type: "output", artifact };
+    yield { type: "usage_final", inputTokens: 4000, outputTokens: 1000 };
   };
 }
 
@@ -110,7 +118,7 @@ function world(provider: BuildProvider | null = new Scripted(), maxProgressEvent
     const me = (await res.json()) as { person: { id: string } };
     return Object.assign(as(cookie), { id: me.person.id });
   };
-  const worker = (id: string, options: { maxConcurrent?: number; leaseMs?: number } = {}) =>
+  const worker = (id: string, options: WorkerOptions = {}) =>
     new BuildWorker(builds, provider as BuildProvider, { id, msPerSecond: 1, ...options });
   return { store, builds, clock, join, anon: as(""), worker };
 }
@@ -306,8 +314,9 @@ describe("build worker", () => {
   it("builds a validated artifact from the revision snapshot, with usage and events", async () => {
     const provider = new Scripted(async function* () {
       yield { type: "progress", message: "Using api_key=sk-test-1234567890abcdef to draft" };
-      yield { type: "usage", inputTokens: 4000, outputTokens: 1000 };
+      yield { type: "usage", inputTokens: 1000, outputTokens: 200 };
       yield { type: "output", artifact: JSON.stringify(SPEC) };
+      yield { type: "usage_final", inputTokens: 4000, outputTokens: 1000 };
     });
     const w = world(provider);
     const ava = await w.join("Ava Chen");
@@ -329,10 +338,11 @@ describe("build worker", () => {
     expect(done).toMatchObject({
       state: "succeeded",
       artifact_digest: digest,
-      usage_state: "reported",
+      usage_state: "final",
       input_tokens: 4000,
       output_tokens: 1000,
-      charged_cents: 3, // 1.2 + 1.5 rounded up
+      charged_microcents: 2_700_000, // 4,000 × 300 + 1,000 × 1,500 = 2.7 cents exactly
+      charged_cents: 3, // rounded up for the ledger
       reserved_cents: 0,
       can_cancel: false,
       can_retry: false,
@@ -341,7 +351,7 @@ describe("build worker", () => {
     expect(done.artifact.provenance).toMatchObject({
       revision: 1,
       attempt: 1,
-      provider: "scripted-test",
+      provider: { id: "scripted-test", model: "scripted-model", version: "1" },
     });
     expect(types(w, j.id)).toEqual([
       "queued",
@@ -350,6 +360,7 @@ describe("build worker", () => {
       "progress",
       "usage",
       "output_received",
+      "usage_final",
       "validating",
       "checks",
       "succeeded",
@@ -359,7 +370,7 @@ describe("build worker", () => {
     expect(events.events[0].type).toBe("progress");
     expect(events.events[0].data.message).not.toMatch(/sk-test|1234567890/);
     expect(events.events[0].data.message).toMatch(/\[redacted\]/);
-    expect(events.last_seq).toBe(9);
+    expect(events.last_seq).toBe(10);
   });
 
   it("refuses model text, malformed or unchecked output, and provider failures, without success", async () => {
@@ -409,7 +420,7 @@ describe("build worker", () => {
     }
   });
 
-  it("cancels during events, aborts the provider and keeps usage already incurred", async () => {
+  it("cancels during events: aborts, records partial usage and keeps the reservation (002a1 #1)", async () => {
     const g = gate();
     const reached = gate();
     const provider = new Scripted(async function* () {
@@ -430,15 +441,24 @@ describe("build worker", () => {
     await running;
     g.open();
     const done = (await ava(`/api/builds/${j.id}`)).body.job;
+    // A provisional report is not the whole bill: the spend so far is recorded, the
+    // reservation stays held, and a retry needs consent.
     expect(done).toMatchObject({
       state: "cancelled",
-      usage_state: "reported",
+      usage_state: "partial",
       input_tokens: 2000,
+      charged_microcents: 600_000,
       charged_cents: 1,
-      reserved_cents: 0,
+      reserved_cents: 6,
+      retry_needs_ack: true,
       artifact_digest: null,
     });
     expect(provider.aborted).toBe(1);
+    expect((await ava(`/api/businesses/${p.business}/build-budget`)).body).toMatchObject({
+      reserved_cents: 6,
+      charged_cents: 1,
+      unresolved_cents: 6,
+    });
     await ava(`/api/builds/${j.id}/cancel`, "POST");
     expect(types(w, j.id).filter((t) => t === "cancel_requested")).toHaveLength(1);
     expect(types(w, j.id).at(-1)).toBe("cancelled");

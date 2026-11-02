@@ -197,7 +197,11 @@ export interface BuildJob {
   budget: BuildBudget;
   reserved_cents: number;
   charged_cents: number;
-  usage_state: "none" | "reported" | "unknown";
+  /** Exact computed cost in millionths of a cent (tokens × declared price). */
+  charged_microcents: number;
+  /** final: the provider's complete receipt; partial: some usage, not the full bill. */
+  usage_state: "none" | "partial" | "final" | "unknown";
+  provider_config: { id?: string; model?: string; version?: string } | null;
   input_tokens: number;
   output_tokens: number;
   dispatched: boolean;

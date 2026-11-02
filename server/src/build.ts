@@ -48,23 +48,49 @@ export interface BuildRequest {
 /** What a provider may report. Everything else (state, success, cost) the platform decides. */
 export type BuildEvent =
   | { type: "progress"; message: string }
+  /** Provisional: tokens used since the previous usage event. Never proof of the full bill. */
   | { type: "usage"; inputTokens: number; outputTokens: number }
+  /** The complete receipt: total tokens billed for this attempt. Only this settles usage. */
+  | { type: "usage_final"; inputTokens: number; outputTokens: number }
   | { type: "output"; artifact: unknown };
 
 /**
+ * Non-secret identity of the configured provider. A job is pinned to the identity and prices
+ * it was requested under; a worker configured differently refuses to dispatch it.
+ */
+export interface BuildIdentity {
+  id: string;
+  model: string;
+  version: string;
+}
+
+/**
  * Provider contract:
+ * - `identity()` names the provider, model and configuration version; never a secret.
  * - `pricing()` returns declared prices or null; an unpriced provider is refused.
  * - Before sending anything, count input tokens and refuse (throw) above `maxInputTokens`.
  * - Cap generation at `maxOutputTokens` in the request to the model.
- * - Report every call's token usage as a `usage` event, including on failure if known.
+ * - Report token use as `usage` deltas while running and one `usage_final` receipt with the
+ *   attempt's billed totals. Without the receipt, usage is incomplete and stays reserved.
  * - Stop promptly when the signal aborts. Never run tools, code or URLs from model output.
  * - Throw on failure; the platform redacts and records the message.
  */
 export interface BuildProvider {
   readonly id: string;
+  identity(): BuildIdentity;
   availability(): BuildAvailability;
   pricing(): BuildPricing | null;
   start(request: BuildRequest, signal: AbortSignal): AsyncIterable<BuildEvent>;
+}
+
+/** Largest accepted price, in cents per million tokens ($100,000 per million). */
+export const MAX_PRICE = 10_000_000;
+
+/** Prices must be whole, non-negative cents per million tokens, so costs stay exact. */
+export function validPricing(p: BuildPricing | null | undefined): p is BuildPricing {
+  const ok = (n: unknown) =>
+    typeof n === "number" && Number.isSafeInteger(n) && n >= 0 && n <= MAX_PRICE;
+  return Boolean(p && ok(p.inputCentsPerMillionTokens) && ok(p.outputCentsPerMillionTokens));
 }
 
 export const NO_BUILD_PROVIDER: BuildAvailability = {
@@ -83,22 +109,30 @@ export function buildAvailability(provider: BuildProvider | null | undefined): B
       provider: provider.id,
       reason: "The build provider has no declared prices, so no budget can be reserved for it.",
     };
+  if (a.available && !validPricing(provider.pricing()))
+    return {
+      available: false,
+      provider: provider.id,
+      reason: "The build provider's declared prices are not valid whole cents per million tokens.",
+    };
   return a;
 }
 
-/** Worst-case cost in cents for the limits, rounded up. */
-export function worstCaseCents(pricing: BuildPricing, limits: BuildLimits): number {
-  return Math.ceil(
-    (limits.maxInputTokens * pricing.inputCentsPerMillionTokens +
-      limits.maxOutputTokens * pricing.outputCentsPerMillionTokens) /
-      1_000_000,
+/**
+ * Exact cost in millionths of a cent: tokens × whole cents per million tokens. Integers
+ * throughout (at the limits, at most 2.3e12), so no rounding until it is shown.
+ */
+export function costMicroCents(pricing: BuildPricing, inputTokens: number, outputTokens: number) {
+  return (
+    inputTokens * pricing.inputCentsPerMillionTokens +
+    outputTokens * pricing.outputCentsPerMillionTokens
   );
 }
 
-export function costCents(pricing: BuildPricing, inputTokens: number, outputTokens: number) {
-  return worstCaseCents(pricing, {
-    maxInputTokens: inputTokens,
-    maxOutputTokens: outputTokens,
-    maxSeconds: 0,
-  });
+/** Cents rounded up: conservative for reservations, not a provider's invoice. */
+export const ceilCents = (microCents: number) => Math.ceil(microCents / 1_000_000);
+
+/** Worst-case cost in cents for the limits, rounded up. */
+export function worstCaseCents(pricing: BuildPricing, limits: BuildLimits): number {
+  return ceilCents(costMicroCents(pricing, limits.maxInputTokens, limits.maxOutputTokens));
 }

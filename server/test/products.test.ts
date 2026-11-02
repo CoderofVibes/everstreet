@@ -414,6 +414,7 @@ describe("product studio", () => {
       id: "test-double",
       availability: () => ({ available: false, provider: "test-double", reason: "Budget not set" }),
       pricing: () => null,
+      identity: () => ({ id: "test-double", model: "none", version: "1" }),
       start: () => {
         throw new Error("never started in M1");
       },

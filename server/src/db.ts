@@ -286,6 +286,17 @@ export function openDb(path: string) {
   if (!cols.some((c) => c.name === "source")) {
     db.exec("ALTER TABLE inquiries ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'");
   }
+  // Build jobs, after the first review (job 002a1): a complete usage receipt, the exact cost,
+  // and the provider configuration a job is pinned to.
+  const jobCols = new Set(
+    (db.prepare("PRAGMA table_info(build_jobs)").all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!jobCols.has("usage_final"))
+    db.exec("ALTER TABLE build_jobs ADD COLUMN usage_final INTEGER NOT NULL DEFAULT 0");
+  if (!jobCols.has("charged_microcents"))
+    db.exec("ALTER TABLE build_jobs ADD COLUMN charged_microcents INTEGER NOT NULL DEFAULT 0");
+  if (!jobCols.has("provider_config"))
+    db.exec("ALTER TABLE build_jobs ADD COLUMN provider_config TEXT NOT NULL DEFAULT ''");
   return db;
 }
 
