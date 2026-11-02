@@ -87,12 +87,12 @@ Built from Astra's launch-pad pass, for Tony's computer rather than a phone (Ton
 ## 2026-11-02 · Phase 2: being seen, and real bookings
 
 1. **OpenSeat is a real service, not a widget.** It runs in the same process for convenience but
-   with its own database and is reached only through its HTTP API ().
+   with its own database and is reached only through its HTTP API (`server/src/bookings.ts`).
    Studios (OpenSeat's customers) sign up, get an API key once (stored hashed), and can only
    see their own classes and rosters. Customer references never appear on public pages.
-2. **Waitlist promotions are NEAR-checked in the running app.**  runs
-   OpenSeat's  as  and checks  on
-    before every drain. Without network or the key, promotions wait
+2. **Waitlist promotions are NEAR-checked in the running app.** `server/src/main.ts` runs
+   OpenSeat's `PromotionWorker` as `worker-b.everstreet.testnet` and checks `operator_check` on
+   `openseat.everstreet.testnet` before every drain. Without network or the key, promotions wait
    and the waitlist stays truthful. (OpenSeat itself is the business sold to Northline in gate 1,
    so it now runs under the buyer's worker at generation 2.)
 3. **Bookings first for classes only.** Other kinds keep honest inquiry actions until their
