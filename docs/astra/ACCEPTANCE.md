@@ -65,6 +65,15 @@ and corrected by Claude at `ff78c63`; Astra repeated 101 exchanges, recovered al
 messages across five pages and the tail shows the newest reply; 24 targeted tests pass. These are
 partial guided-creation/iteration/limit evidence, not acceptance of a real generated product.
 
+002b2 at0573248: Astra's delayed-response browser repeat preserves composer across Brief and
+Screens, preserves typed-ahead text while hidden and produces one exchange. Actor switch denies
+the project and resets unsent state. See reports/2026-11-02_002b2-browser-review.md for scope.
+
+002c through8efd51e: independent check passes280 tests and web build. Unconnected Service is
+honest; scripted results/metadata render. Three reproduced issues block keyless acceptance:
+late former-owner response, empty-only release checks, and pending request lost on tab change.
+See002c1 and reports/2026-11-02_002c-independent-review.md. Live provider gate remains pending.
+
 ## M3: commerce, performance and transfer
 
 | Gate | Observable result | Evidence/status |

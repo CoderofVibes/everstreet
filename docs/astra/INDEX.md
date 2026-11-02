@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-02 | [Runtime review](2026-11-02_RuntimeReview.md) | Independent280-test check, panel browser acceptance, five runtime reproductions and002c1 correction handoff | Active; see BUILD_STATE.md |
+| 2026-11-02 | [Runtime handoff](2026-11-02_RuntimeHandoff.md) | Independent233-test check after003b/003p; dispatched002b2 then002c to Claude | Active; see BUILD_STATE.md |
 | 2026-11-02 | [Recovery review](2026-11-02_RecoveryReview.md) | Independent in-memory acceptance readback reproduction during active003b build; no duplicate writer | Evidence handed to Claude; see BUILD_STATE.md |
 | 2026-11-02 | [Continuous development](2026-11-02_ContinuousDevelopment.md) | Tony requests active work between hourly wakes; 001a browser fixes accepted; guided authoring, managed runtime and financial jobs queued | Active; see BUILD_STATE.md |
 | 2026-11-02 | [Foundation review](2026-11-02_FoundationReview.md) | Independent 64-test pass and browser review; two correction requests; durable build-job slice and NEAR review concerns | M1 corrections and M2a queued; see BUILD_STATE.md |

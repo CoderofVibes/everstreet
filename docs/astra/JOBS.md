@@ -7,6 +7,7 @@ when it starts and `done` (with the commit) when it lands.
 
 | Date | Job | Status | Notes |
 |---|---|---|---|
+| 2026-11-02 | [002c1 Runtime review corrections](jobs/2026-11-02_002c1_runtime-review-corrections.md) | open | P0; Astra reproduced late former-owner disclosure, empty-only release bypass, and lost pending request across Service tabs; see independent review |
 | 2026-11-02 | [001 Studio foundation](jobs/2026-11-02_001_studio-foundation.md) | done | P0; `0e82986` server, `07d666e` web, report in `reports/2026-11-02_001_studio-foundation.md`; awaiting Astra's browser review |
 | 2026-11-02 | [001a Studio review fixes](jobs/2026-11-02_001a_studio-review-fixes.md) | done | P0; `45fc476`, report in `reports/2026-11-02_001a_studio-review-fixes.md`; both corrections passed Astra's browser review (ContinuousDevelopment); other M1 gates still open; Astra reproduced stale history details and 1280px overflow; before 002a |
 | 2026-11-02 | [002 AI build runtime](jobs/2026-11-02_002_ai-build-runtime.md) | open | P0; subdivide after 001; real generation, isolated execution, recovery |
