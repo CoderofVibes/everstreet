@@ -59,11 +59,24 @@ queued ─claim─► running ─dispatch─► (provider stream) ─► validat
   cancelled, recheck the owner epoch (stale ⇒ fence instead), set `running`, increment
   `attempt`, set lease owner and expiry.
 - **Fencing.** Every worker write runs in a transaction that first requires the same attempt,
-  the same lease owner and a live state, and renews the lease. A worker that lost its lease,
-  was cancelled, recovered or fenced cannot write anything, including success.
+  the same lease owner, a live state **and an unexpired lease**, and only then renews it. An
+  expired lease is never revived (002a1 #4): the attempt stops, and the job settles by
+  dispatch state (requeued if nothing was sent, held for reconciliation otherwise) without
+  waiting for another worker's recovery. A cancelled, recovered or fenced worker cannot
+  write anything, including success.
+- **Pinned provider** (002a1 #3). A job records the provider's non-secret identity (id,
+  model, version) and price snapshot. Before dispatch the worker refuses a job whose pinned
+  configuration differs from its own, or whose provider is unavailable
+  (`provider_changed` / `provider_unavailable`; nothing sent, reservation released). Choosing
+  another provider means a new request.
 - **Dispatch intent** (`dispatched_at` + `dispatched` event) is committed before the provider
   is called. The request carries the validated revision snapshot (foundation, brief,
   prototype), the limits and a `dispatchKey` of job id and attempt.
+- **Stream bounds.** At most `maxStreamEvents` events per attempt (default 1,000;
+  `stream_limit` beyond), 200 stored progress events, 5 stored unknown events, a 64 KB
+  artifact, one artifact (a second stops the attempt at once). The worker yields to the event
+  loop every 25 events so cancels and timers run during a stream that never waits. Quiet
+  heartbeats also check cancellation and ownership.
 - **Restart / lapsed lease** (`BuildWorker.recover`): not dispatched ⇒ back to `queued` (or
   `cancelled` if a cancel was pending); dispatched ⇒ `needs_reconciliation` with
   `outcome_unknown`. **A possibly dispatched paid call is never re-run automatically.** A
@@ -78,18 +91,29 @@ queued ─claim─► running ─dispatch─► (provider stream) ─► validat
 
 ## 5. Budgets and usage
 
-- A provider must declare prices (`pricing()`); unpriced providers are refused.
+- A provider must declare prices (`pricing()`) as whole cents per million tokens (safe
+  integers, ≤ 10,000,000); unpriced or invalid prices are refused.
+- Cost is computed exactly in millionths of a cent (tokens × price) and shown as such;
+  `charged_cents` rounds up for the ledger. It is computed from reported tokens at declared
+  prices, not a provider invoice.
 - Worst case = ceil(input limit × input price + output limit × output price) / 1,000,000
   cents. It must fit the request's cost limit, and the business's available budget (limit −
   reserved − charged) at request time, in the same transaction that inserts the job.
 - This is **not a hard monetary cap**. It bounds cost only if the provider honours its
   contract: count input before sending and refuse above the limit, cap generation at the
-  output limit, and report usage for every call. Reported tokens above the limits are
-  recorded as a `limit_exceeded` event.
-- Usage reported ⇒ the charge is recorded and the reservation released at the end. Dispatched
-  without a usage report ⇒ `usage_state = unknown` and **the reservation stays held**
-  ("unresolved"). Unknown is never shown as zero. Releasing an unresolved reservation needs
-  provider-side records; that reconciliation step is not built yet.
+  output limit, and report usage. Usage over the request's limits (002a1 #2) is recorded,
+  stops the attempt (`limit_exceeded`) and its output is never applied, even if already
+  received or valid. Usage that is not a safe, non-negative, bounded integer stops the
+  attempt (`invalid_usage`).
+- **Usage states** (002a1 #1): `usage` events are provisional deltas; only `usage_final`, the
+  provider's receipt of the attempt's billed totals, settles usage. `final` ⇒ the reservation
+  is released at the end. `partial` (deltas, no receipt) or `unknown` (nothing) after
+  dispatch ⇒ **the reservation stays held** ("unresolved"), whether the attempt succeeded,
+  failed, timed out or was cancelled; a retry needs explicit consent. A duplicate receipt is
+  counted once; a receipt lower than reported deltas never reduces known spend; deltas after
+  the receipt are ignored; a receipt arriving after the attempt lost authority is not
+  recorded (the job stays unresolved). Unknown is never shown as zero. Releasing an
+  unresolved reservation needs provider-side records; that reconciliation step is not built.
 
 ## 6. Accepted artifact: `extraction_spec/1`
 
