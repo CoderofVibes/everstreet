@@ -9,6 +9,11 @@ entry by Nov 12; Day One keeps priority until its Nov 13 freeze).
 - Authority model, what the sale covers, execution modes: `docs/AUTHORITY.md`
 - Decisions and flagged assumptions: `docs/DECISIONS.md`
 
+## If you are GPT-6 Astra (Codex)
+
+Read `docs/ASTRA.md` before every pass; it is your role and wins over the rest of this file.
+Write only your pass file in `docs/astra/` and its row in `docs/astra/INDEX.md`.
+
 ## Roles
 
 Tony decides brand, scope, external commitments and release. Astra (creative lead) owns concept,
