@@ -204,7 +204,12 @@ export function everstreetApi(store: Store, options: AppOptions) {
   // ---------- guided authoring: the product work log and AI proposals ----------
 
   app.get("/api/product-projects/:id/conversation", (c) =>
-    c.json(authoring.conversation(me(c), c.req.param("id"), Number(c.req.query("after") ?? 0))),
+    c.json(
+      authoring.conversation(me(c), c.req.param("id"), {
+        before: Number(c.req.query("before") ?? 0),
+        after: Number(c.req.query("after") ?? 0),
+      }),
+    ),
   );
   app.post("/api/product-projects/:id/conversation", async (c) => {
     const out = authoring.send(me(c), c.req.param("id"), await body(c));

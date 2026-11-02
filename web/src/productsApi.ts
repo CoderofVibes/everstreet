@@ -153,8 +153,11 @@ export const productsApi = {
     call<AiBudget>(`/api/businesses/${encodeURIComponent(businessId)}/build-budget`, "PUT", {
       limit_cents,
     }),
-  conversation: (projectId: string) =>
-    call<Conversation>(`/api/product-projects/${encodeURIComponent(projectId)}/conversation`),
+  /** The newest page of the work log, or with `before`, the page just older than it. */
+  conversation: (projectId: string, before?: number) =>
+    call<Conversation>(
+      `/api/product-projects/${encodeURIComponent(projectId)}/conversation${before ? `?before=${before}` : ""}`,
+    ),
   say: (projectId: string, text: string, idempotency_key: string) =>
     call<{ message: WorkLogMessage; created: boolean }>(
       `/api/product-projects/${encodeURIComponent(projectId)}/conversation`,
@@ -316,6 +319,8 @@ export interface Conversation {
   log: { label: string; note: string };
   messages: WorkLogMessage[];
   last_seq: number;
+  oldest_returned: number | null;
+  has_older: boolean;
   has_more: boolean;
   proposals: ProposalSummary[];
   pending: BuildJob | null;

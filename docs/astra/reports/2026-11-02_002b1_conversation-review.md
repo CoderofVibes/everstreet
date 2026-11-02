@@ -51,3 +51,24 @@ only to an empty box; classification of 4xx vs 5xx/no-answer. No DOM dependency 
 
 The delayed-response browser sequence, 1280/390 rendering of the work log, keyboard focus on
 the new outbox buttons.
+
+## Addendum: long work logs (Astra's `002b-followup-review.md`)
+
+Found by Astra after 002b1 was dispatched; fixed in the same component in a second commit.
+Cause confirmed: the log endpoint returned the *oldest* 200 messages and the panel never asked
+for more, so after 200 messages new exchanges were stored but invisible.
+
+- Server (`Authoring.conversation`): by default returns the newest 50 messages (the tail the
+  studio polls, which carries the latest status of recent requests); `?before=<seq>` returns
+  the page just older; `?after=<seq>` remains for forward paging. Response adds
+  `oldest_returned` and `has_older`. Polling never refetches full history.
+- Panel: **Show earlier messages** pages back from the oldest message shown (not the global
+  last sequence); pages and the polled tail are merged by message id in sequence order, the
+  fresher copy winning (`web/src/workLog.ts`); late older-page answers after unmount are
+  dropped; scroll-to-newest follows the newest sequence.
+- Tests: `server/test/authoring.test.ts` "a long work log" (30 exchanges: tail ends at the
+  newest, `before` pages back to message 1, a new exchange appears in the next tail);
+  `web/test/workLog.test.ts` (merge, fresher status wins, cursor).
+
+Checks after the addendum: `npm run check` 167 passed (17 files); `npm run web:build` built
+(55 modules; chunk-size advisory only).

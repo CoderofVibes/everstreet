@@ -23,7 +23,7 @@ import { HttpError, type Person, type Store } from "./store.ts";
 
 export const PROPOSAL_SCHEMA = "product_proposal/1" as const;
 export const MAX_PROPOSAL_BYTES = 64 * 1024;
-export const LOG_LIMITS = { message: 2000, conversation: 12, page: 200 } as const;
+export const LOG_LIMITS = { message: 2000, conversation: 12, page: 200, tail: 50 } as const;
 
 export interface Proposal {
   reply: string;
@@ -270,19 +270,38 @@ export class Authoring {
     return `${e.owner_id}:${e.generation}`;
   }
 
-  /** The work log, proposals, any running request, and what a new request would reserve. */
-  conversation(viewer: Person, projectId: string, after = 0) {
+  /**
+   * The work log, proposals, any running request, and what a new request would reserve.
+   * Messages come as a bounded page, oldest first within the page:
+   * - default: the newest `tail` messages (what the studio polls; it carries the latest
+   *   statuses of recent requests);
+   * - `before`: the page just older than that sequence ("Show earlier messages");
+   * - `after`: the page just newer than that sequence.
+   */
+  conversation(viewer: Person, projectId: string, page: { before?: number; after?: number } = {}) {
     const view = this.products.view(viewer, projectId);
     this.builds.fenceStale(view.project.business_id);
-    const rows = this.db
-      .prepare(
-        "SELECT * FROM product_messages WHERE project_id = ? AND seq > ? ORDER BY seq LIMIT ?",
-      )
-      .all(
-        projectId,
-        Number.isInteger(after) && after > 0 ? after : 0,
-        LOG_LIMITS.page,
-      ) as unknown as MessageRow[];
+    const cursor = (n: number | undefined): number | null =>
+      typeof n === "number" && Number.isInteger(n) && n > 0 ? n : null;
+    const before = cursor(page.before);
+    const after = cursor(page.after);
+    const rows = (after !== null
+      ? this.db
+          .prepare(
+            "SELECT * FROM product_messages WHERE project_id = ? AND seq > ? ORDER BY seq LIMIT ?",
+          )
+          .all(projectId, after, LOG_LIMITS.page)
+      : this.db
+          .prepare(
+            "SELECT * FROM product_messages WHERE project_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?",
+          )
+          .all(projectId, before ?? Number.MAX_SAFE_INTEGER, LOG_LIMITS.tail)
+          .reverse()) as unknown as MessageRow[];
+    const first = (
+      this.db
+        .prepare("SELECT COALESCE(MIN(seq), 0) AS n FROM product_messages WHERE project_id = ?")
+        .get(projectId) as { n: number }
+    ).n;
     const last = (
       this.db
         .prepare("SELECT COALESCE(MAX(seq), 0) AS n FROM product_messages WHERE project_id = ?")
@@ -310,6 +329,9 @@ export class Authoring {
       },
       messages: rows.map((r) => this.message(r)),
       last_seq: last,
+      /** Pass as `before` to read the page just older than this one. */
+      oldest_returned: rows[0]?.seq ?? null,
+      has_older: rows.length > 0 && (rows[0] as MessageRow).seq > first,
       has_more: rows.length > 0 && (rows.at(-1) as MessageRow).seq < last,
       proposals,
       pending: live ? this.builds.view(live) : null,

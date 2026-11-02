@@ -25,6 +25,7 @@ import {
   usd,
   type WorkLogMessage,
 } from "../productsApi.ts";
+import { mergeLog, olderCursor } from "../workLog.ts";
 import { BudgetPanel, MAX_POLLS, newKey, usageText } from "./Builds.tsx";
 
 function jobLine(job: BuildJob): { text: string; tone: "" | "blue" | "mint" | "caution" } {
@@ -130,6 +131,17 @@ export function ConversationPanel({
   const listEnd = useRef<HTMLLIElement>(null);
   // Loads can overlap (polling, after a send); only the newest request's answer is shown.
   const loadSeq = useRef(0);
+  /** Older pages the founder asked for; the polled tail is merged over them. */
+  const [older, setOlder] = useState<WorkLogMessage[]>([]);
+  const [olderMore, setOlderMore] = useState<boolean | null>(null);
+  const [olderBusy, setOlderBusy] = useState(false);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
 
   const load = useCallback(() => {
     const seq = ++loadSeq.current;
@@ -161,11 +173,29 @@ export function ConversationPanel({
     seenProposal.current = latest;
   }, [conv, latest, onReview]);
 
-  const count = conv?.messages.length ?? 0;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the message count is the trigger
+  const newest = conv?.last_seq ?? 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new latest message is the trigger
   useEffect(() => {
     listEnd.current?.scrollIntoView({ block: "nearest" });
-  }, [count]);
+  }, [newest]);
+
+  const messages = conv ? mergeLog(older, conv.messages) : [];
+  const hasOlder = olderMore ?? conv?.has_older ?? false;
+  const loadOlder = async () => {
+    const before = olderCursor(messages);
+    if (!before || olderBusy) return;
+    setOlderBusy(true);
+    try {
+      const page = await productsApi.conversation(projectId, before);
+      if (!mounted.current) return;
+      setOlder((prev) => mergeLog(page.messages, prev));
+      setOlderMore(page.has_older);
+    } catch (e) {
+      if (mounted.current) setLoadError((e as Error).message);
+    } finally {
+      if (mounted.current) setOlderBusy(false);
+    }
+  };
 
   const live = Boolean(conv?.pending);
   useEffect(() => {
@@ -221,9 +251,19 @@ export function ConversationPanel({
       <p className="muted" style={{ fontSize: 12.5, margin: "0 0 10px" }}>
         <strong>{conv.log.label}.</strong> {conv.log.note}
       </p>
-      {conv.messages.length > 0 && (
+      {hasOlder && (
+        <button
+          type="button"
+          className="btn btn-quiet btn-sm"
+          disabled={olderBusy}
+          onClick={loadOlder}
+        >
+          {olderBusy ? "Loading…" : "Show earlier messages"}
+        </button>
+      )}
+      {messages.length > 0 && (
         <ol className="msgs" aria-label={conv.log.label}>
-          {conv.messages.map((m) => (
+          {messages.map((m) => (
             <Message key={m.id} m={m} onReview={onReview} onChanged={load} />
           ))}
           <li ref={listEnd} aria-hidden="true" className="msgs-end" />

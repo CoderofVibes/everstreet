@@ -377,6 +377,41 @@ describe("guided authoring", () => {
   });
 });
 
+describe("a long work log", () => {
+  it("shows the newest exchange, pages back through all of it, and never hides a new one", async () => {
+    // Astra's follow-up: after 101 exchanges (202 messages) the newest was stored but
+    // invisible, because the log returned the oldest page. 30 exchanges exceed the tail here.
+    const w = await world();
+    await w.budget(1000);
+    for (let i = 1; i <= 30; i++) {
+      await w.say(`Message ${i}`, `msg-key-${String(i).padStart(4, "0")}`);
+      await w.worker().runNext();
+    }
+    const tail = (await w.log()).body;
+    expect(tail.last_seq).toBe(60);
+    expect(tail.messages).toHaveLength(50);
+    expect(tail.messages.at(-1).seq).toBe(60);
+    expect(tail.messages.at(-2).text).toBe("Message 30");
+    expect(tail.has_older).toBe(true);
+
+    const older = (
+      await w.ava(`/api/product-projects/${w.id}/conversation?before=${tail.oldest_returned}`)
+    ).body;
+    expect(older.messages.map((m: { seq: number }) => m.seq)).toEqual(
+      Array.from({ length: 10 }, (_, i) => i + 1),
+    );
+    expect(older.has_older).toBe(false);
+
+    // A new exchange after history is loaded appears in the next poll of the tail.
+    await w.say("Message 31", "msg-key-0031");
+    await w.worker().runNext();
+    const next = (await w.log()).body;
+    expect(next.messages.at(-2).text).toBe("Message 31");
+    expect(next.messages.at(-1).role).toBe("assistant");
+    expect(next.last_seq).toBe(62);
+  });
+});
+
 describe("studio view scoping", () => {
   it("gives drafts an owner epoch that changes when the business changes hands", async () => {
     const w = await world();
