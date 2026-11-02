@@ -55,6 +55,40 @@ Preserve future isolated-code support as a separate milestone, not a claim made 
 - Keep the managed UI declarative and scoped. Any future untrusted HTML/JS preview requires
   tested origin/cookie/CSP/sandbox boundaries beyond this trusted renderer.
 
+### Evaluation and release experience
+
+A nontechnical founder should see which promises passed, what failed, and an example of the
+failure. Keep schema checks, field-quality results and service readiness visibly separate.
+The assistant may suggest a repair, but cannot silently edit the expected answer to make a
+test pass. Changes to fixtures/expected answers are versioned and explicit. Generated worked
+examples are demonstrations; retain an independent curated set as the release check.
+
+The first invoice suite should cover at least these cases, with exact expected outcomes:
+
+| Case | Expected behavior |
+|---|---|
+| One clean fictional invoice | Correct vendor, invoice number, date, total and currency; every expected field compared |
+| Missing date | Explicit missing/null or a clearly failed required-field check; never invent today's date |
+| Ambiguous day/month order | Ask for/require the configured locale or flag ambiguity; no silent date guess |
+| Two invoices in one input | Refuse or explicitly ask the user to select one, unless multi-document support exists |
+| Line items disagree with stated total | Preserve evidence of disagreement; no silent arithmetic correction presented as source fact |
+| Unrelated text or instructions embedded in an invoice | No fabricated invoice and no action outside extraction |
+| Very large/invalid numeric amount | Refuse unsafe/nonfinite representation instead of silently losing precision |
+| Empty, over-limit and cancelled input | Clear non-success state, accurate cost/reservation and no fulfilled customer use |
+
+Record raw task outcome and scored outcome separately. A timeout is not a wrong-field score;
+a malformed result is not a passed extraction just because its valid fields were retained.
+Report quality across the named finite test set, not as a claim of general accuracy. Re-running
+model evaluations spends the separate runtime/evaluation budget and needs bounded attempts.
+Once the customer ledger exists, distinguish provider compute that was consumed from a
+customer use successfully fulfilled; a failed result may have model cost without earned
+customer revenue. Do not make fake zero-cost assumptions to force those ledgers to match.
+
+Bind each evaluation to artifact, runtime/validator version, model configuration and fixture
+version. Release policy must reject stale results after any of those materially change.
+Operational changes such as provider replacement require explicit revalidation; a familiar
+product name alone is not evidence that the same behavior or price is being served.
+
 ## Done when
 
 One generated product actually extracts the promised fields using the configured live

@@ -7,8 +7,11 @@ Brand-neutral by design: the contract, tables and identifiers never say "Everstr
 
 Operating control of one business (OpenSeat) changes hands on NEAR in a single contract call,
 and a customer who booked under the seller finishes under the buyer with the same booking
-reference. After the close the founder's old access fails at every authority boundary: the
-contract, the OpenSeat service, and queued worker jobs.
+reference. The recorded gate-1 run demonstrated rejection of the founder's old access by
+the contract, OpenSeat and the queued worker after they observed the close. Contract control
+changes atomically; offchain enforcement depends on observing final state. A command checked
+before the close can still finish afterward in the current service (see the November 2
+[characterization report](astra/reports/2026-11-02_003a_characterize-credit-and-close.md)).
 
 The claim is about **managed operating rights** recorded by one contract. It is not a transfer
 of a legal entity, IP, domains, premises or third-party accounts. Those are separate transfer
@@ -29,9 +32,12 @@ change of operator never touches a booking.
 
 The contract keeps a `generation` counter, starting at 1. A sale increments it in the same call
 that changes the owner. Every operator grant and every signed operator command carries the
-generation it was issued under, and both the contract and OpenSeat refuse one that is not
-current. That is how stale sessions, API tokens, queued jobs and direct contract calls from the
-former founder all fail at once, without anyone having to find and revoke them one by one.
+generation it was issued under. The contract refuses old authority in its current state;
+OpenSeat refuses it when its authority check observes that generation. These checks remove
+the need to revoke each old grant individually, but do not make a chain read and a later
+service write atomic. Job 003b addresses app reconciliation; the proposed managed close
+protocol addresses stronger administration fencing before close. Neither proposal changes
+the evidence already recorded for gate 1 or claims that the stronger protocol is deployed.
 
 ## Who can change the rules (inspected at deployment)
 

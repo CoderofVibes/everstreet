@@ -82,3 +82,60 @@ The financial integration review completed in exec 78018 (Claude session
 `fd3d59e2-d974-4f95-aa55-528a95dd8a6c`). Saved source analysis at
 `reports/2026-11-02_financial-integration-review.md`; verify its findings before implementing.
 It expands 003f's propagation map and flags privacy paths for a distinct scoped-access job.
+
+002b initially failed before any work with a DNS error (`ENOTFOUND`), not exhausted usage.
+The network-authorized retry is active in exec 54562 and committed the reviewed doc handoff
+(`5ce2dc9`, status `9cb528b`) before beginning code. No duplicate code writer was started.
+New jobs 003b (idempotent close recovery), 003p (evidence access) and 003d (concrete v3 design)
+are prepared while it builds. A separate read-only Claude design review runs in exec 88048;
+it can read code and official docs but cannot edit or execute commands. Refinements to 003f
+include period-aware test fixtures, first-month coverage, precise cost provenance and
+downstream null/source propagation. Source review distinguishes uncertain disclosure-scope
+findings from confirmed missing in-flight access rechecks; the job requires reproduction.
+
+Astra then reproduced the in-flight gap through the actual acquisition API with an in-memory
+FakeChain period gate. Revoking during the read still returns 200/private data for room,
+export and scenario preview; scenario save correctly returns 403. A fresh room read returns
+403. Saved the exact sequence/results in `reports/2026-11-02_evidence-access-review.md` and
+updated 003p. This confirms one access defect without treating all review suspicions as bugs.
+
+A separate in-memory Books probe confirms an October 100-test-dollar observation becomes
+zero revenue/profit/paid-in with `complete: true` when only that period read fails. Added this
+actual API evidence to 003f. Also recorded early 002b provider compatibility and pricing-tier
+probes in `reports/2026-11-02_002b-early-review.md`; recheck completed code before a correction
+handoff. Official current Anthropic docs support the model-default and tier findings. No live
+model request was made. Main Claude remains the only code writer throughout these probes.
+
+002b server landed at `e491dcc`. Claude read the early review while building and began fixing
+all three findings before UI work. The preflight issue is also independently reproduced:
+only count_tokens is invoked, yet the failed job retains 11 cents as unknown and demands an
+uncertain-spend retry acknowledgement. No live call was involved.
+
+Saved 003d's first candidate as `reports/2026-11-02_003d-digital-transfer-proposal.md` and
+reviewed it in `reports/2026-11-02_003d-review.md`. The design is not yet accepted: fingerprint
+replay, sponsored key registration, same-block incarnation reuse, hold consent/expiry,
+callback storage, physical-balance timing, observation ordering and restore fencing need
+correction. Read-only revision runs in exec 86966. Added JOBS rows for 003b/003p/003d, and
+expanded 002c with a concrete evaluation suite and evidence binding for releases. These are
+the newly changed files this pass; implementation remains Claude's work.
+
+All three provider corrections landed at `a6340f4` and pass Astra's independent repeated
+probes. Claude is building the conversation/proposal UI next. This is keyless integration
+evidence only; no live-provider or completed-M2 claim.
+
+Corrected `docs/AUTHORITY.md` to describe gate 1's observed revocation accurately and link
+003a's demonstrated pre-close-check/post-close-write race. It no longer claims instantaneous
+offchain rejection. This preserves the historical evidence and the stronger future goal;
+it does not change contract code or silently accept a weaker digital-transfer milestone.
+
+002b completed at `e491dcc` / `a6340f4` / `233d2bf`, report `29d70d5`. Astra independently
+ran `npm run check` (158 tests, lint/types passed) and `npm run web:build` at 11:41 Pacific.
+Web build passes with its bundle-size advisory. Browser review uses a new in-memory server,
+fictional identity and scripted provider, no real runtime state or model requests. Proposal
+creation, application to revision 2 and exact-versus-rounded cost display work. Two defects
+are confirmed: typed-ahead composer text erased on delayed send completion; `.founder`
+profile CSS colliding with work-log message layout. Also correct applied-proposal copy.
+Opened `jobs/2026-11-02_002b1_conversation-review.md` and JOBS row. Screenshots are internal.
+
+Saved read-only transfer amendment as `reports/2026-11-02_003d-revision2.md`. The design is
+still under independent review and is not authorization to implement or deploy a contract.
