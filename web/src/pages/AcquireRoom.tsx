@@ -7,8 +7,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usd } from "../api4.ts";
 import { ApiError, api5, type ManifestItem, type Room, when } from "../api5.ts";
 import { begin, type EvidenceView, initial, settle } from "../evidenceView.ts";
+import { missingReason, money, partial } from "../finance.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { CashChart, EarnedCostChart } from "./FinanceChart.tsx";
 
 const TABS: [string, string][] = [
   ["financials", "Financials"],
@@ -398,41 +400,57 @@ export function AcquireRoom({ id }: { id: string }) {
         <>
           <section className="card">
             <h2>Month by month</h2>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Month</th>
-                  <th>Revenue</th>
-                  <th>Direct costs</th>
-                  <th>Overhead</th>
-                  <th>Profit</th>
-                  <th>Sources</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fin.months
-                  .filter(
-                    (m) => m.revenue_cents || m.direct_cents || m.overhead_cents || !m.complete,
-                  )
-                  .map((m) => (
-                    <tr key={m.yyyymm}>
-                      <td>
-                        {m.label}
-                        {!m.complete && <span className="muted"> (so far)</span>}
-                      </td>
-                      <td>{usd(m.revenue_cents)}</td>
-                      <td>{usd(m.direct_cents)}</td>
-                      <td>{usd(m.overhead_cents)}</td>
-                      <td>
-                        <strong>{usd(m.profit_cents)}</strong>
-                      </td>
-                      <td style={{ fontSize: 12 }}>
-                        {[...new Set([...m.revenue_sources, ...m.cost_sources])].join(" · ") || "—"}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+            <p className="muted" style={{ fontSize: 13 }}>
+              The same figures the owner sees, with where each came from. {fin.basis}
+            </p>
+            <EarnedCostChart
+              months={fin.months}
+              title="Earned revenue, costs and contribution by month"
+            />
+            <CashChart months={fin.months} />
+            <div style={{ overflowX: "auto" }}>
+              <table className="table fin-table">
+                <caption className="sr-only">Books by month</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Month</th>
+                    <th scope="col">Earned</th>
+                    <th scope="col">Direct costs</th>
+                    <th scope="col">Overhead</th>
+                    <th scope="col">Contribution</th>
+                    <th scope="col">Sources</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fin.months
+                    .filter(
+                      (m) =>
+                        m.revenue_cents !== 0 || m.direct_cents || m.overhead_cents || !m.complete,
+                    )
+                    .map((m) => (
+                      <tr key={m.yyyymm}>
+                        <th scope="row">
+                          {m.label}
+                          {partial(m) && <span className="muted"> (partial)</span>}
+                        </th>
+                        <td className={`num${m.revenue_cents === null ? " fin-unknown" : ""}`}>
+                          {m.revenue_cents === null ? missingReason(m) : money(m.revenue_cents)}
+                        </td>
+                        <td className="num">{money(m.direct_cents)}</td>
+                        <td className="num">{money(m.overhead_cents)}</td>
+                        <td className="num">
+                          <strong>{money(m.profit_cents)}</strong>
+                        </td>
+                        <td style={{ fontSize: 12 }}>
+                          {[...new Set([...m.revenue_sources, ...m.cost_sources])].join(" · ") ||
+                            "—"}
+                          {m.mixed && " · fictional example history kept separate"}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
           </section>
           <section className="card">
             <h2>The estimate, and checking it yourself</h2>

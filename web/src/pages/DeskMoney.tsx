@@ -5,6 +5,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Desk, type Money } from "../api.ts";
 import { money } from "../ui.tsx";
+
+/** An amount read from the contract, or a plain "couldn't read" (never $0) when unknown. */
+const known = (cents: number | null | undefined) =>
+  cents === null || cents === undefined ? "couldn't read" : money(cents);
+
 import { when } from "../via.ts";
 
 function Activate({ desk, onDone }: { desk: Desk; onDone: () => void }) {
@@ -144,19 +149,19 @@ export function DeskMoney({ desk }: { desk: Desk }) {
             <span className="muted" style={{ fontSize: 13 }}>
               Customers' money (not yet delivered)
             </span>
-            <strong>{money(t.customer_money ?? 0)}</strong>
+            <strong>{known(t.customer_money)}</strong>
           </div>
           <div className="stat">
             <span className="muted" style={{ fontSize: 13 }}>
               Earned and in the business
             </span>
-            <strong>{money(t.available ?? 0)}</strong>
+            <strong>{known(t.available)}</strong>
           </div>
           <div className="stat">
             <span className="muted" style={{ fontSize: 13 }}>
               You can withdraw
             </span>
-            <strong>{money(t.withdrawable ?? 0)}</strong>
+            <strong>{known(t.withdrawable)}</strong>
           </div>
           <div className="stat">
             <span className="muted" style={{ fontSize: 13 }}>
@@ -170,12 +175,27 @@ export function DeskMoney({ desk }: { desk: Desk }) {
           NEAR testnet can't be reached right now, so the numbers aren't shown.
         </p>
       )}
-      {m.month && (
-        <p style={{ fontSize: 14, marginTop: 12 }}>
-          <span className="muted">This month on chain:</span> {money(m.month.orders_in ?? 0)} paid
-          in · {money(m.month.earned ?? 0)} earned · {money(m.month.refunds ?? 0)} refunded ·{" "}
-          {money(m.month.owner_withdrawals ?? 0)} withdrawn
+      {t && (known(t.buyer_escrow) !== "$0" || known(t.seller_proceeds) !== "$0") && (
+        <p className="muted" style={{ fontSize: 13 }}>
+          Also held by the contract, but not the business's money: {known(t.buyer_escrow)} for a
+          buyer's deal · {known(t.seller_proceeds)} of a former owner's unclaimed sale proceeds.
         </p>
+      )}
+      {m.month ? (
+        <p style={{ fontSize: 14, marginTop: 12 }}>
+          <span className="muted">This month on chain:</span> {known(m.month.orders_in)} paid in ·{" "}
+          {known(m.month.prepaid_in)} prepaid · {known(m.month.earned)} earned (includes{" "}
+          {known(m.month.credit_used)} of credit used) · {known(m.month.refunds)} refunded ·{" "}
+          {known(m.month.credit_withdrawn)} credit returned · {known(m.month.owner_withdrawals)}{" "}
+          withdrawn by you
+        </p>
+      ) : (
+        m.month_state === "unavailable" && (
+          <p className="notice" style={{ fontSize: 13.5 }}>
+            This month's ledger couldn't be read from NEAR testnet, so no figures are shown (not
+            $0).
+          </p>
+        )
       )}
       <p className="muted" style={{ fontSize: 14 }}>
         Promise:{" "}
@@ -268,7 +288,7 @@ export function DeskMoney({ desk }: { desk: Desk }) {
         </button>
         {m.owner_wallet && (
           <span className="muted" style={{ fontSize: 14 }}>
-            Your wallet: {money(m.owner_wallet.balance_cents ?? 0)}
+            Your wallet: {known(m.owner_wallet.balance_cents)}
           </span>
         )}
       </div>

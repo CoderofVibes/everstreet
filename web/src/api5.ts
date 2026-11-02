@@ -1,6 +1,8 @@
 // Phase 5 calls: buying profiles, the acquisition index, access requests, evidence rooms and
 // the seller's listing.
 
+import type { FinMonth } from "./finance.ts";
+
 export interface Fig {
   status: "shown" | "not_shared" | "unknown";
   text: string;
@@ -147,17 +149,8 @@ export interface ManifestItem {
   enforced: string;
 }
 
-export interface RoomMonth {
-  yyyymm: number;
-  label: string;
-  complete: boolean;
-  revenue_cents: number;
-  direct_cents: number;
-  overhead_cents: number;
-  profit_cents: number;
-  revenue_sources: string[];
-  cost_sources: string[];
-}
+/** The owner's month figures and states, without cost lines (job 003f). */
+export type RoomMonth = FinMonth;
 
 export interface BuyerScenario {
   id: string;
@@ -176,6 +169,8 @@ export interface Room {
   chain_error: string | null;
   financials?: {
     months: RoomMonth[];
+    /** The units basis: test dollars against US-dollar costs, a demo figure. */
+    basis: string;
     estimate: {
       low_cents: number | null;
       high_cents: number | null;

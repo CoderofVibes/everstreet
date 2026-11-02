@@ -1,26 +1,10 @@
 // Phase 4 calls: books, value, team and the helper's desk.
 
 import type { Inquiry, Receipt } from "./api.ts";
+import type { FinMonth } from "./finance.ts";
 
-export interface Month {
-  yyyymm: number;
-  label: string;
-  complete: boolean;
-  revenue_cents: number;
-  direct_cents: number;
-  overhead_cents: number;
-  profit_cents: number;
-  revenue_sources: string[];
-  cost_sources: string[];
-  refunds_cents: number;
-  paid_in_cents: number;
-  lines: {
-    kind: "revenue" | "direct" | "overhead";
-    label: string;
-    cents: number;
-    source: string;
-  }[];
-}
+/** A month of the books with its states and provenance (job 003f); see finance.ts. */
+export type Month = FinMonth & { lines: NonNullable<FinMonth["lines"]> };
 
 export interface CostRow {
   id: string;
@@ -32,11 +16,54 @@ export interface CostRow {
   recurring: number;
   note: string;
   origin: "founder" | "seeded";
+  voided_at: string | null;
+  void_note: string;
+}
+
+/** Today's balances on the contract: a current stock, never a monthly flow. */
+export type Balances =
+  | {
+      state: "observed";
+      read_at: string;
+      customer_money_cents: number | null;
+      customer_credit_cents: number | null;
+      available_cents: number | null;
+      withdrawable_cents: number | null;
+      pending_payouts_cents: number | null;
+      buyer_escrow_cents: number | null;
+      seller_proceeds_cents: number | null;
+      source: string;
+    }
+  | { state: "unavailable" | "not_connected" | "not_applicable"; reason: string };
+
+export interface SpendLedger {
+  months: {
+    yyyymm: number;
+    used_microcents: number;
+    requests: number;
+    unknown_cost_requests: number;
+    held_cents: number;
+  }[];
+  total_microcents: number;
+  unknown_cost_requests: number;
+  note: string;
+}
+
+export interface BooksView {
+  months: Month[];
+  chain_error: string | null;
+  costs: CostRow[];
+  categories: { category: string; kind: string; hint: string }[];
+  now: Balances;
+  spend: { unit: "USD"; basis: string; runtime: SpendLedger; build: SpendLedger };
+  basis: string;
+  period_months: number;
 }
 
 export interface Estimate {
   inputs: {
-    stage: "plan" | "early" | "operating";
+    stage: "plan" | "early" | "operating" | "unavailable";
+    gaps?: string[];
     months_used: number[];
     revenue_cents: number;
     costs_cents: number;
@@ -133,13 +160,8 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
 }
 
 export const api4 = {
-  books: (id: string) =>
-    call<{
-      months: Month[];
-      chain_error: string | null;
-      costs: CostRow[];
-      categories: { category: string; kind: string; hint: string }[];
-    }>(`/api/businesses/${id}/books`),
+  books: (id: string, months = 12) =>
+    call<BooksView>(`/api/businesses/${id}/books?months=${months}`),
   addCost: (
     id: string,
     c: { category: string; amount_cents: number; recurring: boolean; yyyymm: number; note: string },

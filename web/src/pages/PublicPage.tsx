@@ -423,11 +423,13 @@ export function StorefrontView({
                   <strong>{page.numbers.month.label}:</strong>{" "}
                   {money(page.numbers.month.revenue_cents)} revenue ·{" "}
                   {money(page.numbers.month.direct_cents + page.numbers.month.overhead_cents)} costs
-                  · <strong>{money(page.numbers.month.profit_cents)} profit</strong>
+                  · <strong>{money(page.numbers.month.profit_cents)} contribution</strong>
                 </p>
                 <p className="muted" style={{ fontSize: 13 }}>
                   Revenue: {page.numbers.month.revenue_sources.join(" + ") || "none"} · Costs:{" "}
                   {page.numbers.month.cost_sources.join(" + ") || "none recorded"}
+                  {page.numbers.month.revenue_sources.some((s) => s.includes("testnet")) &&
+                    " · Revenue on NEAR testnet is test dollars counted 1:1 against costs; not real profit."}
                 </p>
               </>
             ) : (

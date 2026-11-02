@@ -629,3 +629,34 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 @media (max-width: 640px) {
   .entrances, .shelf, .choices, .project-grid, .paths, .foundations, .filters, .stat-row, .grid-2 { grid-template-columns: 1fr; }
 }
+
+/* Job 003f: financial charts. Colour never carries meaning alone: patterns, outlines and
+   written figures say the same thing. */
+.fin-chart { margin: 0 0 14px; }
+.fin-chart figcaption { font-size: 14px; margin-bottom: 4px; }
+.fin-point { cursor: default; outline: none; }
+.fin-point:focus rect:first-child, .fin-point:hover rect:first-child { fill: var(--blue-soft); }
+.fin-point:focus-visible rect:first-child { stroke: var(--focus); stroke-width: 2; }
+.fin-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--ink-2); }
+.fin-legend .sw { display: inline-block; width: 14px; height: 10px; margin-right: 4px; vertical-align: -1px; border-radius: 2px; }
+.sw-mint { background: var(--mint); }
+.sw-blue { background: var(--blue); }
+.sw-amber { background: var(--amber-soft); border: 1px solid var(--amber); }
+.sw-line { background: var(--ink); height: 3px !important; vertical-align: 2px !important; }
+.sw-hatch { background: repeating-linear-gradient(45deg, var(--amber) 0 2px, transparent 2px 5px); border: 1px solid var(--amber); }
+.sw-dash { border: 1.5px dashed var(--ink-2); background: transparent; }
+.fin-detail { font-size: 13.5px; min-height: 2.6em; margin: 6px 0 0; color: var(--ink-2); }
+.fin-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 10px 0 16px; }
+.fin-tile { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
+.fin-tile .v { font-size: 20px; font-weight: 600; }
+.fin-tile .k { font-size: 12.5px; color: var(--ink-2); }
+.fin-tile .s { font-size: 11.5px; color: var(--ink-3); }
+.fin-cats { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.fin-cats li { display: grid; grid-template-columns: minmax(120px, 1.2fr) 2fr auto; gap: 8px; align-items: center; font-size: 14px; }
+.fin-cat-bar { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
+.fin-cat-bar i { display: block; height: 100%; background: var(--blue); }
+.fin-cat-value { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.fin-table td.num { font-variant-numeric: tabular-nums; }
+.fin-unknown { color: var(--amber); }
+@media (max-width: 900px) { .fin-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .fin-tiles { grid-template-columns: 1fr; } .fin-cats li { grid-template-columns: 1fr; } }

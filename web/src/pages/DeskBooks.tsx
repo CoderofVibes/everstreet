@@ -1,52 +1,136 @@
 // The desk's books (revenue, costs, profit by month with their sources), cost entry, and the
 // team: one helper appointed on the business's contract, revocable there.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Desk } from "../api.ts";
-import { api4, type CostRow, type Month, type TeamMember, usd } from "../api4.ts";
+import {
+  api4,
+  type Balances,
+  type BooksView,
+  type SpendLedger,
+  type TeamMember,
+  usd,
+} from "../api4.ts";
+import {
+  categories,
+  compare,
+  lastTwoComplete,
+  microUsd,
+  missingReason,
+  money,
+  partial,
+} from "../finance.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { CashChart, CategoryBars, EarnedCostChart } from "./FinanceChart.tsx";
 
 const thisMonth = () => {
   const d = new Date();
   return d.getUTCFullYear() * 100 + d.getUTCMonth() + 1;
 };
 
+const monthInput = (yyyymm: number) =>
+  `${Math.floor(yyyymm / 100)}-${String(yyyymm % 100).padStart(2, "0")}`;
+const fromMonthInput = (v: string) => {
+  const m = /^(\d{4})-(\d{2})$/.exec(v);
+  return m ? Number(m[1]) * 100 + Number(m[2]) : Number.NaN;
+};
+
+function Tile({ k, v, s, unknown }: { k: string; v: string; s: string; unknown?: boolean }) {
+  return (
+    <div className="fin-tile">
+      <div className="k">{k}</div>
+      <div className={`v${unknown ? " fin-unknown" : ""}`}>{v}</div>
+      <div className="s">{s}</div>
+    </div>
+  );
+}
+
+/** Today's balances: a current stock read from the contract, never a monthly figure. */
+function BalanceTiles({ now }: { now: Balances }) {
+  if (now.state !== "observed")
+    return (
+      <p className="notice" style={{ fontSize: 13.5 }}>
+        Today's balances: {now.reason}. Nothing is shown as $0.
+      </p>
+    );
+  return (
+    <div className="fin-tiles">
+      <Tile
+        k="Owed to customers now"
+        v={money(
+          now.customer_money_cents === null || now.customer_credit_cents === null
+            ? null
+            : now.customer_money_cents + now.customer_credit_cents,
+        )}
+        s="Paid but not yet delivered, plus prepaid credit"
+      />
+      <Tile k="Available to the business" v={money(now.available_cents)} s="Earned and settled" />
+      <Tile k="You can withdraw" v={money(now.withdrawable_cents)} s="Above the reserve" />
+      <Tile
+        k="Not business money"
+        v={money(
+          now.buyer_escrow_cents === null || now.seller_proceeds_cents === null
+            ? null
+            : now.buyer_escrow_cents + now.seller_proceeds_cents,
+        )}
+        s="Buyer escrow and unclaimed sale proceeds"
+      />
+    </div>
+  );
+}
+
 export function DeskBooks({ desk }: { desk: Desk }) {
   const id = desk.business.id;
-  const [data, setData] = useState<{
-    months: Month[];
-    costs: CostRow[];
-    categories: { category: string; kind: string; hint: string }[];
-    chain_error: string | null;
-  } | null>(null);
+  const [period, setPeriod] = useState(6);
+  const [data, setData] = useState<BooksView | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [f, setF] = useState({
-    category: "Materials",
+    category: "AI model usage",
     amount: "",
     recurring: false,
-    month: "this",
+    month: monthInput(thisMonth()),
     note: "",
   });
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(
-    () =>
-      api4
-        .books(id)
-        .then(setData)
-        .catch(() => {}),
-    [id],
-  );
+  const seq = useRef(0);
+  const load = useCallback(() => {
+    const n = ++seq.current;
+    return api4
+      .books(id, period)
+      .then((d) => {
+        if (n !== seq.current) return;
+        setData(d);
+        setLoadError(null);
+      })
+      .catch((e) => {
+        if (n === seq.current) setLoadError((e as Error).message);
+      });
+  }, [id, period]);
   useEffect(() => {
     load();
   }, [load]);
+  if (loadError && !data)
+    return (
+      <section className="card">
+        <h2>Books</h2>
+        <p className="error-text">The books couldn't be loaded: {loadError}</p>
+        <button type="button" className="btn btn-quiet" onClick={load}>
+          Try again
+        </button>
+      </section>
+    );
   if (!data) return null;
-  const shown = data.months.filter((m) => m.complete || m.yyyymm === thisMonth()).slice(-6);
+  const shown = data.months;
+  const [prev, last] = lastTwoComplete(shown);
+  const nothing =
+    shown.every(
+      (m) => (m.revenue_cents ?? 0) === 0 && m.direct_cents + m.overhead_cents === 0 && !m.cash,
+    ) && data.now.state === "not_applicable";
   const add = async () => {
     const amount = Math.round(Number(f.amount) * 100);
     if (!amount) return setError("How much was it?");
-    const m = thisMonth();
-    const yyyymm =
-      f.month === "this" ? m : f.month === "last" ? (m % 100 === 1 ? m - 89 : m - 1) : m;
+    const yyyymm = fromMonthInput(f.month);
     try {
       await api4.addCost(id, {
         category: f.category,
@@ -63,51 +147,132 @@ export function DeskBooks({ desk }: { desk: Desk }) {
     }
   };
   const hint = data.categories.find((c) => c.category === f.category)?.hint;
+  const spendMonths = (l: SpendLedger) =>
+    l.months.filter((r) => shown.some((m) => m.yyyymm === r.yyyymm));
   return (
     <section className="card">
-      <div className="row">
+      <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
         <h2 style={{ margin: 0 }}>Books</h2>
         <span className="spacer" />
+        <label className="field" style={{ margin: 0 }}>
+          <span className="sr-only">Period</span>
+          <select
+            className="input"
+            value={period}
+            onChange={(e) => setPeriod(Number(e.target.value))}
+          >
+            {[3, 6, 12].map((n) => (
+              <option key={n} value={n}>
+                Last {n} months
+              </option>
+            ))}
+          </select>
+        </label>
         <Link to={`/desk/${id}/value`} className="btn btn-secondary">
           See what it could be worth
         </Link>
       </div>
-      <p className="muted" style={{ fontSize: 14 }}>
-        Revenue is what was earned (delivered), not what was paid in advance. Costs are what you
-        enter. Each number says where it came from.
+      <p className="muted" style={{ fontSize: 13.5 }}>
+        Earned revenue is what customers' orders and used credit earned, not what was paid in
+        advance. {data.basis}
       </p>
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Month</th>
-            <th>Revenue</th>
-            <th>Direct costs</th>
-            <th>Overhead</th>
-            <th>Profit</th>
-            <th>Sources</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((m) => (
-            <tr key={m.yyyymm}>
-              <td>
-                {m.label}
-                {!m.complete && <span className="muted"> (so far)</span>}
-              </td>
-              <td>{usd(m.revenue_cents)}</td>
-              <td>{usd(m.direct_cents)}</td>
-              <td>{usd(m.overhead_cents)}</td>
-              <td>
-                <strong>{usd(m.profit_cents)}</strong>
-              </td>
-              <td style={{ fontSize: 12 }}>
-                {[...new Set([...m.revenue_sources, ...m.cost_sources])].join(" · ") || "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {data.chain_error && <p className="notice">{data.chain_error}</p>}
+      {data.chain_error && (
+        <p className="notice">
+          {data.chain_error}. Those months show as "couldn't be read", not as zero.
+        </p>
+      )}
+
+      {nothing ? (
+        <div className="notice">
+          <strong>No records yet.</strong> Turn on payments so customers' orders are recorded on the
+          business's own contract, and add what the business pays for below. Charts appear as soon
+          as there is something real to show.
+        </div>
+      ) : (
+        <>
+          <BalanceTiles now={data.now} />
+          <p style={{ fontSize: 14 }}>
+            <strong>Latest whole month:</strong> {compare(prev, last)}
+          </p>
+          <EarnedCostChart months={shown} title="Earned revenue, costs and contribution by month" />
+          <CashChart months={shown} />
+          <h3 style={{ fontSize: 15 }}>Where the money goes</h3>
+          <CategoryBars rows={categories(shown)} />
+        </>
+      )}
+
+      <details style={{ marginTop: 12 }}>
+        <summary>Every figure, with its source</summary>
+        <div style={{ overflowX: "auto" }}>
+          <table className="table fin-table">
+            <caption className="sr-only">Books by month</caption>
+            <thead>
+              <tr>
+                <th scope="col">Month</th>
+                <th scope="col">Earned</th>
+                <th scope="col">Costs</th>
+                <th scope="col">Contribution</th>
+                <th scope="col">Cash in</th>
+                <th scope="col">Returned</th>
+                <th scope="col">Withdrawn</th>
+                <th scope="col">Sources</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((m) => (
+                <tr key={m.yyyymm}>
+                  <th scope="row">
+                    {m.label}
+                    {partial(m) && <span className="muted"> (partial)</span>}
+                  </th>
+                  <td className={`num${m.revenue_cents === null ? " fin-unknown" : ""}`}>
+                    {m.revenue_cents === null ? missingReason(m) : money(m.revenue_cents)}
+                    {m.mixed && (
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        Fictional history {money(m.seeded_cents)} kept separate
+                      </div>
+                    )}
+                  </td>
+                  <td className="num">{money(m.direct_cents + m.overhead_cents)}</td>
+                  <td className="num">
+                    <strong>{money(m.profit_cents)}</strong>
+                  </td>
+                  <td className="num">{money(m.cash?.cash_in_cents)}</td>
+                  <td className="num">{money(m.cash?.returned_cents)}</td>
+                  <td className="num">{money(m.cash?.owner_withdrawals_cents)}</td>
+                  <td style={{ fontSize: 12 }}>
+                    {[...new Set([...m.revenue_sources, ...m.cost_sources])].join(" · ") ||
+                      (m.chain === "not_applicable" ? "No records" : "—")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <h3 style={{ fontSize: 15, marginTop: 18 }}>AI spend from Everstreet's own records</h3>
+      <p className="muted" style={{ fontSize: 13 }}>
+        {data.spend.basis}
+      </p>
+      <ul style={{ fontSize: 14, paddingLeft: 18 }}>
+        {[
+          ["Running the product", data.spend.runtime] as const,
+          ["Building the product", data.spend.build] as const,
+        ].map(([name, l]) => (
+          <li key={name}>
+            <strong>{name}:</strong>{" "}
+            {spendMonths(l).length === 0
+              ? "nothing recorded in these months"
+              : `${microUsd(spendMonths(l).reduce((a, r) => a + r.used_microcents, 0))} over ${spendMonths(l).reduce((a, r) => a + r.requests, 0)} requests`}
+            {l.unknown_cost_requests > 0 &&
+              ` · ${l.unknown_cost_requests} with unknown cost (reservation held, not counted as zero)`}
+            <div className="muted" style={{ fontSize: 12.5 }}>
+              {l.note}
+            </div>
+          </li>
+        ))}
+      </ul>
 
       <h3 style={{ fontSize: 15, marginTop: 18 }}>Add a cost</h3>
       <div className="filters">
@@ -134,15 +299,14 @@ export function DeskBooks({ desk }: { desk: Desk }) {
           />
         </label>
         <label className="field" style={{ margin: 0 }}>
-          <span style={{ fontSize: 14 }}>When</span>
-          <select
+          <span style={{ fontSize: 14 }}>Month</span>
+          <input
             className="input"
+            type="month"
+            max={monthInput(thisMonth())}
             value={f.month}
             onChange={(e) => setF({ ...f, month: e.target.value })}
-          >
-            <option value="this">This month</option>
-            <option value="last">Last month</option>
-          </select>
+          />
         </label>
         <label className="field" style={{ margin: 0 }}>
           <span style={{ fontSize: 14 }}>Note (optional)</span>
@@ -178,21 +342,40 @@ export function DeskBooks({ desk }: { desk: Desk }) {
                 className="row"
                 style={{ fontSize: 14, padding: "6px 0", borderTop: "1px solid var(--border)" }}
               >
-                <span>
+                <span className={c.voided_at ? "muted" : ""}>
                   {c.category}
                   {c.note ? `: ${c.note}` : ""} · {usd(c.amount_cents)}
                   {c.recurring
-                    ? ` monthly from ${c.yyyymm}${c.until_yyyymm ? ` to ${c.until_yyyymm}` : ""}`
-                    : ` in ${c.yyyymm}`}
+                    ? ` every month from ${monthInput(c.yyyymm)}${c.until_yyyymm ? ` through ${monthInput(c.until_yyyymm)}` : " (ongoing)"}`
+                    : ` once, in ${monthInput(c.yyyymm)}`}
+                  {c.voided_at &&
+                    ` · corrected ${new Date(c.voided_at).toLocaleDateString()}: ${c.void_note} (kept in the record, not counted)`}
                 </span>
                 <span className="spacer" />
-                {(!c.until_yyyymm || !c.recurring) && (
+                {!c.voided_at && (!c.until_yyyymm || !c.recurring) && (
                   <button
                     type="button"
                     className="btn btn-quiet"
-                    onClick={async () => setData({ ...data, ...(await api4.endCost(id, c.id)) })}
+                    onClick={async () => {
+                      if (
+                        !c.recurring &&
+                        c.yyyymm < thisMonth() &&
+                        !window.confirm(
+                          "That month is closed. The cost stays in the record, marked as a correction, and is no longer counted. Continue?",
+                        )
+                      )
+                        return;
+                      await api4.endCost(id, c.id);
+                      load();
+                    }}
                   >
-                    {c.recurring ? "Stop" : "Remove"}
+                    {c.recurring
+                      ? c.yyyymm >= thisMonth()
+                        ? "Remove"
+                        : "Stop from this month"
+                      : c.yyyymm >= thisMonth()
+                        ? "Remove"
+                        : "Mark as a correction"}
                   </button>
                 )}
               </div>

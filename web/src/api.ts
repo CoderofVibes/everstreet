@@ -289,14 +289,23 @@ export interface Money {
     available: number | null;
     withdrawable: number | null;
     pending: number | null;
+    /** Held for a buyer's deal, or a former owner's proceeds: not the business's money. */
+    buyer_escrow: number | null;
+    seller_proceeds: number | null;
   } | null;
+  treasury_state?: "observed" | "unavailable";
   month?: {
     yyyymm: number;
     orders_in: number | null;
+    prepaid_in: number | null;
     earned: number | null;
+    credit_used: number | null;
     refunds: number | null;
+    credit_withdrawn: number | null;
     owner_withdrawals: number | null;
+    sale_proceeds: number | null;
   } | null;
+  month_state?: "observed" | "unavailable";
   orders?: (Receipt & { session_starts_at: string | null; customer: string })[];
   last_tx?: string;
 }
