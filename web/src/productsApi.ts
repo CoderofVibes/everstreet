@@ -142,7 +142,125 @@ export const productsApi = {
       revision,
       base_revision,
     }),
+
+  builds: (projectId: string) =>
+    call<BuildList>(`/api/product-projects/${encodeURIComponent(projectId)}/builds`),
+  startBuild: (
+    projectId: string,
+    fields: { idempotency_key: string; revision: number; budget: BuildBudget },
+  ) =>
+    call<{ job: BuildJob; created: boolean }>(
+      `/api/product-projects/${encodeURIComponent(projectId)}/builds`,
+      "POST",
+      { intent: "build", ...fields },
+    ),
+  build: (jobId: string) => call<{ job: BuildJob }>(`/api/builds/${encodeURIComponent(jobId)}`),
+  buildEvents: (jobId: string, after: number) =>
+    call<{ job_state: BuildState; events: BuildEventRow[]; last_seq: number }>(
+      `/api/builds/${encodeURIComponent(jobId)}/events?after=${after}&limit=100`,
+    ),
+  cancelBuild: (jobId: string) =>
+    call<{ job: BuildJob }>(`/api/builds/${encodeURIComponent(jobId)}/cancel`, "POST"),
+  retryBuild: (jobId: string, idempotency_key: string, acknowledge_unknown_cost: boolean) =>
+    call<{ job: BuildJob; created: boolean }>(
+      `/api/builds/${encodeURIComponent(jobId)}/retry`,
+      "POST",
+      { idempotency_key, acknowledge_unknown_cost },
+    ),
 };
+
+// ---------- build jobs (server/src/builds.ts) ----------
+
+export type BuildState =
+  | "queued"
+  | "running"
+  | "validating"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "needs_reconciliation";
+
+export interface BuildBudget {
+  max_input_tokens: number;
+  max_output_tokens: number;
+  max_seconds: number;
+  max_cost_cents: number;
+}
+
+export interface BuildJob {
+  id: string;
+  revision: number;
+  content_hash: string;
+  provider: string;
+  state: BuildState;
+  attempt: number;
+  budget: BuildBudget;
+  reserved_cents: number;
+  charged_cents: number;
+  usage_state: "none" | "reported" | "unknown";
+  input_tokens: number;
+  output_tokens: number;
+  dispatched: boolean;
+  cancel_requested: boolean;
+  failure: { code: string; detail: string } | null;
+  retry_of: string | null;
+  requested_by: string;
+  artifact_digest: string | null;
+  artifact: {
+    kind: string;
+    schema_version: number;
+    digest: string;
+    bytes: number;
+    spec: { name?: string; fields?: { key: string; label: string; type: string }[] };
+    checks: { id: string; label: string; passed: boolean; detail: string }[];
+  } | null;
+  event_count: number;
+  can_cancel: boolean;
+  can_retry: boolean;
+  retry_needs_ack: boolean;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface BuildEventRow {
+  seq: number;
+  attempt: number;
+  type: string;
+  data: Record<string, unknown>;
+  at: string;
+}
+
+export interface BuildList {
+  availability: BuildAvailability;
+  pricing: { inputCentsPerMillionTokens: number; outputCentsPerMillionTokens: number } | null;
+  budget: {
+    limit_cents: number | null;
+    reserved_cents: number;
+    charged_cents: number;
+    unresolved_cents: number;
+    available_cents: number | null;
+  };
+  limits: {
+    maxInputTokens: number;
+    maxOutputTokens: number;
+    minSeconds: number;
+    maxSeconds: number;
+  };
+  jobs: BuildJob[];
+}
+
+export const BUILD_STATE_LABEL: Record<BuildState, string> = {
+  queued: "Queued",
+  running: "Running",
+  validating: "Checking output",
+  succeeded: "Built and checked",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  needs_reconciliation: "Outcome unknown",
+};
+
+export const isLive = (s: BuildState) => s === "queued" || s === "running" || s === "validating";
 
 export const PRICE_LABEL: Record<PriceModel, string> = {
   per_use: "Per use",

@@ -29,9 +29,10 @@ import {
 import { historyReducer, initialHistory, shownRevision } from "../revisionHistory.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { BuildsView } from "./Builds.tsx";
 import { emptySample, PrototypeEditor, PrototypePreview, type SampleState } from "./Prototype.tsx";
 
-type Tab = "preview" | "brief" | "checks" | "versions" | "continuity";
+type Tab = "preview" | "brief" | "checks" | "versions" | "builds" | "continuity";
 type Content = { brief: Brief; prototype: Prototype };
 interface LocalDraft extends Content {
   base: number;
@@ -43,6 +44,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "brief", label: "Brief" },
   { id: "checks", label: "Checks" },
   { id: "versions", label: "Versions" },
+  { id: "builds", label: "Builds" },
   { id: "continuity", label: "Continuity" },
 ];
 
@@ -839,8 +841,8 @@ export function ProductStudio({ id }: { id: string }) {
       label: "Build",
       detail: view.build.available ? "Ready" : "Not connected",
       state: "blocked",
-      current: tab === "preview",
-      act: () => setTab("preview"),
+      current: tab === "builds",
+      act: () => setTab("builds"),
     },
     {
       key: "test",
@@ -1141,6 +1143,13 @@ export function ProductStudio({ id }: { id: string }) {
             {tab === "checks" && <ChecksView view={view} dirty={dirty} />}
             {tab === "versions" && (
               <VersionsView view={view} dirty={dirty} busy={busy} onRestore={restore} />
+            )}
+            {tab === "builds" && (
+              <BuildsView
+                projectId={view.project.id}
+                headRevision={view.head.number}
+                dirty={dirty}
+              />
             )}
             {tab === "continuity" && <ContinuityView view={view} />}
           </div>
