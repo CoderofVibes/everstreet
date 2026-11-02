@@ -103,3 +103,28 @@ Built from Astra's launch-pad pass, for Tony's computer rather than a phone (Ton
    confirmed). No AI calls yet, so nothing is spent.
 6. **Attribution is coarse and honest.** Own link, discovery, need, follow, or unknown; no
    tracking beyond the page's own link parameter.
+
+## 2026-11-02 · Phase 3: real testnet payments
+
+1. **Contract v2 (`contracts/business-v2`)** implements slices 1 and 5 of `docs/design/BUSINESS_V2.md`:
+   one accepted NEP-141 token, paid orders held as customer money until delivered, refunds by the
+   rules fixed at creation, prepaid credit, owner withdrawals limited by a reserve, monthly books on
+   chain, async payouts that settle or return in their callback, and v1's sale with a token-funded
+   hold and seller proceeds. Every unit held is in exactly one bucket, checked after each change.
+   19 unit tests; a sandbox test with real token transfers (wrong token refused, duplicate order
+   returned, refund, delivery, reserve, sale) checks the token balance against the books each step.
+2. **Shared code by hash.** v2 is published once as a global contract by hash
+   (`HdJDDpN28ms4XHVZxdSxAc6VF67zSA4kK1zXtwcphyBP`, about 27 test NEAR burned; the root was topped
+   up from three faucet accounts, each deleted into it). Each business account uses that hash and
+   is born with no keys, so its code can never change, and it costs about 0.3 NEAR to create.
+3. **Test dollars** are `tusd.everstreet.testnet`, made from NEAR's standard FT shared code by hash,
+   no keys, 6 decimals, supply held by the root as the faucet.
+4. **People hold their own testnet accounts**, created on first payment with 0.2 NEAR for fees and
+   $200 in test dollars. In the local preview their keys sit in the local database (gitignored),
+   and every screen that shows the account says so. NEAR Auth replaces this before real users.
+5. **Seat first, then payment.** OpenSeat holds the place; the customer pays with a unique order
+   id; the outcome is read back from the contract. "Unknown" outcomes keep the seat and are
+   reconciled or re-sent with the same id (the contract takes an order once). A payment that never
+   left releases the seat.
+6. **Cut for now:** paid waitlists (paid sessions show Full), payments for non-class businesses,
+   subscriptions and usage metering (v2 slices 2–4), a relayer for sponsored fees.

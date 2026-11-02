@@ -2,9 +2,10 @@
 // and who promoted a waitlisted place (checked against NEAR); needs show founders' replies.
 
 import { useCallback, useEffect, useState } from "react";
-import { api, type MyBooking, type MyNeed } from "../api.ts";
+import { api, type MyBooking, type MyNeed, type Wallet } from "../api.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { money } from "../ui.tsx";
 import { ago, when } from "../via.ts";
 
 type ActivityData = Awaited<ReturnType<typeof api.activity>>;
@@ -37,6 +38,7 @@ function BookingCard({ b, onChange }: { b: MyBooking; onChange: () => void }) {
           generation {b.promoted_generation}).
         </p>
       )}
+      {b.payment && <PaymentLine p={b.payment} />}
       <div className="row" style={{ marginTop: 8, fontSize: 14 }}>
         <span className="muted">
           Your reference: <code>{b.reference}</code>. Keep it private; it is what proves the place
@@ -56,14 +58,22 @@ function BookingCard({ b, onChange }: { b: MyBooking; onChange: () => void }) {
             onClick={async () => {
               if (
                 !window.confirm(
-                  b.status === "confirmed"
-                    ? "Give up your place? The next person waiting gets it."
-                    : "Leave the waitlist?",
+                  b.payment?.status === "paid"
+                    ? b.payment.refundable_now
+                      ? `Cancel and get ${money(b.payment.amount_cents)} back? The refund is paid by the business's contract on NEAR testnet.`
+                      : "The refund window has closed: if you cancel now, the business keeps the payment. Cancel anyway?"
+                    : b.status === "confirmed"
+                      ? "Give up your place? The next person waiting gets it."
+                      : "Leave the waitlist?",
                 )
               )
                 return;
               setBusy(true);
-              await api.cancelBooking(b.id);
+              try {
+                await api.cancelBooking(b.id);
+              } catch (e) {
+                window.alert((e as Error).message);
+              }
               onChange();
             }}
           >
@@ -72,6 +82,114 @@ function BookingCard({ b, onChange }: { b: MyBooking; onChange: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+function PaymentLine({ p }: { p: NonNullable<MyBooking["payment"]> }) {
+  const label: Record<string, string> = {
+    paid: `Paid ${money(p.amount_cents)}`,
+    delivered: `Paid ${money(p.amount_cents)} · delivered`,
+    refunded: `Refunded ${money(p.amount_cents)}`,
+    kept: `Paid ${money(p.amount_cents)} · cancelled after the refund window`,
+    unknown: "Payment not confirmed yet",
+    submitted: "Payment being checked",
+    failed: "Payment did not go through",
+  };
+  return (
+    <p className="near-note">
+      <strong>{label[p.status] ?? p.status}</strong> in test dollars{" "}
+      {p.status === "refunded" ? "back from" : "to"} <code>{p.business_account}</code>.{" "}
+      {p.status === "paid" &&
+        (p.refundable_now
+          ? `Full refund if you cancel before ${when(p.cancel_before)}. `
+          : "The refund window has closed. ")}
+      {p.tx_url && (
+        <a href={p.tx_url} target="_blank" rel="noreferrer">
+          Payment
+        </a>
+      )}
+      {p.refund_tx_url && (
+        <>
+          {" · "}
+          <a href={p.refund_tx_url} target="_blank" rel="noreferrer">
+            Refund
+          </a>
+        </>
+      )}
+      {p.error && p.status !== "kept" && <> · {p.error}</>}
+    </p>
+  );
+}
+
+function WalletCard() {
+  const [w, setW] = useState<Wallet | null | undefined>(undefined);
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api
+      .wallet()
+      .then((r) => {
+        setW(r.wallet);
+        setEnabled(r.info.enabled);
+      })
+      .catch(() => setW(null));
+  }, []);
+  if (w === undefined || !enabled) return null;
+  return (
+    <section className="card">
+      <div className="row">
+        <h2 style={{ margin: 0 }}>Your test wallet</h2>
+        <span className="spacer" />
+        {w && (
+          <strong style={{ fontSize: 22 }}>
+            {w.balance_cents === null ? "…" : money(w.balance_cents)}
+          </strong>
+        )}
+      </div>
+      {w ? (
+        <>
+          <p className="muted" style={{ fontSize: 14, margin: "6px 0" }}>
+            Your own account on NEAR testnet:{" "}
+            <a href={w.explorer} target="_blank" rel="noreferrer">
+              <code>{w.account_id}</code>
+            </a>
+            . Test dollars have no value. In this local preview its key is kept on this computer;
+            real sign-in replaces that later.
+          </p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              setW((await api.topUp()).wallet);
+              setBusy(false);
+            }}
+          >
+            Get $100 more test dollars
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="muted" style={{ fontSize: 14 }}>
+            Paying a business on Everstreet uses your own testnet account. It's created with $200 in
+            test dollars (no real money) the first time you pay, or now.
+          </p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              setW((await api.createWallet()).wallet);
+              setBusy(false);
+            }}
+          >
+            {busy ? "Creating on NEAR testnet…" : "Create my test wallet"}
+          </button>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -179,6 +297,9 @@ export function Activity() {
       <h1 className="display" style={{ fontSize: 40 }}>
         My activity
       </h1>
+      <WalletCard
+        key={data.bookings.map((b) => `${b.id}:${b.status}:${b.payment?.status ?? ""}`).join("|")}
+      />
       <section className="card">
         <h2>Bookings</h2>
         {data.bookings.length === 0 ? (

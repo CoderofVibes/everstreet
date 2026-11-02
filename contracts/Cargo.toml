@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["business"]
+members = ["business", "business-v2", "test-token"]
 
 [profile.release]
 codegen-units = 1

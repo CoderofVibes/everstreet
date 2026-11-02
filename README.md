@@ -44,11 +44,24 @@ What you can do today:
   things out with a one-click relax and a way back.
 - **Be seen**: founder profiles, updates for followers, a share kit with a trackable link, and
   "how people found you" (own link, Everstreet, a request, unknown). Pages can be reported.
+- **Take real payments on NEAR testnet**: the founder turns payments on and chooses the promises
+  the business keeps (refund window, reserve). That creates the business's own testnet account
+  running the v2 contract from shared code by hash, born with no keys, owned by the founder's
+  own account. Customers "Pay $35 and book" from their own testnet account in test dollars
+  (tUSD, no value). The contract holds customer money until the founder marks the order
+  delivered, refunds a cancellation inside the window by itself, and never lets the owner
+  withdraw customer money or the reserve. The founder's **Money** panel is read from the
+  contract: customers' money, earned, withdrawable, this month's books, each order with its
+  transaction links, and withdrawals. A dropped connection is reconciled from the chain
+  (an order id is paid at most once).
 - **Switch people** from the top-right menu (local preview only) to see each side. Try: as Theo,
-  cancel his Nov 14 place in My activity; within seconds Ana (waiting) gets it.
+  cancel his Nov 14 place in My activity; within seconds Ana (waiting) gets it. Then as Mara,
+  turn on payments on Juniper's desk, and as another person pay for the Nov 7 session.
 
-Not yet: payments, financials and valuations on profiles, the acquisition marketplace (its page
-says so), AI drafting (drafts come from templates today), sign-in with a real identity.
+Not yet: financials and valuations on public profiles, the acquisition marketplace (its page
+says so), AI drafting (drafts come from templates today), sign-in with a real identity (people's
+testnet keys are kept on this computer in the local preview), paid waitlists, and payments for
+kinds other than classes.
 
 ## The ownership handoff on NEAR testnet
 
@@ -75,10 +88,12 @@ Requirements: Node 24+. For the contract: WSL Ubuntu with Rust and `cargo-near`.
 | Build and run the app | `npm run app` → http://localhost:8800 |
 | Fill an empty local database with fictional examples | `npm run seed:demo` (`-- --reset` starts over; stop the app first) |
 | Work on the UI with live reload | `npm run serve` and, beside it, `npm run web:dev` → http://localhost:5173 |
-| Lint, typecheck, all tests (16) | `npm run check` |
-| Contract unit tests (WSL, `contracts/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --lib` → 21 tests |
-| Contract on a local NEAR node (WSL) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --test sandbox` |
-| Build the wasm (WSL, `contracts/business/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo near build non-reproducible-wasm` |
+| Lint, typecheck, all tests (31) | `npm run check` |
+| Contract unit tests (WSL, `contracts/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --lib` → 21 tests (v1); `-p business-v2 --lib` → 19 tests (v2) |
+| Contract on a local NEAR node (WSL) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --test sandbox` (v1); `-p business-v2 --test sandbox` (v2 with real token transfers) |
+| Build the wasm (WSL, `contracts/business/` or `contracts/business-v2/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo near build non-reproducible-wasm` |
+| Publish v2 as shared code and create test dollars (needs `everstreet.testnet`'s key) | `npm run setup:v2` |
+| Run the payment path on testnet (needs the root key) | `npm run smoke:payments` → `data/evidence/payments-testnet.json` |
 | Check who can still change the contract (no keys needed) | `npm run inspect` → expects 0 access keys |
 | Check testnet and the Chain Signatures signer (read-only) | `npm run probe:signer` |
 | Create accounts and deploy (needs `everstreet.testnet`'s key) | `npm run setup:testnet` |

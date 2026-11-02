@@ -85,6 +85,19 @@ CREATE TABLE IF NOT EXISTS reports (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, subject TEXT NOT NULL, person_id TEXT NOT NULL,
   reason TEXT NOT NULL, created_at TEXT NOT NULL
 ) STRICT;
+CREATE TABLE IF NOT EXISTS chain_accounts (
+  owner_kind TEXT NOT NULL CHECK (owner_kind IN ('person','business')), owner_id TEXT NOT NULL,
+  account_id TEXT NOT NULL UNIQUE, secret TEXT, rules TEXT NOT NULL DEFAULT '{}', tx TEXT NOT NULL,
+  created_at TEXT NOT NULL, PRIMARY KEY (owner_kind, owner_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS payments (
+  order_id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES people(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id), session_id TEXT NOT NULL,
+  booking_id TEXT REFERENCES bookings(id), amount_cents INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('submitted','unknown','paid','failed','delivered','refunded','kept')),
+  tx TEXT, refund_tx TEXT, deliver_tx TEXT, error TEXT, cancel_before TEXT NOT NULL,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+) STRICT;
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY, type TEXT NOT NULL, subject TEXT NOT NULL, actor TEXT,
   payload TEXT NOT NULL, at TEXT NOT NULL

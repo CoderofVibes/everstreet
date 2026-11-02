@@ -20,7 +20,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "check": "npm run lint && npm run typecheck && npm test"
+    "check": "npm run lint && npm run typecheck && npm test",
+    "setup:v2": "tsx scripts/setup-v2.ts",
+    "smoke:payments": "tsx scripts/smoke-payments.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.5",

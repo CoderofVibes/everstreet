@@ -130,6 +130,7 @@ export interface PublicBusiness {
   new_here?: boolean;
   sessions?: PublicSession[];
   bookings_connected?: boolean;
+  payments?: BusinessPayments | null;
   updates?: Update[];
   followers?: number;
   following?: boolean;
@@ -213,6 +214,65 @@ export interface MyBooking {
   promoted_by: string | null;
   promoted_generation: number | null;
   booked_at: string;
+  payment?: Receipt | null;
+}
+
+export interface Receipt {
+  order_id: string;
+  booking_id: string | null;
+  status: "submitted" | "unknown" | "paid" | "failed" | "delivered" | "refunded" | "kept";
+  amount_cents: number;
+  token: string | null;
+  business_account: string | null;
+  cancel_before: string;
+  refundable_now: boolean;
+  tx: string | null;
+  tx_url: string | null;
+  refund_tx_url: string | null;
+  deliver_tx_url: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface Wallet {
+  account_id: string;
+  created_tx: string;
+  balance_cents: number | null;
+  explorer: string;
+  custody: string;
+}
+
+export interface BusinessPayments {
+  account_id: string;
+  refund_hours: number;
+  reserve_cents: number;
+  explorer: string;
+  activated_tx: string;
+}
+
+export interface Money {
+  enabled: boolean;
+  active: boolean;
+  business?: BusinessPayments;
+  owner_wallet?: Wallet | null;
+  source?: string;
+  treasury?: {
+    held: number | null;
+    customer_money: number | null;
+    customer_credit: number | null;
+    available: number | null;
+    withdrawable: number | null;
+    pending: number | null;
+  } | null;
+  month?: {
+    yyyymm: number;
+    orders_in: number | null;
+    earned: number | null;
+    refunds: number | null;
+    owner_withdrawals: number | null;
+  } | null;
+  orders?: (Receipt & { session_starts_at: string | null; customer: string })[];
+  last_tx?: string;
 }
 
 export interface OwnerSession {
@@ -333,6 +393,7 @@ export const api = {
   activity: () =>
     call<{
       bookings: MyBooking[];
+      wallet: { account_id: string } | null;
       needs: MyNeed[];
       sent: Inquiry[];
       following: { name: string; slug: string }[];
@@ -389,6 +450,26 @@ export const api = {
     }>(`/api/public/people/${id}`),
   report: (kind: "business" | "need", subject: string, reason: string) =>
     call<{ ok: boolean }>("/api/public/reports", "POST", { kind, subject, reason }),
+  paymentsInfo: () =>
+    call<{ enabled: boolean; network?: string; token?: string; explorer?: string }>(
+      "/api/payments/info",
+    ),
+  wallet: () => call<{ wallet: Wallet | null; info: { enabled: boolean } }>("/api/wallet"),
+  createWallet: () => call<{ wallet: Wallet }>("/api/wallet", "POST"),
+  topUp: () => call<{ wallet: Wallet }>("/api/wallet/top-up", "POST"),
+  activatePayments: (businessId: string, refund_hours: number, reserve_cents: number) =>
+    call<BusinessPayments>(`/api/businesses/${businessId}/payments/activate`, "POST", {
+      refund_hours,
+      reserve_cents,
+    }),
+  money: (businessId: string) => call<Money>(`/api/businesses/${businessId}/money`),
+  withdraw: (businessId: string, cents: number) =>
+    call<Money>(`/api/businesses/${businessId}/withdraw`, "POST", { cents }),
+  deliver: (orderId: string) => call<Money>(`/api/payments/${orderId}/deliver`, "POST"),
+  pay: (sessionId: string, source: string) =>
+    call<Receipt>(`/api/public/sessions/${sessionId}/pay`, "POST", { source }),
+  reconcile: (orderId: string) => call<Receipt>(`/api/payments/${orderId}/reconcile`, "POST"),
+  retryPayment: (orderId: string) => call<Receipt>(`/api/payments/${orderId}/retry`, "POST"),
   system: () =>
     call<{
       bookings: {

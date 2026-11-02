@@ -6,6 +6,7 @@ import { api, type Desk, type OwnerSession } from "../api.ts";
 import { Link } from "../router.tsx";
 import { money } from "../ui.tsx";
 import { ago, when } from "../via.ts";
+import { DeskMoney } from "./DeskMoney.tsx";
 import { NeedCard } from "./Explore.tsx";
 
 type Extras = Awaited<ReturnType<typeof api.extras>>;
@@ -180,6 +181,7 @@ export function DeskGrowth({ desk }: { desk: Desk }) {
   }, [load]);
   return (
     <>
+      <DeskMoney desk={desk} />
       {b.family === "class" && <SessionsPanel desk={desk} />}
 
       {b.published_at && extras && extras.needs.length > 0 && (

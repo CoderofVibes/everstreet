@@ -1,0 +1,95 @@
+{
+  "kind": "payments-evidence/v1",
+  "network": "testnet",
+  "token": "tusd.everstreet.testnet",
+  "at": "2026-11-02T15:06:09.992Z",
+  "steps": [
+    {
+      "step": "customer account",
+      "ok": true,
+      "observed": "p-smoke-customer-398c.everstreet.testnet with $200.00 test dollars",
+      "tx": "27ACFJ2k9ZtbKrjRyTECgKagJeDoZ13RoCnKWLbZuAoj",
+      "url": "https://testnet.nearblocks.io/txns/27ACFJ2k9ZtbKrjRyTECgKagJeDoZ13RoCnKWLbZuAoj"
+    },
+    {
+      "step": "founder account",
+      "ok": true,
+      "observed": "p-smoke-founder-8c76.everstreet.testnet",
+      "tx": "Fx1oz5YzLoYZnUeccpPQqQ8CWwB7TyZE4XNBJuN2TKVa",
+      "url": "https://testnet.nearblocks.io/txns/Fx1oz5YzLoYZnUeccpPQqQ8CWwB7TyZE4XNBJuN2TKVa"
+    },
+    {
+      "step": "business account (v2 shared code, no keys)",
+      "ok": true,
+      "observed": "b-smoke-studio-9d0f.everstreet.testnet",
+      "tx": "8Zp8uGKeaNReBCBqqYJN6g6EbsCNRkjuU4GnvDD1d4ze",
+      "url": "https://testnet.nearblocks.io/txns/8Zp8uGKeaNReBCBqqYJN6g6EbsCNRkjuU4GnvDD1d4ze"
+    },
+    {
+      "step": "pay $35 for order smoke-1",
+      "ok": true,
+      "observed": "order Paid; customer has $165.00",
+      "tx": "2Zbv4n8enA3y7hzsCE7ds9VsFJs5MhZ5AHShm3RUr9ZS",
+      "url": "https://testnet.nearblocks.io/txns/2Zbv4n8enA3y7hzsCE7ds9VsFJs5MhZ5AHShm3RUr9ZS"
+    },
+    {
+      "step": "pay the same order again",
+      "ok": true,
+      "observed": "returned by the contract; customer still has $165.00",
+      "tx": "DrwbdUwePsdSt4wX5Yd7u9uXcnJxY1yqKjeQji1Z8PL5",
+      "url": "https://testnet.nearblocks.io/txns/DrwbdUwePsdSt4wX5Yd7u9uXcnJxY1yqKjeQji1Z8PL5"
+    },
+    {
+      "step": "customer cancels inside the window",
+      "ok": true,
+      "observed": "order Refunded; customer has $200.00",
+      "tx": "H6GkF2tmPB5aFpTvWQtQE9cZEYFoHa9NXuDr3kArsGNz",
+      "url": "https://testnet.nearblocks.io/txns/H6GkF2tmPB5aFpTvWQtQE9cZEYFoHa9NXuDr3kArsGNz"
+    },
+    {
+      "step": "pay $35 for order smoke-2",
+      "ok": true,
+      "observed": "paid",
+      "tx": "4BGekYmeN4wPxvXEmskXWX91VP6Ri89HjGHPsjkq52mR",
+      "url": "https://testnet.nearblocks.io/txns/4BGekYmeN4wPxvXEmskXWX91VP6Ri89HjGHPsjkq52mR"
+    },
+    {
+      "step": "founder tries to withdraw customer money",
+      "ok": true,
+      "observed": "refused: Smart contract panicked: E_RESERVED: 0 can be withdrawn; customer money and the 5000000 reserve stay",
+      "tx": "AM1GWjfTx9Xk1zX269CKzKfcMStQ8ZhMWBuAywLTUF6H",
+      "url": "https://testnet.nearblocks.io/txns/AM1GWjfTx9Xk1zX269CKzKfcMStQ8ZhMWBuAywLTUF6H"
+    },
+    {
+      "step": "founder marks smoke-2 delivered",
+      "ok": true,
+      "observed": "revenue earned",
+      "tx": "Arsra1Qei3BCMc4LCGG55gSGL9U6NuUzCtYvDYtGyFr3",
+      "url": "https://testnet.nearblocks.io/txns/Arsra1Qei3BCMc4LCGG55gSGL9U6NuUzCtYvDYtGyFr3"
+    },
+    {
+      "step": "founder withdraws more than earned minus the $5 reserve",
+      "ok": true,
+      "observed": "refused: Smart contract panicked: E_RESERVED: 30000000 can be withdrawn; customer money and the 5000000 reserve stay",
+      "tx": "Eoq87AFnmDLhgnwQ6YsBm6B3SjAoFep49MViaeu3kCnU",
+      "url": "https://testnet.nearblocks.io/txns/Eoq87AFnmDLhgnwQ6YsBm6B3SjAoFep49MViaeu3kCnU"
+    },
+    {
+      "step": "founder withdraws $30",
+      "ok": true,
+      "observed": "founder has $230.00 test dollars",
+      "tx": "B3aowMXsK64vBcaftASeu2XoDMGYd1ZVLs6cjEnBUyDg",
+      "url": "https://testnet.nearblocks.io/txns/B3aowMXsK64vBcaftASeu2XoDMGYd1ZVLs6cjEnBUyDg"
+    },
+    {
+      "step": "books match the token balance",
+      "ok": true,
+      "observed": "held $5.00 = token balance $5.00; available $5.00, customer money $0.00"
+    },
+    {
+      "step": "this month's books on chain",
+      "ok": true,
+      "observed": "orders in $70.00, earned $35.00, refunds $35.00, owner withdrawals $30.00"
+    }
+  ]
+}

@@ -2,10 +2,16 @@
 // business takes bookings, and one honest next action.
 
 import { useEffect, useState } from "react";
-import { api, type MyBooking, type PublicBusiness, type PublicSession } from "../api.ts";
+import {
+  api,
+  type MyBooking,
+  type PublicBusiness,
+  type PublicSession,
+  type Receipt,
+} from "../api.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
-import { Avatar, FAMILY_LABEL, OfferCard, STAGE_LABEL } from "../ui.tsx";
+import { Avatar, FAMILY_LABEL, money, OfferCard, STAGE_LABEL } from "../ui.tsx";
 import { ago, rememberVia, viaFor, when } from "../via.ts";
 
 function seatsText(s: PublicSession) {
@@ -25,17 +31,22 @@ function Sessions({
 }) {
   const { person, requireSignIn } = useSession();
   const [booked, setBooked] = useState<MyBooking | null>(null);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const first = page.founder.display_name.split(" ")[0];
   const sessions = page.sessions ?? [];
   if (sessions.length === 0) return null;
+  const price = page.offer?.first_free ? null : (page.offer?.price_cents ?? null);
+  const paid = Boolean(page.payments && price);
+  const refundHours = page.payments?.refund_hours ?? 0;
+
+  const signIn = async () =>
+    person ||
+    (await requireSignIn(`Join to book. Your name is shared with ${first} for the booking.`));
+
   const book = async (s: PublicSession) => {
-    if (preview || page.viewer_is_owner) return;
-    if (
-      !person &&
-      !(await requireSignIn(`Join to book. Your name is shared with ${first} for the booking.`))
-    )
-      return;
+    if (preview || page.viewer_is_owner || !(await signIn())) return;
     try {
       setBooked(await api.book(s.id, viaFor(page.slug)));
       setError(null);
@@ -44,10 +55,85 @@ function Sessions({
       setError((e as Error).message);
     }
   };
+
+  const pay = async (s: PublicSession) => {
+    if (preview || page.viewer_is_owner || !(await signIn())) return;
+    setBusy("Setting up your testnet wallet and paying… this takes a few seconds on NEAR testnet.");
+    setError(null);
+    try {
+      const r = await api.pay(s.id, viaFor(page.slug));
+      setReceipt(r);
+      onBooked();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const again = async (fn: (id: string) => Promise<Receipt>) => {
+    if (!receipt) return;
+    setBusy("Checking with NEAR testnet…");
+    try {
+      setReceipt(await fn(receipt.order_id));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="card" style={{ padding: 18 }}>
       <strong>Choose a session</strong>
-      {booked ? (
+      {receipt ? (
+        <div style={{ marginTop: 10 }}>
+          {receipt.status === "paid" ? (
+            <p className="notice ok" style={{ margin: 0 }}>
+              Paid {money(receipt.amount_cents)} and your place is booked.{" "}
+              {receipt.refundable_now &&
+                `Full refund if you cancel before ${when(receipt.cancel_before)}.`}{" "}
+              See it in <Link to="/activity">My activity</Link>.
+            </p>
+          ) : receipt.status === "unknown" ? (
+            <div className="notice" style={{ margin: 0 }}>
+              We sent your payment but couldn't confirm it yet. Your place is held. Nothing will be
+              charged twice.
+              <div className="row" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={Boolean(busy)}
+                  onClick={() => again(api.reconcile)}
+                >
+                  Check again
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-quiet"
+                  disabled={Boolean(busy)}
+                  onClick={() => again(api.retryPayment)}
+                >
+                  Try sending again
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="notice" style={{ margin: 0 }}>
+              {receipt.error ?? `Payment ${receipt.status}.`}
+            </p>
+          )}
+          {receipt.tx_url && (
+            <p className="near-note">
+              Paid in test dollars from your own testnet account to {page.name}'s account{" "}
+              <code>{receipt.business_account}</code>.{" "}
+              <a href={receipt.tx_url} target="_blank" rel="noreferrer">
+                See the transaction
+              </a>
+            </p>
+          )}
+        </div>
+      ) : booked ? (
         <p
           className={`notice ${booked.status === "confirmed" ? "ok" : ""}`}
           style={{ margin: "10px 0 0" }}
@@ -72,21 +158,48 @@ function Sessions({
                     {seatsText(s)}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className={`btn ${full ? "btn-secondary" : "btn-primary"}`}
-                  disabled={preview || page.viewer_is_owner || !s.available}
-                  onClick={() => book(s)}
-                >
-                  {full ? "Join the waitlist" : "Book a place"}
-                </button>
+                {paid ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={
+                      preview || page.viewer_is_owner || !s.available || full || Boolean(busy)
+                    }
+                    onClick={() => pay(s)}
+                  >
+                    {full ? "Full" : `Pay ${money(price)} and book`}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={`btn ${full ? "btn-secondary" : "btn-primary"}`}
+                    disabled={preview || page.viewer_is_owner || !s.available}
+                    onClick={() => book(s)}
+                  >
+                    {full ? "Join the waitlist" : "Book a place"}
+                  </button>
+                )}
               </div>
             );
           })}
+          {busy && (
+            <p className="muted" style={{ margin: 0 }}>
+              {busy}
+            </p>
+          )}
           {error && <p className="error-text">{error}</p>}
           <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-            Places are held by OpenSeat, the booking service {first} uses. No payment is taken yet.
-            Booking shares your name with {first}.
+            {paid
+              ? `You pay ${first}'s business account on NEAR testnet in test dollars (no real money). ${
+                  refundHours > 0
+                    ? `Cancel up to ${refundHours} hours before for a full refund, guaranteed by the business's own contract.`
+                    : "This business doesn't offer cancellation refunds."
+                } Places are held by OpenSeat, the booking service ${first} uses.`
+              : `Places are held by OpenSeat, the booking service ${first} uses. ${
+                  price
+                    ? `Pay ${first} in person; this business doesn't take payments on Everstreet yet.`
+                    : "No payment needed."
+                } Booking shares your name with ${first}.`}
           </p>
         </div>
       )}

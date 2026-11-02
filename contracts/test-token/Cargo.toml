@@ -1,0 +1,14 @@
+[package]
+name = "test-token"
+description = "A plain NEP-141 token for local tests: the whole supply is minted to the owner at init"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.29.1"
+near-contract-standards = "=5.29.1"

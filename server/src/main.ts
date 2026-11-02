@@ -18,6 +18,7 @@ import { OpenSeat } from "../../services/openseat/src/service.ts";
 import { PromotionWorker } from "../../services/openseat/src/worker.ts";
 import { everstreetApi } from "./app.ts";
 import { openSeatProvider } from "./bookings.ts";
+import { NearChain } from "./chain.ts";
 import { openDb } from "./db.ts";
 import { Store } from "./store.ts";
 
@@ -112,11 +113,24 @@ tick();
 
 // ---------- the app ----------
 
+// Payments: real NEAR testnet accounts and the v2 contract, when this computer has the root key.
+const chain = NearChain.fromLocalConfig();
+
 const app = new Hono();
 app.route("/svc/openseat", openseatHttp);
 app.get("/api/system", (c) =>
   c.json({
     bookings: { provider: "OpenSeat", runs: "beside Everstreet, own database", waitlist: status },
+    payments: chain
+      ? {
+          network: chain.network,
+          token: chain.token,
+          note: "Local preview keeps people's testnet keys on this computer",
+        }
+      : {
+          network: null,
+          note: "No testnet root key on this computer: priced sessions book without payment",
+        },
   }),
 );
 app.route(
@@ -125,6 +139,7 @@ app.route(
     localPreview: true,
     environment: "Local preview",
     bookingProvider: provider,
+    chain,
   }),
 );
 

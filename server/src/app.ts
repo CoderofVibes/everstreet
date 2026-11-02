@@ -4,7 +4,9 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { type BookingProvider, Bookings } from "./bookings.ts";
+import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
+import { Payments } from "./payments.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 
 const COOKIE = "es_session";
@@ -15,6 +17,8 @@ export interface AppOptions {
   environment: string;
   /** The booking service class businesses publish their sessions to (OpenSeat). */
   bookingProvider?: BookingProvider;
+  /** NEAR testnet, for payments. Without it, priced sessions are booked without payment. */
+  chain?: Chain | null;
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -23,6 +27,13 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const bookings = options.bookingProvider
     ? new Bookings(store.db, store, options.bookingProvider)
     : null;
+  const payments = bookings ? new Payments(store.db, store, bookings, options.chain ?? null) : null;
+  const pricedAndPaid = (businessId: string) => {
+    const offer = store.offerOf(businessId);
+    return Boolean(
+      payments?.businessPayments(businessId) && offer.price_cents && !offer.first_free,
+    );
+  };
 
   app.onError((error, c) => {
     if (error instanceof HttpError) return c.json({ error: error.message }, error.status);
@@ -165,6 +176,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
       viewer_is_owner: viewer ? store.isOwner(viewer, slug) : false,
       sessions: bookings ? await bookings.publicSessions(id) : [],
       bookings_connected: Boolean(bookings),
+      payments: payments?.businessPayments(id) ?? null,
       updates: community.updatesFor(id),
       followers: community.followers(id),
       following: community.isFollowing(viewer, id),
@@ -212,14 +224,23 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.post("/api/public/sessions/:id/book", async (c) => {
     const { source } = await body<{ source?: string }>(c);
+    const session = store.db
+      .prepare("SELECT business_id FROM sessions_offered WHERE id = ?")
+      .get(c.req.param("id")) as { business_id: string } | undefined;
+    if (session && pricedAndPaid(session.business_id))
+      throw new HttpError(409, "This session is paid; use Pay and book");
     return c.json(
       await needBookings().book(me(c), c.req.param("id"), String(source ?? "unknown")),
       201,
     );
   });
-  app.post("/api/activity/bookings/:id/cancel", async (c) =>
-    c.json(await needBookings().cancel(me(c), c.req.param("id"))),
-  );
+  app.post("/api/activity/bookings/:id/cancel", async (c) => {
+    const p = me(c);
+    const paid = payments ? await payments.cancelPaid(p, c.req.param("id")) : null;
+    if (paid)
+      return c.json({ ...(await needBookings().myBooking(p, c.req.param("id"))), payment: paid });
+    return c.json(await needBookings().cancel(p, c.req.param("id")));
+  });
   app.get("/api/activity/bookings/:id/calendar.ics", async (c) =>
     c.body(await needBookings().calendar(me(c), c.req.param("id")), 200, {
       "content-type": "text/calendar; charset=utf-8",
@@ -227,12 +248,64 @@ export function everstreetApi(store: Store, options: AppOptions) {
     }),
   );
 
+  // ---------- payments on NEAR testnet ----------
+
+  const needPayments = () => {
+    if (!payments) throw new HttpError(409, "Payments are not connected in this environment");
+    return payments;
+  };
+  app.get("/api/payments/info", (c) => c.json(payments?.info() ?? { enabled: false }));
+  app.get("/api/wallet", async (c) => {
+    const p = me(c);
+    return c.json({
+      wallet: payments?.existingWallet(p) ? await needPayments().wallet(p) : null,
+      info: payments?.info() ?? { enabled: false },
+    });
+  });
+  app.post("/api/wallet", async (c) => c.json({ wallet: await needPayments().wallet(me(c)) }, 201));
+  app.post("/api/wallet/top-up", async (c) =>
+    c.json({ wallet: await needPayments().topUp(me(c)) }),
+  );
+  app.post("/api/businesses/:id/payments/activate", async (c) =>
+    c.json(await needPayments().activate(me(c), c.req.param("id"), await body(c)), 201),
+  );
+  app.get("/api/businesses/:id/money", async (c) =>
+    c.json(await needPayments().money(me(c), c.req.param("id"))),
+  );
+  app.post("/api/businesses/:id/withdraw", async (c) => {
+    const { cents } = await body<{ cents?: number }>(c);
+    return c.json(await needPayments().withdraw(me(c), c.req.param("id"), Number(cents)));
+  });
+  app.post("/api/payments/:id/deliver", async (c) =>
+    c.json(await needPayments().deliver(me(c), c.req.param("id"))),
+  );
+  app.post("/api/public/sessions/:id/pay", async (c) => {
+    const { source } = await body<{ source?: string }>(c);
+    return c.json(
+      await needPayments().payAndBook(me(c), c.req.param("id"), String(source ?? "unknown")),
+      201,
+    );
+  });
+  app.get("/api/payments/:id", (c) => c.json(needPayments().receipt(me(c), c.req.param("id"))));
+  app.post("/api/payments/:id/reconcile", async (c) =>
+    c.json(await needPayments().reconcile(me(c), c.req.param("id"))),
+  );
+  app.post("/api/payments/:id/retry", async (c) =>
+    c.json(await needPayments().retry(me(c), c.req.param("id"))),
+  );
+
   // ---------- my activity ----------
 
   app.get("/api/activity", async (c) => {
     const p = me(c);
     return c.json({
-      bookings: bookings ? await bookings.myBookings(p) : [],
+      bookings: bookings
+        ? (await bookings.myBookings(p)).map((b) => ({
+            ...b,
+            payment: payments?.forBooking(b.id) ?? null,
+          }))
+        : [],
+      wallet: payments?.existingWallet(p) ?? null,
       needs: community.myNeeds(p),
       sent: store.inbox(p).sent,
       following: community.following(p),
