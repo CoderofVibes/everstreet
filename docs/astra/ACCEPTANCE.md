@@ -74,6 +74,11 @@ honest; scripted results/metadata render. Three reproduced issues block keyless 
 late former-owner response, empty-only release checks, and pending request lost on tab change.
 See002c1 and reports/2026-11-02_002c-independent-review.md. Live provider gate remains pending.
 
+002c1 server corrections at3732fef independently pass the four prior API probes: late owner
+denied, required checks block trivial-only release, same-key retry survives release change,
+overlong value is not fulfilled. Browser confirms panel continuity and same-text recovery without
+extra charge, but typed-ahead text hides recovery (002c2). FullM2/live gate remains pending.
+
 ## M3: commerce, performance and transfer
 
 | Gate | Observable result | Evidence/status |
@@ -95,6 +100,12 @@ See002c1 and reports/2026-11-02_002c-independent-review.md. Live provider gate r
 The report records unauthorized credit-use semantics, duplicate charge memos, treasury drift,
 withdrawal races, failed seller payouts after close, duplicate local settlement, lost-response
 recovery and offchain authority races. Stronger digital guarantees require follow-up slices.
+
+003f at2b6dd69/197a749: independent319-test check/web build pass. Desktop/mobile charts, keyboard
+details and source table inspected with fictional fixtures. Five independent server corrections
+plus mobile overflow and provenance/precision issues are in003f1. FinancialUI not accepted yet.
+003e authorizes only an undeployed entitlement/storage/payout contract core with keyless tests;
+test-only owner changes do not prove a NEAR acquisition or runtime continuity.
 
 ## M4: bring an existing product
 

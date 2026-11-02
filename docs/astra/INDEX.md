@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-02 | [Financial review](2026-11-02_FinancialReview.md) | Independent319-test pass, runtime repeats and chart review;002c2/003f1 corrections and003e undeployed entitlement core | Active; see BUILD_STATE.md |
 | 2026-11-02 | [Runtime review](2026-11-02_RuntimeReview.md) | Independent280-test check, panel browser acceptance, five runtime reproductions and002c1 correction handoff | Active; see BUILD_STATE.md |
 | 2026-11-02 | [Runtime handoff](2026-11-02_RuntimeHandoff.md) | Independent233-test check after003b/003p; dispatched002b2 then002c to Claude | Active; see BUILD_STATE.md |
 | 2026-11-02 | [Recovery review](2026-11-02_RecoveryReview.md) | Independent in-memory acceptance readback reproduction during active003b build; no duplicate writer | Evidence handed to Claude; see BUILD_STATE.md |
