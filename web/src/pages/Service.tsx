@@ -18,6 +18,7 @@ import {
   describeAttempt,
   empty,
   inFlight,
+  MAX_TRACKED,
   POLL,
   type Requests,
   recover,
@@ -440,7 +441,15 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
               />
             </label>
             <div className="row" style={{ gap: 8, alignItems: "center" }}>
-              {action === "new_paid_only" ? (
+              {action === "full" ? (
+                // Every tracked request is unresolved: no new paid work until one is checked.
+                <p className="notice" role="status" style={{ fontSize: 13.5, margin: 0 }}>
+                  <strong>Check an earlier request first.</strong> {MAX_TRACKED} earlier requests
+                  have no answer yet, which is as many as this page keeps track of. Check on one
+                  below (that won't run it again) before starting new paid work. Your text above
+                  stays as it is.
+                </p>
+              ) : action === "new_paid_only" ? (
                 // While an earlier request is unresolved, new work is only this explicit action.
                 <button
                   type="button"

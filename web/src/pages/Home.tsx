@@ -61,7 +61,7 @@ const STAGES: { icon: IconName; title: string; text: string; now: "now" | "parti
     {
       icon: "spark",
       title: "Build",
-      text: "Prototype screens now; AI generation is not connected yet",
+      text: "Start from a brief and prototype; each project shows whether AI drafting and builds are available",
       now: "partial",
     },
     {

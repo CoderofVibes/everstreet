@@ -175,8 +175,8 @@ export function Composer({
         )}
         {variant === "full" && (
           <span className="muted" style={{ fontSize: 13 }}>
-            Saved privately with every revision. AI generation is not connected yet, so you start
-            from an editable brief and prototype.
+            Saved privately with every revision. You start from an editable brief and prototype; the
+            project shows whether AI drafting and builds are available here.
           </span>
         )}
         <span className="spacer" />
