@@ -3,7 +3,9 @@
 // With no provider, it says so and points to the manual editors: there is no fake reply. A
 // message keeps its request key until it is accepted, so a double click or a retry after an
 // error is the same request. While a request runs the founder can keep typing; the view checks
-// back with growing gaps (2 s up to 15 s), at most 60 times.
+// back with growing gaps (2 s up to 15 s), at most 60 times. The studio keeps this panel mounted
+// (hidden) while Brief or Screens is open, so the unsent thought and an unresolved request
+// survive panel switches; it is keyed by person, project and owner epoch (studioScope.ts).
 
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../icons.tsx";
@@ -25,6 +27,7 @@ import {
   usd,
   type WorkLogMessage,
 } from "../productsApi.ts";
+import { withPrefill } from "../studioScope.ts";
 import { mergeLog, olderCursor } from "../workLog.ts";
 import { BudgetPanel, MAX_POLLS, newKey, usageText } from "./Builds.tsx";
 
@@ -161,7 +164,7 @@ export function ConversationPanel({
   }, [load]);
 
   useEffect(() => {
-    if (prefill) setText(prefill.text);
+    if (prefill) setText((t) => withPrefill(t, prefill.text));
   }, [prefill]);
 
   // A new proposal arriving opens it on the canvas (not on first load).

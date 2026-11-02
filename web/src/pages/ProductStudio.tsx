@@ -30,6 +30,7 @@ import {
 import { historyReducer, initialHistory, shownRevision } from "../revisionHistory.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { type Prefill, prefillFor, studioScope } from "../studioScope.ts";
 import { BuildsView } from "./Builds.tsx";
 import { ConversationPanel } from "./Conversation.tsx";
 import { emptySample, PrototypeEditor, PrototypePreview, type SampleState } from "./Prototype.tsx";
@@ -858,7 +859,7 @@ export function ProductStudio({ id }: { id: string }) {
   const [tab, setTab] = useState<Tab>("preview");
   const [side, setSide] = useState<"assistant" | "brief" | "screens">("assistant");
   const [proposalId, setProposalId] = useState<string | null>(null);
-  const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
+  const [prefill, setPrefill] = useState<Prefill | null>(null);
   const personId = person?.id ?? "";
   const reviewProposal = useCallback((pid: string) => {
     setProposalId(pid);
@@ -1032,6 +1033,9 @@ export function ProductStudio({ id }: { id: string }) {
     );
   if (!view || !draft) return <div className="page muted">Loading project…</div>;
 
+  // The signed-in person now (not the person the view was loaded for), so a switch of person
+  // resets the conversation at once, before the studio reloads.
+  const scope = studioScope(personId, view.project.id, view.business.owner_epoch);
   const brief = draft.brief;
   const starter =
     brief.features.length === view.foundation.features.length &&
@@ -1277,16 +1281,21 @@ export function ProductStudio({ id }: { id: string }) {
                 Screens · {draft.prototype.screens.length}
               </button>
             </fieldset>
-            {side === "assistant" ? (
+            {/* Kept mounted while hidden, so the unsent thought and an unresolved request
+                survive switching to Brief or Screens. The key starts it clean for another
+                person, project or owner epoch. */}
+            <div hidden={side !== "assistant"}>
               <ConversationPanel
+                key={scope}
                 projectId={view.project.id}
                 businessId={view.business.id}
                 idea={view.project.idea}
-                prefill={prefill}
+                prefill={prefillFor(prefill, scope)}
                 onReview={reviewProposal}
                 onManual={() => setSide("brief")}
               />
-            ) : side === "brief" ? (
+            </div>
+            {side === "assistant" ? null : side === "brief" ? (
               <BriefEditor
                 brief={brief}
                 starter={starter}
@@ -1398,7 +1407,7 @@ export function ProductStudio({ id }: { id: string }) {
                 }}
                 onAskAgain={(text) => {
                   setSide("assistant");
-                  setPrefill((p) => ({ text, n: (p?.n ?? 0) + 1 }));
+                  setPrefill((p) => ({ text, n: (p?.n ?? 0) + 1, scope }));
                 }}
               />
             )}
