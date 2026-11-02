@@ -867,6 +867,9 @@ export function ProductStudio({ id }: { id: string }) {
   const [base, setBase] = useState(0);
   const [note, setNote] = useState("");
   const [tab, setTab] = useState<Tab>("preview");
+  /** Service stays mounted once opened (job 002c1); see the Service tab below. */
+  const [serviceOpened, setServiceOpened] = useState(false);
+  if (tab === "service" && !serviceOpened) setServiceOpened(true);
   const [side, setSide] = useState<"assistant" | "brief" | "screens">("assistant");
   const [proposalId, setProposalId] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<Prefill | null>(null);
@@ -1434,8 +1437,17 @@ export function ProductStudio({ id }: { id: string }) {
                 dirty={dirty}
               />
             )}
-            {tab === "service" && (
-              <ServiceView key={scope} projectId={view.project.id} businessId={view.business.id} />
+            {/* Job 002c1: once opened, Service stays mounted (hidden on other tabs) so a pending
+                request, its text and target survive switching tabs. Keyed by person, project
+                and owner epoch, so another scope starts clean. */}
+            {serviceOpened && (
+              <div hidden={tab !== "service"}>
+                <ServiceView
+                  key={scope}
+                  projectId={view.project.id}
+                  businessId={view.business.id}
+                />
+              </div>
             )}
             {tab === "continuity" && <ContinuityView view={view} />}
           </div>

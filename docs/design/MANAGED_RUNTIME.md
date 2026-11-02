@@ -24,7 +24,8 @@ the product *running*: a founder's checked `extraction_spec/1` turning pasted te
 |---|---|
 | Artifact | `build_artifacts.digest` (SHA-256 of the canonical spec) plus the build job id |
 | Runtime model configuration | `runtime-provider` identity: provider, model, config version, pricing version, thinking/effort, prompt version |
-| Validator | `EXTRACT_VALIDATOR = "extract-validator/1"` |
+| Validator | `EXTRACT_VALIDATOR = "extract-validator/2"` (2: overlong values are invalid, never shortened) |
+| Release policy | `RELEASE_POLICY = "invoice-release/1"` and its required cases |
 | Fixture set | project fixture set id plus immutable version number |
 | Release | release id → (artifact digest, model configuration, validator, evaluation run) |
 
@@ -99,17 +100,33 @@ Behaviour:
   receipt the cost stays **unknown** and the hold stays.
 - **Restart:** `recover()` turns every `running` row into `unknown` (`outcome_unknown`). It
   never re-runs it. A paid request is never retried automatically.
-- **Retention:** the pasted text is **not stored**, only its SHA-256 and length. Results
-  (extracted fields) are stored for the owner's request history and are authorized on every
-  read. Documents and outputs never go to operational logs or events.
+- **Retention (corrected in 002c1):** the pasted text itself is not stored, only its SHA-256
+  and length. The result (extracted values, notes, reported issues) **is** stored as one of the
+  business's records. It can contain text from the document, and it moves with the business
+  on a sale (PLATFORM_VISION: runtime records belong to the business). Saved test cases keep
+  their input. Every read is authorized. Documents and outputs never go to operational logs or
+  events.
+- **Authority after the final await (002c1):** the HTTP answer to a request, new or a same-key
+  replay, is authorized again once the result is in. A former owner gets 404, and an owner who
+  went away and came back gets 409. The request is still finished, accounted and kept.
+- **Idempotency first (002c1):** the fingerprint is the request as asked (purpose, the target
+  "release" or the build id, the input hash, the evaluation reference). It is resolved before
+  today's release, model or availability, so a retry recovers the original paid record.
 
 ## 6. Evaluations (`server/src/evaluations.ts`)
 
-- **Fixture sets** are founder-approved and curated, per project, separate from the artifact's
-  generated worked examples. Every edit makes a new immutable version. The platform offers the
-  curated invoice suite (8 cases, fictional) as version 1 when the founder adopts it. The cases
-  cover every case in the job's table, with exact expected outcomes and fields.
-- **A run** binds artifact digest, model configuration, validator and fixture set version. It
+- **Release policy (002c1):** `invoice-release/1` has 10 platform-defined required cases
+  (`REQUIRED_INVOICE_CASES`). They use fictional digital suppliers, with a fictional marker on
+  its own line outside the vendor's name, and cover every case in the job's table except
+  cancellation, which the runtime's own tests cover. They run in every check. A release needs
+  every one of them present and passing. A required case that doesn't apply to a version blocks
+  release with that reason.
+- **Founder cases** are approved per project and supplement the required cases. They are kept
+  apart from the artifact's generated worked examples, and every edit makes a new immutable
+  version (no update or delete). They can't use `req_` ids, so they can't shadow, remove or
+  weaken a required case. They may be empty.
+- **A run** binds artifact digest, release policy, model configuration, validator and fixture
+  set version. It
   runs each case as an `evaluation` invocation, sequentially, once each. It spends the runtime
   budget and never retries.
 - **Per case** it records the raw outcome (invocation state, outcome, fields, failure) and the
@@ -155,7 +172,13 @@ run with every case passing), **active** (one release per project), **retired**.
   - a request record: version, digest, status, elapsed time, tokens and exact cost, usage
     state.
 - **History:** the last 50 invocations.
-- **Checks:** fixture set version and cases, Adopt the curated invoice suite, Run checks, and
+- **Continuity (002c1):** the Service view stays mounted across studio tabs, keyed by person,
+  project and owner epoch. A request keeps its text, target and key. After a lost answer, the
+  main action re-sends the same key ("check", never new work), and a new paid request is a
+  separate explicit button. Running requests started here or in another tab are shown, with Stop.
+  Polling backs off, stops after a bounded number of tries and pauses while hidden. Losing access
+  clears private state.
+- **Checks:** the required release checks (read-only) and the founder's own cases, Run checks, and
   results showing expected against actual per field, with errors kept separate from failures.
 - **Release:** the active release; candidates with their check status; Release (enabled only
   when current checks pass); and the earlier releases with Roll back.

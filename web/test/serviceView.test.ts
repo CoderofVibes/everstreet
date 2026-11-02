@@ -88,7 +88,9 @@ describe("the Service page's words", () => {
 
   it("samples are fictional input text only", () => {
     for (const s of SAMPLES) {
-      expect(s.text).toMatch(/fictional/);
+      // Marked fictional on its own line, outside the vendor's name.
+      expect(s.text.split("\n")[0]).toMatch(/^FICTIONAL EXAMPLE/);
+      expect(s.text).not.toMatch(/linocut|clay|print supply/i);
       expect(Object.keys(s).sort()).toEqual(["label", "text"]);
     }
   });

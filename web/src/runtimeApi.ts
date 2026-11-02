@@ -87,13 +87,15 @@ export interface Fixtures {
   source: string | null;
   cases: EvalCase[];
   versions: { version: number; source: string; created_at: string }[];
-  curated: { name: string; cases: EvalCase[] };
+  /** The platform's required release checks; they always run and can't be edited here. */
+  required: { policy: string; name: string; cases: EvalCase[]; note: string };
   note: string;
 }
 
 export interface CaseResult {
   id: string;
   name: string;
+  required: boolean;
   raw: { state: string; outcome: string | null; invocation: string | null; failure: string | null };
   score: "pass" | "fail" | "error" | "not_applicable";
   fields: {
@@ -110,6 +112,7 @@ export interface EvalRun {
   artifact_job: string;
   artifact_digest: string;
   fixture_version: number;
+  policy: string;
   validator: string;
   provider_config: { model?: string };
   state: "running" | "complete" | "stopped";
@@ -118,6 +121,7 @@ export interface EvalRun {
   failed: number;
   errors: number;
   not_applicable: number;
+  invalid_answers: number;
   results: CaseResult[];
   current: boolean;
   release_ready: boolean;
@@ -134,6 +138,7 @@ export interface Release {
   artifact_digest: string;
   eval_run: string;
   fixture_version: number;
+  policy: string;
   state: "active" | "retired";
   rolled_back_from: string | null;
   activated_at: string;
@@ -194,10 +199,8 @@ export const runtimeApi = {
   setBudget: (businessId: string, limit_cents: number) =>
     call<RuntimeBudget>(`/api/businesses/${businessId}/runtime-budget`, "PUT", { limit_cents }),
   fixtures: (projectId: string) => call<Fixtures>(`/api/product-projects/${projectId}/test-cases`),
-  saveFixtures: (
-    projectId: string,
-    body: { source?: "curated"; cases?: EvalCase[]; base_version: number | null },
-  ) => call<Fixtures>(`/api/product-projects/${projectId}/test-cases`, "POST", body),
+  saveFixtures: (projectId: string, body: { cases: EvalCase[]; base_version: number | null }) =>
+    call<Fixtures>(`/api/product-projects/${projectId}/test-cases`, "POST", body),
   runs: (projectId: string) =>
     call<{ runs: EvalRun[] }>(`/api/product-projects/${projectId}/evaluations`),
   check: (projectId: string, artifact_job: string) =>

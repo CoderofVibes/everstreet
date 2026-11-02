@@ -6,7 +6,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api.ts";
 import {
-  type Candidate,
   type EvalRun,
   type Fixtures,
   type Invocation,
@@ -14,6 +13,7 @@ import {
   type RuntimeList,
   runtimeApi,
 } from "../runtimeApi.ts";
+import { type Attempt, begin, nextAction, POLL, settle } from "../serviceAttempt.ts";
 import {
   caseFrom,
   OUTCOME_TEXT,
@@ -144,15 +144,20 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState<string>("");
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
   const [last, setLast] = useState<Invocation | null>(null);
   const [lastText, setLastText] = useState("");
-  /** The request in progress: same text and version reuse its key, so a resend isn't new work. */
-  const attempt = useRef<{ key: string; text: string; version: string } | null>(null);
+  /**
+   * The request's fixed identity (serviceAttempt.ts). This view stays mounted across studio tabs
+   * (job 002c1), so leaving Service and coming back keeps the text, target and request.
+   */
+  const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [budgetText, setBudgetText] = useState("");
   const [checking, setChecking] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [polls, setPolls] = useState(0);
   const live = useRef(true);
+  /** Loads can overlap; only the newest one's answer is used. */
+  const loadSeq = useRef(0);
   useEffect(
     () => () => {
       live.current = false;
@@ -161,6 +166,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
   );
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
       const [l, r, f, e] = await Promise.all([
         runtimeApi.list(projectId),
@@ -168,7 +174,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
         runtimeApi.fixtures(projectId),
         runtimeApi.runs(projectId),
       ]);
-      if (!live.current) return;
+      if (!live.current || seq !== loadSeq.current) return;
       setList(l);
       setRel(r);
       setFix(f);
@@ -183,59 +189,96 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
         (b) => b || (l.budget.limit_cents === null ? "" : (l.budget.limit_cents / 100).toFixed(2)),
       );
     } catch (e) {
-      if (live.current) setError((e as Error).message);
+      if (!live.current || seq !== loadSeq.current) return;
+      // Access lost (another person, a sale): clear everything private at once.
+      const status = e instanceof ApiError ? e.status : 0;
+      if (status === 401 || status === 403 || status === 404) {
+        setList(null);
+        setRel(null);
+        setFix(null);
+        setRuns([]);
+        setLast(null);
+        setAttempt(null);
+        setText("");
+      }
+      setError((e as Error).message);
     }
   }, [projectId]);
   useEffect(() => {
     load();
   }, [load]);
 
-  // Follow a running check until it finishes.
+  // Follow running work (a check, or a request started here or in another tab) with growing
+  // gaps, only while the page is visible, and at most POLL.maxPolls times.
   const running = runs.find((r) => r.state === "running");
+  const pendingRequest = list?.invocations.some((i) => i.state === "running") ?? false;
+  const following = Boolean(running) || pendingRequest || attempt?.state === "sending";
   useEffect(() => {
-    if (!running) return;
-    const t = window.setTimeout(load, 1500);
+    if (!following || polls >= POLL.maxPolls) return;
+    const t = window.setTimeout(() => {
+      if (document.visibilityState === "visible") load();
+      setPolls((n) => n + 1);
+    }, POLL.delay(polls));
     return () => window.clearTimeout(t);
-  }, [running, load]);
+  }, [following, polls, load]);
 
-  if (error && !list) return <p className="error-text">{error}</p>;
+  if (error && !list)
+    return (
+      <div>
+        <p className="error-text">{error}</p>
+        <button type="button" className="btn btn-quiet btn-sm" onClick={load}>
+          Try again
+        </button>
+      </div>
+    );
   if (!list || !rel || !fix) return <p className="muted">Loading the service…</p>;
   const available = list.availability.available;
   const budgetSet = list.budget.limit_cents !== null;
   const candidates = rel.candidates;
-  const chosen: Candidate | undefined = version.startsWith("job:")
-    ? candidates.find((c) => `job:${c.artifact_job}` === version)
-    : undefined;
 
-  const run = async () => {
-    if (!text.trim() || busy) return;
-    const same =
-      attempt.current && attempt.current.text === text && attempt.current.version === version;
-    const key = same && attempt.current ? attempt.current.key : newKey("run");
-    attempt.current = { key, text, version };
-    setBusy(true);
+  const action = nextAction(attempt, text, version);
+  const busy = attempt?.state === "sending";
+
+  /** Sends one attempt: a new request, or the same key again to ask about a recorded one. */
+  const send = async (a: Attempt) => {
+    setAttempt(a);
+    setPolls(0);
     setNotice(null);
     try {
       const { invocation } = await runtimeApi.invoke(projectId, {
-        idempotency_key: key,
-        text,
-        ...(version === "release" ? { release: true } : { artifact_job: chosen?.artifact_job }),
+        idempotency_key: a.key,
+        text: a.text,
+        ...(a.target === "release"
+          ? { release: true }
+          : { artifact_job: a.target.replace(/^job:/, "") }),
       });
-      attempt.current = null; // answered: the next run is new work
+      if (!live.current) return;
+      setAttempt(settle(a, { ok: true, invocationId: invocation.id }));
       setLast(invocation);
-      setLastText(text);
-      load();
+      setLastText(a.text);
     } catch (e) {
+      if (!live.current) return;
       const status = e instanceof ApiError ? e.status : 0;
-      if (status >= 400 && status < 500) attempt.current = null;
-      setNotice(
-        status >= 400 && status < 500
-          ? (e as Error).message
-          : "No answer arrived. Run again with the same text to check on it; it won't be processed twice.",
-      );
-    } finally {
-      setBusy(false);
+      setAttempt(settle(a, { ok: false, status, message: (e as Error).message }));
+      if (status === 401 || status === 404) setLast(null);
     }
+    load();
+  };
+  const run = () => {
+    const a = begin(attempt, text, version, () => newKey("run"));
+    if (a) send(a);
+  };
+  /** After a lost answer: new paid work only by this explicit choice. */
+  const runNew = () => {
+    if (!text.trim() || busy) return;
+    send({
+      key: newKey("run"),
+      text,
+      target: version,
+      state: "sending",
+      invocationId: null,
+      message: null,
+    });
   };
 
   const saveCase = async () => {
@@ -366,7 +409,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
               ))}
             </div>
             <label className="field">
-              <span>Pasted text (not stored after processing)</span>
+              <span>Pasted text (the text itself isn't stored; the result is kept)</span>
               <textarea
                 className="input"
                 rows={8}
@@ -379,17 +422,71 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={!available || !budgetSet || busy || !text.trim()}
+                disabled={busy || !text.trim() || (action === "run" && (!available || !budgetSet))}
                 onClick={run}
               >
-                {busy ? "Processing…" : "Run"}
+                {busy
+                  ? "Processing…"
+                  : action === "check"
+                    ? "Check on the earlier request (won't run it again)"
+                    : "Run"}
               </button>
+              {action === "check" && (
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  disabled={!available || !budgetSet}
+                  onClick={runNew}
+                >
+                  Run it as a new, separately paid request
+                </button>
+              )}
               <span className="muted" style={{ fontSize: 12.5 }}>
                 {!budgetSet
                   ? "Set a runtime budget below first."
                   : `Each request holds up to ${list.budget.per_request_cents}¢ until it settles.`}
               </span>
             </div>
+            {attempt?.message && (
+              <p className={attempt.state === "refused" ? "error-text" : "notice"}>
+                {attempt.message}
+              </p>
+            )}
+            {list.invocations
+              .filter((i) => i.state === "running")
+              .map((i) => (
+                <div key={i.id} className="notice" style={{ fontSize: 13.5 }}>
+                  A request started {when(i.created_at)} on build {short(i.artifact_job)} is still
+                  running{polls >= POLL.maxPolls ? " (stopped checking automatically)" : ""}.{" "}
+                  <button
+                    type="button"
+                    className="btn btn-quiet btn-sm"
+                    onClick={() => {
+                      setPolls(0);
+                      load();
+                    }}
+                  >
+                    Check now
+                  </button>{" "}
+                  <button
+                    type="button"
+                    className="btn btn-quiet btn-sm"
+                    disabled={i.cancel_requested}
+                    onClick={async () => {
+                      try {
+                        await runtimeApi.cancel(i.id);
+                      } catch (e) {
+                        setNotice(`Couldn't stop it: ${(e as Error).message}`);
+                      }
+                      load();
+                    }}
+                  >
+                    {i.cancel_requested
+                      ? "Stopping…"
+                      : "Stop it (anything already processed may still be charged)"}
+                  </button>
+                </div>
+              ))}
             {last && (
               <div style={{ marginTop: 12 }}>
                 <Result i={last} onSaveCase={last.result ? saveCase : undefined} />
@@ -400,29 +497,31 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
       </section>
 
       <section className="card">
-        <h2>Test cases {fix.version ? `· version ${fix.version}` : ""}</h2>
+        <h2>Release checks</h2>
         <p className="muted" style={{ fontSize: 13.5 }}>
-          {fix.note}
+          <strong>{fix.required.name}</strong> ({fix.required.policy}). {fix.required.note}
         </p>
-        {fix.version === null ? (
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={async () => {
-              try {
-                setFix(
-                  await runtimeApi.saveFixtures(projectId, {
-                    source: "curated",
-                    base_version: null,
-                  }),
-                );
-              } catch (e) {
-                setNotice((e as Error).message);
-              }
-            }}
-          >
-            Use the {fix.curated.name.toLowerCase()} ({fix.curated.cases.length} cases)
-          </button>
+        <details className="advanced">
+          <summary>The {fix.required.cases.length} required cases</summary>
+          <ul style={{ paddingLeft: 18, fontSize: 14 }}>
+            {fix.required.cases.map((c) => (
+              <li key={c.id} style={{ marginBottom: 4 }}>
+                <strong>{c.name}</strong> — expects {c.expect.outcomes.join(" or ")}
+                {c.why && <span className="muted"> · {c.why}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+        <h3 style={{ fontSize: 15, marginTop: 14 }}>
+          Your own test cases {fix.version ? `· version ${fix.version}` : ""}
+        </h3>
+        <p className="muted" style={{ fontSize: 13.5 }}>
+          {fix.note} They are added to the required checks, never instead of them.
+        </p>
+        {fix.cases.length === 0 ? (
+          <p className="muted" style={{ fontSize: 13.5 }}>
+            None yet. After a trial, use "Save as a test case" to keep it as one.
+          </p>
         ) : (
           <ul style={{ paddingLeft: 18, fontSize: 14 }}>
             {fix.cases.map((c) => (
@@ -497,7 +596,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              disabled={!available || fix.version === null || Boolean(running) || checking !== null}
+              disabled={!available || Boolean(running) || checking !== null}
               onClick={() => check(c.artifact_job)}
             >
               {checking === c.artifact_job ? "Starting…" : "Run checks"}
@@ -551,15 +650,22 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
               : `${latestRun.passed} of ${latestRun.total} passed`}
           </h2>
           <p className="muted" style={{ fontSize: 13 }}>
-            {latestRun.basis} Test cases version {latestRun.fixture_version} · model{" "}
+            {latestRun.basis} Release checks {latestRun.policy || "(older, now stale)"} · your cases
+            version {latestRun.fixture_version || "none"} · model{" "}
             {latestRun.provider_config.model ?? "—"} · {latestRun.validator} · cost $
             {(latestRun.used_microcents / 100_000_000).toFixed(6)}
             {latestRun.held_cents ? ` plus ${latestRun.held_cents}¢ unresolved` : ""}
+          </p>
+          <p style={{ fontSize: 13.5 }}>
+            {latestRun.invalid_answers > 0 &&
+              `${latestRun.invalid_answers} answer${latestRun.invalid_answers === 1 ? "" : "s"} failed the platform's format checks (counted apart from wrong values). `}
+            {latestRun.reasons.join(". ")}
           </p>
           {latestRun.results.map((r) => (
             <details key={r.id} className="advanced">
               <summary>
                 <span className={`pill ${SCORE_CLASS[r.score]}`}>{SCORE_TEXT[r.score]}</span>{" "}
+                {r.required ? "Required · " : "Yours · "}
                 {r.name} — {r.explanation}
               </summary>
               <p className="muted" style={{ fontSize: 13 }}>
