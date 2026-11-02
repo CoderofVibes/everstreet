@@ -15,7 +15,7 @@ when it starts and `done` (with the commit) when it lands.
 | 2026-11-02 | [002b Guided AI authoring](jobs/2026-11-02_002b_guided-ai-authoring.md) | open | P0; after 002a review; conversation, proposals and bounded provider adapter |
 | 2026-11-02 | [002c Managed product runtime](jobs/2026-11-02_002c_managed-product-runtime.md) | open | P0; actual extraction, evaluations, releases and runtime accounting |
 | 2026-11-02 | [002a1 Build boundary corrections](jobs/2026-11-02_002a1_build-boundary-corrections.md) | done | P0; `03e29cb`, report in `reports/2026-11-02_002a1_build-boundary-corrections.md`; Astra rerun and browser review pending; four reproduced 002a failures: partial usage, over-limit success, provider identity, expired lease |
-| 2026-11-02 | [003a Characterize credit and close](jobs/2026-11-02_003a_characterize-credit-and-close.md) | taken | P0; Claude building; after 002a1; tests and report only, no v2 behavior change |
+| 2026-11-02 | [003a Characterize credit and close](jobs/2026-11-02_003a_characterize-credit-and-close.md) | done | P0; `c825bf9` tests only, report in `reports/2026-11-02_003a_characterize-credit-and-close.md`; Rust 27 / TS 112 passed; M3 open; after 002a1; tests and report only, no v2 behavior change |
 | 2026-11-02 | [003f Operating financials](jobs/2026-11-02_003f_operating-financials.md) | open | P0; correct sources/missing data and useful financial charts; independent of live model credentials |
 
 ## Job file format
