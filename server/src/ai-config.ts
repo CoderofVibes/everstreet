@@ -65,6 +65,12 @@ export interface AiConfig {
   provider: "anthropic";
   model: SupportedModel;
   operatorCeilingCents: number;
+  /**
+   * The operator's separate ceiling for running products (job 002c), across every business.
+   * Optional: without it the managed runtime is unavailable. Never shared with the build
+   * ceiling.
+   */
+  runtimeCeilingCents: number | null;
 }
 
 export type AiConfigResult =
@@ -115,6 +121,18 @@ export function parseAiConfig(fileText: string | null, apiKey: string | undefine
       ok: false,
       reason: `operator_ceiling_cents must be a whole number from 1 to ${MAX_OPERATOR_CEILING_CENTS}.`,
     };
+  const runtime = raw.runtime_operator_ceiling_cents;
+  if (
+    runtime !== undefined &&
+    (typeof runtime !== "number" ||
+      !Number.isSafeInteger(runtime) ||
+      runtime < 1 ||
+      runtime > MAX_OPERATOR_CEILING_CENTS)
+  )
+    return {
+      ok: false,
+      reason: `runtime_operator_ceiling_cents, if given, must be a whole number from 1 to ${MAX_OPERATOR_CEILING_CENTS}.`,
+    };
   if (raw.api_key !== undefined || raw.key !== undefined)
     return { ok: false, reason: "Keep the API key out of the configuration file." };
   if (typeof apiKey !== "string" || apiKey.trim().length < 20)
@@ -126,6 +144,7 @@ export function parseAiConfig(fileText: string | null, apiKey: string | undefine
       provider: "anthropic",
       model,
       operatorCeilingCents: ceiling,
+      runtimeCeilingCents: typeof runtime === "number" ? runtime : null,
     },
     apiKey: apiKey.trim(),
   };

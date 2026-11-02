@@ -265,7 +265,7 @@ export function requestBody(request: BuildRequest, model: SupportedModel) {
 /** Headroom under the input limit, because a token count is an estimate. */
 export const COUNT_MARGIN = 0.95;
 
-function httpFailure(status: number, json: unknown): Error {
+export function httpFailure(status: number, json: unknown): Error {
   const type =
     json && typeof json === "object" && "error" in json
       ? String((json as { error?: { type?: unknown } }).error?.type ?? "")
@@ -282,7 +282,7 @@ function httpFailure(status: number, json: unknown): Error {
   );
 }
 
-const count = (n: unknown) =>
+export const count = (n: unknown) =>
   typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : null;
 
 export class AnthropicProvider implements BuildProvider {
