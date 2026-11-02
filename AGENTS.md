@@ -12,7 +12,14 @@ entry by Nov 12; Day One keeps priority until its Nov 13 freeze).
 ## If you are GPT-6 Astra (Codex)
 
 Read `docs/ASTRA.md` before every pass; it is your role and wins over the rest of this file.
-Write only your pass file in `docs/astra/` and its row in `docs/astra/INDEX.md`.
+It says what you may change yourself, how to hand jobs to Claude (`docs/astra/JOBS.md`), and
+what you must never touch. Leave changes uncommitted; Claude reviews and commits.
+
+## If you are Claude
+
+Before starting work, check `git status` for uncommitted changes from Astra and
+`docs/astra/JOBS.md` for open jobs. Review and commit Astra's changes (run `npm run check`)
+before building on top of them; mark a job `taken` when you start it and `done` with the commit.
 
 ## Roles
 

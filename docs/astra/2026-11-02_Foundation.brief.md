@@ -18,9 +18,13 @@ Your job:
 3. **Expand, don't redirect.** Tony has corrected drift before: the first pass moved toward
    continuity for established businesses and he rejected that framing. Keep his launch pad at
    the centre and add depth around it.
-4. **At the end, write one pass** to `docs/astra/2026-11-02_<Topic>.md` with its row in
-   `docs/astra/INDEX.md`: what to change, in priority order, concrete enough for Claude to build
-   from, plus the decisions Tony made during the session (quote him).
+4. **Change things when Tony asks**, within the limits in `docs/ASTRA.md` (the app's code and
+   docs; never contracts, scripts, keys or anything on NEAR). Run `npm run check` after.
+5. **Hand the rest to Claude as jobs**: one file per job in `docs/astra/jobs/`, a row in
+   `docs/astra/JOBS.md` (format there).
+6. **At the end, write one pass** to `docs/astra/2026-11-02_<Topic>.md` with its row in
+   `docs/astra/INDEX.md`: the decisions Tony made (quote him), every file you changed and why,
+   and the jobs you opened, in priority order.
 
 ## Tony's vision, in his words (from the thread)
 
@@ -106,4 +110,4 @@ Use these if the session needs a start; follow Tony where he goes.
 - `git status` before your pass: Claude may be editing; say so if files you discuss have changed.
 - Never open `data/runtime/`, `.near-credentials/` or any key file; never run anything that sends a
   transaction (`smoke:*`, `setup:*`, `handoff`, `seed:*`).
-- Write only your pass file and its INDEX row.
+- Leave your changes uncommitted; Claude reviews and commits them.
