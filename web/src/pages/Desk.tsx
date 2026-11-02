@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Desk } from "../api.ts";
 import { api4 } from "../api4.ts";
+import { ago, type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, OfferCard, STAGE_LABEL } from "../ui.tsx";
@@ -72,11 +73,7 @@ export function DeskList() {
               className="card link biz-row"
             >
               <div>
-                <h3
-                  style={{ fontFamily: "var(--serif)", fontWeight: 400, fontSize: 22, margin: 0 }}
-                >
-                  {r.name}
-                </h3>
+                <h3 style={{ fontSize: 18, margin: 0 }}>{r.name}</h3>
                 <span className="muted" style={{ fontSize: 14 }}>
                   {r.published_at ? "Published" : "Private draft, not published"} ·{" "}
                   {STAGE_LABEL[r.stage]}
@@ -104,11 +101,7 @@ export function DeskList() {
           <div className="biz-list" style={{ marginTop: 12 }}>
             {helping.map((h) => (
               <Link key={h.business_id} to={`/help/${h.business_id}`} className="card link biz-row">
-                <h3
-                  style={{ fontFamily: "var(--serif)", fontWeight: 400, fontSize: 22, margin: 0 }}
-                >
-                  {h.name}
-                </h3>
+                <h3 style={{ fontSize: 18, margin: 0 }}>{h.name}</h3>
                 <span className="spacer" />
                 <span className="btn btn-secondary">Open</span>
               </Link>
@@ -117,6 +110,47 @@ export function DeskList() {
         </>
       )}
     </div>
+  );
+}
+
+/** The business's digital product projects, with a way to start another. */
+function DeskProducts({ businessId }: { businessId: string }) {
+  const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
+  useEffect(() => {
+    productsApi
+      .list()
+      .then((r) => setProjects(r.projects.filter((p) => p.business_id === businessId)))
+      .catch(() => setProjects([]));
+  }, [businessId]);
+  return (
+    <section className="card">
+      <div className="row" style={{ marginBottom: 8 }}>
+        <h2 style={{ margin: 0 }}>Product projects</h2>
+        <span className="spacer" />
+        <Link to={`/build?business=${businessId}`} className="btn btn-secondary btn-sm">
+          New product project
+        </Link>
+      </div>
+      {projects === null ? (
+        <p className="muted">Loading…</p>
+      ) : projects.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>
+          No digital product projects for this business yet. They belong to the business and move
+          with it if it is sold.
+        </p>
+      ) : (
+        projects.map((p) => (
+          <Link key={p.id} to={`/build/${p.id}`} className="deal-row row">
+            <strong>{p.name}</strong>
+            <span className="pill">{p.foundation_label}</span>
+            <span className="spacer" />
+            <span className="muted" style={{ fontSize: 13 }}>
+              Revision {p.revision} · {ago(p.updated_at)}
+            </span>
+          </Link>
+        ))
+      )}
+    </section>
   );
 }
 
@@ -286,6 +320,7 @@ export function DeskPage({ id }: { id: string }) {
               ))
             )}
           </section>
+          <DeskProducts businessId={b.id} />
           <DeskGrowth key={b.id + String(b.published_at)} desk={desk} />
         </div>
         <aside className="studio-side">

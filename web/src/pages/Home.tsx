@@ -1,154 +1,340 @@
+// Home: build or bring a digital product, discover what is published, and see how a business
+// changes hands on NEAR. Everything shown is real data from this computer; nothing is invented.
+
 import { useEffect, useState } from "react";
-import { api, type PublicBusiness } from "../api.ts";
+import { api, type Need, type PublicBusiness } from "../api.ts";
+import { Icon, type IconName } from "../icons.tsx";
+import { type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, money, STAGE_LABEL } from "../ui.tsx";
+import { Composer, ProjectCard } from "./Build.tsx";
+
+const FAMILY_ICON: Record<string, IconName> = {
+  software: "api",
+  service: "user",
+  class: "doc",
+  product: "store",
+  undecided: "layers",
+};
 
 export function BusinessTile({ b }: { b: PublicBusiness }) {
   return (
-    <Link to={`/b/${b.slug}?via=discovery`} className="card link">
-      <div className="row" style={{ marginBottom: 8 }}>
-        <span className="pill">{FAMILY_LABEL[b.family]}</span>
-        <span className="pill lime">{STAGE_LABEL[b.stage]}</span>
+    <Link to={`/b/${b.slug}?via=discovery`} className="card link tile">
+      <div className="tile-top">
+        <span className={`glyph${b.family === "software" ? " mint" : ""}`}>
+          <Icon name={FAMILY_ICON[b.family] ?? "layers"} />
+        </span>
+        <span className="pill">{STAGE_LABEL[b.stage]}</span>
       </div>
-      <h3 style={{ fontFamily: "var(--serif)", fontWeight: 400, fontSize: 22, marginBottom: 4 }}>
-        {b.name}
-      </h3>
-      {b.offer && <p style={{ marginBottom: 6 }}>{b.offer.title}</p>}
-      <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-        by {b.founder.display_name}
+      <h3>{b.name}</h3>
+      {b.offer && (
+        <p style={{ margin: 0, fontSize: 14, color: "var(--text-2)" }}>{b.offer.title}</p>
+      )}
+      <div className="tile-meta">
+        {FAMILY_LABEL[b.family]} · by {b.founder.display_name}
         {b.offer &&
           (b.offer.first_free
             ? " · first one free"
             : b.offer.price_cents !== null
               ? ` · ${money(b.offer.price_cents)} ${b.offer.price_unit}`
               : "")}
-      </p>
+      </div>
     </Link>
   );
 }
 
+const STAGES: { icon: IconName; title: string; text: string; now: "now" | "partial" | "later" }[] =
+  [
+    {
+      icon: "doc",
+      title: "Shape",
+      text: "An editable brief: audience, problem, promise, features, price",
+      now: "now",
+    },
+    {
+      icon: "layers",
+      title: "Choose",
+      text: "AI API, SaaS workflow, agent service or client portal",
+      now: "now",
+    },
+    {
+      icon: "spark",
+      title: "Build",
+      text: "Prototype screens now; AI generation is not connected yet",
+      now: "partial",
+    },
+    {
+      icon: "flask",
+      title: "Test",
+      text: "Brief checks now; model evaluations and journey tests later",
+      now: "partial",
+    },
+    {
+      icon: "shield",
+      title: "Prepare",
+      text: "Customer promises, dependencies and transfer readiness",
+      now: "now",
+    },
+    {
+      icon: "handshake",
+      title: "Launch and hand over",
+      text: "Public page, testnet payments, and sale on NEAR testnet",
+      now: "now",
+    },
+  ];
+
+const TAG: Record<"now" | "partial" | "later", string> = {
+  now: "Works now",
+  partial: "Partly",
+  later: "Later",
+};
+
+const CATEGORIES: { id: string; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "software", label: "Software and AI" },
+  { id: "service", label: "Services" },
+  { id: "class", label: "Classes" },
+  { id: "product", label: "Products" },
+];
+
 export function Home() {
   const { go } = useRouter();
-  const { person, requireSignIn } = useSession();
+  const { person } = useSession();
   const [shelf, setShelf] = useState<PublicBusiness[] | null>(null);
+  const [needs, setNeeds] = useState<Need[]>([]);
+  const [mine, setMine] = useState<ProjectSummary[]>([]);
+  const [category, setCategory] = useState("all");
   useEffect(() => {
     api
       .discover()
-      .then((r) => setShelf(r.businesses.slice(0, 6)))
+      .then((r) => setShelf(r.businesses))
       .catch(() => setShelf([]));
+    api
+      .needs()
+      .then((r) => setNeeds(r.needs.slice(0, 3)))
+      .catch(() => {});
   }, []);
+  useEffect(() => {
+    if (!person) return setMine([]);
+    productsApi
+      .list()
+      .then((r) => setMine(r.projects.slice(0, 3)))
+      .catch(() => setMine([]));
+  }, [person]);
 
-  const start = async () => {
-    if (
-      !person &&
-      !(await requireSignIn(
-        "Join to save your idea as you shape it. You can keep it private until you choose to publish.",
-      ))
-    )
-      return;
-    go("/start");
-  };
+  // Software first; earlier examples (classes, services) stay visible after it.
+  const ordered = [...(shelf ?? [])].sort(
+    (a, b) => Number(b.family === "software") - Number(a.family === "software"),
+  );
+  const shown = ordered.filter((b) => category === "all" || b.family === category).slice(0, 6);
+  const hasSoftware = ordered.some((b) => b.family === "software");
+
+  const paths: { icon: IconName; title: string; text: string; to?: string; primary?: boolean }[] = [
+    {
+      icon: "studio",
+      title: "Start building",
+      text: "Describe the idea; get a saved brief and prototype.",
+      primary: true,
+    },
+    {
+      icon: "upload",
+      title: "Bring a product",
+      text: "Give something you already run a page and an offer. Connecting its code comes later.",
+      to: "/start",
+    },
+    {
+      icon: "handshake",
+      title: "Explore acquisitions",
+      text: "Businesses for sale, with numbers you can check.",
+      to: "/acquire",
+    },
+    {
+      icon: "search",
+      title: "Find a solution",
+      text: "Say what you need; see who offers it.",
+      to: "/find",
+    },
+  ];
 
   return (
     <div className="page">
-      <section className="hero">
+      <section className="home-hero">
         <div>
-          <div className="eyebrow">A launch pad for new businesses</div>
-          <h1>Start your business here.</h1>
+          <div className="eyebrow">Build, run and hand over digital businesses</div>
+          <h1>What do you want to build?</h1>
           <p className="lede">
-            Shape your idea. Find your first customers. Build something worth owning.
+            AI tools, SaaS, APIs, agents and online services. Shape it here, open it to customers,
+            and if you ever sell, hand it over on NEAR without breaking what customers were
+            promised.
           </p>
-          <div className="row">
-            <button type="button" className="btn btn-primary btn-lg" onClick={start}>
-              Start a business
+          <Composer variant="hero" />
+        </div>
+        <aside className="lifecycle" aria-label="What works today">
+          <h2>From idea to handover: what works today</h2>
+          {STAGES.map((s) => (
+            <div className="lifecycle-row" key={s.title}>
+              <Icon name={s.icon} />
+              <span>
+                <strong>{s.title}</strong>
+                <span className="muted">{s.text}</span>
+              </span>
+              <span className={`state-tag ${s.now}`}>{TAG[s.now]}</span>
+            </div>
+          ))}
+        </aside>
+      </section>
+
+      <section className="paths" aria-label="Ways in">
+        {paths.map((p) =>
+          p.to ? (
+            <Link key={p.title} to={p.to} className="card link path">
+              <span className="icon-box">
+                <Icon name={p.icon} />
+              </span>
+              <span>
+                <h3>{p.title}</h3>
+                <p>{p.text}</p>
+              </span>
+            </Link>
+          ) : (
+            <button
+              key={p.title}
+              type="button"
+              className="card link path primary"
+              onClick={() => {
+                const box = document.getElementById("idea-hero");
+                if (box) {
+                  box.focus();
+                  box.scrollIntoView({ block: "center", behavior: "smooth" });
+                } else go("/build");
+              }}
+            >
+              <span className="icon-box">
+                <Icon name={p.icon} />
+              </span>
+              <span>
+                <h3>{p.title}</h3>
+                <p>{p.text}</p>
+              </span>
             </button>
-            <Link to="/find" className="btn btn-secondary btn-lg">
-              Find a solution
+          ),
+        )}
+      </section>
+
+      {mine.length > 0 && (
+        <section className="home-section">
+          <div className="section-head">
+            <div>
+              <h2>Continue building</h2>
+              <p>Your most recent product projects.</p>
+            </div>
+            <span className="spacer" />
+            <Link to="/build" className="btn btn-secondary btn-sm">
+              All projects
             </Link>
           </div>
+          <div className="project-grid">
+            {mine.map((p) => (
+              <ProjectCard key={p.id} p={p} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="home-section">
+        <div className="section-head">
+          <div>
+            <h2>On Everstreet now</h2>
+            <p>
+              Published businesses on this computer, software first. Classes and services are
+              earlier fictional examples.
+            </p>
+          </div>
+          <span className="spacer" />
+          <fieldset className="seg">
+            <legend className="sr-only">Filter by kind</legend>
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                aria-pressed={category === c.id}
+                onClick={() => setCategory(c.id)}
+              >
+                {c.label}
+              </button>
+            ))}
+          </fieldset>
         </div>
-        <section className="hero-art" aria-label="How a business grows here">
-          <div className="street">
-            {[
-              ["Shape", "Turn what you know into a clear offer", "First hour"],
-              ["Test", "Publish a page and hear from real people", "First week"],
-              ["Launch", "Take your first orders and deliver them", "First month"],
-              ["Grow", "Real numbers, a team, and choices", "First year"],
-            ].map(([stage, text, when]) => (
-              <div className="street-row" key={stage}>
-                <strong style={{ width: 64 }}>{stage}</strong>
-                <span>{text}</span>
-                <span className="stage pill">{when}</span>
+        {shelf === null ? (
+          <p className="muted">Loading…</p>
+        ) : shown.length === 0 ? (
+          <div className="card empty">
+            <h2>
+              {category === "software" || (category === "all" && !hasSoftware)
+                ? "No software products are published yet"
+                : "Nothing published in this category yet"}
+            </h2>
+            <p>Start building above; a product page goes live only when you publish it.</p>
+          </div>
+        ) : (
+          <>
+            {category === "all" && !hasSoftware && (
+              <p className="notice info">
+                No software products are published yet. These are the earlier examples.
+              </p>
+            )}
+            <div className="shelf">
+              {shown.map((b) => (
+                <BusinessTile key={b.slug} b={b} />
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      {needs.length > 0 && (
+        <section className="home-section">
+          <div className="section-head">
+            <div>
+              <h2>What people are asking for</h2>
+              <p>Open requests posted on the need board.</p>
+            </div>
+            <span className="spacer" />
+            <Link to="/explore" className="btn btn-secondary btn-sm">
+              Need board
+            </Link>
+          </div>
+          <div className="shelf">
+            {needs.map((n) => (
+              <div className="card" key={n.id}>
+                <p style={{ margin: "0 0 8px" }}>“{n.text}”</p>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  {n.responses} {n.responses === 1 ? "response" : "responses"} · open until{" "}
+                  {new Date(n.expires_at).toLocaleDateString()}
+                </span>
               </div>
             ))}
           </div>
         </section>
-      </section>
-
-      <section className="entrances" aria-label="Ways in">
-        <button type="button" className="card link entrance primary choice" onClick={start}>
-          <h3>Start a business</h3>
-          <p>From an idea, a skill, or just the wish to work for yourself.</p>
-        </button>
-        <Link to="/desk" className="card link entrance">
-          <h3>Run my business</h3>
-          <p>What needs you today, who replied, and what to do next.</p>
-        </Link>
-        <Link to="/find" className="card link entrance">
-          <h3>Find a solution</h3>
-          <p>Say what you need; find people who just started offering it.</p>
-        </Link>
-        <Link to="/acquire" className="card link entrance">
-          <h3>Explore acquisitions</h3>
-          <p>Find businesses worth owning, with numbers you can check.</p>
-        </Link>
-      </section>
-
-      <section>
-        <h2 className="section-title">Starting now</h2>
-        <p className="muted">Businesses people opened on Everstreet, newest first.</p>
-        {shelf === null ? (
-          <p className="muted">Loading…</p>
-        ) : shelf.length === 0 ? (
-          <div className="card empty">
-            <h2>Nobody has published yet</h2>
-            <p>Be the first: your page can be live within the hour.</p>
-            <button type="button" className="btn btn-primary" onClick={start}>
-              Start a business
-            </button>
-          </div>
-        ) : (
-          <div className="shelf">
-            {shelf.map((b) => (
-              <BusinessTile key={b.slug} b={b} />
-            ))}
-          </div>
-        )}
-      </section>
+      )}
 
       <section className="intact">
         <div>
-          <div className="eyebrow" style={{ color: "var(--lime)" }}>
-            Coming with payments on NEAR
-          </div>
+          <div className="eyebrow">Ownership on NEAR testnet</div>
           <h2>Built to change hands intact.</h2>
-          <p style={{ color: "#c9d2c8" }}>
-            Every business started here will get its own account on NEAR: its treasury, its
-            customers' prepaid balances, the people it pays, and the promises it keeps, whoever owns
-            it.
+          <p style={{ color: "var(--on-ink-2)" }}>
+            A business here can have its own contract on NEAR testnet. When it is sold, both sides
+            accept the same exact terms on chain, and control moves to the buyer.
           </p>
+          <Link to="/acquire">Explore acquisitions</Link>
         </div>
         <ul>
-          <li>
-            Revenue, costs and profit come from what actually ran through the business, not a
-            spreadsheet.
-          </li>
-          <li>Customers keep their balance and their price through any sale.</li>
-          <li>
-            A buyer can check the numbers before buying, and take over without breaking anything.
-          </li>
-          <li>Even the customers can buy the service they depend on.</li>
+          <li>Customer money is held by the business's contract, not by the owner.</li>
+          <li>Revenue on the books comes from the contract; costs are what the founder enters.</li>
+          <li>A buyer sees scoped evidence the seller chooses to share, then the exact terms.</li>
+          <li>Product projects and every revision belong to the business, so they move with it.</li>
+          <li>Test dollars only. Nothing here moves real money.</li>
         </ul>
       </section>
     </div>

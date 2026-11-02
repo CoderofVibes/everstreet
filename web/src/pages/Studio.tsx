@@ -452,16 +452,7 @@ function Explore({ project, onUpdate }: { project: Project; onUpdate: (p: Projec
               <div className="card direction" key={d.title}>
                 <div>
                   <span className="pill">{FAMILY_LABEL[d.family]}</span>
-                  <h3
-                    style={{
-                      fontFamily: "var(--serif)",
-                      fontWeight: 400,
-                      fontSize: 22,
-                      margin: "8px 0 0",
-                    }}
-                  >
-                    {d.title}
-                  </h3>
+                  <h3 style={{ fontSize: 18, margin: "8px 0 0" }}>{d.title}</h3>
                   <dl>
                     <dt>Customer</dt>
                     <dd>{d.customer}</dd>

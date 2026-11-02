@@ -18,6 +18,13 @@ The first run installs and fills in four fictional example businesses. Close the
 
 What you can do today:
 
+- **Build a digital product** in the product studio (`/build`): describe an idea, choose an AI
+  API, SaaS workflow, agent service or client portal, and shape a brief (audience, problem,
+  promised result, features, pricing assumption) and a clickable prototype of its screens.
+  Every save is an immutable revision you can compare and restore; the project belongs to a
+  business and moves with it if the business is sold. AI generation is not connected yet and
+  the studio says so: the prototype runs no model and stores nothing. Design for the build
+  runtime: `docs/design/BUILD_RUNTIME.md`.
 - **Start a business** three ways: with an idea, with help finding one (four questions → three
   small directions), or from something you already sell.
 - **Shape the offer** in a six-question interview while the customer's view of your offer fills in

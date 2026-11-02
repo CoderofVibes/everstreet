@@ -36,9 +36,7 @@ export function Tile({
           )}
           {b.new_here && <span className="pill">New here</span>}
         </div>
-        <h3 style={{ fontFamily: "var(--serif)", fontWeight: 400, fontSize: 22, marginBottom: 4 }}>
-          {b.name}
-        </h3>
+        <h3 style={{ fontSize: 18, marginBottom: 4 }}>{b.name}</h3>
         {b.offer && <p style={{ marginBottom: 6 }}>{b.offer.title}</p>}
         <p className="muted" style={{ fontSize: 14, margin: 0 }}>
           by {b.founder.display_name}

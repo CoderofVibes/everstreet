@@ -321,9 +321,7 @@ export function Find() {
 
             {result.matches.length === 0 && (
               <div className="card" style={{ marginTop: 8, maxWidth: 760 }}>
-                <h2 style={{ fontFamily: "var(--serif)", fontWeight: 400 }}>
-                  Nothing fits all of that yet
-                </h2>
+                <h2>Nothing fits all of that yet</h2>
                 {Object.keys(result.blocked_by).length > 0 ? (
                   <>
                     <p>Here is what ruled things out. Relax one to see them:</p>

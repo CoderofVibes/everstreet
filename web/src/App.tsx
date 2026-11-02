@@ -3,10 +3,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api.ts";
+import { Icon, type IconName } from "./icons.tsx";
 import { Acquire } from "./pages/Acquire.tsx";
 import { AcquireListing } from "./pages/AcquireListing.tsx";
 import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
+import { BuildHome } from "./pages/Build.tsx";
 import { DealPage } from "./pages/Deal.tsx";
 import { DeskList, DeskPage } from "./pages/Desk.tsx";
 import { DeskSale } from "./pages/DeskSale.tsx";
@@ -16,6 +18,7 @@ import { Helping } from "./pages/Helping.tsx";
 import { Home } from "./pages/Home.tsx";
 import { Inbox } from "./pages/Inbox.tsx";
 import { Person } from "./pages/Person.tsx";
+import { ProductStudio } from "./pages/ProductStudio.tsx";
 import { Profile } from "./pages/Profile.tsx";
 import { PublicPage } from "./pages/PublicPage.tsx";
 import { Start } from "./pages/Start.tsx";
@@ -25,12 +28,23 @@ import { Link, match, useRouter } from "./router.tsx";
 import { useSession } from "./session.tsx";
 import { Avatar, SignInDialog } from "./ui.tsx";
 
-function Nav({ to, label, count }: { to: string; label: string; count?: number }) {
+function Nav({
+  to,
+  label,
+  icon,
+  count,
+}: {
+  to: string;
+  label: string;
+  icon: IconName;
+  count?: number;
+}) {
   const { path } = useRouter();
-  const active = to === "/" ? path === "/" : path.startsWith(to);
+  const active = to === "/" ? path === "/" : path === to || path.startsWith(`${to}/`);
   return (
     <Link to={to} className={`nav${active ? " active" : ""}`}>
-      <span>{label}</span>
+      <Icon name={icon} />
+      <span className="label">{label}</span>
       {count ? <span className="count">{count}</span> : null}
     </Link>
   );
@@ -145,6 +159,9 @@ function Routes() {
   const { path } = useRouter();
   if (path === "/") return <Home />;
   if (path === "/start") return <Start />;
+  if (path === "/build") return <BuildHome />;
+  const product = match("/build/:id", path);
+  if (product) return <ProductStudio key={product.id} id={product.id as string} />;
   const studio = match("/studio/:id", path);
   if (studio) return <Studio id={studio.id as string} />;
   const store = match("/b/:slug", path);
@@ -199,25 +216,26 @@ export function App() {
         <span>
           <strong>{environment}</strong> · fictional businesses and people · no real money moves
         </span>
-        <span>NEAR testnet when payments arrive</span>
+        <span>NEAR testnet only · test dollars, no value</span>
       </div>
       <div className="shell">
         <nav className="rail" aria-label="Main">
           <Link to="/" className="wordmark">
             <img src="/favicon.svg" alt="" /> Everstreet
           </Link>
-          <Nav to="/" label="Home" />
-          <div className="rail-label">Start and run</div>
-          <Nav to="/start" label="Start a business" />
-          <Nav to="/desk" label="My businesses" />
-          <Nav to="/inbox" label="Inbox" count={counts.inbox} />
+          <Nav to="/" label="Home" icon="home" />
+          <div className="rail-label">Build and run</div>
+          <Nav to="/build" label="Product studio" icon="studio" />
+          <Nav to="/start" label="Start a business" icon="rocket" />
+          <Nav to="/desk" label="My businesses" icon="briefcase" />
+          <Nav to="/inbox" label="Inbox" icon="inbox" count={counts.inbox} />
           <div className="rail-label">As a customer</div>
-          <Nav to="/activity" label="My activity" />
-          <div className="rail-label">Explore</div>
-          <Nav to="/explore" label="Explore" />
-          <Nav to="/find" label="Find a solution" />
-          <Nav to="/acquire" label="Explore acquisitions" />
-          <div className="rail-foot">Built to change hands intact.</div>
+          <Nav to="/activity" label="My activity" icon="activity" />
+          <div className="rail-label">Discover</div>
+          <Nav to="/explore" label="Explore" icon="compass" />
+          <Nav to="/find" label="Find a solution" icon="search" />
+          <Nav to="/acquire" label="Acquisitions" icon="handshake" />
+          <div className="rail-foot">Build it, run it, hand it over intact.</div>
         </nav>
         <div className="main">
           <header className="topbar">
