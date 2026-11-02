@@ -3,9 +3,10 @@
 // the team's own assumptions without touching the owner's estimate, and read a preliminary list
 // of what a sale would cover.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usd } from "../api4.ts";
-import { api5, type ManifestItem, type Room, when } from "../api5.ts";
+import { ApiError, api5, type ManifestItem, type Room, when } from "../api5.ts";
+import { begin, type EvidenceView, initial, settle } from "../evidenceView.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 
@@ -104,12 +105,23 @@ function OurScenario({
     [f],
   );
   useEffect(() => {
-    const t = setTimeout(
-      async () => setResult((await api5.tryRoom(id, overrides())).scenario),
-      300,
-    );
-    return () => clearTimeout(t);
-  }, [id, overrides]);
+    const ctl = new AbortController();
+    const t = setTimeout(() => {
+      api5
+        .tryRoom(id, overrides(), ctl.signal)
+        .then((x) => setResult(x.scenario))
+        .catch((e) => {
+          if (ctl.signal.aborted) return;
+          setResult(null);
+          // Refused: access ended or changed. Reload the room, which clears it.
+          if (e instanceof ApiError && e.status >= 400 && e.status < 500) onSaved();
+        });
+    }, 300);
+    return () => {
+      clearTimeout(t);
+      ctl.abort();
+    };
+  }, [id, overrides, onSaved]);
   const input = (label: string, key: keyof typeof f) => (
     <label className="field" style={{ margin: 0 }}>
       <span style={{ fontSize: 14 }}>{label}</span>
@@ -159,7 +171,8 @@ function OurScenario({
             type="button"
             className="btn btn-secondary"
             onClick={async () => {
-              await api5.saveRoomScenario(id, name, overrides());
+              // Saved or refused, the room reloads: a refusal clears what was shown.
+              await api5.saveRoomScenario(id, name, overrides()).catch(() => null);
               setName("");
               onSaved();
             }}
@@ -235,33 +248,65 @@ function Items({ title, items }: { title: string; items: ManifestItem[] }) {
 
 export function AcquireRoom({ id }: { id: string }) {
   const { person } = useSession();
-  const [room, setRoom] = useState<Room | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const actor = person?.id ?? null;
+  // Job 003p: what's shown belongs to one person, one room and one load (see evidenceView.ts).
+  const [view, setView] = useState<EvidenceView<Room>>(() => initial(actor, id));
+  const current = useRef(view);
+  current.current = view;
+  const inFlight = useRef<AbortController | null>(null);
   const [tab, setTab] = useState("financials");
-  const load = useCallback(
-    () =>
-      api5
-        .room(id)
-        .then((r) => {
-          setRoom(r);
-          setError(null);
-          setTab((t) =>
-            r[t as keyof Room] ? t : (TABS.find(([k]) => r[k as keyof Room])?.[0] ?? t),
-          );
-        })
-        .catch((e) => setError((e as Error).message)),
-    [id],
-  );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: person is a trigger: recheck access when the viewer changes
+  const load = useCallback(() => {
+    inFlight.current?.abort();
+    const ctl = new AbortController();
+    inFlight.current = ctl;
+    const started = begin(current.current, actor, id);
+    current.current = started;
+    setView(started);
+    api5
+      .room(id, ctl.signal)
+      .then((r) => {
+        setView((v) => settle(v, started.load, actor, id, { ok: true, data: r }));
+        setTab((t) =>
+          r[t as keyof Room] ? t : (TABS.find(([k]) => r[k as keyof Room])?.[0] ?? t),
+        );
+      })
+      .catch((e) => {
+        if (ctl.signal.aborted) return; // a newer load replaced this one
+        const status = e instanceof ApiError ? e.status : 0;
+        setView((v) =>
+          settle(v, started.load, actor, id, { ok: false, status, message: (e as Error).message }),
+        );
+      });
+  }, [actor, id]);
+  // Recheck whenever the person or room changes, and on returning to this tab.
   useEffect(() => {
     load();
-  }, [load, person]);
-  if (error)
+    const back = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", back);
+    return () => {
+      document.removeEventListener("visibilitychange", back);
+      inFlight.current?.abort();
+    };
+  }, [load]);
+  // Evidence from anyone else's session is never rendered, even for the one frame before the
+  // effect above starts a new load.
+  const room = view.actor === actor && view.room === id ? view.data : null;
+  if (view.state === "refused" || view.state === "unchecked")
     return (
       <div className="page empty">
         <div className="eyebrow">Evidence room</div>
-        <h2>{error}</h2>
-        <p>Access is checked on every visit, so nothing here can be read once it ends.</p>
+        <h2>{view.message}</h2>
+        <p>
+          Access is checked on every visit and when you come back to this tab, so nothing here can
+          be read once it ends. A copy someone already exported can't be recalled.
+        </p>
+        {view.state === "unchecked" && (
+          <button type="button" className="btn" onClick={load}>
+            Check again
+          </button>
+        )}
         <Link to="/acquire">Back to acquisitions</Link>
       </div>
     );
@@ -404,6 +449,20 @@ export function AcquireRoom({ id }: { id: string }) {
               </>
             )}
           </section>
+          {fin.balances && (
+            <section className="card">
+              <h2>Balances on the business's contract</h2>
+              <dl className="facts" style={{ gridTemplateColumns: "160px 1fr" }}>
+                <dt>Customer money held</dt>
+                <dd>{fin.balances.customer_money}</dd>
+                <dt>Available to the owner</dt>
+                <dd>{fin.balances.available}</dd>
+              </dl>
+              <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                {fin.balances.source}
+              </p>
+            </section>
+          )}
           <OurScenario id={id} r={fin} onSaved={load} />
         </>
       )}
@@ -499,6 +558,16 @@ export function AcquireRoom({ id }: { id: string }) {
                   </>
                 )}
               </dl>
+              {room.scope_note && (
+                <p className="muted" style={{ fontSize: 13 }}>
+                  {room.scope_note}
+                </p>
+              )}
+              {!room.operations.treasury && (
+                <p className="muted" style={{ fontSize: 13 }}>
+                  Balances held by the contract are part of financials access.
+                </p>
+              )}
               {room.operations.contract ? (
                 <a href={room.operations.contract.url} target="_blank" rel="noreferrer">
                   The business's contract on NEAR testnet

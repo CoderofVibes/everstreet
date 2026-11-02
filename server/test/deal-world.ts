@@ -68,6 +68,20 @@ export class GatedChain extends FakeChain {
     return super.getDeal(business, dealId);
   }
 
+  /** Monthly reads (the books behind evidence) answer now but deliver when this opens. */
+  periodGate: Promise<void> | null = null;
+  /** Opens once a held monthly read has started. */
+  periodEntered = gate();
+
+  override async period(business: string) {
+    const answer = await super.period(business); // read now...
+    if (this.periodGate) {
+      this.periodEntered.open();
+      await this.periodGate; // ...delivered later
+    }
+    return answer;
+  }
+
   override async control(business: string) {
     this.controlReads++;
     if (this.controlGate) await this.controlGate;
@@ -101,7 +115,7 @@ export function world() {
         headers: { cookie, "content-type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
-      return { status: res.status, body: (await res.json()) as Json };
+      return { status: res.status, body: (await res.json()) as Json, headers: res.headers };
     };
   const join = async (name: string) => {
     const res = await app.request("/api/session", {

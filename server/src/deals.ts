@@ -68,16 +68,54 @@ export interface Terms {
   excluded: string[];
   handover: string;
   conditions: string;
-  evidence: {
-    estimate: string;
-    basis: string;
-    months: string[];
-    revenue_month: string;
-    profit_month: string;
-    customer_money: string;
-    snapshot_at: string;
-  };
+  /**
+   * Format 1 ("everstreet-deal/1", before job 003p) always embedded these figures. Those terms
+   * are stored and hashed exactly as written and never rewritten. Format 2 includes figures
+   * only when the seller chose to and the team had financials access at the time.
+   */
+  evidence: EvidenceV1 | EvidenceV2;
+  /** Format 2: what the buyer takes on whatever the evidence choice. */
+  obligations?: { customer_money: string };
 }
+
+interface EvidenceV1 {
+  estimate: string;
+  basis: string;
+  months: string[];
+  revenue_month: string;
+  profit_month: string;
+  customer_money: string;
+  snapshot_at: string;
+}
+
+type EvidenceV2 =
+  | { included: false; note: string }
+  | {
+      included: true;
+      estimate: string;
+      basis: string;
+      months: string[];
+      revenue_month: string;
+      profit_month: string;
+      snapshot_at: string;
+      audience: string;
+      retention: string;
+    };
+
+const SNAPSHOT_AUDIENCE = "The seller and the buying team named in these terms";
+const SNAPSHOT_RETENTION =
+  "Part of the terms both sides accept: each keeps a copy. Ending evidence access later stops new reads; it does not recall these terms.";
+const NO_SNAPSHOT =
+  "No financial figures are part of these terms. What the team saw came through its evidence access, which the seller can end.";
+
+/** The estimate in a version's evidence, for comparisons; null when no figures were included. */
+const estimateOf = (e: Terms["evidence"]) =>
+  "included" in e ? (e.included ? e.estimate : null) : e.estimate;
+
+/** Customer money recorded in the terms, in either format. */
+export const customerMoneyOf = (t: Terms) =>
+  t.obligations?.customer_money ??
+  ("customer_money" in t.evidence ? t.evidence.customer_money : "unknown");
 
 /** The exact terms both people sign, as a stable string; its sha256 goes on chain. */
 export const termsHash = (t: Terms) => createHash("sha256").update(JSON.stringify(t)).digest("hex");
@@ -101,8 +139,10 @@ export function changes(a: Terms, b: Terms): string[] {
     for (const x of added) out.push(`Added to ${key}: ${x}`);
     for (const x of removed) out.push(`Removed from ${key}: ${x}`);
   }
-  if (a.evidence.estimate !== b.evidence.estimate)
-    out.push(`Evidence snapshot: estimate ${a.evidence.estimate} → ${b.evidence.estimate}`);
+  const [ea, eb] = [estimateOf(a.evidence), estimateOf(b.evidence)];
+  if (ea !== null && eb === null) out.push("Financial snapshot removed from the terms");
+  else if (ea === null && eb !== null) out.push(`Financial snapshot added: estimate ${eb}`);
+  else if (ea !== eb) out.push(`Evidence snapshot: estimate ${ea} → ${eb}`);
   return out;
 }
 
@@ -192,7 +232,13 @@ export class Deals {
     businessId: string,
     buyerId: string,
     accounts: { seller: string; buyer: string; business: string },
-    input: { price_cents: number; expires_at: string; handover: string; conditions: string },
+    input: {
+      price_cents: number;
+      expires_at: string;
+      handover: string;
+      conditions: string;
+      snapshot: boolean;
+    },
   ): Promise<Terms> {
     const chain = this.need();
     const b = this.db
@@ -212,9 +258,14 @@ export class Deals {
     const ops = await this.acquire.operations(businessId, f.hours);
     const line = (i: { name: string; detail: string; enforced: string }) =>
       `${i.name}: ${i.detail}${i.enforced && i.enforced !== "—" ? ` (${i.enforced})` : ""}`;
-    const e = f.estimate;
+    // Checked after the reads above, so access that ended meanwhile doesn't put figures in.
+    if (input.snapshot && !this.financialsGranted(businessId, buyerId))
+      throw new HttpError(
+        409,
+        "Financial figures can go into the terms only while this team has financials access. Leave them out, or grant access first.",
+      );
     return {
-      format: "everstreet-deal/1",
+      format: "everstreet-deal/2",
       business: { name: b.name, account: accounts.business },
       seller: { name: this.store.person(b.owner_id).display_name, account: accounts.seller },
       buyer: {
@@ -233,16 +284,58 @@ export class Deals {
       excluded: ops.manifest.excluded.map((i) => i.name),
       handover: input.handover,
       conditions: input.conditions,
-      evidence: {
-        estimate:
-          e.low_cents === null ? "no range" : `${usd(e.low_cents)}–${usd(e.high_cents ?? 0)}`,
-        basis: e.label,
-        months: f.used.map((m) => m.label),
-        revenue_month: f.revenue === null ? "unknown" : usd(f.revenue),
-        profit_month: f.profit === null ? "unknown" : usd(f.profit),
-        customer_money: ops.treasury?.customer_money ?? "unknown",
-        snapshot_at: now(),
-      },
+      evidence: input.snapshot
+        ? {
+            included: true,
+            ...this.figures(f),
+            audience: SNAPSHOT_AUDIENCE,
+            retention: SNAPSHOT_RETENTION,
+          }
+        : { included: false, note: NO_SNAPSHOT },
+      obligations: { customer_money: ops.treasury?.customer_money ?? "unknown" },
+    };
+  }
+
+  /** The optional financial figures a seller may choose to put in the terms. */
+  private figures(f: Awaited<ReturnType<Acquisitions["facts"]>>) {
+    const e = f.estimate;
+    return {
+      estimate: e.low_cents === null ? "no range" : `${usd(e.low_cents)}–${usd(e.high_cents ?? 0)}`,
+      basis: e.label,
+      months: f.used.map((m) => m.label),
+      revenue_month: f.revenue === null ? "unknown" : usd(f.revenue),
+      profit_month: f.profit === null ? "unknown" : usd(f.profit),
+      snapshot_at: now(),
+    };
+  }
+
+  /** Whether this team holds a current grant that includes financials for this business. */
+  private financialsGranted(businessId: string, buyerId: string) {
+    const rows = this.db
+      .prepare(
+        "SELECT r.granted, r.expires_at FROM access_requests r JOIN listings l ON l.id = r.listing_id WHERE l.business_id = ? AND r.buyer_id = ? AND r.status = 'granted'",
+      )
+      .all(businessId, buyerId) as { granted: string | null; expires_at: string | null }[];
+    return rows.some(
+      (r) =>
+        (!r.expires_at || r.expires_at > now()) &&
+        (JSON.parse(r.granted ?? "[]") as string[]).includes("financials"),
+    );
+  }
+
+  /** The seller previews exactly what a financial snapshot in the terms would show, and to whom. */
+  async snapshotPreview(seller: Person, businessId: string, buyerId: string) {
+    this.store.business(seller, businessId);
+    const allowed = this.financialsGranted(businessId, buyerId);
+    return {
+      allowed,
+      reason: allowed
+        ? null
+        : "This team doesn't have financials access now, so figures can't go into the terms.",
+      figures: allowed ? this.figures(await this.acquire.facts(businessId)) : null,
+      audience: SNAPSHOT_AUDIENCE,
+      retention: SNAPSHOT_RETENTION,
+      without: NO_SNAPSHOT,
     };
   }
 
@@ -251,6 +344,7 @@ export class Deals {
     days?: number;
     handover?: string;
     conditions?: string;
+    snapshot?: boolean;
   }) {
     const price = Math.round(Number(input.price_cents));
     if (!(price >= 100 && price <= 1_000_000_000)) throw new HttpError(400, "Use a price from $1");
@@ -266,6 +360,8 @@ export class Deals {
       conditions: String(input.conditions ?? "")
         .trim()
         .slice(0, 300),
+      // Off unless the seller explicitly chose it.
+      snapshot: input.snapshot === true,
     };
   }
 
@@ -280,6 +376,7 @@ export class Deals {
       days?: number;
       handover?: string;
       conditions?: string;
+      snapshot?: boolean;
     },
   ) {
     const chain = this.need();
@@ -382,7 +479,13 @@ export class Deals {
   async revise(
     seller: Person,
     dealId: string,
-    input: { price_cents?: number; days?: number; handover?: string; conditions?: string },
+    input: {
+      price_cents?: number;
+      days?: number;
+      handover?: string;
+      conditions?: string;
+      snapshot?: boolean;
+    },
   ) {
     const chain = this.need();
     const d = this.row(dealId);
@@ -768,12 +871,12 @@ export class Deals {
           .run(at, listing.id);
         this.db
           .prepare(
-            "UPDATE access_requests SET status = 'revoked', revoked_at = ? WHERE listing_id = ? AND status = 'granted'",
+            "UPDATE access_requests SET status = 'revoked', revoked_at = ?, access_version = access_version + 1 WHERE listing_id = ? AND status = 'granted'",
           )
           .run(at, listing.id);
         this.db
           .prepare(
-            "UPDATE access_requests SET status = 'withdrawn' WHERE listing_id = ? AND status = 'pending'",
+            "UPDATE access_requests SET status = 'withdrawn', access_version = access_version + 1 WHERE listing_id = ? AND status = 'pending'",
           )
           .run(listing.id);
       }
@@ -978,7 +1081,7 @@ export class Deals {
         is_buyer: control.owner === d.buyer_account,
       },
       customer_money: {
-        in_terms: v1 ? (JSON.parse(v1.terms) as Terms).evidence.customer_money : "unknown",
+        in_terms: v1 ? customerMoneyOf(JSON.parse(v1.terms) as Terms) : "unknown",
         now: t
           ? usd(this.payments.cents(t.unearned_orders) + this.payments.cents(t.customer_credit))
           : "unknown",

@@ -115,6 +115,7 @@ function ProposeTerms({ r, businessId }: { r: AccessRequest; businessId: string 
         's testnet account accepts for the team.
       </p>
       <TermsForm
+        snapshotFor={{ businessId, buyerId: r.buyer.id }}
         label="Propose these terms on NEAR"
         initial={{ days: 7, handover: "Two weeks of help after the sale" }}
         submit={async (t) => {
@@ -388,6 +389,11 @@ export function DeskSale({ id }: { id: string }) {
                       <span style={{ fontSize: 15 }}>{label}</span>
                     </label>
                   ))}
+                  {data.listing.disclose_note && (
+                    <p className="notice" style={{ fontSize: 13 }}>
+                      {data.listing.disclose_note}
+                    </p>
+                  )}
                 </div>
                 {f.mode === "private" && (
                   <>

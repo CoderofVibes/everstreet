@@ -363,6 +363,21 @@ export function openDb(path: string) {
     db.exec("ALTER TABLE build_jobs ADD COLUMN charged_microcents INTEGER NOT NULL DEFAULT 0");
   if (!jobCols.has("provider_config"))
     db.exec("ALTER TABLE build_jobs ADD COLUMN provider_config TEXT NOT NULL DEFAULT ''");
+  // Job 003p: evidence access. `access_version` changes on every decision about a request, so a
+  // read that started under one grant can tell the grant changed while it was in flight.
+  // `scope_version` and `disclose_version` record which wording a grant or listing was agreed
+  // under; rows from before stay at 1 and keep the scope they were agreed with.
+  const columns = (table: string) =>
+    new Set(
+      (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
+    );
+  const requestCols = columns("access_requests");
+  if (!requestCols.has("access_version"))
+    db.exec("ALTER TABLE access_requests ADD COLUMN access_version INTEGER NOT NULL DEFAULT 0");
+  if (!requestCols.has("scope_version"))
+    db.exec("ALTER TABLE access_requests ADD COLUMN scope_version INTEGER NOT NULL DEFAULT 1");
+  if (!columns("listings").has("disclose_version"))
+    db.exec("ALTER TABLE listings ADD COLUMN disclose_version INTEGER NOT NULL DEFAULT 1");
   // Job 003b: one ownership entry per closed deal, as a backstop to the reconciler. Installed
   // only when existing data allows it; earlier duplicates are reported, never deleted.
   if (ownershipConflicts(db).length === 0)

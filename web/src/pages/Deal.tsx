@@ -5,7 +5,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { usd } from "../api4.ts";
 import { when } from "../api5.ts";
-import { api6, DEAL_STATUS, type DealSummary, type DealView, type TermsInput } from "../api6.ts";
+import {
+  api6,
+  DEAL_STATUS,
+  type DealSummary,
+  type DealView,
+  type SnapshotPreview,
+  type Terms,
+  type TermsInput,
+} from "../api6.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 
@@ -25,21 +33,81 @@ const STEP_LABEL: Record<string, string> = {
   former_owner_check: "Former owner tried an owner action",
 };
 
+/** The seller's choice to put financial figures in the terms, with exactly what they'd be. */
+function SnapshotChoice({
+  businessId,
+  buyerId,
+  on,
+  setOn,
+}: {
+  businessId: string;
+  buyerId: string;
+  on: boolean;
+  setOn: (on: boolean) => void;
+}) {
+  const [p, setP] = useState<SnapshotPreview | null>(null);
+  useEffect(() => {
+    let live = true;
+    api6
+      .snapshotPreview(businessId, buyerId)
+      .then((x) => live && setP(x))
+      .catch(() => live && setP(null));
+    return () => {
+      live = false;
+    };
+  }, [businessId, buyerId]);
+  if (!p) return null;
+  return (
+    <div className="field">
+      <label className="check" style={{ margin: 0 }}>
+        <input
+          type="checkbox"
+          checked={on && p.allowed}
+          disabled={!p.allowed}
+          onChange={(e) => setOn(e.target.checked)}
+        />
+        <span style={{ fontSize: 15 }}>Include a financial snapshot in the terms</span>
+      </label>
+      {p.allowed && p.figures ? (
+        <p className="muted" style={{ fontSize: 13, margin: "4px 0 0" }}>
+          Would include: estimate {p.figures.estimate} ({p.figures.basis}); revenue{" "}
+          {p.figures.revenue_month} and profit {p.figures.profit_month} a month
+          {p.figures.months.length ? ` over ${p.figures.months.join(", ")}` : ""}. Seen by:{" "}
+          {p.audience}. {p.retention}
+        </p>
+      ) : (
+        <p className="muted" style={{ fontSize: 13, margin: "4px 0 0" }}>
+          {p.reason}
+        </p>
+      )}
+      {!on && (
+        <p className="muted" style={{ fontSize: 13, margin: "4px 0 0" }}>
+          Without it: {p.without}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function TermsForm({
   initial,
   submit,
   label,
   keepExpiry,
+  snapshotFor,
 }: {
   initial?: Partial<TermsInput>;
   submit: (t: TermsInput) => Promise<void>;
   label: string;
   keepExpiry?: boolean;
+  /** Offer the financial-snapshot choice for this business and buying team. */
+  snapshotFor?: { businessId: string; buyerId: string };
 }) {
   const [price, setPrice] = useState(initial?.price_cents ? String(initial.price_cents / 100) : "");
   const [days, setDays] = useState(keepExpiry ? 0 : (initial?.days ?? 7));
   const [handover, setHandover] = useState(initial?.handover ?? "");
   const [conditions, setConditions] = useState(initial?.conditions ?? "");
+  const [snapshot, setSnapshot] = useState(initial?.snapshot ?? false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (
@@ -78,6 +146,7 @@ export function TermsForm({
           onChange={(e) => setConditions(e.target.value)}
         />
       </label>
+      {snapshotFor && <SnapshotChoice {...snapshotFor} on={snapshot} setOn={setSnapshot} />}
       {error && <p className="error-text">{error}</p>}
       <button
         type="button"
@@ -91,6 +160,7 @@ export function TermsForm({
               days,
               handover,
               conditions,
+              snapshot: Boolean(snapshotFor) && snapshot,
             });
             setError(null);
           } catch (e) {
@@ -106,6 +176,31 @@ export function TermsForm({
         where anyone can read them.
       </p>
     </div>
+  );
+}
+
+/** The evidence part of the terms, in whichever format they were written. */
+function EvidenceText({ t }: { t: Terms }) {
+  const e = t.evidence;
+  const money = t.obligations?.customer_money ?? ("customer_money" in e ? e.customer_money : null);
+  const figures =
+    "included" in e && !e.included ? null : (e as Exclude<typeof e, { included: false }>);
+  return (
+    <>
+      <p style={{ fontSize: 15, margin: 0 }}>
+        {figures
+          ? figures.months.length
+            ? `Estimate ${figures.estimate} (${figures.basis}). Revenue ${figures.revenue_month} and profit ${figures.profit_month} a month over ${figures.months.join(", ")}. Taken ${when(figures.snapshot_at)}.`
+            : "No complete month with earnings yet, so no earnings-based estimate."
+          : "No financial figures are part of these terms."}{" "}
+        {money && `Customer money held: ${money}.`}
+      </p>
+      {"included" in e && (
+        <p className="muted" style={{ fontSize: 13, margin: "4px 0 0" }}>
+          {e.included ? `Seen by: ${e.audience}. ${e.retention}` : e.note}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -512,13 +607,7 @@ export function DealPage({ id }: { id: string }) {
             >
               Evidence snapshot
             </h3>
-            <p style={{ fontSize: 15, margin: 0 }}>
-              {t.evidence.months.length
-                ? `Estimate ${t.evidence.estimate} (${t.evidence.basis}). Revenue ${t.evidence.revenue_month} and profit ${t.evidence.profit_month} a month over ${t.evidence.months.join(", ")}.`
-                : "No complete month with earnings yet, so no earnings-based estimate."}{" "}
-              Customer money held: {t.evidence.customer_money}. Taken {when(t.evidence.snapshot_at)}
-              .
-            </p>
+            <EvidenceText t={t} />
             <p className="muted" style={{ fontSize: 13 }}>
               Customer money is a live balance: the contract keeps all of it with the business
               whatever the number was when these terms were written.
@@ -654,6 +743,7 @@ export function DealPage({ id }: { id: string }) {
                   {revising ? (
                     <TermsForm
                       keepExpiry
+                      snapshotFor={{ businessId: d.business.id, buyerId: d.buyer.id }}
                       label="Record the new version"
                       initial={{
                         price_cents: d.price_cents,

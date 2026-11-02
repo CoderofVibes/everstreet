@@ -204,7 +204,11 @@ export interface Room {
       multiple_high: number;
     };
     scenarios: BuyerScenario[];
+    /** The contract's balances, shown with financials access (job 003p). */
+    balances: { customer_money: string; available: string; source: string } | null;
   };
+  /** Set when the grant was made under the earlier wording of operations. */
+  scope_note?: string;
   costs?: {
     label: string;
     lines: { kind: string; label: string; cents: number; source: string }[];
@@ -234,6 +238,9 @@ export interface SellerListing {
     reason: string;
     transition: string;
     disclose: string[];
+    /** 1: saved under the earlier wording; see disclose_note. */
+    disclose_version: number;
+    disclose_note: string | null;
     listed_at: string | null;
     invites: string[];
   };
@@ -244,15 +251,32 @@ export interface SellerListing {
   requests: AccessRequest[];
 }
 
-async function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+/** A refusal or failure from the server, with its status (0 when no answer arrived). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+async function call<T>(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
   const res = await fetch(path, {
     method,
     credentials: "same-origin",
+    cache: "no-store",
+    signal,
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(data.error ?? `Request failed (${res.status})`, res.status);
   return data as T;
 }
 
@@ -308,11 +332,12 @@ export const api5 = {
   ) => call<{ request: AccessRequest }>(`/api/acquire/requests/${id}/decide`, "POST", d),
   revoke: (id: string) =>
     call<{ request: AccessRequest }>(`/api/acquire/requests/${id}/revoke`, "POST"),
-  room: (id: string) => call<Room>(`/api/acquire/rooms/${id}`),
-  tryRoom: (id: string, overrides: Overrides) =>
+  room: (id: string, signal?: AbortSignal) =>
+    call<Room>(`/api/acquire/rooms/${id}`, "GET", undefined, signal),
+  tryRoom: (id: string, overrides: Overrides, signal?: AbortSignal) =>
     call<{
       scenario: { low_cents: number | null; high_cents: number | null; explanation: string[] };
-    }>(`/api/acquire/rooms/${id}/try`, "POST", { overrides }),
+    }>(`/api/acquire/rooms/${id}/try`, "POST", { overrides }, signal),
   saveRoomScenario: (id: string, name: string, overrides: Overrides) =>
     call<{ scenarios: BuyerScenario[] }>(`/api/acquire/rooms/${id}/scenarios`, "POST", {
       name,

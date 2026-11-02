@@ -48,19 +48,28 @@ export const OPENNESS = {
   open: "Open to offers",
   seeking: "Actively seeking a successor",
 } as const;
+/** What a listing may show anyone who can see it (disclosure wording version 2). */
 export const DISCLOSE = {
   revenue: "Monthly revenue",
   profit: "Monthly operating profit",
-  value: "Everstreet estimate and its calculation",
+  value: "Everstreet estimate (the range only)",
+  calculation:
+    "How the estimate is calculated (shows monthly revenue, costs and operating profit; needs revenue and profit shared too)",
   founder_hours: "Your hours a week",
   history: "Months of history and their sources",
 } as const;
+/** The wording a version-1 listing was saved under, shown so the seller knows what it covers. */
+export const DISCLOSE_V1_VALUE = "Everstreet estimate and its calculation";
+/** What a grant opens (scope wording version 2). */
 export const CATEGORIES = {
-  financials: "Monthly books and the estimate's inputs",
+  financials:
+    "Monthly books, the estimate's inputs, and the contract's balances (customer money held, available)",
   costs: "Every cost line and where it came from",
   customers: "Customer activity in aggregate (no names)",
-  operations: "Owner work, helpers, customer promises and what transfers",
+  operations: "Owner work, helpers, customer promises and what transfers (no balances)",
 } as const;
+/** The wording a version-1 grant was made under: operations also showed balances. */
+export const CATEGORIES_V1_OPERATIONS = "Owner work, helpers, customer promises and what transfers";
 
 type BuyerKind = keyof typeof BUYER_KINDS;
 type Intent = keyof typeof INTENTS;
@@ -135,6 +144,8 @@ interface ListingRow {
   reason: string;
   transition: string;
   disclose: string;
+  /** 1: saved under the earlier wording, where "value" also showed the calculation. */
+  disclose_version?: number;
   listed_at: string | null;
   updated_at: string;
 }
@@ -179,6 +190,10 @@ interface RequestRow {
   decision_note: string;
   revoked_at: string | null;
   created_at: string;
+  /** Changes on every decision; an in-flight read compares it before returning. */
+  access_version: number;
+  /** 1: granted under the earlier wording, where operations also showed balances. */
+  scope_version: number;
 }
 
 /** What the index may filter on: exact for named listings, bands for anonymous ones. */
@@ -575,10 +590,24 @@ export class Acquisitions {
         reason: "",
         transition: "",
         disclose: JSON.stringify(["revenue", "profit", "value", "history"]),
+        disclose_version: 2,
         listed_at: null,
         updated_at: now(),
       }
     );
+  }
+
+  /**
+   * What a listing actually shows, under the wording it was saved with. A version-1 "value"
+   * ("Everstreet estimate and its calculation") keeps showing the calculation, so an earlier
+   * choice is neither narrowed nor widened; it is labelled until the seller saves again.
+   */
+  private disclosed(row: ListingRow): Set<Disclosed> {
+    const out = new Set(
+      (JSON.parse(row.disclose) as string[]).filter((d): d is Disclosed => d in DISCLOSE),
+    );
+    if ((row.disclose_version ?? 1) < 2 && out.has("value")) out.add("calculation");
+    return out;
   }
 
   private biz(businessId: string) {
@@ -631,7 +660,12 @@ export class Acquisitions {
         asking_cents: row.asking_cents,
         reason: row.reason,
         transition: row.transition,
-        disclose: JSON.parse(row.disclose) as Disclosed[],
+        disclose: [...this.disclosed(row)],
+        disclose_version: row.disclose_version ?? 1,
+        disclose_note:
+          (row.disclose_version ?? 1) < 2 && this.disclosed(row).has("value")
+            ? `Saved under the earlier wording "${DISCLOSE_V1_VALUE}". That includes the calculation, which shows monthly revenue, costs and operating profit, so it is shown checked here. Saving applies the current wording.`
+            : null,
         listed_at: row.listed_at,
         invites: row.id ? this.invited(row.id) : [],
       },
@@ -676,18 +710,30 @@ export class Acquisitions {
       if (!Number.isFinite(asking) || asking <= 0 || asking > 100_000_000_00)
         throw new HttpError(400, "Use an asking price above $0, or leave it blank");
     }
+    // A saved choice keeps the wording it was made under until the seller chooses again.
+    const version = patch.disclose ? 2 : (row.disclose_version ?? 1);
     const disclose = patch.disclose
       ? [...new Set(patch.disclose)].filter((d) => d in DISCLOSE)
       : (JSON.parse(row.disclose) as string[]);
+    if (
+      version >= 2 &&
+      disclose.includes("calculation") &&
+      !(disclose.includes("revenue") && disclose.includes("profit"))
+    )
+      throw new HttpError(
+        400,
+        "The calculation shows monthly revenue and operating profit. Share both, or leave the calculation off.",
+      );
     const id = row.id || randomUUID();
     const listedAt = mode === "closed" ? row.listed_at : (row.listed_at ?? now());
     this.db
       .prepare(
-        `INSERT INTO listings (id, business_id, mode, openness, asking_cents, reason, transition, disclose, listed_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO listings (id, business_id, mode, openness, asking_cents, reason, transition, disclose, disclose_version, listed_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(business_id) DO UPDATE SET mode = excluded.mode, openness = excluded.openness,
            asking_cents = excluded.asking_cents, reason = excluded.reason, transition = excluded.transition,
-           disclose = excluded.disclose, listed_at = excluded.listed_at, updated_at = excluded.updated_at`,
+           disclose = excluded.disclose, disclose_version = excluded.disclose_version,
+           listed_at = excluded.listed_at, updated_at = excluded.updated_at`,
       )
       .run(
         id,
@@ -698,6 +744,7 @@ export class Acquisitions {
         String(patch.reason ?? row.reason).slice(0, 400),
         String(patch.transition ?? row.transition).slice(0, 300),
         JSON.stringify(disclose),
+        version,
         listedAt,
         now(),
       );
@@ -752,7 +799,7 @@ export class Acquisitions {
   private async index(row: ListingRow, viewer: Person | null): Promise<Indexed> {
     const b = this.biz(row.business_id);
     const offer = this.store.offerOf(row.business_id);
-    const disclose = new Set(JSON.parse(row.disclose) as string[]);
+    const disclose = this.disclosed(row);
     const f = await this.facts(row.business_id);
     const anonymous = row.mode === "anonymous";
     const where = `${offer.where_text} ${offer.delivery}`.trim();
@@ -956,9 +1003,12 @@ export class Acquisitions {
       shortlisted: boolean;
       is_new: boolean;
     })[] = [];
+    // What each result may be sorted by: the same exact values or bands it shows, never more.
+    const sortable = new Map<string, Indexed>();
     for (const row of rows) {
       const x = await this.index(row, viewer);
       const v = x.view;
+      sortable.set(v.listing_id, x);
       const reasons: string[] = [];
       const unknowns: string[] = [];
       if (c.families?.length) {
@@ -1054,13 +1104,12 @@ export class Acquisitions {
         is_new: Boolean(mandate && (!mandate.last_seen_at || v.updated_at > mandate.last_seen_at)),
       });
     }
+    // Anonymous listings sort by their band's low edge, so the order inside a band reveals
+    // nothing about the exact hidden figure; ties keep a fixed order unrelated to the value.
     const key = (r: (typeof results)[number]) => {
-      if (opts.sort === "asking")
-        return r.asking.status === "shown"
-          ? (rows.find((x) => x.id === r.listing_id)?.asking_cents ?? 0)
-          : Number.POSITIVE_INFINITY;
-      if (opts.sort === "value")
-        return r.value.low_cents !== undefined ? -r.value.low_cents : Number.POSITIVE_INFINITY;
+      const x = sortable.get(r.listing_id);
+      if (opts.sort === "asking") return x?.asking ? x.asking.lo : Number.POSITIVE_INFINITY;
+      if (opts.sort === "value") return x?.value ? -x.value.lo : Number.POSITIVE_INFINITY;
       if (opts.sort === "newest") return -Date.parse(r.updated_at);
       return -(r.reasons.length * 10 - r.unknowns.length);
     };
@@ -1099,7 +1148,7 @@ export class Acquisitions {
     const x = await this.index(row, viewer);
     const anonymous = row.mode === "anonymous";
     const offer = this.store.offerOf(row.business_id);
-    const disclose = new Set(JSON.parse(row.disclose) as string[]);
+    const disclose = this.disclosed(row);
     const f = await this.facts(row.business_id);
     const helpers = (
       this.db
@@ -1129,7 +1178,7 @@ export class Acquisitions {
             where_text: offer.where_text,
           },
       calculation:
-        !anonymous && disclose.has("value") && f.estimate.low_cents !== null
+        !anonymous && disclose.has("calculation") && f.estimate.low_cents !== null
           ? {
               explanation: f.estimate.explanation,
               label: f.estimate.label,
@@ -1288,7 +1337,7 @@ export class Acquisitions {
     if (input.action === "decline") {
       this.db
         .prepare(
-          "UPDATE access_requests SET status = 'declined', decided_at = ?, decision_note = ? WHERE id = ?",
+          "UPDATE access_requests SET status = 'declined', decided_at = ?, decision_note = ?, access_version = access_version + 1 WHERE id = ?",
         )
         .run(now(), note, requestId);
       return this.requestView(this.requestRow(requestId));
@@ -1302,7 +1351,7 @@ export class Acquisitions {
     if (!(days >= 1 && days <= r.days)) throw new HttpError(400, `Grant 1 to ${r.days} days`);
     this.db
       .prepare(
-        "UPDATE access_requests SET status = 'granted', granted = ?, expires_at = ?, decided_at = ?, decision_note = ? WHERE id = ?",
+        "UPDATE access_requests SET status = 'granted', granted = ?, expires_at = ?, decided_at = ?, decision_note = ?, scope_version = 2, access_version = access_version + 1 WHERE id = ?",
       )
       .run(
         JSON.stringify(granted),
@@ -1318,7 +1367,9 @@ export class Acquisitions {
     const { r } = this.sellerOf(founder, requestId);
     if (r.status !== "granted") throw new HttpError(409, `This request is ${this.statusOf(r)}`);
     this.db
-      .prepare("UPDATE access_requests SET status = 'revoked', revoked_at = ? WHERE id = ?")
+      .prepare(
+        "UPDATE access_requests SET status = 'revoked', revoked_at = ?, access_version = access_version + 1 WHERE id = ?",
+      )
       .run(now(), requestId);
     return this.requestView(this.requestRow(requestId));
   }
@@ -1327,7 +1378,11 @@ export class Acquisitions {
     const r = this.requestRow(requestId);
     this.role(viewer, r.buyer_id, "approve");
     if (r.status !== "pending") throw new HttpError(409, `This request is ${this.statusOf(r)}`);
-    this.db.prepare("UPDATE access_requests SET status = 'withdrawn' WHERE id = ?").run(requestId);
+    this.db
+      .prepare(
+        "UPDATE access_requests SET status = 'withdrawn', access_version = access_version + 1 WHERE id = ?",
+      )
+      .run(requestId);
     return this.requestView(this.requestRow(requestId));
   }
 
@@ -1336,7 +1391,7 @@ export class Acquisitions {
   /** Every room read passes here: team role, grant status and expiry, checked each time. */
   private grantFor(viewer: Person, requestId: string) {
     const r = this.requestRow(requestId);
-    this.role(viewer, r.buyer_id, "evidence");
+    const role = this.role(viewer, r.buyer_id, "evidence");
     const status = this.statusOf(r);
     const day = (iso: string | null) =>
       iso
@@ -1349,7 +1404,52 @@ export class Acquisitions {
       throw new HttpError(403, `The seller ended this access on ${day(r.revoked_at)}`);
     if (status === "expired") throw new HttpError(403, `This access ended on ${day(r.expires_at)}`);
     const listing = this.listingRow(r.listing_id) as ListingRow;
-    return { r, listing, granted: new Set(JSON.parse(r.granted ?? "[]") as Category[]) };
+    const owner = this.biz(listing.business_id).owner_id;
+    // Everything the answer depends on. If any of it differs after the reads, the grant
+    // changed while they were in flight (revoked, re-decided, narrowed, role or team changed,
+    // business sold), and nothing read under the old grant is returned.
+    const stamp = JSON.stringify([
+      r.access_version,
+      r.status,
+      r.granted,
+      r.expires_at,
+      r.scope_version,
+      role,
+      listing.business_id,
+      owner,
+    ]);
+    return {
+      r,
+      listing,
+      role,
+      stamp,
+      granted: new Set(JSON.parse(r.granted ?? "[]") as Category[]),
+    };
+  }
+
+  /**
+   * The one gate for evidence reads: the room, its export, scenarios and any future chart of the
+   * seller's figures. It checks the grant, runs the asynchronous reads, then checks again after
+   * the last await and before anything private is serialized or written. A grant that ended or
+   * changed while the reads were in flight gets a 403 and no data.
+   */
+  private async withGrant<T>(
+    viewer: Person,
+    requestId: string,
+    need: Category | null,
+    read: (g: ReturnType<Acquisitions["grantFor"]>) => Promise<T>,
+  ) {
+    const before = this.grantFor(viewer, requestId);
+    if (need && !before.granted.has(need))
+      throw new HttpError(403, `This grant doesn't include ${need}`);
+    const out = await read(before);
+    const g = this.grantFor(viewer, requestId); // throws the current refusal, if there is one
+    if (g.stamp !== before.stamp)
+      throw new HttpError(
+        403,
+        "Access changed while this was loading, so nothing was shown. Open the room again.",
+      );
+    return { g, out };
   }
 
   private suppress(n: number) {
@@ -1357,15 +1457,36 @@ export class Acquisitions {
   }
 
   async room(viewer: Person, requestId: string, log = true) {
-    const { r, listing, granted } = this.grantFor(viewer, requestId);
+    const { g, out } = await this.withGrant(viewer, requestId, null, async (g) => {
+      const f = await this.facts(g.listing.business_id);
+      const ops =
+        g.granted.has("operations") || g.granted.has("financials")
+          ? await this.operations(g.listing.business_id, f.hours)
+          : null;
+      return { f, ops };
+    });
     if (log)
       this.db
         .prepare(
           "INSERT INTO events (type, subject, actor, payload, at) VALUES ('room.opened', ?, ?, '{}', ?)",
         )
         .run(requestId, viewer.id, now());
+    return this.scopeRoom(g, out.f, out.ops);
+  }
+
+  /**
+   * What a grant shows, from data already read: one function for the room and its export.
+   * Scope wording 2: balances (customer money held, available) belong to financials;
+   * operations shows promises and what transfers without amounts. A grant made under wording 1
+   * keeps the balances it was agreed with, and says so.
+   */
+  private scopeRoom(
+    g: ReturnType<Acquisitions["grantFor"]>,
+    f: Awaited<ReturnType<Acquisitions["facts"]>>,
+    ops: Awaited<ReturnType<Acquisitions["operations"]>> | null,
+  ) {
+    const { r, listing, granted } = g;
     const b = this.biz(listing.business_id);
-    const f = await this.facts(listing.business_id);
     const e = f.estimate;
     const room: Record<string, unknown> = {
       request: this.requestView(r),
@@ -1422,6 +1543,7 @@ export class Acquisitions {
           multiple_high: e.inputs.multiple_high,
         },
         scenarios: this.buyerScenarios(r.buyer_id, listing.business_id),
+        balances: ops?.treasury ?? null,
       };
     }
     if (granted.has("costs")) {
@@ -1433,8 +1555,26 @@ export class Acquisitions {
         }));
     }
     if (granted.has("customers")) room.customers = this.customers(listing.business_id);
-    if (granted.has("operations"))
-      room.operations = await this.operations(listing.business_id, f.hours);
+    if (granted.has("operations") && ops) {
+      const legacy = r.scope_version < 2;
+      const balances = legacy || granted.has("financials");
+      room.operations = balances
+        ? ops
+        : {
+            ...ops,
+            treasury: null,
+            manifest: {
+              ...ops.manifest,
+              stays: ops.manifest.stays.map((i) =>
+                i.name === "Customer money held by the contract"
+                  ? { ...i, detail: "Amount shown with financials access" }
+                  : i,
+              ),
+            },
+          };
+      if (legacy)
+        room.scope_note = `Granted under the earlier wording "${CATEGORIES_V1_OPERATIONS}", which also showed the contract's balances.`;
+    }
     return room;
   }
 
@@ -1657,9 +1797,10 @@ export class Acquisitions {
 
   /** The buyer's own assumptions on the seller's inputs; the founder's estimate never changes. */
   async tryScenario(viewer: Person, requestId: string, o: Overrides) {
-    const { listing, granted } = this.grantFor(viewer, requestId);
-    if (!granted.has("financials"))
-      throw new HttpError(403, "This grant doesn't include financials");
+    return (await this.scenario(viewer, requestId, o)).out;
+  }
+
+  private async scenario(viewer: Person, requestId: string, o: Overrides) {
     const clean: Overrides = {};
     for (const k of [
       "founder_hours_week",
@@ -1672,17 +1813,22 @@ export class Acquisitions {
       if (v !== undefined && v !== null && Number.isFinite(Number(v)) && Number(v) >= 0)
         clean[k] = Number(v);
     }
-    const base = await this.valuation.inputs(listing.business_id);
-    return {
-      base: estimate(base),
-      scenario: estimate(withOverrides(base, clean)),
-      overrides: clean,
-    };
+    return this.withGrant(viewer, requestId, "financials", async (g) => {
+      const base = await this.valuation.inputs(g.listing.business_id);
+      return {
+        base: estimate(base),
+        scenario: estimate(withOverrides(base, clean)),
+        overrides: clean,
+      };
+    });
   }
 
   async saveScenario(viewer: Person, requestId: string, name: string, o: Overrides) {
-    const result = await this.tryScenario(viewer, requestId, o);
-    const { r, listing } = this.grantFor(viewer, requestId);
+    // Checked after the last await by `scenario`; the write below runs before anything else
+    // can change the grant. Only the team's own assumptions and the resulting range are kept,
+    // not the seller's inputs.
+    const { g, out: result } = await this.scenario(viewer, requestId, o);
+    const { r, listing } = g;
     this.db
       .prepare(
         "INSERT INTO buyer_scenarios (id, buyer_id, business_id, name, overrides, result, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1693,7 +1839,10 @@ export class Acquisitions {
         listing.business_id,
         (name || "Our assumptions").slice(0, 80),
         JSON.stringify(result.overrides),
-        JSON.stringify(result.scenario),
+        JSON.stringify({
+          low_cents: result.scenario.low_cents,
+          high_cents: result.scenario.high_cents,
+        }),
         viewer.id,
         now(),
       );

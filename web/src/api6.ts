@@ -14,15 +14,33 @@ export interface Terms {
   excluded: string[];
   handover: string;
   conditions: string;
-  evidence: {
-    estimate: string;
-    basis: string;
-    months: string[];
-    revenue_month: string;
-    profit_month: string;
-    customer_money: string;
-    snapshot_at: string;
-  };
+  /** Format 1 (before job 003p) always has figures; format 2 only when the seller chose them. */
+  evidence: EvidenceV1 | { included: false; note: string } | (Figures & EvidenceShared);
+  obligations?: { customer_money: string };
+}
+
+interface Figures {
+  estimate: string;
+  basis: string;
+  months: string[];
+  revenue_month: string;
+  profit_month: string;
+  snapshot_at: string;
+}
+interface EvidenceShared {
+  included: true;
+  audience: string;
+  retention: string;
+}
+type EvidenceV1 = Figures & { customer_money: string };
+
+export interface SnapshotPreview {
+  allowed: boolean;
+  reason: string | null;
+  figures: Figures | null;
+  audience: string;
+  retention: string;
+  without: string;
 }
 
 export interface DealView {
@@ -127,9 +145,15 @@ export interface TermsInput {
   days: number;
   handover: string;
   conditions: string;
+  /** Put a financial snapshot in the terms (seller's explicit choice; off by default). */
+  snapshot?: boolean;
 }
 
 export const api6 = {
+  snapshotPreview: (businessId: string, buyerId: string) =>
+    call<SnapshotPreview>(
+      `/api/businesses/${businessId}/deals/snapshot?buyer_id=${encodeURIComponent(buyerId)}`,
+    ),
   deals: () => call<{ deals: DealSummary[] }>("/api/deals"),
   propose: (businessId: string, t: TermsInput & { buyer_id: string }) =>
     call<DealView>(`/api/businesses/${businessId}/deals`, "POST", t),

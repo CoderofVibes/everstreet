@@ -79,6 +79,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
 
   app.use("*", async (c, next) => {
     c.set("person", store.personForToken(getCookie(c, COOKIE)));
+    // Job 003p: API answers depend on who is asking and what they may see right now (evidence
+    // rooms, exports, scenarios, books, value, deal terms). None may be stored by a browser or
+    // proxy and replayed after access ends. Set first, so refusals carry it too.
+    if (c.req.path.startsWith("/api/")) c.header("Cache-Control", "no-store");
     await next();
   });
 
@@ -623,6 +627,15 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/deals", (c) => c.json({ deals: deals?.mine(me(c)) ?? [] }));
   app.post("/api/businesses/:id/deals", async (c) =>
     c.json(await needDeals().propose(me(c), c.req.param("id"), await body(c)), 201),
+  );
+  app.get("/api/businesses/:id/deals/snapshot", async (c) =>
+    c.json(
+      await needDeals().snapshotPreview(
+        me(c),
+        c.req.param("id"),
+        String(c.req.query("buyer_id") ?? ""),
+      ),
+    ),
   );
   app.get("/api/deals/:id", async (c) => c.json(await needDeals().view(me(c), c.req.param("id"))));
   app.post("/api/deals/:id/revise", async (c) =>
