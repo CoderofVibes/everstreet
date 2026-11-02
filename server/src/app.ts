@@ -12,6 +12,7 @@ import { Builds, proposalBudget } from "./builds.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
 import { Deals } from "./deals.ts";
+import { ManagedRuntime } from "./invocations.ts";
 import { Payments } from "./payments.ts";
 import { Products } from "./products.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
@@ -33,6 +34,8 @@ export interface AppOptions {
   builds?: Builds;
   /** The operator's overall AI spending ceiling in cents (from the server's AI configuration). */
   operatorCeilingCents?: number | null;
+  /** The managed runtime (job 002c); built unconnected if not given, and says so. */
+  runtime?: ManagedRuntime;
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -53,6 +56,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const authoring = new Authoring(store.db, store, products, builds, () =>
     proposalBudget(builds.provider),
   );
+  const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const books = new Books(store.db, store, options.chain ?? null);
   const valuation = new Valuation(store.db, store, books);
   const acquire = new Acquisitions(store.db, store, books, valuation, options.chain ?? null);
@@ -253,6 +257,38 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.put("/api/businesses/:id/build-budget", async (c) =>
     c.json(builds.setBudget(me(c), c.req.param("id"), await body(c))),
+  );
+
+  // ---------- running the product (job 002c): owner-only private trials before M3 ----------
+
+  app.get("/api/product-projects/:id/runtime", (c) =>
+    c.json(runtime.list(me(c), c.req.param("id"))),
+  );
+  app.post("/api/product-projects/:id/runtime/invocations", async (c) => {
+    const b = await body<Record<string, unknown>>(c);
+    const { invocation, created, done } = runtime.start(
+      me(c),
+      c.req.param("id"),
+      b,
+      b.release === true ? "release" : "trial",
+    );
+    // Waits for the answer (bounded by the runtime's time limit); a repeat with the same key
+    // returns the same record, still running or finished.
+    const final = created ? await done : invocation.state === "running" ? await done : invocation;
+    return c.json({ invocation: runtime.view(final), created }, created ? 201 : 200);
+  });
+  app.get("/api/runtime/invocations/:id", (c) =>
+    c.json({ invocation: runtime.get(me(c), c.req.param("id")) }),
+  );
+  app.post("/api/runtime/invocations/:id/cancel", (c) =>
+    c.json({ invocation: runtime.cancel(me(c), c.req.param("id")) }),
+  );
+  app.get("/api/businesses/:id/runtime-budget", (c) => {
+    store.ownedBusiness(me(c), c.req.param("id"));
+    return c.json(runtime.budgetFor(c.req.param("id")));
+  });
+  app.put("/api/businesses/:id/runtime-budget", async (c) =>
+    c.json(runtime.setBudget(me(c), c.req.param("id"), await body(c))),
   );
 
   // ---------- the founder's business ----------

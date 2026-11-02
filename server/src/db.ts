@@ -337,6 +337,73 @@ CREATE TRIGGER IF NOT EXISTS build_artifacts_no_update BEFORE UPDATE ON build_ar
 BEGIN SELECT RAISE(ABORT, 'build artifacts are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS build_artifacts_no_delete BEFORE DELETE ON build_artifacts
 BEGIN SELECT RAISE(ABORT, 'build artifacts are immutable'); END;
+-- Job 002c: running a product. Its own budget and ledger, never summed with build usage.
+CREATE TABLE IF NOT EXISTS runtime_budgets (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id),
+  limit_cents INTEGER NOT NULL CHECK (limit_cents >= 0), updated_by TEXT NOT NULL REFERENCES people(id),
+  updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS runtime_invocations (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  project_id TEXT NOT NULL REFERENCES product_projects(id),
+  artifact_job TEXT NOT NULL REFERENCES build_jobs(id), artifact_digest TEXT NOT NULL, release_id TEXT,
+  purpose TEXT NOT NULL CHECK (purpose IN ('trial','evaluation','release')),
+  eval_run TEXT, eval_case TEXT,
+  requested_by TEXT NOT NULL REFERENCES people(id), owner_id TEXT NOT NULL, owner_generation INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, input_sha TEXT NOT NULL, input_chars INTEGER NOT NULL,
+  provider TEXT NOT NULL, provider_config TEXT NOT NULL, validator TEXT NOT NULL, pricing TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('running','completed','failed','cancelled','unknown')),
+  outcome TEXT CHECK (outcome IN ('extracted','incomplete','refused','invalid')),
+  failure_class TEXT, failure_detail TEXT, output TEXT,
+  reserved_cents INTEGER NOT NULL DEFAULT 0, charged_cents INTEGER NOT NULL DEFAULT 0,
+  charged_microcents INTEGER NOT NULL DEFAULT 0,
+  usage_state TEXT NOT NULL DEFAULT 'none' CHECK (usage_state IN ('none','final','partial','unknown')),
+  input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+  cancel_requested_at TEXT, dispatched_at TEXT, created_at TEXT NOT NULL, finished_at TEXT, elapsed_ms INTEGER,
+  UNIQUE (project_id, idempotency_key)
+) STRICT;
+CREATE INDEX IF NOT EXISTS runtime_invocations_project ON runtime_invocations(project_id, created_at);
+CREATE TABLE IF NOT EXISTS runtime_usage (
+  id INTEGER PRIMARY KEY, invocation_id TEXT NOT NULL REFERENCES runtime_invocations(id),
+  ledger TEXT NOT NULL CHECK (ledger = 'runtime'),
+  kind TEXT NOT NULL CHECK (kind IN ('reservation','release','actual','unknown')),
+  cents INTEGER, microcents INTEGER, input_tokens INTEGER, output_tokens INTEGER,
+  note TEXT NOT NULL DEFAULT '', at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS runtime_usage_no_update BEFORE UPDATE ON runtime_usage
+BEGIN SELECT RAISE(ABORT, 'runtime usage is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS runtime_usage_no_delete BEFORE DELETE ON runtime_usage
+BEGIN SELECT RAISE(ABORT, 'runtime usage is append-only'); END;
+-- Founder-approved test cases: every edit is a new immutable version.
+CREATE TABLE IF NOT EXISTS eval_fixtures (
+  project_id TEXT NOT NULL REFERENCES product_projects(id), version INTEGER NOT NULL,
+  source TEXT NOT NULL, cases TEXT NOT NULL, created_by TEXT NOT NULL REFERENCES people(id),
+  created_at TEXT NOT NULL, PRIMARY KEY (project_id, version)
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS eval_fixtures_no_update BEFORE UPDATE ON eval_fixtures
+BEGIN SELECT RAISE(ABORT, 'test case versions are immutable'); END;
+CREATE TABLE IF NOT EXISTS eval_runs (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  artifact_job TEXT NOT NULL REFERENCES build_jobs(id), artifact_digest TEXT NOT NULL,
+  fixture_version INTEGER NOT NULL, validator TEXT NOT NULL, provider_config TEXT NOT NULL,
+  requested_by TEXT NOT NULL REFERENCES people(id),
+  state TEXT NOT NULL CHECK (state IN ('running','complete','stopped')),
+  results TEXT NOT NULL DEFAULT '[]', passed INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0,
+  errors INTEGER NOT NULL DEFAULT 0, not_applicable INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL,
+  created_at TEXT NOT NULL, finished_at TEXT
+) STRICT;
+CREATE TABLE IF NOT EXISTS runtime_releases (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id),
+  artifact_job TEXT NOT NULL REFERENCES build_jobs(id), artifact_digest TEXT NOT NULL,
+  eval_run TEXT NOT NULL REFERENCES eval_runs(id), fixture_version INTEGER NOT NULL,
+  validator TEXT NOT NULL, provider_config TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('active','retired')), rolled_back_from TEXT,
+  activated_by TEXT NOT NULL REFERENCES people(id), owner_id TEXT NOT NULL, owner_generation INTEGER NOT NULL,
+  activated_at TEXT NOT NULL, retired_at TEXT
+) STRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS runtime_releases_one_active ON runtime_releases(project_id) WHERE state = 'active';
 CREATE TRIGGER IF NOT EXISTS build_usage_no_update BEFORE UPDATE ON build_usage
 BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_delete BEFORE DELETE ON build_usage

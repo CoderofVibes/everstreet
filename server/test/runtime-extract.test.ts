@@ -24,6 +24,7 @@ const CLEAN = {
   invoice_date: "2026-10-14",
   total: "412.50",
   currency: "USD",
+  due_date: null,
 };
 
 describe("the extraction validator", () => {

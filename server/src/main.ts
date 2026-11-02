@@ -23,6 +23,8 @@ import { openSeatProvider } from "./bookings.ts";
 import { Builds, startBuildWorker } from "./builds.ts";
 import { NearChain } from "./chain.ts";
 import { openDb } from "./db.ts";
+import { ManagedRuntime } from "./invocations.ts";
+import { AnthropicRuntime } from "./runtime.ts";
 import { Store } from "./store.ts";
 
 const port = Number(process.env.PORT ?? 8800);
@@ -136,6 +138,15 @@ const builds = new Builds(store.db, store, buildProvider, {
   operatorCeilingCents: ai.ok ? ai.config.operatorCeilingCents : null,
 });
 if (buildProvider) startBuildWorker(builds, buildProvider);
+// Running products (job 002c): the same pinned model and transport, a separate ceiling and
+// ledger. Anything left running by a previous process is marked unknown, never re-run.
+const runtime = new ManagedRuntime(
+  store.db,
+  store,
+  ai.ok ? new AnthropicRuntime(ai.config, httpsTransport(ai.apiKey)) : null,
+  { ceilingCents: ai.ok ? ai.config.runtimeCeilingCents : null },
+);
+runtime.recover();
 
 const app = new Hono();
 app.route("/svc/openseat", openseatHttp);
@@ -163,6 +174,7 @@ app.route(
     chain,
     buildProvider,
     builds,
+    runtime,
   }),
 );
 
