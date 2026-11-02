@@ -382,6 +382,8 @@ CREATE TABLE IF NOT EXISTS eval_fixtures (
 ) STRICT;
 CREATE TRIGGER IF NOT EXISTS eval_fixtures_no_update BEFORE UPDATE ON eval_fixtures
 BEGIN SELECT RAISE(ABORT, 'test case versions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS eval_fixtures_no_delete BEFORE DELETE ON eval_fixtures
+BEGIN SELECT RAISE(ABORT, 'test case versions are immutable'); END;
 CREATE TABLE IF NOT EXISTS eval_runs (
   id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
   business_id TEXT NOT NULL REFERENCES businesses(id),
@@ -443,6 +445,12 @@ export function openDb(path: string) {
     db.exec("ALTER TABLE access_requests ADD COLUMN access_version INTEGER NOT NULL DEFAULT 0");
   if (!requestCols.has("scope_version"))
     db.exec("ALTER TABLE access_requests ADD COLUMN scope_version INTEGER NOT NULL DEFAULT 1");
+  // Job 002c1: the release policy a check ran under and a release was made with. Rows from
+  // before have an empty policy, so they read as stale and need a new check.
+  if (!columns("eval_runs").has("policy"))
+    db.exec("ALTER TABLE eval_runs ADD COLUMN policy TEXT NOT NULL DEFAULT ''");
+  if (!columns("runtime_releases").has("policy"))
+    db.exec("ALTER TABLE runtime_releases ADD COLUMN policy TEXT NOT NULL DEFAULT ''");
   if (!columns("listings").has("disclose_version"))
     db.exec("ALTER TABLE listings ADD COLUMN disclose_version INTEGER NOT NULL DEFAULT 1");
   // Job 003b: one ownership entry per closed deal, as a backstop to the reconciler. Installed

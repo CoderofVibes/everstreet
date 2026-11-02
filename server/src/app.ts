@@ -278,8 +278,9 @@ export function everstreetApi(store: Store, options: AppOptions) {
     );
     // Waits for the answer (bounded by the runtime's time limit); a repeat with the same key
     // returns the same record, still running or finished.
-    const final = created ? await done : invocation.state === "running" ? await done : invocation;
-    return c.json({ invocation: runtime.view(final), created }, created ? 201 : 200);
+    const final = invocation.state === "running" || created ? await done : invocation;
+    // Authority is checked again after the final await, for new and repeated requests alike.
+    return c.json({ invocation: runtime.answerFor(me(c), final), created }, created ? 201 : 200);
   });
   app.get("/api/runtime/invocations/:id", (c) =>
     c.json({ invocation: runtime.get(me(c), c.req.param("id")) }),

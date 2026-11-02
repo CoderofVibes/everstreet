@@ -6,7 +6,8 @@
 import type { ExtractionSpec } from "./artifacts.ts";
 
 /** Changes whenever these rules change; evaluations and releases are bound to it. */
-export const EXTRACT_VALIDATOR = "extract-validator/1";
+// 2 (job 002c1): an overlong value makes the answer invalid instead of being shortened.
+export const EXTRACT_VALIDATOR = "extract-validator/2";
 
 /** What the model may say about the document as a whole. */
 export const MODEL_STATUSES = [
@@ -53,6 +54,15 @@ const DECIMAL = /^-?(0|[1-9]\d*)(\.\d+)?$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const clean = (s: string, max = MAX_TEXT) => s.replace(CONTROL, " ").trim().slice(0, max);
+/**
+ * Truncation policy (job 002c1): a field *value* is never shortened; one longer than
+ * MAX_TEXT makes the answer invalid. Commentary (notes, issues) is bounded and visibly marked
+ * with "…" when shortened, because it is never part of the result a customer receives.
+ */
+const bounded = (s: string, max: number) => {
+  const c = s.replace(CONTROL, " ").trim();
+  return c.length > max ? `${c.slice(0, max - 1)}…` : c;
+};
 
 /** An exact decimal, or the reason it isn't one this platform will keep. */
 export function decimal(raw: string): { ok: true; value: string } | { ok: false; why: string } {
@@ -109,7 +119,7 @@ export function validateExtraction(spec: ExtractionSpec, raw: unknown): Extracti
     ? o.issues
         .filter((x): x is string => typeof x === "string")
         .slice(0, 10)
-        .map((x) => clean(x, 300))
+        .map((x) => bounded(x, 300))
     : [];
   if (status !== "extracted")
     return {
@@ -145,7 +155,7 @@ export function validateExtraction(spec: ExtractionSpec, raw: unknown): Extracti
     }
     seen.set(key, {
       value: it.value,
-      note: typeof it.note === "string" ? clean(it.note, 300) : "",
+      note: typeof it.note === "string" ? bounded(it.note, 300) : "",
     });
   }
   const fields: FieldResult[] = [];
@@ -170,7 +180,11 @@ export function validateExtraction(spec: ExtractionSpec, raw: unknown): Extracti
       const b = v.trim().toLowerCase();
       if (b === "true" || b === "false") value = b === "true";
       else problems.push(`"${f.key}" is not true or false`);
-    } else value = clean(v);
+    } else if (v.trim().length > MAX_TEXT)
+      problems.push(
+        `"${f.key}" is ${v.trim().length} characters, over the ${MAX_TEXT} this service returns; it was not shortened into a result`,
+      );
+    else value = clean(v);
     fields.push({
       key: f.key,
       label: f.label,

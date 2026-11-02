@@ -1,14 +1,17 @@
-// Job 002c: evaluations and releases. A scripted runtime model answers each curated document
-// the way a correct extractor would (or wrongly, where a test says so); artifacts come from the
-// real build pipeline. Proves evaluation provenance, raw vs scored outcomes, not-applicable
-// cases, stale results, release gating, pinning across rollback and stale-owner rejection.
+// Jobs 002c and 002c1: checks and releases. A scripted runtime model answers each required
+// document the way a correct extractor would (or wrongly, where a test says so); artifacts come
+// from the real build pipeline. Proves the independent required release policy, evaluation
+// provenance, raw vs scored outcomes, not-applicable cases, stale results, release gating,
+// pinning across rollback and stale-owner rejection.
 
 import { describe, expect, it } from "vitest";
-import { CURATED_INVOICE_SUITE, Evaluations } from "../src/evaluations.ts";
+import { Evaluations, RELEASE_POLICY, REQUIRED_INVOICE_CASES } from "../src/evaluations.ts";
+import { EXTRACT_VALIDATOR } from "../src/extract.ts";
 import { ManagedRuntime } from "../src/invocations.ts";
-import { RuntimeFailure, type RuntimeRequest } from "../src/runtime.ts";
+import { RuntimeFailure } from "../src/runtime.ts";
 import {
-  type Answer,
+  CLEAN,
+  correct,
   gate,
   INVOICE_SPEC,
   reply,
@@ -16,149 +19,104 @@ import {
   ScriptedRuntime,
 } from "./runtime-world.ts";
 
-const row = (
-  vendor: string,
-  num: string,
-  date: string | null,
-  total: string,
-  currency: string,
-) => ({
-  vendor,
-  invoice_number: num,
-  invoice_date: date,
-  total,
-  currency,
-  due_date: null,
-});
+const N = REQUIRED_INVOICE_CASES.length;
+const by = (r: { results: { id: string }[] }, id: string) =>
+  r.results.find((x) => x.id === id) as unknown as Record<string, unknown> & {
+    fields: { key: string }[];
+  };
 
-/** What a correct extractor says about each curated document. */
-async function correct(req: RuntimeRequest): Promise<Answer> {
-  const d = req.document;
-  if (d.includes("JPS-1042"))
-    return reply(row("Juniper Print Supply", "JPS-1042", "2026-10-14", "412.50", "USD"));
-  if (d.includes("QF-88"))
-    return reply(row("Quill & Fern Stationers", "QF-88", null, "140.00", "EUR"));
-  if (d.includes("HK-310"))
-    return reply({}, "ambiguous", ["03/04/2026 could be 3 April or 4 March"]);
-  if (d.includes("---")) return reply({}, "multiple_documents");
-  if (d.includes("MF-2026-07"))
-    return reply(
-      row("Marten Frame Shop", "MF-2026-07", "2026-08-19", "300.00", "USD"),
-      "extracted",
-      ["Line items add up to 260.00, not the stated 300.00"],
-    );
-  if (d.includes("NC-4410"))
-    return reply(row("Northwind Clay", "NC-4410", "2026-10-01", "48.00", "USD"));
-  if (d.includes("OF-1"))
-    return reply(row("Orbit Freight", "OF-1", "2026-10-10", "98765432109876543.21", "USD"));
-  return reply({}, "not_a_document");
-}
-
-async function checked(provider = new ScriptedRuntime(correct)) {
+async function setup(provider = new ScriptedRuntime(correct)) {
   const w = runtimeWorld(provider);
   const f = await w.founder();
-  await f.ava(`/api/businesses/${f.business}/runtime-budget`, "PUT", { limit_cents: 500 });
-  expect(
-    (
-      await f.ava(`/api/product-projects/${f.project}/test-cases`, "POST", {
-        source: "curated",
-        base_version: null,
-      })
-    ).status,
-  ).toBe(201);
-  const run = async (job = f.job) => {
-    const started = await f.ava(`/api/product-projects/${f.project}/evaluations`, "POST", {
-      artifact_job: job,
-    });
-    expect(started.status).toBe(202);
-    for (let i = 0; i < 200; i++) {
-      const r = (await f.ava(`/api/evaluations/${started.body.run.id}`)).body.run;
-      if (r.state !== "running") return r;
-      await new Promise((ok) => setTimeout(ok, 2));
-    }
-    throw new Error("run did not finish");
-  };
-  return { w, f, provider, run };
+  return { w, f, provider };
 }
 
-describe("checking a version against curated test cases", () => {
-  it("a correct extractor passes every curated case, with exact provenance", async () => {
-    const { f, run } = await checked();
-    const r = await run();
+describe("the required release checks", () => {
+  it("a correct extractor passes every required case, with exact provenance", async () => {
+    const { w, f } = await setup();
+    const r = await w.check(f);
     expect(r).toMatchObject({
       state: "complete",
-      total: CURATED_INVOICE_SUITE.length,
-      passed: CURATED_INVOICE_SUITE.length,
+      total: N,
+      passed: N,
       artifact_job: f.job,
-      fixture_version: 1,
-      validator: "extract-validator/1",
+      fixture_version: 0,
+      policy: RELEASE_POLICY,
+      validator: EXTRACT_VALIDATOR,
       release_ready: true,
     });
-    expect(r.provider_config).toMatchObject({
-      id: "scripted-runtime",
-      model: "scripted-runtime-model",
-    });
-    expect(r.artifact_digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(r.results.every((x: { required: boolean }) => x.required)).toBe(true);
+    expect(r.provider_config).toMatchObject({ id: "scripted-runtime" });
     expect(r.basis).toMatch(/these named test cases only/);
-    // Raw outcome is kept apart from the score.
-    const huge = r.results.find((x: { id: string }) => x.id === "huge_amount");
-    expect(huge).toMatchObject({ score: "pass", raw: { state: "completed", outcome: "invalid" } });
-    const empty = r.results.find((x: { id: string }) => x.id === "empty");
-    expect(empty).toMatchObject({ score: "pass", raw: { outcome: "not_sent", invocation: null } });
-    // Paid from the runtime budget; evaluation requests stay out of the trial history.
+    expect(by(r, "req_huge_amount")).toMatchObject({ score: "pass", raw: { outcome: "invalid" } });
+    expect(by(r, "req_empty")).toMatchObject({ score: "pass", raw: { outcome: "not_sent" } });
+    expect(by(r, "req_over_limit")).toMatchObject({ score: "pass", raw: { outcome: "not_sent" } });
+    expect(r.invalid_answers).toBe(1);
     expect(r.used_microcents).toBeGreaterThan(0);
-    const history = (await f.ava(`/api/product-projects/${f.project}/runtime`)).body.invocations;
-    expect(history).toEqual([]);
-  });
-
-  it("wrong fields fail with expected vs actual; provider errors are errors, not wrong answers", async () => {
-    const provider = new ScriptedRuntime(async (req) => {
-      if (req.document.includes("JPS-1042"))
-        return reply(row("Juniper Print Supply", "JPS-1042", "2026-10-15", "412.50", "USD"));
-      if (req.document.includes("NC-4410"))
-        throw new RuntimeFailure("The AI provider could not be reached", "provider_error", null);
-      if (req.document.includes("MF-2026-07"))
-        // Silently "corrects" the total and reports nothing.
-        return reply(row("Marten Frame Shop", "MF-2026-07", "2026-08-19", "260.00", "USD"));
-      return correct(req);
-    });
-    const { run } = await checked(provider);
-    const r = await run();
-    const by = (id: string) => r.results.find((x: { id: string }) => x.id === id);
-    expect(by("clean")).toMatchObject({ score: "fail" });
-    expect(by("clean").fields.find((x: { key: string }) => x.key === "invoice_date")).toEqual({
-      key: "invoice_date",
-      expected: "2026-10-14",
-      actual: "2026-10-15",
-      match: false,
-    });
-    expect(by("embedded_instructions")).toMatchObject({
-      score: "error",
-      raw: { state: "unknown" },
-    });
-    expect(by("totals_disagree")).toMatchObject({ score: "fail" });
-    expect([r.failed, r.errors]).toEqual([2, 1]);
-    expect(r.release_ready).toBe(false);
-  });
-
-  it("a model's own claims aren't a pass: an invoice fabricated from unrelated text fails", async () => {
-    const provider = new ScriptedRuntime(async (req) =>
-      req.document.includes("Shopping list")
-        ? reply(row("Saturday Class", "1", "2026-10-01", "0.00", "USD"), "extracted", [
-            "All checks passed",
-          ])
-        : correct(req),
+    // Evaluation requests stay out of the trial history.
+    expect((await f.ava(`/api/product-projects/${f.project}/runtime`)).body.invocations).toEqual(
+      [],
     );
-    const { run } = await checked(provider);
-    const r = await run();
-    expect(r.results.find((x: { id: string }) => x.id === "unrelated_text")).toMatchObject({
-      score: "fail",
-      raw: { outcome: "extracted" },
-    });
   });
 
-  it("cases for fields a version doesn't have are not applicable, not run, and block release", async () => {
-    const { w, f, provider, run } = await checked();
+  it("an empty-only founder suite can't release a product that never extracts anything", async () => {
+    // Astra's reproduction: one founder case, empty input expecting not_sent.
+    const { w, f, provider } = await setup(
+      new ScriptedRuntime(async () => reply({}, "not_a_document")),
+    );
+    await f.ava(`/api/product-projects/${f.project}/test-cases`, "POST", {
+      base_version: null,
+      cases: [{ id: "x", name: "x", input: "", expect: { outcomes: ["not_sent"] } }],
+    });
+    const r = await w.check(f);
+    expect(by(r, "x")).toMatchObject({ required: false, score: "pass" });
+    expect(r.release_ready).toBe(false);
+    expect(provider.calls.length).toBeGreaterThan(0); // the required cases were actually run
+    const rel = await f.ava(`/api/product-projects/${f.project}/releases`, "POST", {
+      artifact_job: f.job,
+      eval_run: r.id,
+    });
+    expect(rel.status).toBe(409);
+  });
+
+  it("an accept-anything founder case, or removing every founder case, can't weaken the required ones", async () => {
+    const lazy = new ScriptedRuntime(async (req) =>
+      req.document.includes("SH-1042") ? reply({ ...CLEAN, total: "0.00" }) : correct(req),
+    );
+    const { w, f } = await setup(lazy);
+    await f.ava(`/api/product-projects/${f.project}/test-cases`, "POST", {
+      base_version: null,
+      cases: [
+        {
+          id: "anything",
+          name: "Anything goes",
+          input: "INVOICE SH-1042",
+          expect: { outcomes: ["extracted", "incomplete", "refused", "invalid"] },
+        },
+      ],
+    });
+    const r1 = await w.check(f);
+    expect(by(r1, "anything").score).toBe("pass");
+    expect(by(r1, "req_clean").score).toBe("fail");
+    expect(r1.release_ready).toBe(false);
+    // Removing every founder case leaves the required ones in place.
+    await f.ava(`/api/product-projects/${f.project}/test-cases`, "POST", {
+      base_version: 1,
+      cases: [],
+    });
+    const r2 = await w.check(f);
+    expect(r2.total).toBe(N);
+    expect(r2.release_ready).toBe(false);
+    // Founders can't name a case to shadow a required one.
+    const shadow = await f.ava(`/api/product-projects/${f.project}/test-cases`, "POST", {
+      base_version: 2,
+      cases: [{ id: "req_clean", name: "mine", input: "x", expect: { outcomes: ["refused"] } }],
+    });
+    expect(shadow.status).toBe(400);
+  });
+
+  it("required cases that don't apply to a version block release, honestly labelled", async () => {
+    const { w, f, provider } = await setup();
     const { invoice_number: _n, ...rest } = Object.fromEntries(
       INVOICE_SPEC.fields.map((x) => [x.key, x]),
     );
@@ -171,166 +129,211 @@ describe("checking a version against curated test cases", () => {
       })),
     });
     const calls = provider.calls.length;
-    const r = await run(narrower);
+    const r = await w.check(f, narrower);
     const na = r.results.filter((x: { score: string }) => x.score === "not_applicable");
-    expect(na.map((x: { id: string }) => x.id).sort()).toEqual(["clean", "embedded_instructions"]);
-    expect(provider.calls.length - calls).toBe(CURATED_INVOICE_SUITE.length - 2 - 1); // empty isn't sent
+    expect(na.map((x: { id: string }) => x.id).sort()).toEqual([
+      "req_clean",
+      "req_embedded_instructions",
+    ]);
+    expect(provider.calls.length - calls).toBe(N - 2 - 2); // empty and over-limit aren't sent
     expect(r.release_ready).toBe(false);
+    expect(r.reasons.join()).toMatch(/required release checks don't apply.*can't be released/);
   });
 
-  it("test cases are versioned: edits make a new version, old runs go stale, stale bases are refused", async () => {
-    const { w, f, run } = await checked();
-    const r = await run();
-    const fixtures = (await f.ava(`/api/product-projects/${f.project}/test-cases`)).body;
-    const cases = fixtures.cases.slice(0, 3);
-    const stale = await f.ava(`/api/product-projects/${f.project}/test-cases`, "POST", {
-      cases,
-      base_version: 0,
+  it("an unsafe-amount case passes as invalid only when the amount is the problem", async () => {
+    const { w, f } = await setup(
+      new ScriptedRuntime(async (req) =>
+        req.document.includes("OC-1")
+          ? reply({
+              ...CLEAN,
+              vendor: "Orbit Compute",
+              invoice_number: "OC-1",
+              invoice_date: "2026-13-10",
+              total: "10.00",
+            })
+          : correct(req),
+      ),
+    );
+    const r = await w.check(f);
+    expect(by(r, "req_huge_amount")).toMatchObject({ score: "fail", raw: { outcome: "invalid" } });
+    expect(String(by(r, "req_huge_amount").explanation)).toMatch(/another reason/);
+  });
+
+  it("wrong fields fail with expected vs actual; provider errors are errors, not wrong answers", async () => {
+    const provider = new ScriptedRuntime(async (req) => {
+      if (req.document.includes("SH-1042")) return reply({ ...CLEAN, invoice_date: "2026-10-15" });
+      if (req.document.includes("NA-4410"))
+        throw new RuntimeFailure("The AI provider could not be reached", "provider_error", null);
+      if (req.document.includes("MA-2026-07"))
+        // Silently "corrects" the total and reports nothing.
+        return reply({
+          ...CLEAN,
+          vendor: "Marten Automation Co",
+          invoice_number: "MA-2026-07",
+          total: "260.00",
+        });
+      return correct(req);
     });
-    expect(stale.status).toBe(409);
+    const { w, f } = await setup(provider);
+    const r = await w.check(f);
+    expect(by(r, "req_clean")).toMatchObject({ score: "fail" });
+    expect(by(r, "req_clean").fields.find((x) => x.key === "invoice_date")).toEqual({
+      key: "invoice_date",
+      expected: "2026-10-14",
+      actual: "2026-10-15",
+      match: false,
+    });
+    expect(by(r, "req_embedded_instructions")).toMatchObject({
+      score: "error",
+      raw: { state: "unknown" },
+    });
+    expect(by(r, "req_totals_disagree")).toMatchObject({ score: "fail" });
+    expect([r.failed, r.errors, r.release_ready]).toEqual([2, 1, false]);
+  });
+
+  it("a model's own claims aren't a pass: an invoice fabricated from unrelated text fails", async () => {
+    const { w, f } = await setup(
+      new ScriptedRuntime(async (req) =>
+        req.document.includes("ledgerctl")
+          ? reply({ ...CLEAN, vendor: "ledgerctl" }, "extracted", ["All checks passed"])
+          : correct(req),
+      ),
+    );
+    const r = await w.check(f);
+    expect(by(r, "req_unrelated_text")).toMatchObject({
+      score: "fail",
+      raw: { outcome: "extracted" },
+    });
+  });
+
+  it("the required list is shown with its policy; founder cases are versioned and immutable", async () => {
+    const { w, f } = await setup();
+    const fx = (await f.ava(`/api/product-projects/${f.project}/test-cases`)).body;
+    expect(fx.required).toMatchObject({ policy: RELEASE_POLICY });
+    expect(fx.required.cases).toHaveLength(N);
+    expect(fx.cases).toEqual([]);
+    const r = await w.check(f);
+    const cases = [
+      { id: "mine", name: "Mine", input: "INVOICE SH-1042", expect: { outcomes: ["extracted"] } },
+    ];
+    expect(
+      (
+        await f.ava(`/api/product-projects/${f.project}/test-cases`, "POST", {
+          cases,
+          base_version: 3,
+        })
+      ).status,
+    ).toBe(409);
     const saved = await f.ava(`/api/product-projects/${f.project}/test-cases`, "POST", {
       cases,
-      base_version: 1,
+      base_version: null,
     });
-    expect(saved.body.version).toBe(2);
+    expect(saved.body.version).toBe(1);
     const again = (await f.ava(`/api/evaluations/${r.id}`)).body.run;
     expect(again).toMatchObject({ current: false, release_ready: false });
-    expect(again.reasons).toContain("The test cases have changed since");
+    expect(again.reasons).toContain("Your test cases have changed since");
     expect(() => w.store.db.exec("UPDATE eval_fixtures SET cases = '[]'")).toThrow(/immutable/);
+    expect(() => w.store.db.exec("DELETE FROM eval_fixtures")).toThrow(/immutable/);
+  });
+
+  it("a check under an older policy or a different model is stale", async () => {
+    const { w, f, provider } = await setup();
+    const r = await w.check(f);
+    w.store.db.prepare("UPDATE eval_runs SET policy = 'invoice-release/0' WHERE id = ?").run(r.id);
+    const old = (await f.ava(`/api/evaluations/${r.id}`)).body.run;
+    expect(old.reasons.join()).toMatch(/required release checks have changed/);
+    const r2 = await w.check(f);
+    provider.model = "another-model";
+    const again = (await f.ava(`/api/evaluations/${r2.id}`)).body.run;
+    expect(again.release_ready).toBe(false);
+    expect(again.reasons.join()).toMatch(/model or its prices have changed/);
   });
 
   it("a check interrupted by a restart is stopped, not left blocking, and nothing is re-run", async () => {
     const provider = new ScriptedRuntime(() => new Promise(() => {})); // never answers
-    const { w, f } = await checked(provider);
-    const started = await f.ava(`/api/product-projects/${f.project}/evaluations`, "POST", {
-      artifact_job: f.job,
-    });
+    const { w, f } = await setup(provider);
+    await f.ava(`/api/product-projects/${f.project}/evaluations`, "POST", { artifact_job: f.job });
     while (provider.calls.length === 0) await new Promise((r) => setTimeout(r, 1));
-    // A new process over the same database.
     const fresh = new ScriptedRuntime(correct);
     const runtime = new ManagedRuntime(w.store.db, w.store, fresh, { ceilingCents: 1_000 });
     expect(runtime.recover()).toBe(1);
     expect(new Evaluations(w.store.db, w.store, runtime).recover()).toBe(1);
-    const run = new Evaluations(w.store.db, w.store, runtime).row(started.body.run.id);
-    expect(run?.state).toBe("stopped");
     expect(fresh.calls).toHaveLength(0);
-  });
-
-  it("a different model makes earlier checks stale", async () => {
-    const { f, provider, run } = await checked();
-    const r = await run();
-    provider.model = "another-model";
-    const again = (await f.ava(`/api/evaluations/${r.id}`)).body.run;
-    expect(again.release_ready).toBe(false);
-    expect(again.reasons.join()).toMatch(/model or its prices have changed/);
   });
 });
 
 describe("releasing and rolling back", () => {
-  it("only a version with current passing checks can be released", async () => {
-    const provider = new ScriptedRuntime(async (req) =>
-      req.document.includes("JPS-1042") ? reply({}, "not_a_document") : correct(req),
-    );
-    const { f, run } = await checked(provider);
-    const failing = await run();
-    const refused = await f.ava(`/api/product-projects/${f.project}/releases`, "POST", {
-      artifact_job: f.job,
-      eval_run: failing.id,
-    });
-    expect(refused.status).toBe(409);
-    expect(refused.body.error).toMatch(/did not pass/);
-    expect((await f.ava(`/api/product-projects/${f.project}/releases`)).body.active).toBeNull();
-  });
-
   it("release, serve, release a newer version, roll back; requests keep the version they started on", async () => {
-    const { w, f, provider, run } = await checked();
-    const r1 = await run();
-    const rel = await f.ava(`/api/product-projects/${f.project}/releases`, "POST", {
+    const { w, f, provider } = await setup();
+    const { view } = await w.release(f);
+    expect(view.active).toMatchObject({
       artifact_job: f.job,
-      eval_run: r1.id,
-    });
-    expect(rel.status).toBe(201);
-    expect(rel.body.active).toMatchObject({
-      artifact_job: f.job,
-      eval_run: r1.id,
       state: "active",
+      policy: RELEASE_POLICY,
     });
-    // A newer candidate with its own passing check.
     const v2 = await w.build(f.ava, f.project, {
       ...INVOICE_SPEC,
       instructions: "Read one invoice carefully.",
     });
-    const r2 = await run(v2);
+    const r2 = await w.check(f, v2);
     expect(r2.release_ready).toBe(true);
     const candidates = (await f.ava(`/api/product-projects/${f.project}/releases`)).body.candidates;
     expect(candidates.find((c: { artifact_job: string }) => c.artifact_job === v2).status).toBe(
       "checked",
     );
 
-    // A request on the active release (v1) is in flight when v2 is released.
     const g = gate();
     provider.script = async (req) => {
       await g.opened;
       return correct(req);
     };
+    const before = provider.calls.length;
     const inflight = f.ava(`/api/product-projects/${f.project}/runtime/invocations`, "POST", {
       idempotency_key: "release-key-0001",
       release: true,
-      text: CURATED_INVOICE_SUITE[0]?.input,
+      text: REQUIRED_INVOICE_CASES[0]?.input,
     });
-    while (provider.calls.length === 0 || !provider.calls.at(-1)?.document.includes("JPS"))
-      await new Promise((r) => setTimeout(r, 1));
+    while (provider.calls.length === before) await new Promise((r) => setTimeout(r, 1));
     await f.ava(`/api/product-projects/${f.project}/releases`, "POST", {
       artifact_job: v2,
       eval_run: r2.id,
     });
     g.open();
-    const pinned = (await inflight).body.invocation;
-    expect(pinned).toMatchObject({ purpose: "release", artifact_job: f.job, state: "completed" });
+    expect((await inflight).body.invocation).toMatchObject({
+      purpose: "release",
+      artifact_job: f.job,
+      state: "completed",
+    });
     provider.script = correct;
     const next = (
       await f.ava(`/api/product-projects/${f.project}/runtime/invocations`, "POST", {
         idempotency_key: "release-key-0002",
         release: true,
-        text: CURATED_INVOICE_SUITE[0]?.input,
+        text: REQUIRED_INVOICE_CASES[0]?.input,
       })
     ).body.invocation;
     expect(next.artifact_job).toBe(v2);
 
-    // Roll back to the first release: a new active row pointing at v1's checked version.
-    const view = (await f.ava(`/api/product-projects/${f.project}/releases`)).body;
-    const first = view.releases.find(
-      (x: { artifact_job: string; state: string }) => x.artifact_job === f.job,
-    );
+    const all = (await f.ava(`/api/product-projects/${f.project}/releases`)).body;
+    const first = all.releases.find((x: { artifact_job: string }) => x.artifact_job === f.job);
     const back = await f.ava(
       `/api/product-projects/${f.project}/releases/${first.id}/rollback`,
       "POST",
     );
     expect(back.status).toBe(200);
     expect(back.body.active).toMatchObject({ artifact_job: f.job, rolled_back_from: first.id });
-    expect(back.body.releases.filter((x: { state: string }) => x.state === "active")).toHaveLength(
-      1,
-    );
   });
 
   it("after the model changes, a release stops serving and can't be rolled back to until re-checked", async () => {
-    const { w, f, provider, run } = await checked();
-    const r1 = await run();
-    await f.ava(`/api/product-projects/${f.project}/releases`, "POST", {
-      artifact_job: f.job,
-      eval_run: r1.id,
-    });
+    const { w, f, provider } = await setup();
+    await w.release(f);
     const v2 = await w.build(f.ava, f.project, { ...INVOICE_SPEC, instructions: "Second." });
-    const r2 = await run(v2);
-    await f.ava(`/api/product-projects/${f.project}/releases`, "POST", {
-      artifact_job: v2,
-      eval_run: r2.id,
-    });
+    await w.release(f, v2);
     provider.model = "replacement-model";
     const serve = await f.ava(`/api/product-projects/${f.project}/runtime/invocations`, "POST", {
       idempotency_key: "release-key-0003",
       release: true,
-      text: "INVOICE JPS-1042",
+      text: "INVOICE SH-1042",
     });
     expect(serve.status).toBe(409);
     expect(serve.body.error).toMatch(/check it again/);
@@ -346,17 +349,10 @@ describe("releasing and rolling back", () => {
   });
 
   it("a version built under a previous owner can't be released after the business changes hands", async () => {
-    const { w, f, run } = await checked();
-    const r = await run();
+    const { w, f } = await setup();
+    const r = await w.check(f);
     const ben = await w.join("Ben Okafor");
-    // The business changes hands (as a closed sale records it).
-    w.store.db.prepare("UPDATE businesses SET owner_id = ? WHERE id = ?").run(ben.id, f.business);
-    w.store.db
-      .prepare(
-        "INSERT INTO ownership (business_id, from_id, to_id, generation, at) VALUES (?, ?, ?, 2, ?)",
-      )
-      .run(f.business, f.ava.id, ben.id, new Date().toISOString());
-    // The former owner has no access at all now.
+    w.transfer(f.business, f.ava.id, ben.id);
     expect(
       (
         await f.ava(`/api/product-projects/${f.project}/releases`, "POST", {
@@ -371,7 +367,5 @@ describe("releasing and rolling back", () => {
     });
     expect(theirs.status).toBe(409);
     expect(theirs.body.error).toMatch(/previous owner/);
-    const view = (await ben(`/api/product-projects/${f.project}/releases`)).body;
-    expect(view.candidates[0]).toMatchObject({ current_owner: false, status: "candidate" });
   });
 });

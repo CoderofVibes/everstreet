@@ -87,13 +87,44 @@ export const reply = (
 });
 
 export const CLEAN = {
-  vendor: "Juniper Print Supply",
-  invoice_number: "JPS-1042",
+  vendor: "Stackline Hosting Ltd",
+  invoice_number: "SH-1042",
   invoice_date: "2026-10-14",
   total: "412.50",
   currency: "USD",
   due_date: null,
 };
+
+const row = (
+  vendor: string,
+  num: string,
+  date: string | null,
+  total: string,
+  currency: string,
+) => ({ vendor, invoice_number: num, invoice_date: date, total, currency, due_date: null });
+
+/** What a correct extractor says about each required release document (fictional). */
+export async function correct(req: RuntimeRequest): Promise<Answer> {
+  const d = req.document;
+  if (d.includes("SH-1042"))
+    return reply(row("Stackline Hosting Ltd", "SH-1042", "2026-10-14", "412.50", "USD"));
+  if (d.includes("QA-88"))
+    return reply(row("Quillmark API Services", "QA-88", null, "140.00", "EUR"));
+  if (d.includes("HD-310"))
+    return reply({}, "ambiguous", ["03/04/2026 could be 3 April or 4 March"]);
+  if (d.includes("---")) return reply({}, "multiple_documents");
+  if (d.includes("MA-2026-07"))
+    return reply(
+      row("Marten Automation Co", "MA-2026-07", "2026-08-19", "300.00", "USD"),
+      "extracted",
+      ["Line items add up to 260.00, not the stated 300.00"],
+    );
+  if (d.includes("NA-4410"))
+    return reply(row("Northwind AI Ops", "NA-4410", "2026-10-01", "48.00", "USD"));
+  if (d.includes("OC-1"))
+    return reply(row("Orbit Compute", "OC-1", "2026-10-10", "98765432109876543.21", "USD"));
+  return reply({}, "not_a_document");
+}
 
 export class ScriptedRuntime implements RuntimeProvider {
   readonly id = "scripted-runtime";
@@ -200,7 +231,58 @@ export function runtimeWorld(
     const job = await build(ava, p.id);
     return { ava, project: p.id as string, business: p.business_id as string, job };
   };
-  return { store, builds, runtime, app, join, build, founder, anon: as("") };
+  /** Starts a check of a version and waits for it to finish (bounded). */
+  const check = async (f: Awaited<ReturnType<typeof founder>>, job = f.job) => {
+    const started = await f.ava(`/api/product-projects/${f.project}/evaluations`, "POST", {
+      artifact_job: job,
+    });
+    if (started.status !== 202) throw new Error(`check: ${started.body.error}`);
+    for (let i = 0; i < 300; i++) {
+      const r = (await f.ava(`/api/evaluations/${started.body.run.id}`)).body.run;
+      if (r.state !== "running") return r;
+      await new Promise((ok) => setTimeout(ok, 2));
+    }
+    throw new Error("check did not finish");
+  };
+  /** Checks a version and releases it. */
+  const release = async (f: Awaited<ReturnType<typeof founder>>, job = f.job) => {
+    const run = await check(f, job);
+    const r = await f.ava(`/api/product-projects/${f.project}/releases`, "POST", {
+      artifact_job: job,
+      eval_run: run.id,
+    });
+    if (r.status !== 201) throw new Error(`release: ${r.body.error}`);
+    return { run, view: r.body };
+  };
+  /** Moves the business to another person, as a closed sale records it. */
+  const transfer = (businessId: string, from: string, to: string) => {
+    const gen = (
+      store.db
+        .prepare("SELECT COUNT(*) AS n FROM ownership WHERE business_id = ?")
+        .get(businessId) as {
+        n: number;
+      }
+    ).n;
+    store.db.prepare("UPDATE businesses SET owner_id = ? WHERE id = ?").run(to, businessId);
+    store.db
+      .prepare(
+        "INSERT INTO ownership (business_id, from_id, to_id, generation, at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(businessId, from, to, gen + 2, new Date().toISOString());
+  };
+  return {
+    store,
+    builds,
+    runtime,
+    app,
+    join,
+    build,
+    founder,
+    check,
+    release,
+    transfer,
+    anon: as(""),
+  };
 }
 
 export type RuntimeWorld = ReturnType<typeof runtimeWorld>;

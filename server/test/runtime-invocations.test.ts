@@ -4,12 +4,13 @@
 // cancellation, timeouts and restart without re-running a paid request.
 
 import { describe, expect, it } from "vitest";
+import { EXTRACT_VALIDATOR } from "../src/extract.ts";
 import { ManagedRuntime } from "../src/invocations.ts";
 import { RuntimeFailure } from "../src/runtime.ts";
 import { CLEAN, gate, reply, runtimeWorld, ScriptedRuntime } from "./runtime-world.ts";
 
 const DOC =
-  "INVOICE JPS-1042\nJuniper Print Supply (fictional)\nDate: 2026-10-14\nTotal due: USD 412.50";
+  "FICTIONAL EXAMPLE\nINVOICE SH-1042\nStackline Hosting Ltd\nDate: 2026-10-14\nTotal due: USD 412.50";
 
 type W = ReturnType<typeof runtimeWorld>;
 const invoke = (w: Awaited<ReturnType<W["founder"]>>, key: string, text = DOC, extra = {}) =>
@@ -38,7 +39,7 @@ describe("running a checked version", () => {
       outcome: "extracted",
       fulfilled: true,
       artifact_job: f.job,
-      validator: "extract-validator/1",
+      validator: EXTRACT_VALIDATOR,
       model: "scripted-runtime-model",
       usage_state: "final",
       input_tokens: 900,

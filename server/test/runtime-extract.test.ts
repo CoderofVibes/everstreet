@@ -19,8 +19,8 @@ const answer = (
   issues,
 });
 const CLEAN = {
-  vendor: "Juniper Print Supply",
-  invoice_number: "JPS-1042",
+  vendor: "Stackline Hosting Ltd",
+  invoice_number: "SH-1042",
   invoice_date: "2026-10-14",
   total: "412.50",
   currency: "USD",
@@ -49,6 +49,7 @@ describe("the extraction validator", () => {
       { ...CLEAN, total: "Infinity" },
       { ...CLEAN, total: "NaN" },
       { ...CLEAN, total: "12345678901234567.00" },
+      { ...CLEAN, vendor: "V".repeat(2001) },
     ]) {
       const r = validateExtraction(INVOICE_SPEC, answer(bad));
       expect([JSON.stringify(bad), r.outcome]).toEqual([JSON.stringify(bad), "invalid"]);
@@ -132,7 +133,7 @@ const counting =
   (reply: TransportResponse, counted = 800) =>
   (path: string) =>
     path.endsWith("count_tokens") ? { status: 200, json: { input_tokens: counted } } : reply;
-const req = (document = "Invoice JPS-1042 from Juniper Print Supply…") => ({
+const req = (document = "Fictional invoice SH-1042 from Stackline Hosting Ltd…") => ({
   invocationId: "inv-1",
   spec: INVOICE_SPEC,
   document,
@@ -202,7 +203,7 @@ describe("the Anthropic runtime adapter", () => {
   it("a cut-off or prose answer is a bad answer with its usage kept", async () => {
     for (const reply of [
       msg({ stop_reason: "max_tokens" }),
-      msg({}, "Sure! The vendor is Juniper."),
+      msg({}, "Sure! The vendor is Stackline."),
     ]) {
       const e = await new AnthropicRuntime(config(), new Recorded(counting(reply)))
         .extract(req(), new AbortController().signal)

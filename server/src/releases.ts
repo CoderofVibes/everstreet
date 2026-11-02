@@ -19,6 +19,7 @@ interface ReleaseRow {
   artifact_digest: string;
   eval_run: string;
   fixture_version: number;
+  policy: string;
   validator: string;
   provider_config: string;
   state: "active" | "retired";
@@ -134,8 +135,8 @@ export class Releases {
       .run(t, p.id);
     this.db
       .prepare(
-        `INSERT INTO runtime_releases (id, project_id, business_id, artifact_job, artifact_digest, eval_run, fixture_version, validator, provider_config, state, rolled_back_from, activated_by, owner_id, owner_generation, activated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
+        `INSERT INTO runtime_releases (id, project_id, business_id, artifact_job, artifact_digest, eval_run, fixture_version, policy, validator, provider_config, state, rolled_back_from, activated_by, owner_id, owner_generation, activated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
       )
       .run(
         randomUUID(),
@@ -145,6 +146,7 @@ export class Releases {
         artifact.digest,
         runId,
         run.fixture_version,
+        run.policy,
         run.validator,
         run.provider_config,
         rolledBackFrom,
@@ -231,6 +233,7 @@ export class Releases {
       artifact_digest: r.artifact_digest,
       eval_run: r.eval_run,
       fixture_version: r.fixture_version,
+      policy: r.policy,
       validator: r.validator,
       provider_config: JSON.parse(r.provider_config) as object,
       state: r.state,

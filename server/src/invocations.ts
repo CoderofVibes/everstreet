@@ -4,12 +4,13 @@
 // ceiling and concurrency, reserves the worst case and records the dispatch before the
 // provider is called. Same key and same request returns the same record; a different request
 // under that key is a conflict. A paid request is never re-run on its own: a restart turns a
-// running request into "unknown", with its reservation held. The pasted text is not stored.
+// running request into "unknown", with its reservation held. Retention: see RETENTION_NOTE.
 
 import { createHash, randomUUID } from "node:crypto";
 import type { ExtractionSpec } from "./artifacts.ts";
 import { type BuildAvailability, ceilCents, costMicroCents, validPricing } from "./build.ts";
 import type { Db } from "./db.ts";
+import { RELEASE_POLICY } from "./evaluations.ts";
 import { EXTRACT_VALIDATOR, type Extraction, validateExtraction } from "./extract.ts";
 import {
   RUNTIME_LIMITS,
@@ -95,6 +96,13 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
 const CONTROL = /[\u0000-\u001f\u007f]+/g;
 const plain = (s: string, max = 300) => s.replace(CONTROL, " ").trim().slice(0, max);
+
+/**
+ * What is kept, said precisely (job 002c1). Runtime records are the business's operating
+ * history (PLATFORM_VISION) and move with it on a sale; nothing here is erased or made personal.
+ */
+export const RETENTION_NOTE =
+  "The pasted text itself isn't stored, only its length and fingerprint. The result (extracted values, notes and any reported issues) is kept as one of the business's records, can contain text from the document, and moves with the business if it is sold. Test cases you save keep their input.";
 
 export const NO_RUNTIME: BuildAvailability = {
   available: false,
@@ -338,34 +346,12 @@ export class ManagedRuntime {
         "idempotency_key must be 8 to 80 letters, digits, dashes or underscores",
       );
     const text = typeof input.text === "string" ? input.text : "";
-
-    // Which artifact: the active release, or a named checked version (a candidate).
-    let release: { id: string; artifact_job: string } | null = null;
-    if (input.release === true) {
-      const active = this.db
-        .prepare(
-          "SELECT id, artifact_job, provider_config, validator FROM runtime_releases WHERE project_id = ? AND state = 'active'",
-        )
-        .get(project.id) as
-        | { id: string; artifact_job: string; provider_config: string; validator: string }
-        | undefined;
-      if (!active) throw new HttpError(409, "Nothing is released yet");
-      // A release serves only under the model and checks it was released with.
-      if (active.provider_config !== this.configNow() || active.validator !== EXTRACT_VALIDATOR)
-        throw new HttpError(
-          409,
-          "The model or the platform's checks changed since this release; check it again and release it before it serves requests",
-        );
-      release = { id: active.id, artifact_job: active.artifact_job };
-    }
-    const artifact = this.artifact(
-      project.id,
-      release ? release.artifact_job : String(input.artifact_job ?? ""),
-    );
     const inputSha = sha(text);
-    const fingerprint = sha(
-      JSON.stringify([purpose, artifact.digest, release?.id ?? null, inputSha, evalRef]),
-    );
+    // The request as asked, never today's release or model: a retry of a recorded request is
+    // recognized even after a release, rollback or model change (job 002c1), and a different
+    // request under the same key is still a conflict.
+    const target = input.release === true ? "release" : `job:${String(input.artifact_job ?? "")}`;
+    const fingerprint = sha(JSON.stringify([purpose, target, inputSha, evalRef]));
     const existing = () =>
       this.db
         .prepare("SELECT * FROM runtime_invocations WHERE project_id = ? AND idempotency_key = ?")
@@ -381,6 +367,39 @@ export class ManagedRuntime {
     const found = existing();
     if (found) return same(found);
 
+    // A new request. Which artifact: the active release now, or a named checked candidate.
+    let release: { id: string; artifact_job: string } | null = null;
+    if (input.release === true) {
+      const active = this.db
+        .prepare(
+          "SELECT id, artifact_job, provider_config, validator, policy FROM runtime_releases WHERE project_id = ? AND state = 'active'",
+        )
+        .get(project.id) as
+        | {
+            id: string;
+            artifact_job: string;
+            provider_config: string;
+            validator: string;
+            policy: string;
+          }
+        | undefined;
+      if (!active) throw new HttpError(409, "Nothing is released yet");
+      // A release serves only under the model, checks and release policy it was released with.
+      if (
+        active.provider_config !== this.configNow() ||
+        active.validator !== EXTRACT_VALIDATOR ||
+        active.policy !== RELEASE_POLICY
+      )
+        throw new HttpError(
+          409,
+          "The model or the platform's checks changed since this release; check it again and release it before it serves requests",
+        );
+      release = { id: active.id, artifact_job: active.artifact_job };
+    }
+    const artifact = this.artifact(
+      project.id,
+      release ? release.artifact_job : String(input.artifact_job ?? ""),
+    );
     // Free checks: nothing is reserved or sent for these.
     if (!text.trim()) throw new HttpError(400, "Paste some text to process first");
     const max = Math.min(artifact.spec.input.max_chars, RUNTIME_LIMITS.maxInputChars);
@@ -617,6 +636,23 @@ export class ManagedRuntime {
     }
   }
 
+  /**
+   * After the final await (job 002c1): may this person still receive this request's answer?
+   * They must still be admitted to the business now, and control must not have moved since the
+   * request started (owner away and back counts as a change). The request itself is finished and
+   * accounted either way; its record belongs to the business.
+   */
+  answerFor(viewer: Person, row: InvocationRow) {
+    this.project(viewer, row.project_id, row.purpose);
+    const now = this.ownerEpoch(row.business_id);
+    if (now.owner_id !== row.owner_id || now.generation !== row.owner_generation)
+      throw new HttpError(
+        409,
+        "Control of this business changed while the request was running. It finished and is kept in the business's records; its answer isn't returned here.",
+      );
+    return this.view(row);
+  }
+
   cancel(viewer: Person, id: string) {
     const r = this.owned(viewer, id);
     if (r.state !== "running") return this.view(r);
@@ -672,7 +708,7 @@ export class ManagedRuntime {
       result: r.output ? (JSON.parse(r.output) as Extraction) : null,
       failure: r.failure_class ? { class: r.failure_class, detail: r.failure_detail ?? "" } : null,
       input_chars: r.input_chars,
-      input_note: "The pasted text is not kept; only its length and fingerprint are recorded.",
+      input_note: RETENTION_NOTE,
       usage_state: r.usage_state,
       input_tokens: r.input_tokens,
       output_tokens: r.output_tokens,
