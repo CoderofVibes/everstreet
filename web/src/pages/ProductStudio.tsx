@@ -34,8 +34,17 @@ import { type Prefill, prefillFor, studioScope } from "../studioScope.ts";
 import { BuildsView } from "./Builds.tsx";
 import { ConversationPanel } from "./Conversation.tsx";
 import { emptySample, PrototypeEditor, PrototypePreview, type SampleState } from "./Prototype.tsx";
+import { ServiceView } from "./Service.tsx";
 
-type Tab = "preview" | "proposal" | "brief" | "checks" | "versions" | "builds" | "continuity";
+type Tab =
+  | "preview"
+  | "proposal"
+  | "brief"
+  | "checks"
+  | "versions"
+  | "builds"
+  | "service"
+  | "continuity";
 type Content = { brief: Brief; prototype: Prototype };
 interface LocalDraft extends Content {
   base: number;
@@ -49,6 +58,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "checks", label: "Checks" },
   { id: "versions", label: "Versions" },
   { id: "builds", label: "Builds" },
+  { id: "service", label: "Service" },
   { id: "continuity", label: "Continuity" },
 ];
 
@@ -1423,6 +1433,9 @@ export function ProductStudio({ id }: { id: string }) {
                 headRevision={view.head.number}
                 dirty={dirty}
               />
+            )}
+            {tab === "service" && (
+              <ServiceView key={scope} projectId={view.project.id} businessId={view.business.id} />
             )}
             {tab === "continuity" && <ContinuityView view={view} />}
           </div>
