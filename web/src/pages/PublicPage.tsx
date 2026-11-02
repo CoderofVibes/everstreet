@@ -389,16 +389,53 @@ export function StorefrontView({
           </div>
         </section>
 
-        <section className="card">
-          <div className="eyebrow">Numbers</div>
-          <p className="muted" style={{ margin: 0 }}>
-            {page.interested > 0
-              ? `${page.interested} ${page.interested === 1 ? "person has" : "people have"} responded so far. `
-              : "No responses yet. "}
-            Revenue, costs and performance appear here once this business takes payments through
-            Everstreet.
-          </p>
-        </section>
+        {page.numbers ? (
+          <section className="card">
+            <div className="eyebrow">
+              Numbers, shared by {page.founder.display_name.split(" ")[0]}
+            </div>
+            {page.numbers.month ? (
+              <>
+                <p style={{ fontSize: 19, margin: "4px 0" }}>
+                  <strong>{page.numbers.month.label}:</strong>{" "}
+                  {money(page.numbers.month.revenue_cents)} revenue ·{" "}
+                  {money(page.numbers.month.direct_cents + page.numbers.month.overhead_cents)} costs
+                  · <strong>{money(page.numbers.month.profit_cents)} profit</strong>
+                </p>
+                <p className="muted" style={{ fontSize: 13 }}>
+                  Revenue: {page.numbers.month.revenue_sources.join(" + ") || "none"} · Costs:{" "}
+                  {page.numbers.month.cost_sources.join(" + ") || "none recorded"}
+                </p>
+              </>
+            ) : (
+              <p className="muted">No complete month yet.</p>
+            )}
+            {page.numbers.value.low_cents !== null && (
+              <div className="stat" style={{ marginTop: 8 }}>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  Everstreet valuation estimate
+                </span>
+                <strong>
+                  {money(page.numbers.value.low_cents)}–{money(page.numbers.value.high_cents)}
+                </strong>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  {page.numbers.value.label}. An estimate, not an appraisal or an offer.
+                </span>
+              </div>
+            )}
+          </section>
+        ) : (
+          <section className="card">
+            <div className="eyebrow">Numbers</div>
+            <p className="muted" style={{ margin: 0 }}>
+              {page.interested > 0
+                ? `${page.interested} ${page.interested === 1 ? "person has" : "people have"} responded so far. `
+                : "No responses yet. "}
+              Revenue, costs and an estimate of what it's worth appear here if the founder chooses
+              to share them.
+            </p>
+          </section>
+        )}
         {!preview && !page.viewer_is_owner && <Report slug={page.slug} />}
       </div>
 

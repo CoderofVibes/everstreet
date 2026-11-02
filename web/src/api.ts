@@ -131,6 +131,24 @@ export interface PublicBusiness {
   sessions?: PublicSession[];
   bookings_connected?: boolean;
   payments?: BusinessPayments | null;
+  numbers?: {
+    month: {
+      label: string;
+      revenue_cents: number;
+      direct_cents: number;
+      overhead_cents: number;
+      profit_cents: number;
+      revenue_sources: string[];
+      cost_sources: string[];
+    } | null;
+    value: {
+      low_cents: number | null;
+      high_cents: number | null;
+      label: string;
+      stage: string;
+      missing: string[];
+    };
+  } | null;
   updates?: Update[];
   followers?: number;
   following?: boolean;

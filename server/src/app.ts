@@ -4,10 +4,12 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { type BookingProvider, Bookings } from "./bookings.ts";
+import { Books } from "./books.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
 import { Payments } from "./payments.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import { type Overrides, Valuation } from "./value.ts";
 
 const COOKIE = "es_session";
 
@@ -28,6 +30,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
     ? new Bookings(store.db, store, options.bookingProvider)
     : null;
   const payments = bookings ? new Payments(store.db, store, bookings, options.chain ?? null) : null;
+  const books = new Books(store.db, store, options.chain ?? null);
+  const valuation = new Valuation(store.db, store, books);
   const pricedAndPaid = (businessId: string) => {
     const offer = store.offerOf(businessId);
     return Boolean(
@@ -177,6 +181,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
       sessions: bookings ? await bookings.publicSessions(id) : [],
       bookings_connected: Boolean(bookings),
       payments: payments?.businessPayments(id) ?? null,
+      numbers: await valuation.publicNumbers(id).catch(() => null),
       updates: community.updatesFor(id),
       followers: community.followers(id),
       following: community.isFollowing(viewer, id),
@@ -293,6 +298,93 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/payments/:id/retry", async (c) =>
     c.json(await needPayments().retry(me(c), c.req.param("id"))),
   );
+
+  // ---------- books and value (owner only) ----------
+
+  app.get("/api/businesses/:id/books", async (c) => {
+    const p = me(c);
+    const id = c.req.param("id");
+    const costs = books.costs(p, id);
+    return c.json({ ...(await books.months(id, 12)), ...costs });
+  });
+  app.post("/api/businesses/:id/costs", async (c) =>
+    c.json(books.addCost(me(c), c.req.param("id"), await body(c)), 201),
+  );
+  app.delete("/api/businesses/:id/costs/:costId", (c) =>
+    c.json(books.endCost(me(c), c.req.param("id"), c.req.param("costId"))),
+  );
+
+  app.get("/api/businesses/:id/value", async (c) => {
+    const p = me(c);
+    const id = c.req.param("id");
+    store.business(p, id);
+    const { months, chain_error } = await books.months(id, 12);
+    const estimate = await valuation.current(id, months);
+    return c.json({
+      estimate,
+      settings: valuation.settings(id),
+      what_changed: valuation.whatChanged(id),
+      history: valuation.history(id),
+      scenarios: valuation.scenarios(p, id),
+      months,
+      chain_error,
+    });
+  });
+  app.patch("/api/businesses/:id/value/settings", async (c) =>
+    c.json(valuation.updateSettings(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/businesses/:id/value/try", async (c) =>
+    c.json(await valuation.scenario(me(c), c.req.param("id"), await body<Overrides>(c))),
+  );
+  app.post("/api/businesses/:id/value/scenarios", async (c) => {
+    const { name, overrides } = await body<{ name?: string; overrides?: Overrides }>(c);
+    return c.json(
+      {
+        scenarios: await valuation.saveScenario(
+          me(c),
+          c.req.param("id"),
+          String(name ?? ""),
+          overrides ?? {},
+        ),
+      },
+      201,
+    );
+  });
+
+  // ---------- team: one scoped delegation, enforced by the business's contract ----------
+
+  app.get("/api/businesses/:id/team", (c) =>
+    c.json({ team: needPayments().team(me(c), c.req.param("id")) }),
+  );
+  app.post("/api/businesses/:id/team", async (c) => {
+    const { person_id } = await body<{ person_id?: string }>(c);
+    return c.json(
+      { team: await needPayments().addHelper(me(c), c.req.param("id"), String(person_id ?? "")) },
+      201,
+    );
+  });
+  app.delete("/api/businesses/:id/team/:personId", async (c) =>
+    c.json({
+      team: await needPayments().removeHelper(me(c), c.req.param("id"), c.req.param("personId")),
+    }),
+  );
+  app.get("/api/helping", (c) => c.json({ businesses: payments?.helping(me(c)) ?? [] }));
+  app.get("/api/helping/:id", async (c) =>
+    c.json(await needPayments().helperDesk(me(c), c.req.param("id"))),
+  );
+  app.post("/api/helping/:id/inquiries/:inquiryId/reply", async (c) => {
+    const p = me(c);
+    const id = c.req.param("id");
+    const check = await needPayments().helperCheck(p, id, "support");
+    if (!check.authorized)
+      throw new HttpError(
+        403,
+        `The business's contract says you can't answer for it: ${check.reason}`,
+      );
+    const { text } = await body<{ text?: string }>(c);
+    store.replyAsHelper(p, c.req.param("inquiryId"), id, String(text ?? ""));
+    return c.json(await needPayments().helperDesk(p, id));
+  });
 
   // ---------- my activity ----------
 

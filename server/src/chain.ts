@@ -105,6 +105,24 @@ export interface Chain {
   period(business: string, yyyymm: number): Promise<Period>;
   tokenBalance(account: string): Promise<string>;
   faucet(account: string, amount: string): Promise<TxResult>;
+  appointOperator(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    operator: string;
+    capabilities: string[];
+  }): Promise<TxResult>;
+  revokeOperator(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    operator: string;
+  }): Promise<TxResult>;
+  operatorCheck(
+    business: string,
+    account: string,
+    capability: string,
+  ): Promise<{ authorized: boolean; owner: string; generation: number; reason: string }>;
 }
 
 function executionError(failure: unknown): string {
@@ -356,6 +374,42 @@ export class NearChain implements Chain {
 
   treasury(business: string) {
     return this.view<Treasury>(business, "get_treasury");
+  }
+
+  appointOperator(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    operator: string;
+    capabilities: string[];
+  }) {
+    return this.send(
+      this.as(input.owner, input.secret),
+      input.business,
+      "appoint_operator",
+      { account_id: input.operator, capabilities: input.capabilities },
+      1n,
+      30,
+    );
+  }
+
+  revokeOperator(input: { owner: string; secret: string; business: string; operator: string }) {
+    return this.send(
+      this.as(input.owner, input.secret),
+      input.business,
+      "revoke_operator",
+      { account_id: input.operator },
+      1n,
+      30,
+    );
+  }
+
+  operatorCheck(business: string, account: string, capability: string) {
+    return this.view<{ authorized: boolean; owner: string; generation: number; reason: string }>(
+      business,
+      "operator_check",
+      { account_id: account, capability },
+    );
   }
 
   period(business: string, yyyymm: number) {

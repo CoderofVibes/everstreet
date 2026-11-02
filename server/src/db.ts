@@ -98,6 +98,34 @@ CREATE TABLE IF NOT EXISTS payments (
   tx TEXT, refund_tx TEXT, deliver_tx TEXT, error TEXT, cancel_before TEXT NOT NULL,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 ) STRICT;
+CREATE TABLE IF NOT EXISTS costs (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id), yyyymm INTEGER NOT NULL,
+  until_yyyymm INTEGER, category TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('direct','overhead')),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0), recurring INTEGER NOT NULL, note TEXT NOT NULL DEFAULT '',
+  origin TEXT NOT NULL CHECK (origin IN ('founder','seeded')), created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS seeded_periods (
+  business_id TEXT NOT NULL REFERENCES businesses(id), yyyymm INTEGER NOT NULL,
+  revenue_cents INTEGER NOT NULL, note TEXT NOT NULL, PRIMARY KEY (business_id, yyyymm)
+) STRICT;
+CREATE TABLE IF NOT EXISTS value_settings (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id), founder_hours_week REAL,
+  hourly_rate_cents INTEGER, multiple_low REAL, multiple_high REAL, plan_customers_month INTEGER,
+  share_numbers INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS value_snapshots (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id), model TEXT NOT NULL,
+  inputs_hash TEXT NOT NULL, inputs TEXT NOT NULL, output TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS value_scenarios (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id), name TEXT NOT NULL,
+  overrides TEXT NOT NULL, result TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS team (
+  business_id TEXT NOT NULL REFERENCES businesses(id), person_id TEXT NOT NULL REFERENCES people(id),
+  capabilities TEXT NOT NULL, appointed_tx TEXT, revoked_at TEXT, revoke_tx TEXT, created_at TEXT NOT NULL,
+  PRIMARY KEY (business_id, person_id)
+) STRICT;
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY, type TEXT NOT NULL, subject TEXT NOT NULL, actor TEXT,
   payload TEXT NOT NULL, at TEXT NOT NULL

@@ -4,9 +4,9 @@ Start a business, get found by people who need it, and, if you ever sell, hand i
 breaking a single customer's booking. Built for NEAR HACKATHON (November 2026). Fictional data,
 NEAR testnet only.
 
-> Status: the launch pad (phase 1) runs on your computer, and the ownership handoff works on
-> testnet. Payments on NEAR, real numbers on profiles, and the acquisition marketplace are next
-> (design: `docs/astra/`, `docs/design/BUSINESS_V2.md`). Everstreet is a separate project from the
+> Status: the launch pad, real bookings, real testnet payments, books, valuations and scoped
+> helpers run on your computer, and the ownership handoff works on testnet. The acquisition
+> marketplace is next (design: `docs/astra/`, `docs/design/BUSINESS_V2.md`). Everstreet is a separate project from the
 > same team's other entry, Day One (an AI purchasing assistant); the two share no code, data or
 > deployments.
 
@@ -54,12 +54,25 @@ What you can do today:
   contract: customers' money, earned, withdrawable, this month's books, each order with its
   transaction links, and withdrawals. A dropped connection is reconciled from the chain
   (an order id is paid at most once).
+- **Books**: month by month, revenue (what was delivered, not what was paid in advance), direct
+  costs, overhead and profit. Revenue since payments went on is read from the business's
+  contract and labelled "Verified on NEAR · testnet"; costs are what the founder enters (once or
+  every month); the examples' earlier months are labelled "Seeded history · fictional".
+- **Value**: what the business could be worth, as an explainable scenario model (`scenario-v1`):
+  operating profit minus the work a successor would have to do or pay for, annualized, times
+  illustrative multiples. The full calculation, every input with its source, what the estimate
+  doesn't know yet, exactly what changed since last time, every past version, and private
+  "Try a change" what-ifs. It is an estimate, not an appraisal, an offer or advice.
+- **Share my numbers** (off by default): last month's revenue, costs and profit, and the estimate
+  with its labels, on the public page.
+- **Hand off a task**: a founder appoints someone to answer customers and mark orders delivered.
+  They are appointed on the business's contract with their own account and never get the
+  founder's key; they work from "Businesses you help". Revoke, and the contract refuses them.
 - **Switch people** from the top-right menu (local preview only) to see each side. Try: as Theo,
   cancel his Nov 14 place in My activity; within seconds Ana (waiting) gets it. Then as Mara,
   turn on payments on Juniper's desk, and as another person pay for the Nov 7 session.
 
-Not yet: financials and valuations on public profiles, the acquisition marketplace (its page
-says so), AI drafting (drafts come from templates today), sign-in with a real identity (people's
+Not yet: the acquisition marketplace (its page says so), researched market multiples, AI drafting (drafts come from templates today), sign-in with a real identity (people's
 testnet keys are kept on this computer in the local preview), paid waitlists, and payments for
 kinds other than classes.
 
@@ -88,7 +101,8 @@ Requirements: Node 24+. For the contract: WSL Ubuntu with Rust and `cargo-near`.
 | Build and run the app | `npm run app` → http://localhost:8800 |
 | Fill an empty local database with fictional examples | `npm run seed:demo` (`-- --reset` starts over; stop the app first) |
 | Work on the UI with live reload | `npm run serve` and, beside it, `npm run web:dev` → http://localhost:5173 |
-| Lint, typecheck, all tests (31) | `npm run check` |
+| Add the examples' fictional history to an existing local database (no reset) | `npm run seed:history` |
+| Lint, typecheck, all tests (39) | `npm run check` |
 | Contract unit tests (WSL, `contracts/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --lib` → 21 tests (v1); `-p business-v2 --lib` → 19 tests (v2) |
 | Contract on a local NEAR node (WSL) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --test sandbox` (v1); `-p business-v2 --test sandbox` (v2 with real token transfers) |
 | Build the wasm (WSL, `contracts/business/` or `contracts/business-v2/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo near build non-reproducible-wasm` |

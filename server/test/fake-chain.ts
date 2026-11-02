@@ -5,6 +5,7 @@ import type { Chain, ChainOrder, Period, Rules, Treasury, TxResult } from "../sr
 
 interface Biz {
   owner: string;
+  operators: Map<string, string[]>;
   rules: Rules;
   orders: Map<string, ChainOrder>;
   unearned: bigint;
@@ -41,6 +42,7 @@ export class FakeChain implements Chain {
     const id = `b-${input.label}-${this.n}.fake`;
     this.balances.set(id, 0n);
     this.businesses.set(id, {
+      operators: new Map(),
       owner: input.owner,
       rules: input.rules,
       orders: new Map(),
@@ -126,8 +128,12 @@ export class FakeChain implements Chain {
   }): Promise<TxResult> {
     const b = this.businesses.get(input.business);
     const o = b?.orders.get(input.orderId);
-    if (!b || b.owner !== input.owner)
-      return { ok: false, hash: this.tx(), error: "E_NOT_AUTHORIZED" };
+    if (!b || (b.owner !== input.owner && !b.operators.get(input.owner)?.includes("fulfillment")))
+      return {
+        ok: false,
+        hash: this.tx(),
+        error: `Smart contract panicked: E_NOT_AUTHORIZED: ${input.owner} may not use fulfillment: not an operator`,
+      };
     if (o?.status !== "Paid") return { ok: false, hash: this.tx(), error: "E_STATE" };
     o.status = "Delivered";
     b.unearned -= BigInt(o.amount);
@@ -197,5 +203,48 @@ export class FakeChain implements Chain {
   async faucet(account: string, amount: string): Promise<TxResult> {
     this.balances.set(account, (this.balances.get(account) ?? 0n) + BigInt(amount));
     return { ok: true, hash: this.tx() };
+  }
+
+  async appointOperator(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    operator: string;
+    capabilities: string[];
+  }): Promise<TxResult> {
+    const b = this.businesses.get(input.business);
+    if (!b || b.owner !== input.owner) return { ok: false, hash: this.tx(), error: "E_NOT_OWNER" };
+    b.operators.set(input.operator, input.capabilities);
+    return { ok: true, hash: this.tx() };
+  }
+
+  async revokeOperator(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    operator: string;
+  }): Promise<TxResult> {
+    const b = this.businesses.get(input.business);
+    if (!b || b.owner !== input.owner || !b.operators.delete(input.operator))
+      return { ok: false, hash: this.tx(), error: "E_ARGS" };
+    return { ok: true, hash: this.tx() };
+  }
+
+  async operatorCheck(business: string, account: string, capability: string) {
+    const b = this.businesses.get(business);
+    if (!b) throw new Error("no business");
+    if (account === b.owner)
+      return { authorized: true, owner: b.owner, generation: 1, reason: "owner" };
+    const caps = b.operators.get(account);
+    if (!caps)
+      return { authorized: false, owner: b.owner, generation: 1, reason: "not an operator" };
+    return {
+      authorized: caps.includes(capability),
+      owner: b.owner,
+      generation: 1,
+      reason: caps.includes(capability)
+        ? `operator with ${capability}`
+        : `not granted ${capability}`,
+    };
   }
 }

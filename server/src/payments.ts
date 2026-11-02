@@ -410,11 +410,20 @@ export class Payments {
     return { business: b, wallet: w as { account_id: string; secret: string } };
   }
 
-  /** The order was delivered: the customer's money becomes the business's revenue, on chain. */
-  async deliver(founder: Person, orderId: string) {
+  /**
+   * The order was delivered: the customer's money becomes the business's revenue, on chain.
+   * The owner or an appointed helper signs it with their own account; the contract decides.
+   */
+  async deliver(actor: Person, orderId: string) {
     const r = this.row(orderId);
     if (!r) throw new HttpError(404, "No such order");
-    const { business, wallet } = this.owner(founder, r.business_id);
+    const owns = this.store.isOwnerOf(actor, r.business_id);
+    const helps = !owns && this.teamRow(r.business_id, actor.id);
+    if (!owns && !helps) throw new HttpError(404, "No such order");
+    const business = this.businessPayments(r.business_id);
+    const wallet = this.account("person", actor.id);
+    if (!business || !wallet?.secret)
+      throw new HttpError(409, "Payments are not on for this business");
     if (r.status !== "paid") throw new HttpError(409, `This order is ${r.status}`);
     const tx = await this.need().deliver({
       owner: wallet.account_id,
@@ -422,9 +431,167 @@ export class Payments {
       business: business.account_id,
       orderId,
     });
-    if (!tx.ok) throw new HttpError(409, `Not recorded: ${tx.error}`);
+    if (!tx.ok) {
+      const refused = /E_NOT_AUTHORIZED/.test(tx.error ?? "");
+      throw new HttpError(
+        refused ? 403 : 409,
+        refused
+          ? `The business's contract refused: ${tx.error?.replace(/^.*E_NOT_AUTHORIZED: /, "")}`
+          : `Not recorded: ${tx.error}`,
+      );
+    }
     this.set(orderId, { status: "delivered", deliver_tx: tx.hash });
-    return this.money(founder, r.business_id);
+    return owns ? this.money(actor, r.business_id) : this.helperDesk(actor, r.business_id);
+  }
+
+  // ---------- helpers: one scoped delegation, enforced by the contract ----------
+
+  private teamRow(businessId: string, personId: string) {
+    return this.db
+      .prepare("SELECT * FROM team WHERE business_id = ? AND person_id = ? AND revoked_at IS NULL")
+      .get(businessId, personId) as
+      | { capabilities: string; appointed_tx: string | null; created_at: string }
+      | undefined;
+  }
+
+  team(founder: Person, businessId: string) {
+    this.store.business(founder, businessId);
+    const explorer = this.chain?.explorer;
+    return (
+      this.db
+        .prepare(
+          "SELECT t.*, p.display_name FROM team t JOIN people p ON p.id = t.person_id WHERE t.business_id = ? ORDER BY t.created_at DESC",
+        )
+        .all(businessId) as {
+        person_id: string;
+        display_name: string;
+        capabilities: string;
+        appointed_tx: string | null;
+        revoked_at: string | null;
+        revoke_tx: string | null;
+        created_at: string;
+      }[]
+    ).map((t) => ({
+      person_id: t.person_id,
+      name: t.display_name,
+      account_id: this.account("person", t.person_id)?.account_id ?? null,
+      capabilities: JSON.parse(t.capabilities) as string[],
+      active: !t.revoked_at,
+      appointed_url: t.appointed_tx && explorer ? `${explorer}/txns/${t.appointed_tx}` : null,
+      revoked_url: t.revoke_tx && explorer ? `${explorer}/txns/${t.revoke_tx}` : null,
+      since: t.created_at,
+    }));
+  }
+
+  /** The owner appoints a helper on the business's contract: answer customers and mark orders delivered. */
+  async addHelper(founder: Person, businessId: string, personId: string) {
+    const { business, wallet } = this.owner(founder, businessId);
+    if (personId === founder.id) throw new HttpError(400, "You already run this business");
+    const helper = this.store.person(personId);
+    if (this.teamRow(businessId, personId))
+      throw new HttpError(409, `${helper.display_name} already helps`);
+    const hw = await this.wallet(helper);
+    const capabilities = ["support", "fulfillment"];
+    const tx = await this.need().appointOperator({
+      owner: wallet.account_id,
+      secret: wallet.secret,
+      business: business.account_id,
+      operator: hw.account_id,
+      capabilities,
+    });
+    if (!tx.ok) throw new HttpError(409, `Not appointed: ${tx.error}`);
+    this.db
+      .prepare(
+        "INSERT INTO team (business_id, person_id, capabilities, appointed_tx, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(business_id, person_id) DO UPDATE SET capabilities = excluded.capabilities, appointed_tx = excluded.appointed_tx, revoked_at = NULL, revoke_tx = NULL, created_at = excluded.created_at",
+      )
+      .run(businessId, personId, JSON.stringify(capabilities), tx.hash, now());
+    return this.team(founder, businessId);
+  }
+
+  async removeHelper(founder: Person, businessId: string, personId: string) {
+    const { business, wallet } = this.owner(founder, businessId);
+    const hw = this.account("person", personId);
+    if (!this.teamRow(businessId, personId) || !hw) throw new HttpError(404, "Not a helper");
+    const tx = await this.need().revokeOperator({
+      owner: wallet.account_id,
+      secret: wallet.secret,
+      business: business.account_id,
+      operator: hw.account_id,
+    });
+    if (!tx.ok) throw new HttpError(409, `Not revoked: ${tx.error}`);
+    this.db
+      .prepare(
+        "UPDATE team SET revoked_at = ?, revoke_tx = ? WHERE business_id = ? AND person_id = ?",
+      )
+      .run(now(), tx.hash, businessId, personId);
+    return this.team(founder, businessId);
+  }
+
+  /** Asks the business's contract, not Everstreet's own records, whether this person may act. */
+  async helperCheck(person: Person, businessId: string, capability: string) {
+    const business = this.businessPayments(businessId);
+    const w = this.account("person", person.id);
+    if (!business || !w) return { authorized: false, reason: "not a helper" };
+    const c = await this.need().operatorCheck(business.account_id, w.account_id, capability);
+    return { authorized: c.authorized, reason: c.reason };
+  }
+
+  /** Businesses this person helps (by Everstreet's record; every action is still checked on chain). */
+  helping(person: Person) {
+    return this.db
+      .prepare(
+        "SELECT b.id AS business_id, b.name, b.slug, t.capabilities FROM team t JOIN businesses b ON b.id = t.business_id WHERE t.person_id = ? AND t.revoked_at IS NULL",
+      )
+      .all(person.id) as {
+      business_id: string;
+      name: string;
+      slug: string;
+      capabilities: string;
+    }[];
+  }
+
+  /** What a helper sees: messages to answer and paid orders to mark delivered. */
+  async helperDesk(person: Person, businessId: string) {
+    const row = this.teamRow(businessId, person.id);
+    const ever = this.db
+      .prepare("SELECT 1 FROM team WHERE business_id = ? AND person_id = ?")
+      .get(businessId, person.id);
+    if (!ever) throw new HttpError(404, "No such business");
+    const b = this.db.prepare("SELECT name, slug FROM businesses WHERE id = ?").get(businessId) as {
+      name: string;
+      slug: string;
+    };
+    const check = await this.helperCheck(person, businessId, "fulfillment").catch((e) => ({
+      authorized: false,
+      reason: `NEAR testnet not reachable: ${(e as Error).message}`,
+    }));
+    const orders = (
+      this.db
+        .prepare(
+          "SELECT * FROM payments WHERE business_id = ? AND status IN ('paid','delivered') ORDER BY created_at DESC LIMIT 30",
+        )
+        .all(businessId) as unknown as PaymentRow[]
+    ).map((r) => {
+      const s = this.db
+        .prepare("SELECT starts_at FROM sessions_offered WHERE id = ?")
+        .get(r.session_id) as { starts_at: string } | undefined;
+      const who = this.db
+        .prepare("SELECT display_name FROM people WHERE id = ?")
+        .get(r.person_id) as { display_name: string } | undefined;
+      return {
+        ...this.view(r),
+        session_starts_at: s?.starts_at ?? null,
+        customer: who?.display_name ?? "Someone",
+      };
+    });
+    return {
+      business: { id: businessId, ...b },
+      active_in_everstreet: Boolean(row),
+      chain_check: check,
+      business_account: this.businessPayments(businessId)?.account_id ?? null,
+      inquiries: this.store.inquiriesFor(businessId),
+      orders,
+    };
   }
 
   async withdraw(founder: Person, businessId: string, cents: number) {

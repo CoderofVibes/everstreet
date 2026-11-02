@@ -24,7 +24,8 @@ export function Avatar({ name, large }: { name: string; large?: boolean }) {
 
 export function money(cents: number | null) {
   if (cents === null) return null;
-  return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+  const digits = cents % 100 === 0 ? 0 : 2;
+  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
 export const FAMILY_LABEL: Record<string, string> = {

@@ -6,6 +6,7 @@ import { api, type Desk, type OwnerSession } from "../api.ts";
 import { Link } from "../router.tsx";
 import { money } from "../ui.tsx";
 import { ago, when } from "../via.ts";
+import { DeskBooks, DeskTeam } from "./DeskBooks.tsx";
 import { DeskMoney } from "./DeskMoney.tsx";
 import { NeedCard } from "./Explore.tsx";
 
@@ -182,6 +183,7 @@ export function DeskGrowth({ desk }: { desk: Desk }) {
   return (
     <>
       <DeskMoney desk={desk} />
+      {b.published_at && <DeskBooks desk={desk} />}
       {b.family === "class" && <SessionsPanel desk={desk} />}
 
       {b.published_at && extras && extras.needs.length > 0 && (
@@ -259,6 +261,17 @@ export function DeskGrowth({ desk }: { desk: Desk }) {
       )}
     </>
   );
+}
+
+export function DeskTeamIfPaid({ desk }: { desk: Desk }) {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    api
+      .money(desk.business.id)
+      .then((m) => setOn(Boolean(m.active)))
+      .catch(() => {});
+  }, [desk.business.id]);
+  return <DeskTeam desk={desk} paymentsOn={on} />;
 }
 
 export function DeskShare({ desk }: { desk: Desk }) {

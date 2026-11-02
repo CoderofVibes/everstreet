@@ -679,6 +679,33 @@ export class Store {
     };
   }
 
+  isOwnerOf(viewer: Person, businessId: string) {
+    const b = this.db.prepare("SELECT owner_id FROM businesses WHERE id = ?").get(businessId) as
+      | { owner_id: string }
+      | undefined;
+    return b?.owner_id === viewer.id;
+  }
+
+  /** A reply by someone the caller has already authorized (a helper checked on chain). */
+  replyAsHelper(helper: Person, inquiryId: string, businessId: string, text: string) {
+    const i = this.db.prepare("SELECT business_id FROM inquiries WHERE id = ?").get(inquiryId) as
+      | { business_id: string }
+      | undefined;
+    if (i?.business_id !== businessId) throw new HttpError(404, "No such message");
+    if (!text.trim()) throw new HttpError(400, "Write a reply");
+    this.tx(() => {
+      this.db
+        .prepare("UPDATE inquiries SET reply = ?, replied_at = ? WHERE id = ?")
+        .run(`${text.trim().slice(0, 2000)}\n— ${helper.display_name}`, now(), inquiryId);
+      this.db
+        .prepare(
+          "UPDATE tasks SET done_at = COALESCE(done_at, ?) WHERE source = 'inquiry' AND ref = ?",
+        )
+        .run(now(), inquiryId);
+      this.event("inquiry_replied", businessId, helper.id, { by: "helper" });
+    });
+  }
+
   isOwner(viewer: Person, slug: string) {
     const b = this.db.prepare("SELECT owner_id FROM businesses WHERE slug = ?").get(slug) as
       | { owner_id: string }

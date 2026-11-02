@@ -13,6 +13,7 @@ import { type Person, Store } from "../server/src/store.ts";
 import { TestDoubleAuthority } from "../services/openseat/src/authority.ts";
 import { openSeatApp } from "../services/openseat/src/http.ts";
 import { OpenSeat } from "../services/openseat/src/service.ts";
+import { seedHistory } from "./lib/history.ts";
 
 const DB = process.env.EVERSTREET_DB ?? "data/runtime/everstreet.db";
 const SEATS_DB = process.env.OPENSEAT_DB ?? "data/runtime/openseat.db";
@@ -223,6 +224,7 @@ community.postNeed(sam, {
   allow_replies: true,
   days: 14,
 });
+seedHistory(store);
 openseat.db.close();
 
 console.log(

@@ -22,7 +22,8 @@
     "format": "biome format --write .",
     "check": "npm run lint && npm run typecheck && npm test",
     "setup:v2": "tsx scripts/setup-v2.ts",
-    "smoke:payments": "tsx scripts/smoke-payments.ts"
+    "smoke:payments": "tsx scripts/smoke-payments.ts",
+    "seed:history": "tsx scripts/seed-history.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.5",

@@ -3,10 +3,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type Desk } from "../api.ts";
+import { api4 } from "../api4.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, OfferCard, STAGE_LABEL } from "../ui.tsx";
-import { DeskGrowth, DeskShare } from "./DeskGrowth.tsx";
+import { DeskGrowth, DeskShare, DeskTeamIfPaid } from "./DeskGrowth.tsx";
 
 function SignInFirst({ reason }: { reason: string }) {
   const { requireSignIn } = useSession();
@@ -26,12 +27,18 @@ export function DeskList() {
   const [rows, setRows] = useState<Awaited<ReturnType<typeof api.projects>>["projects"] | null>(
     null,
   );
+  const [helping, setHelping] = useState<{ business_id: string; name: string; slug: string }[]>([]);
   useEffect(() => {
-    if (person)
+    if (person) {
       api
         .projects()
         .then((r) => setRows(r.projects))
         .catch(() => setRows([]));
+      api4
+        .helping()
+        .then((r) => setHelping(r.businesses))
+        .catch(() => {});
+    }
   }, [person]);
   if (!person) return <SignInFirst reason="Sign in to see your businesses." />;
   if (!rows) return <div className="page muted">Loading…</div>;
@@ -83,6 +90,26 @@ export function DeskList() {
             </Link>
           ))}
         </div>
+      )}
+      {helping.length > 0 && (
+        <>
+          <h2 className="section-title" style={{ marginTop: 32 }}>
+            Businesses you help
+          </h2>
+          <div className="biz-list" style={{ marginTop: 12 }}>
+            {helping.map((h) => (
+              <Link key={h.business_id} to={`/help/${h.business_id}`} className="card link biz-row">
+                <h3
+                  style={{ fontFamily: "var(--serif)", fontWeight: 400, fontSize: 22, margin: 0 }}
+                >
+                  {h.name}
+                </h3>
+                <span className="spacer" />
+                <span className="btn btn-secondary">Open</span>
+              </Link>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -139,6 +166,9 @@ export function DeskPage({ id }: { id: string }) {
             View public page
           </Link>
         )}
+        <Link to={`/desk/${b.id}/value`} className="btn btn-secondary">
+          Value
+        </Link>
         {desk.project_id && (
           <Link to={`/studio/${desk.project_id}`} className="btn btn-secondary">
             Edit in studio
@@ -255,6 +285,7 @@ export function DeskPage({ id }: { id: string }) {
         </div>
         <aside className="studio-side">
           <DeskShare desk={desk} />
+          <DeskTeamIfPaid desk={desk} />
           <OfferCard offer={desk.offer} family={b.family} action={desk.action} />
           {desk.missing.length > 0 && (
             <div className="card" style={{ padding: 18 }}>

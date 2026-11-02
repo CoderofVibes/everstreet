@@ -128,3 +128,27 @@ Built from Astra's launch-pad pass, for Tony's computer rather than a phone (Ton
    left releases the seat.
 6. **Cut for now:** paid waitlists (paid sessions show Full), payments for non-class businesses,
    subscriptions and usage metering (v2 slices 2–4), a relayer for sponsored fees.
+
+## 2026-11-02 · Phase 4: books, value, helpers
+
+1. **Books read the chain first.** For months since a business turned payments on, revenue is the
+   contract's own monthly books (`get_period`), earned at delivery, labelled "Verified on NEAR ·
+   testnet". Costs are founder-entered (once or recurring) because no contract can see rent or
+   ink. The examples' earlier months are stored as seeded rows and labelled "Seeded history ·
+   fictional" everywhere they appear (`scripts/lib/history.ts`, `npm run seed:history`).
+2. **Valuation is a scenario model, not a price.** `scenario-v1` (`server/src/value.ts`): complete
+   months only; operating profit minus the founder's replacement work (hours × rate), annualized,
+   times per-kind illustrative multiples, rounded to $100. Plan-stage businesses get "what this
+   could become" from planned customers. Every input carries its source; missing inputs are listed;
+   a snapshot is kept whenever the inputs change, so "what changed" is exact. Astra's worked
+   example (Paperfin, $156,000–$234,000) is a test.
+3. **Sharing is opt-in.** Public pages show numbers only when the founder ticks "Share my numbers";
+   nothing infers that a business is for sale. What-ifs are private.
+4. **Helpers are contract operators.** Appointing a helper calls `appoint_operator` with
+   `support` and `fulfillment`; revoking calls `revoke_operator`. A helper delivers with their own
+   account and key. Verified on testnet with Juniper: Theo was appointed, delivered a paid order,
+   was revoked, and his direct `deliver` call then failed on chain with `E_NOT_AUTHORIZED`
+   (tx `FRJ8jY3VTPKEbjY8bRAfhZ6TfvgRQ7aYEWiyRnPrwWAM`). Replies to customers are off-chain but
+   gated on the live `operator_check` for `support`.
+5. **Cut for now:** researched market multiples, accrual adjustments beyond earned-at-delivery,
+   helper refunds, the acquisition marketplace (phase 5).
