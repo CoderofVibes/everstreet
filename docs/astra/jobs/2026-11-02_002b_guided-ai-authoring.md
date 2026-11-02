@@ -8,6 +8,15 @@ figured out Codex or Claude Code, how to prompt, all of that."
 Replace the studio's form-first introduction with an approachable product conversation that
 produces reviewable changes. Keep the existing brief and screen editors as direct controls.
 The founder should not have to learn prompts, tokens, JSON, jobs or command lines.
+Use a clear currency-denominated project budget and an actionable way to set it within the
+operator's ceiling. Put token limits and provider diagnostics in an Advanced section. The
+current Builds panel only displays a budget, so a connected provider alone does not complete
+the founder's start flow. Ensure completed event history can page beyond the first 100 rows.
+Astra's internal fixture review confirmed a completed 180-progress-event job shows only its
+first 100 events, ending at progress 97; its final receipt/completion is inaccessible there.
+Also distinguish precise computed usage from conservatively rounded budget consumption:
+the fixture totals $0.02835, while the current budget tile says "Charged $0.05". Use accurate
+labels and consistent precision in event details; a partial $0.0003 receipt is not a $0.01 bill.
 
 Use the invoice extraction service as the first supported journey:
 
@@ -41,6 +50,11 @@ untracked model loop. Proposal output is a bounded validated brief/prototype plu
 questions and a concise change summary. No code, tool permissions or payment authority in it.
 Record base revision/hash, requester, provider/model and the applied revision. Accepting the
 same proposal twice is idempotent; applying against a changed base is a useful 409.
+Scope browser draft recovery and asynchronous responses to actor, project and ownership
+epoch. The existing local draft key contains only the project id; review shared-browser and
+post-sale behavior. A late previous-actor response must never repopulate the new actor's UI.
+Clear visible private state immediately on identity change; preserve recovery for its author
+without offering unaccepted local edits to a different owner.
 
 Add a supported Anthropic Messages adapter behind a small transport interface so request
 construction and failure handling can be tested without a credential or network. No shelling

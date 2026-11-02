@@ -27,6 +27,10 @@ Astra read `server/src/books.ts` on Nov 2. It currently reads period `earned`, `
 to zero, and sums seeded history alongside chain revenue in a month. v2 also has `prepaid_in`,
 `credit_used`, `credit_withdrawn`, owner withdrawals and treasury liabilities. Correct these
 semantics before drawing charts. Preserve legacy records and their source labels.
+Propagate the metric model through `value.ts`, `acquire.ts`, the public-number endpoints,
+`api4.ts`/`api5.ts`, DeskBooks, AcquireRoom and PublicPage; fixing the chart while valuation
+still coerces missing observations to zero would leave a misleading buyer experience. The
+default cost categories and hints should lead with model usage, hosting and online services.
 
 - Separate accrual-like earned activity from cash inflow, customer liabilities, refunds,
   owner withdrawals and sale proceeds. A 100-use prepayment is not fully earned revenue;

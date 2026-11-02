@@ -41,6 +41,15 @@ failures in usage completeness, over-limit success, provider identity and lease 
 See 002a1; durable job acceptance requires these corrections plus browser review.
 All reproduction providers were explicit keyless test doubles.
 
+002a1 at `03e29cb`: Astra independently reran all four reproductions successfully. Partial
+usage/cancellation retains the reservation, excess usage fails and records cost, changed
+provider identity is refused before dispatch, and an expired undispatched claim makes no
+provider call. Full independent check after 003a: lint/types and 112 tests passed at 11:08
+Pacific. Internal browser fixtures show failed/cancelled/successful history and honest partial
+usage detail. Remaining UI issues (completed event pagination and rounded-budget cost labels)
+are explicit 002b acceptance items. The corrected durable foundation may support 002b; this
+does not accept live-provider, runtime, release or full M2 gates.
+
 ## M3: commerce, performance and transfer
 
 | Gate | Observable result | Evidence/status |
@@ -56,6 +65,12 @@ All reproduction providers were explicit keyless test doubles.
 | Buyer | New owner sees the business and can perform a reviewed release and serve old customers | Pending |
 | Scope | External assets/dependencies show actual transfer status; no universal/IP transfer claim | Pending |
 | Chain evidence | Full digital journey verified on testnet, independently of keyless doubles | Pending |
+
+003a characterization at `c825bf9` establishes current gaps, not M3 acceptance. Claude reports
+27 Rust unit tests passed; Astra independently reran the complete 112-test TypeScript check.
+The report records unauthorized credit-use semantics, duplicate charge memos, treasury drift,
+withdrawal races, failed seller payouts after close, duplicate local settlement, lost-response
+recovery and offchain authority races. Stronger digital guarantees require follow-up slices.
 
 ## M4: bring an existing product
 

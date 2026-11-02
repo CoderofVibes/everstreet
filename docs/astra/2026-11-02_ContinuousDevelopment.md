@@ -55,3 +55,30 @@ Those tests do not catch the four independently reproduced failures. 002a1 corre
 before live-provider work. Claude left mixed-status/new-job edits in JOBS uncommitted; Astra
 preserves those edits and asks Claude to add the two newest rows during handoff review.
 A passing suite alone does not accept 002a.
+
+The handoff check passed independently: 89 tests, lint and types, at 10:52 Pacific. Claude
+resumed in exec 24865 for 002a1 then 003a. A separate read-only financial integration review
+runs in exec 78018; no second code writer. Follow-up doc edits add
+`docs/design/TRANSFER_PROTOCOL_OPTIONS.md` (a proposed freeze/attestation approach for stronger
+managed handover, contrasted with observed-finality reconciliation), and refine 002b's
+budget/draft UX plus 003f's downstream metric propagation. These are proposals for the next
+handoff; no claim of an implemented close protocol or a new deployment.
+
+## Correction verification and next dispatch
+
+002a1 landed at `03e29cb` / report `9de4ad9`. Astra independently reran all four boundary
+reproductions and each now passes. 003a landed tests at `c825bf9`, report `4f92e26`: Claude
+reports 27 Rust unit tests; Astra independently ran lint/types/all 112 TypeScript tests at
+11:08 Pacific. These characterize current transfer gaps, not new contract guarantees.
+
+The isolated Builds UI review used explicit scripted fixtures, not a real AI provider. It
+shows all three job outcomes and incomplete usage accurately in the detail. Two remaining
+issues go into 002b: completed history stops at 100 rows (the successful fixture has 180
+progress events), and "Charged" sums rounded budget cents rather than precise computed usage.
+Evidence: `m2-cancelled-partial-usage-1280.jpg` and `m2-success-events-1280.jpg` in the same
+internal screenshot directory. No screenshot is a creative deliverable or live AI evidence.
+
+The financial integration review completed in exec 78018 (Claude session
+`fd3d59e2-d974-4f95-aa55-528a95dd8a6c`). Saved source analysis at
+`reports/2026-11-02_financial-integration-review.md`; verify its findings before implementing.
+It expands 003f's propagation map and flags privacy paths for a distinct scoped-access job.
