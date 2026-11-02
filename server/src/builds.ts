@@ -1,0 +1,1115 @@
+// Durable build jobs. A job builds one immutable product revision with one provider under a
+// budget reserved before anything is dispatched. Workers claim jobs atomically and every
+// worker write is fenced by (attempt, lease owner, live state), so a cancelled, timed-out or
+// superseded worker can never record success. Dispatch intent is persisted before the
+// provider is called; after a restart, work that was never dispatched is safely requeued and
+// work that may have reached the provider is held for reconciliation, never re-run on its own.
+// Ownership is captured at request time and rechecked before claiming and before applying
+// output; a job requested under a former owner is fenced as soon as the change is observed.
+// Build-time usage is its own ledger ("build"), separate from any customer runtime usage.
+
+import { createHash, randomUUID } from "node:crypto";
+import { validateArtifact } from "./artifacts.ts";
+import {
+  type BuildAvailability,
+  type BuildEvent,
+  type BuildLimits,
+  type BuildPricing,
+  type BuildProvider,
+  buildAvailability,
+  costCents,
+  worstCaseCents,
+} from "./build.ts";
+import type { Db } from "./db.ts";
+import type { Brief, Foundation, Prototype } from "./products.ts";
+import { HttpError, type Person, type Store } from "./store.ts";
+
+export const BUILD_LIMITS = {
+  maxInputTokens: 200_000,
+  maxOutputTokens: 32_000,
+  minSeconds: 10,
+  maxSeconds: 900,
+  maxCostCents: 100_000,
+  maxBudgetCents: 1_000_000,
+  eventsPage: 100,
+} as const;
+
+export type JobState =
+  | "queued"
+  | "running"
+  | "validating"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "needs_reconciliation";
+
+const LIVE: JobState[] = ["queued", "running", "validating"];
+const TERMINAL: JobState[] = ["succeeded", "failed", "cancelled", "needs_reconciliation"];
+
+export interface BuildBudget {
+  max_input_tokens: number;
+  max_output_tokens: number;
+  max_seconds: number;
+  max_cost_cents: number;
+}
+
+interface JobRow {
+  id: string;
+  project_id: string;
+  business_id: string;
+  revision: number;
+  content_hash: string;
+  intent: "build";
+  idempotency_key: string;
+  fingerprint: string;
+  provider: string;
+  budget: string;
+  pricing: string;
+  retry_of: string | null;
+  requested_by: string;
+  owner_id: string;
+  owner_generation: number;
+  state: JobState;
+  attempt: number;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
+  started_at: string | null;
+  dispatched_at: string | null;
+  cancel_requested_at: string | null;
+  failure_code: string | null;
+  failure_detail: string | null;
+  reserved_cents: number;
+  charged_cents: number;
+  usage_state: "none" | "reported" | "unknown";
+  input_tokens: number;
+  output_tokens: number;
+  event_count: number;
+  artifact_digest: string | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+}
+
+// ---------- plain-data hygiene for anything a provider says ----------
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+const CONTROL = /[\u0000-\u001f\u007f]+/g;
+const SECRETS: RegExp[] = [
+  /Bearer\s+[A-Za-z0-9._~+/=-]+/gi,
+  /sk-[A-Za-z0-9_-]{8,}/g,
+  /(?:api[_-]?key|token|secret|password|authorization)\s*[:=]\s*(?:Bearer\s+)?\S+/gi,
+  /ed25519:[1-9A-HJ-NP-Za-km-z]{20,}/g,
+  /secp256k1:[1-9A-HJ-NP-Za-km-z]{20,}/g,
+];
+
+/** Bounded, single-line, with anything that looks like a credential removed. */
+export function redact(text: unknown, max = 300): string {
+  let s = String(text ?? "")
+    .replace(CONTROL, " ")
+    .trim();
+  for (const re of SECRETS) s = s.replace(re, "[redacted]");
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+
+function canon(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
+  if (v && typeof v === "object")
+    return `{${Object.keys(v)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canon((v as Record<string, unknown>)[k])}`)
+      .join(",")}}`;
+  return JSON.stringify(v);
+}
+
+function bad(message: string): never {
+  throw new HttpError(400, message);
+}
+
+function whole(v: unknown, min: number, max: number, what: string): number {
+  const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
+  if (typeof n !== "number" || !Number.isInteger(n) || n < min || n > max)
+    bad(`${what} must be a whole number from ${min} to ${max}`);
+  return n as number;
+}
+
+export function parseBudget(input: unknown): BuildBudget {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    bad("Give the build's limits (budget)");
+  const b = input as Record<string, unknown>;
+  return {
+    max_input_tokens: whole(b.max_input_tokens, 1, BUILD_LIMITS.maxInputTokens, "Input tokens"),
+    max_output_tokens: whole(b.max_output_tokens, 1, BUILD_LIMITS.maxOutputTokens, "Output tokens"),
+    max_seconds: whole(b.max_seconds, BUILD_LIMITS.minSeconds, BUILD_LIMITS.maxSeconds, "Seconds"),
+    max_cost_cents: whole(b.max_cost_cents, 1, BUILD_LIMITS.maxCostCents, "The cost limit"),
+  };
+}
+
+const KEY = /^[A-Za-z0-9_-]{8,80}$/;
+
+// ---------- the service ----------
+
+export interface BuildsOptions {
+  /** Milliseconds since the epoch; injectable so tests can move time. */
+  now?: () => number;
+  /** Most progress events kept per job; state events are always kept. */
+  maxProgressEvents?: number;
+}
+
+export class Builds {
+  readonly now: () => number;
+  readonly maxProgressEvents: number;
+  /** Abort functions of attempts running in this process, by job id. */
+  readonly active = new Map<string, (reason: "cancelled" | "fenced") => void>();
+
+  constructor(
+    readonly db: Db,
+    readonly store: Store,
+    readonly provider: BuildProvider | null,
+    options: BuildsOptions = {},
+  ) {
+    this.now = options.now ?? Date.now;
+    this.maxProgressEvents = options.maxProgressEvents ?? 200;
+  }
+
+  iso(offsetMs = 0) {
+    return new Date(this.now() + offsetMs).toISOString();
+  }
+
+  availability(): BuildAvailability {
+    return buildAvailability(this.provider);
+  }
+
+  // ---------- records ----------
+
+  row(jobId: string): JobRow | undefined {
+    return this.db.prepare("SELECT * FROM build_jobs WHERE id = ?").get(String(jobId)) as unknown as
+      | JobRow
+      | undefined;
+  }
+
+  /** Appends an event in the caller's transaction. Progress beyond the cap is dropped. */
+  event(job: Pick<JobRow, "id">, attempt: number, type: string, data: object = {}) {
+    const j = this.db.prepare("SELECT event_count FROM build_jobs WHERE id = ?").get(job.id) as {
+      event_count: number;
+    };
+    if (type === "progress") {
+      const kept = (
+        this.db
+          .prepare("SELECT COUNT(*) AS n FROM build_events WHERE job_id = ? AND type = 'progress'")
+          .get(job.id) as { n: number }
+      ).n;
+      if (kept >= this.maxProgressEvents) return;
+    }
+    const payload = JSON.stringify(data);
+    const seq = j.event_count + 1;
+    this.db
+      .prepare(
+        "INSERT INTO build_events (job_id, seq, attempt, type, data, at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(job.id, seq, attempt, type, payload.length > 2000 ? "{}" : payload, this.iso());
+    this.db
+      .prepare("UPDATE build_jobs SET event_count = ?, updated_at = ? WHERE id = ?")
+      .run(seq, this.iso(), job.id);
+  }
+
+  ledger(
+    jobId: string,
+    attempt: number,
+    kind: "reservation" | "release" | "actual" | "unknown",
+    cents: number | null,
+    note: string,
+    tokens: { input?: number; output?: number } = {},
+  ) {
+    this.db
+      .prepare(
+        "INSERT INTO build_usage (job_id, attempt, ledger, kind, cents, input_tokens, output_tokens, note, at) VALUES (?, ?, 'build', ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        jobId,
+        attempt,
+        kind,
+        cents,
+        tokens.input ?? null,
+        tokens.output ?? null,
+        note,
+        this.iso(),
+      );
+  }
+
+  /** Who owns the business now, and how many times it has changed hands. */
+  ownerEpoch(businessId: string) {
+    const b = this.db.prepare("SELECT owner_id FROM businesses WHERE id = ?").get(businessId) as
+      | { owner_id: string }
+      | undefined;
+    const n = (
+      this.db
+        .prepare("SELECT COUNT(*) AS n FROM ownership WHERE business_id = ?")
+        .get(businessId) as { n: number }
+    ).n;
+    return { owner_id: b?.owner_id ?? "", generation: n };
+  }
+
+  isStaleOwner(job: JobRow) {
+    const e = this.ownerEpoch(job.business_id);
+    return e.owner_id !== job.owner_id || e.generation !== job.owner_generation;
+  }
+
+  /** Releases whatever a job still holds, in the caller's transaction. */
+  release(job: JobRow, attempt: number, note: string) {
+    if (job.reserved_cents === 0) return;
+    this.ledger(job.id, attempt, "release", job.reserved_cents, note);
+    this.db.prepare("UPDATE build_jobs SET reserved_cents = 0 WHERE id = ?").run(job.id);
+  }
+
+  /**
+   * Ends a job for good, in the caller's transaction. Usage is settled truthfully: reported
+   * usage releases the reservation; dispatched work without a usage report keeps it held.
+   */
+  finish(
+    job: JobRow,
+    state: Exclude<JobState, "queued" | "running" | "validating">,
+    failure: { code: string; detail: string } | null,
+  ) {
+    const fresh = this.row(job.id) as JobRow;
+    let usage = fresh.usage_state;
+    if (fresh.dispatched_at && usage !== "reported") {
+      usage = "unknown";
+      this.ledger(job.id, fresh.attempt, "unknown", null, "Dispatched without a usage report");
+    }
+    this.db
+      .prepare(
+        "UPDATE build_jobs SET state = ?, failure_code = ?, failure_detail = ?, usage_state = ?, lease_owner = NULL, lease_expires_at = NULL, finished_at = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(
+        state,
+        failure?.code ?? null,
+        failure ? redact(failure.detail, 500) : null,
+        usage,
+        this.iso(),
+        this.iso(),
+        job.id,
+      );
+    if (!fresh.dispatched_at) this.release(fresh, fresh.attempt, "Never dispatched");
+    else if (usage === "reported" && state !== "needs_reconciliation")
+      this.release(fresh, fresh.attempt, "Usage reported");
+    this.event(job, fresh.attempt, state, failure ? { code: failure.code } : {});
+  }
+
+  /** Fences live jobs requested under a former owner. Runs in its own transaction. */
+  fenceStale(businessId: string) {
+    const live = this.db
+      .prepare(
+        `SELECT * FROM build_jobs WHERE business_id = ? AND state IN ('queued','running','validating')`,
+      )
+      .all(businessId) as unknown as JobRow[];
+    const stale = live.filter((j) => this.isStaleOwner(j));
+    if (!stale.length) return;
+    this.store.tx(() => {
+      for (const j of stale) {
+        const fresh = this.row(j.id) as JobRow;
+        if (!LIVE.includes(fresh.state) || !this.isStaleOwner(fresh)) continue;
+        this.event(fresh, fresh.attempt, "fenced", { reason: "ownership_changed" });
+        this.finish(fresh, fresh.dispatched_at ? "needs_reconciliation" : "cancelled", {
+          code: "ownership_changed",
+          detail:
+            "The business changed hands; work requested by the former owner was stopped and its output will not be applied.",
+        });
+      }
+    });
+    for (const j of stale) this.active.get(j.id)?.("fenced");
+  }
+
+  // ---------- budgets ----------
+
+  committed(businessId: string) {
+    const r = this.db
+      .prepare(
+        "SELECT COALESCE(SUM(reserved_cents), 0) AS held, COALESCE(SUM(charged_cents), 0) AS charged, COALESCE(SUM(CASE WHEN usage_state = 'unknown' THEN reserved_cents ELSE 0 END), 0) AS unresolved FROM build_jobs WHERE business_id = ?",
+      )
+      .get(businessId) as { held: number; charged: number; unresolved: number };
+    return r;
+  }
+
+  budget(viewer: Person, businessId: string) {
+    this.store.ownedBusiness(viewer, businessId);
+    return this.budgetView(businessId);
+  }
+
+  private budgetView(businessId: string) {
+    const row = this.db
+      .prepare("SELECT limit_cents, updated_at FROM build_budgets WHERE business_id = ?")
+      .get(businessId) as { limit_cents: number; updated_at: string } | undefined;
+    const c = this.committed(businessId);
+    return {
+      limit_cents: row?.limit_cents ?? null,
+      reserved_cents: c.held,
+      charged_cents: c.charged,
+      unresolved_cents: c.unresolved,
+      available_cents: row ? Math.max(0, row.limit_cents - c.held - c.charged) : null,
+      ledger: "build" as const,
+    };
+  }
+
+  setBudget(viewer: Person, businessId: string, input: { limit_cents?: unknown }) {
+    this.store.ownedBusiness(viewer, businessId);
+    const limit = whole(input.limit_cents, 0, BUILD_LIMITS.maxBudgetCents, "The build budget");
+    this.db
+      .prepare(
+        "INSERT INTO build_budgets (business_id, limit_cents, updated_by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (business_id) DO UPDATE SET limit_cents = excluded.limit_cents, updated_by = excluded.updated_by, updated_at = excluded.updated_at",
+      )
+      .run(businessId, limit, viewer.id, this.iso());
+    return this.budgetView(businessId);
+  }
+
+  // ---------- requests ----------
+
+  private ownedProject(viewer: Person, projectId: string) {
+    const p = this.db
+      .prepare(
+        "SELECT p.id, p.business_id, p.foundation, b.owner_id FROM product_projects p JOIN businesses b ON b.id = p.business_id WHERE p.id = ?",
+      )
+      .get(String(projectId)) as
+      | { id: string; business_id: string; foundation: Foundation; owner_id: string }
+      | undefined;
+    if (!p || p.owner_id !== viewer.id) throw new HttpError(404, "No such product project");
+    return p;
+  }
+
+  private ownedJob(viewer: Person, jobId: string): JobRow {
+    const job = this.row(jobId);
+    if (!job) throw new HttpError(404, "No such build");
+    const owner = this.ownerEpoch(job.business_id).owner_id;
+    if (owner !== viewer.id) throw new HttpError(404, "No such build");
+    this.fenceStale(job.business_id);
+    return this.row(jobId) as JobRow;
+  }
+
+  request(
+    viewer: Person,
+    projectId: string,
+    input: Record<string, unknown>,
+    retryOf: JobRow | null = null,
+  ): { job: ReturnType<Builds["view"]>; created: boolean } {
+    const project = this.ownedProject(viewer, projectId);
+    this.fenceStale(project.business_id);
+    const key = typeof input.idempotency_key === "string" ? input.idempotency_key : "";
+    if (!KEY.test(key))
+      bad("idempotency_key must be 8 to 80 letters, digits, dashes or underscores");
+    if ((input.intent ?? "build") !== "build") bad("Unknown build intent");
+    const intent = "build" as const;
+    const revision = whole(input.revision, 1, 1_000_000, "The revision");
+    const budget = parseBudget(input.budget);
+    const rev = this.db
+      .prepare("SELECT content_hash FROM product_revisions WHERE project_id = ? AND number = ?")
+      .get(project.id, revision) as { content_hash: string } | undefined;
+    if (!rev) throw new HttpError(404, "No such revision");
+    const providerId = this.provider?.id ?? "none";
+    const fingerprint = sha(
+      canon({
+        revision,
+        content_hash: rev.content_hash,
+        intent,
+        budget,
+        provider: providerId,
+        retry_of: retryOf?.id ?? null,
+      }),
+    );
+
+    const existing = () =>
+      this.db
+        .prepare("SELECT * FROM build_jobs WHERE project_id = ? AND idempotency_key = ?")
+        .get(project.id, key) as unknown as JobRow | undefined;
+    const same = (j: JobRow) => {
+      if (j.fingerprint !== fingerprint)
+        throw new HttpError(
+          409,
+          "This idempotency key was already used for a different build request. Nothing new was started.",
+        );
+      return { job: this.view(j), created: false };
+    };
+    const found = existing();
+    if (found) return same(found);
+
+    const availability = this.availability();
+    if (!availability.available || !this.provider) throw new HttpError(409, availability.reason);
+    const pricing = this.provider.pricing();
+    if (!pricing) throw new HttpError(409, "The build provider has no declared prices");
+    const limits: BuildLimits = {
+      maxInputTokens: budget.max_input_tokens,
+      maxOutputTokens: budget.max_output_tokens,
+      maxSeconds: budget.max_seconds,
+    };
+    const worst = worstCaseCents(pricing, limits);
+    if (worst > budget.max_cost_cents)
+      bad(
+        `These limits could cost up to ${worst} cents at the provider's declared prices; raise the cost limit or lower the token limits`,
+      );
+
+    const id = randomUUID();
+    try {
+      this.store.tx(() => {
+        const again = existing();
+        if (again) return;
+        const limit = this.db
+          .prepare("SELECT limit_cents FROM build_budgets WHERE business_id = ?")
+          .get(project.business_id) as { limit_cents: number } | undefined;
+        if (!limit)
+          throw new HttpError(409, "Set a build budget for this business before starting a build");
+        const c = this.committed(project.business_id);
+        if (c.held + c.charged + worst > limit.limit_cents)
+          throw new HttpError(
+            409,
+            `Not enough build budget: this build reserves up to ${worst} cents and ${Math.max(0, limit.limit_cents - c.held - c.charged)} cents are available`,
+          );
+        const epoch = this.ownerEpoch(project.business_id);
+        const t = this.iso();
+        this.db
+          .prepare(
+            `INSERT INTO build_jobs (id, project_id, business_id, revision, content_hash, intent, idempotency_key, fingerprint, provider, budget, pricing, retry_of, requested_by, owner_id, owner_generation, state, reserved_cents, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)`,
+          )
+          .run(
+            id,
+            project.id,
+            project.business_id,
+            revision,
+            rev.content_hash,
+            intent,
+            key,
+            fingerprint,
+            providerId,
+            JSON.stringify(budget),
+            JSON.stringify(pricing),
+            retryOf?.id ?? null,
+            viewer.id,
+            epoch.owner_id,
+            epoch.generation,
+            worst,
+            t,
+            t,
+          );
+        this.ledger(id, 0, "reservation", worst, "Worst case at declared prices and limits");
+        this.event({ id }, 0, "queued", {
+          revision,
+          reserved_cents: worst,
+          retry_of: retryOf?.id ?? null,
+        });
+      });
+    } catch (e) {
+      // Another writer may have inserted the same key between our read and write.
+      if (e instanceof Error && /UNIQUE/.test(e.message)) {
+        const raced = existing();
+        if (raced) return same(raced);
+      }
+      throw e;
+    }
+    const made = existing() as JobRow;
+    if (made.id !== id) return same(made);
+    return { job: this.view(made), created: true };
+  }
+
+  cancel(viewer: Person, jobId: string) {
+    const job = this.ownedJob(viewer, jobId);
+    if (TERMINAL.includes(job.state)) return this.view(job);
+    let abort = false;
+    this.store.tx(() => {
+      const fresh = this.row(job.id) as JobRow;
+      if (TERMINAL.includes(fresh.state)) return;
+      if (!fresh.cancel_requested_at) {
+        this.db
+          .prepare("UPDATE build_jobs SET cancel_requested_at = ?, updated_at = ? WHERE id = ?")
+          .run(this.iso(), this.iso(), job.id);
+        this.event(fresh, fresh.attempt, "cancel_requested", { by: "owner" });
+      }
+      if (fresh.state === "queued")
+        this.finish(fresh, "cancelled", { code: "cancelled", detail: "Cancelled before it ran" });
+      else abort = true;
+    });
+    if (abort) this.active.get(job.id)?.("cancelled");
+    return this.view(this.row(job.id) as JobRow);
+  }
+
+  retry(viewer: Person, jobId: string, input: Record<string, unknown>) {
+    const job = this.ownedJob(viewer, jobId);
+    if (!["failed", "cancelled", "needs_reconciliation"].includes(job.state))
+      throw new HttpError(409, "Only a failed, cancelled or unreconciled build can be retried");
+    if (
+      job.dispatched_at &&
+      job.usage_state !== "reported" &&
+      input.acknowledge_unknown_cost !== true
+    )
+      throw new HttpError(
+        409,
+        "The earlier attempt may have reached the provider and cost money. Confirm that a new, separately reserved attempt is wanted (acknowledge_unknown_cost).",
+      );
+    return this.request(
+      viewer,
+      job.project_id,
+      {
+        idempotency_key: input.idempotency_key,
+        intent: job.intent,
+        revision: job.revision,
+        budget: JSON.parse(job.budget),
+      },
+      job,
+    );
+  }
+
+  list(viewer: Person, projectId: string) {
+    const project = this.ownedProject(viewer, projectId);
+    this.fenceStale(project.business_id);
+    const rows = this.db
+      .prepare("SELECT * FROM build_jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT 50")
+      .all(project.id) as unknown as JobRow[];
+    return {
+      availability: this.availability(),
+      pricing: this.availability().available ? (this.provider?.pricing() ?? null) : null,
+      budget: this.budgetView(project.business_id),
+      limits: BUILD_LIMITS,
+      jobs: rows.map((r) => this.view(r)),
+    };
+  }
+
+  get(viewer: Person, jobId: string) {
+    return this.view(this.ownedJob(viewer, jobId), true);
+  }
+
+  events(viewer: Person, jobId: string, after: number, limit: number) {
+    const job = this.ownedJob(viewer, jobId);
+    const from = Number.isInteger(after) && after > 0 ? after : 0;
+    const n = Number.isInteger(limit)
+      ? Math.min(Math.max(limit, 1), BUILD_LIMITS.eventsPage)
+      : BUILD_LIMITS.eventsPage;
+    const rows = this.db
+      .prepare(
+        "SELECT seq, attempt, type, data, at FROM build_events WHERE job_id = ? AND seq > ? ORDER BY seq LIMIT ?",
+      )
+      .all(job.id, from, n) as {
+      seq: number;
+      attempt: number;
+      type: string;
+      data: string;
+      at: string;
+    }[];
+    return {
+      job_state: job.state,
+      events: rows.map((r) => ({ ...r, data: JSON.parse(r.data) as object })),
+      last_seq: job.event_count,
+    };
+  }
+
+  view(job: JobRow, withArtifact = false) {
+    const requester = this.db
+      .prepare("SELECT display_name FROM people WHERE id = ?")
+      .get(job.requested_by) as { display_name: string } | undefined;
+    const artifact =
+      withArtifact && job.artifact_digest
+        ? (this.db
+            .prepare(
+              "SELECT kind, schema_version, digest, bytes, content, checks, provenance, created_at FROM build_artifacts WHERE job_id = ?",
+            )
+            .get(job.id) as
+            | {
+                kind: string;
+                schema_version: number;
+                digest: string;
+                bytes: number;
+                content: string;
+                checks: string;
+                provenance: string;
+                created_at: string;
+              }
+            | undefined)
+        : undefined;
+    const unknownCost = Boolean(job.dispatched_at) && job.usage_state !== "reported";
+    return {
+      id: job.id,
+      project_id: job.project_id,
+      revision: job.revision,
+      content_hash: job.content_hash,
+      intent: job.intent,
+      provider: job.provider,
+      state: job.state,
+      attempt: job.attempt,
+      budget: JSON.parse(job.budget) as BuildBudget,
+      reserved_cents: job.reserved_cents,
+      charged_cents: job.charged_cents,
+      usage_state: job.usage_state,
+      input_tokens: job.input_tokens,
+      output_tokens: job.output_tokens,
+      dispatched: Boolean(job.dispatched_at),
+      cancel_requested: Boolean(job.cancel_requested_at),
+      failure: job.failure_code
+        ? { code: job.failure_code, detail: job.failure_detail ?? "" }
+        : null,
+      retry_of: job.retry_of,
+      requested_by: requester?.display_name ?? "Someone",
+      artifact_digest: job.artifact_digest,
+      artifact: artifact
+        ? {
+            kind: artifact.kind,
+            schema_version: artifact.schema_version,
+            digest: artifact.digest,
+            bytes: artifact.bytes,
+            spec: JSON.parse(artifact.content) as object,
+            checks: JSON.parse(artifact.checks) as object[],
+            provenance: JSON.parse(artifact.provenance) as object,
+          }
+        : null,
+      event_count: job.event_count,
+      can_cancel: LIVE.includes(job.state),
+      can_retry: ["failed", "cancelled", "needs_reconciliation"].includes(job.state),
+      retry_needs_ack: unknownCost,
+      created_at: job.created_at,
+      started_at: job.started_at,
+      finished_at: job.finished_at,
+    };
+  }
+}
+
+// ---------- the worker ----------
+
+export interface WorkerOptions {
+  id?: string;
+  /** Most attempts this worker may run at once across the platform. */
+  maxConcurrent?: number;
+  /** How long a claim stays valid without a heartbeat. */
+  leaseMs?: number;
+  /** Real milliseconds per budget second (1000); tests shrink it to exercise timeouts. */
+  msPerSecond?: number;
+}
+
+class Stale extends Error {}
+type Abort = "cancelled" | "fenced" | "timeout";
+
+export class BuildWorker {
+  readonly id: string;
+  readonly maxConcurrent: number;
+  readonly leaseMs: number;
+  readonly msPerSecond: number;
+
+  constructor(
+    private readonly builds: Builds,
+    private readonly provider: BuildProvider,
+    options: WorkerOptions = {},
+  ) {
+    this.id = options.id ?? `worker-${randomUUID()}`;
+    this.maxConcurrent = options.maxConcurrent ?? 1;
+    this.leaseMs = options.leaseMs ?? 30_000;
+    this.msPerSecond = options.msPerSecond ?? 1000;
+  }
+
+  private get db() {
+    return this.builds.db;
+  }
+
+  /**
+   * After a restart (`orphanAll`) or when leases lapse: never-dispatched work goes back to the
+   * queue; work that may have reached the provider is held for reconciliation, not re-run.
+   */
+  recover(options: { orphanAll?: boolean } = {}) {
+    const b = this.builds;
+    const rows = this.db
+      .prepare("SELECT * FROM build_jobs WHERE state IN ('running','validating')")
+      .all() as unknown as JobRow[];
+    const now = b.now();
+    const lost = rows.filter((r) =>
+      options.orphanAll
+        ? r.lease_owner !== this.id
+        : !r.lease_expires_at || Date.parse(r.lease_expires_at) <= now,
+    );
+    let requeued = 0;
+    let held = 0;
+    b.store.tx(() => {
+      for (const r of lost) {
+        if (r.dispatched_at) {
+          b.event(r, r.attempt, "recovery", {
+            outcome: "needs_reconciliation",
+            reason: "The provider call may have run; it will not be repeated automatically",
+          });
+          b.finish(r, "needs_reconciliation", {
+            code: "outcome_unknown",
+            detail:
+              "The worker stopped after the request was sent to the provider. Whether it ran, and what it cost, is unknown.",
+          });
+          held++;
+        } else if (r.cancel_requested_at) {
+          b.finish(r, "cancelled", {
+            code: "cancelled",
+            detail: "Cancelled; the worker stopped before anything was sent",
+          });
+        } else {
+          this.db
+            .prepare(
+              "UPDATE build_jobs SET state = 'queued', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?",
+            )
+            .run(b.iso(), r.id);
+          b.event(r, r.attempt, "recovery", {
+            outcome: "requeued",
+            reason: "The worker stopped before anything was sent to the provider",
+          });
+          requeued++;
+        }
+      }
+    });
+    return { requeued, held };
+  }
+
+  /** Claims the oldest runnable job atomically, or returns null. */
+  claim(): { job: JobRow; attempt: number } | null {
+    const b = this.builds;
+    for (;;) {
+      let fenceBusiness: string | null = null;
+      const claimed = b.store.tx(() => {
+        const running = (
+          this.db
+            .prepare(
+              "SELECT COUNT(*) AS n FROM build_jobs WHERE state IN ('running','validating') AND lease_expires_at > ?",
+            )
+            .get(b.iso()) as { n: number }
+        ).n;
+        if (running >= this.maxConcurrent) return null;
+        const next = this.db
+          .prepare(
+            "SELECT * FROM build_jobs WHERE state = 'queued' AND cancel_requested_at IS NULL ORDER BY created_at, id LIMIT 1",
+          )
+          .get() as unknown as JobRow | undefined;
+        if (!next) return null;
+        if (b.isStaleOwner(next)) {
+          fenceBusiness = next.business_id;
+          return null;
+        }
+        const attempt = next.attempt + 1;
+        this.db
+          .prepare(
+            "UPDATE build_jobs SET state = 'running', attempt = ?, lease_owner = ?, lease_expires_at = ?, started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ? AND state = 'queued'",
+          )
+          .run(attempt, this.id, b.iso(this.leaseMs), b.iso(), b.iso(), next.id);
+        b.event(next, attempt, "claimed", { worker: this.id });
+        return { job: b.row(next.id) as JobRow, attempt };
+      });
+      if (fenceBusiness) {
+        b.fenceStale(fenceBusiness);
+        continue;
+      }
+      return claimed;
+    }
+  }
+
+  /** Runs one write only if this worker still holds this attempt of a live job. */
+  private guarded<T>(jobId: string, attempt: number, fn: (job: JobRow) => T): T {
+    const b = this.builds;
+    return b.store.tx(() => {
+      const job = b.row(jobId);
+      if (
+        !job ||
+        job.attempt !== attempt ||
+        job.lease_owner !== this.id ||
+        (job.state !== "running" && job.state !== "validating")
+      )
+        throw new Stale();
+      this.db
+        .prepare("UPDATE build_jobs SET lease_expires_at = ? WHERE id = ?")
+        .run(b.iso(this.leaseMs), jobId);
+      return fn(job);
+    });
+  }
+
+  /** Claims and runs one job to an end state. Returns the job id, or null if none ran. */
+  async runNext(): Promise<string | null> {
+    const claimed = this.claim();
+    if (!claimed) return null;
+    await this.run(claimed.job, claimed.attempt);
+    return claimed.job.id;
+  }
+
+  /** Runs one already-claimed attempt. Exposed for tests that interleave workers. */
+  async run(job: JobRow, attempt: number): Promise<void> {
+    const b = this.builds;
+    const budget = JSON.parse(job.budget) as BuildBudget;
+    const pricing = JSON.parse(job.pricing) as BuildPricing;
+    const snapshot = this.db
+      .prepare(
+        "SELECT r.brief, r.prototype, r.content_hash, p.foundation FROM product_revisions r JOIN product_projects p ON p.id = r.project_id WHERE r.project_id = ? AND r.number = ?",
+      )
+      .get(job.project_id, job.revision) as
+      | { brief: string; prototype: string; content_hash: string; foundation: Foundation }
+      | undefined;
+    const controller = new AbortController();
+    // An object, not a let: it is changed from callbacks while this function awaits.
+    const stop: { reason: Abort | null } = { reason: null };
+    const abort = (why: Abort) => {
+      if (stop.reason) return;
+      stop.reason = why;
+      controller.abort(why);
+    };
+    b.active.set(job.id, abort);
+    const timer = setTimeout(() => abort("timeout"), budget.max_seconds * this.msPerSecond);
+    timer.unref?.();
+    // Keep the lease alive while a provider is quiet; losing it means another worker or a
+    // recovery has taken over, so this attempt stops.
+    const heartbeat = setInterval(
+      () => {
+        try {
+          this.guarded(job.id, attempt, () => undefined);
+        } catch (e) {
+          if (e instanceof Stale) abort("fenced");
+        }
+      },
+      Math.max(1000, Math.floor(this.leaseMs / 3)),
+    );
+    heartbeat.unref?.();
+    try {
+      // Last checks, then record the intent to dispatch before anything is sent.
+      const ready = this.guarded(job.id, attempt, (j) => {
+        if (b.isStaleOwner(j)) return "fenced" as const;
+        if (j.cancel_requested_at) return "cancelled" as const;
+        if (!snapshot || snapshot.content_hash !== j.content_hash) return "missing" as const;
+        this.db
+          .prepare("UPDATE build_jobs SET dispatched_at = ?, updated_at = ? WHERE id = ?")
+          .run(b.iso(), b.iso(), j.id);
+        b.event(j, attempt, "dispatched", { provider: this.provider.id });
+        return "go" as const;
+      });
+      if (ready === "fenced") {
+        b.fenceStale(job.business_id);
+        return;
+      }
+      if (ready === "cancelled")
+        return this.end(job.id, attempt, "cancelled", "cancelled", "Cancelled before it ran");
+      if (ready === "missing" || !snapshot)
+        return this.end(job.id, attempt, "failed", "revision_missing", "The revision changed");
+
+      const stream = this.provider.start(
+        {
+          jobId: job.id,
+          attempt,
+          dispatchKey: `${job.id}:${attempt}`,
+          projectId: job.project_id,
+          businessId: job.business_id,
+          revision: job.revision,
+          contentHash: job.content_hash,
+          content: {
+            foundation: snapshot.foundation,
+            brief: JSON.parse(snapshot.brief) as Brief,
+            prototype: JSON.parse(snapshot.prototype) as Prototype,
+          },
+          limits: {
+            maxInputTokens: budget.max_input_tokens,
+            maxOutputTokens: budget.max_output_tokens,
+            maxSeconds: budget.max_seconds,
+          },
+          outputSchema: "extraction_spec/1",
+        },
+        controller.signal,
+      );
+      const outputs = await this.consume(job.id, attempt, stream, controller.signal, pricing);
+      if (stop.reason === "fenced") return;
+      if (stop.reason === "cancelled")
+        return this.end(job.id, attempt, "cancelled", "cancelled", "Cancelled while running");
+      if (stop.reason === "timeout")
+        return this.end(
+          job.id,
+          attempt,
+          "failed",
+          "timeout",
+          `Stopped after ${budget.max_seconds} seconds`,
+        );
+      if (outputs.error)
+        return this.end(job.id, attempt, "failed", "provider_error", outputs.error);
+      if (outputs.artifacts.length === 0)
+        return this.end(
+          job.id,
+          attempt,
+          "failed",
+          "no_output",
+          "The provider finished without an artifact",
+        );
+      if (outputs.artifacts.length > 1)
+        return this.end(
+          job.id,
+          attempt,
+          "failed",
+          "invalid_output",
+          "The provider returned more than one artifact",
+        );
+      this.validateAndApply(job.id, attempt, outputs.artifacts[0], JSON.parse(snapshot.prototype));
+    } catch (e) {
+      if (e instanceof Stale) {
+        controller.abort("fenced");
+        return;
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+      clearInterval(heartbeat);
+      if (b.active.get(job.id) === abort) b.active.delete(job.id);
+    }
+  }
+
+  private async consume(
+    jobId: string,
+    attempt: number,
+    stream: AsyncIterable<BuildEvent>,
+    signal: AbortSignal,
+    pricing: BuildPricing,
+  ) {
+    const b = this.builds;
+    const artifacts: unknown[] = [];
+    let error: string | null = null;
+    const it = stream[Symbol.asyncIterator]();
+    const aborted = new Promise<"aborted">((resolve) => {
+      if (signal.aborted) resolve("aborted");
+      signal.addEventListener("abort", () => resolve("aborted"), { once: true });
+    });
+    try {
+      for (;;) {
+        const pending = it.next();
+        // If the abort wins the race, a later rejection from the provider is not unhandled.
+        pending.catch(() => {});
+        const next = await Promise.race([pending, aborted]);
+        if (next === "aborted" || signal.aborted) break;
+        if (next.done) break;
+        const ev = next.value;
+        const cancelled = this.guarded(jobId, attempt, (j) => {
+          if (ev?.type === "progress")
+            b.event(j, attempt, "progress", { message: redact(ev.message, 200) });
+          else if (ev?.type === "usage") this.recordUsage(j, attempt, ev, pricing);
+          else if (ev?.type === "output") {
+            artifacts.push(ev.artifact);
+            b.event(j, attempt, "output_received", {});
+          } else b.event(j, attempt, "ignored", { reason: "Unknown event from the provider" });
+          return Boolean(j.cancel_requested_at) || b.isStaleOwner(j);
+        });
+        if (cancelled) {
+          const j = b.row(jobId) as JobRow;
+          // A change of owner fences the job in the database too (which also aborts this run).
+          if (b.isStaleOwner(j)) b.fenceStale(j.business_id);
+          else b.active.get(jobId)?.("cancelled");
+          break;
+        }
+      }
+    } catch (e) {
+      if (e instanceof Stale) throw e;
+      if (!signal.aborted) error = redact((e as Error)?.message ?? e, 300) || "The provider failed";
+    } finally {
+      // Ask the provider to stop; don't wait on one that ignores it.
+      void Promise.resolve(it.return?.()).catch(() => {});
+    }
+    return { artifacts, error };
+  }
+
+  private recordUsage(
+    job: JobRow,
+    attempt: number,
+    ev: { inputTokens: number; outputTokens: number },
+    pricing: BuildPricing,
+  ) {
+    const b = this.builds;
+    const okInt = (n: unknown) => typeof n === "number" && Number.isInteger(n) && n >= 0;
+    if (!okInt(ev.inputTokens) || !okInt(ev.outputTokens)) {
+      b.event(job, attempt, "usage_unreadable", {});
+      return;
+    }
+    const input = job.input_tokens + ev.inputTokens;
+    const output = job.output_tokens + ev.outputTokens;
+    const charged = costCents(pricing, input, output);
+    const cents = charged - job.charged_cents;
+    this.db
+      .prepare(
+        "UPDATE build_jobs SET input_tokens = ?, output_tokens = ?, charged_cents = ?, usage_state = 'reported' WHERE id = ?",
+      )
+      .run(input, output, charged, job.id);
+    b.ledger(job.id, attempt, "actual", cents, "Reported by the provider", {
+      input: ev.inputTokens,
+      output: ev.outputTokens,
+    });
+    b.event(job, attempt, "usage", { input_tokens: input, output_tokens: output, cents: charged });
+    const budget = JSON.parse(job.budget) as BuildBudget;
+    if (input > budget.max_input_tokens || output > budget.max_output_tokens)
+      b.event(job, attempt, "limit_exceeded", {
+        detail: "The provider reported more tokens than the request allowed",
+      });
+  }
+
+  private end(
+    jobId: string,
+    attempt: number,
+    state: "failed" | "cancelled",
+    code: string,
+    detail: string,
+  ) {
+    try {
+      this.guarded(jobId, attempt, (j) => this.builds.finish(j, state, { code, detail }));
+    } catch (e) {
+      if (!(e instanceof Stale)) throw e;
+    }
+  }
+
+  private validateAndApply(jobId: string, attempt: number, raw: unknown, prototype: Prototype) {
+    const b = this.builds;
+    try {
+      const stale = this.guarded(jobId, attempt, (j) => {
+        if (b.isStaleOwner(j)) return true;
+        this.db.prepare("UPDATE build_jobs SET state = 'validating' WHERE id = ?").run(j.id);
+        b.event(j, attempt, "validating", {});
+        return false;
+      });
+      if (stale) {
+        b.fenceStale((b.row(jobId) as JobRow).business_id);
+        return;
+      }
+      const result = validateArtifact(raw, prototype);
+      this.guarded(jobId, attempt, (j) => {
+        // Ownership is checked once more right before output is applied.
+        if (b.isStaleOwner(j)) throw new Stale();
+        if (!result.ok) {
+          b.event(j, attempt, "checks", {
+            checks: result.checks.map((c) => ({ id: c.id, passed: c.passed })),
+          });
+          b.finish(j, "failed", { code: "invalid_output", detail: result.reason });
+          return;
+        }
+        this.db
+          .prepare(
+            "INSERT INTO build_artifacts (job_id, attempt, kind, schema_version, digest, bytes, content, checks, provenance, created_at) VALUES (?, ?, 'extraction_spec', 1, ?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            j.id,
+            attempt,
+            result.digest,
+            result.bytes,
+            result.canonical,
+            JSON.stringify(result.checks),
+            JSON.stringify({
+              schema: "extraction_spec/1",
+              provider: j.provider,
+              job: j.id,
+              attempt,
+              project: j.project_id,
+              revision: j.revision,
+              content_hash: j.content_hash,
+              validator: "artifacts.ts extraction_spec/1",
+            }),
+            b.iso(),
+          );
+        this.db
+          .prepare("UPDATE build_jobs SET artifact_digest = ? WHERE id = ?")
+          .run(result.digest, j.id);
+        b.event(j, attempt, "checks", {
+          checks: result.checks.map((c) => ({ id: c.id, passed: c.passed })),
+        });
+        b.finish(j, "succeeded", null);
+      });
+    } catch (e) {
+      if (e instanceof Stale) {
+        const j = b.row(jobId);
+        if (j && LIVE.includes(j.state)) b.fenceStale(j.business_id);
+        return;
+      }
+      throw e;
+    }
+  }
+}

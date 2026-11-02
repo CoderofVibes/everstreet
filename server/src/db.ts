@@ -222,6 +222,59 @@ CREATE TRIGGER IF NOT EXISTS product_revisions_no_update BEFORE UPDATE ON produc
 BEGIN SELECT RAISE(ABORT, 'product revisions are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS product_revisions_no_delete BEFORE DELETE ON product_revisions
 BEGIN SELECT RAISE(ABORT, 'product revisions are immutable'); END;
+CREATE TABLE IF NOT EXISTS build_budgets (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id),
+  limit_cents INTEGER NOT NULL CHECK (limit_cents >= 0), updated_by TEXT NOT NULL REFERENCES people(id),
+  updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS build_jobs (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id), revision INTEGER NOT NULL,
+  content_hash TEXT NOT NULL, intent TEXT NOT NULL CHECK (intent IN ('build')),
+  idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, provider TEXT NOT NULL,
+  budget TEXT NOT NULL, pricing TEXT NOT NULL, retry_of TEXT REFERENCES build_jobs(id),
+  requested_by TEXT NOT NULL REFERENCES people(id), owner_id TEXT NOT NULL REFERENCES people(id),
+  owner_generation INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('queued','running','validating','succeeded','failed','cancelled','needs_reconciliation')),
+  attempt INTEGER NOT NULL DEFAULT 0, lease_owner TEXT, lease_expires_at TEXT, started_at TEXT,
+  dispatched_at TEXT, cancel_requested_at TEXT, failure_code TEXT, failure_detail TEXT,
+  reserved_cents INTEGER NOT NULL CHECK (reserved_cents >= 0),
+  charged_cents INTEGER NOT NULL DEFAULT 0 CHECK (charged_cents >= 0),
+  usage_state TEXT NOT NULL DEFAULT 'none' CHECK (usage_state IN ('none','reported','unknown')),
+  input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+  event_count INTEGER NOT NULL DEFAULT 0, artifact_digest TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT,
+  UNIQUE (project_id, idempotency_key)
+) STRICT;
+CREATE INDEX IF NOT EXISTS build_jobs_state ON build_jobs(state, created_at);
+CREATE INDEX IF NOT EXISTS build_jobs_business ON build_jobs(business_id);
+CREATE TABLE IF NOT EXISTS build_events (
+  job_id TEXT NOT NULL REFERENCES build_jobs(id), seq INTEGER NOT NULL, attempt INTEGER NOT NULL,
+  type TEXT NOT NULL, data TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (job_id, seq)
+) STRICT;
+CREATE TABLE IF NOT EXISTS build_artifacts (
+  job_id TEXT PRIMARY KEY REFERENCES build_jobs(id), attempt INTEGER NOT NULL, kind TEXT NOT NULL,
+  schema_version INTEGER NOT NULL, digest TEXT NOT NULL, bytes INTEGER NOT NULL, content TEXT NOT NULL,
+  checks TEXT NOT NULL, provenance TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS build_usage (
+  id INTEGER PRIMARY KEY, job_id TEXT NOT NULL REFERENCES build_jobs(id), attempt INTEGER NOT NULL,
+  ledger TEXT NOT NULL CHECK (ledger = 'build'),
+  kind TEXT NOT NULL CHECK (kind IN ('reservation','release','actual','unknown')),
+  cents INTEGER, input_tokens INTEGER, output_tokens INTEGER, note TEXT NOT NULL DEFAULT '', at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS build_events_no_update BEFORE UPDATE ON build_events
+BEGIN SELECT RAISE(ABORT, 'build events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS build_events_no_delete BEFORE DELETE ON build_events
+BEGIN SELECT RAISE(ABORT, 'build events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS build_artifacts_no_update BEFORE UPDATE ON build_artifacts
+BEGIN SELECT RAISE(ABORT, 'build artifacts are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS build_artifacts_no_delete BEFORE DELETE ON build_artifacts
+BEGIN SELECT RAISE(ABORT, 'build artifacts are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS build_usage_no_update BEFORE UPDATE ON build_usage
+BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS build_usage_no_delete BEFORE DELETE ON build_usage
+BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
 `;
 
 export function openDb(path: string) {

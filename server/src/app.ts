@@ -7,6 +7,7 @@ import { Acquisitions, type Criteria, interpretAcquire } from "./acquire.ts";
 import { type BookingProvider, Bookings } from "./bookings.ts";
 import { Books } from "./books.ts";
 import type { BuildProvider } from "./build.ts";
+import { Builds } from "./builds.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
 import { Deals } from "./deals.ts";
@@ -27,6 +28,8 @@ export interface AppOptions {
   chain?: Chain | null;
   /** Turns product revisions into builds. None is connected yet; the studio says so. */
   buildProvider?: BuildProvider | null;
+  /** Build jobs; tests pass their own to share it with a worker. Built from the provider otherwise. */
+  builds?: Builds;
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -37,6 +40,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     : null;
   const payments = bookings ? new Payments(store.db, store, bookings, options.chain ?? null) : null;
   const products = new Products(store.db, store, options.buildProvider ?? null);
+  const builds = options.builds ?? new Builds(store.db, store, options.buildProvider ?? null);
   const books = new Books(store.db, store, options.chain ?? null);
   const valuation = new Valuation(store.db, store, books);
   const acquire = new Acquisitions(store.db, store, books, valuation, options.chain ?? null);
@@ -171,6 +175,38 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const { created, view } = products.restore(me(c), c.req.param("id"), await body(c));
     return c.json({ ...view, created }, created ? 201 : 200);
   });
+
+  // ---------- build jobs (owner only; current ownership checked on every call) ----------
+
+  app.get("/api/product-projects/:id/builds", (c) => c.json(builds.list(me(c), c.req.param("id"))));
+  app.post("/api/product-projects/:id/builds", async (c) => {
+    const { job, created } = builds.request(me(c), c.req.param("id"), await body(c));
+    return c.json({ job, created }, created ? 201 : 200);
+  });
+  app.get("/api/builds/:id", (c) => c.json({ job: builds.get(me(c), c.req.param("id")) }));
+  app.get("/api/builds/:id/events", (c) =>
+    c.json(
+      builds.events(
+        me(c),
+        c.req.param("id"),
+        Number(c.req.query("after") ?? 0),
+        Number(c.req.query("limit") ?? 100),
+      ),
+    ),
+  );
+  app.post("/api/builds/:id/cancel", (c) =>
+    c.json({ job: builds.cancel(me(c), c.req.param("id")) }),
+  );
+  app.post("/api/builds/:id/retry", async (c) => {
+    const { job, created } = builds.retry(me(c), c.req.param("id"), await body(c));
+    return c.json({ job, created }, created ? 201 : 200);
+  });
+  app.get("/api/businesses/:id/build-budget", (c) =>
+    c.json(builds.budget(me(c), c.req.param("id"))),
+  );
+  app.put("/api/businesses/:id/build-budget", async (c) =>
+    c.json(builds.setBudget(me(c), c.req.param("id"), await body(c))),
+  );
 
   // ---------- the founder's business ----------
 

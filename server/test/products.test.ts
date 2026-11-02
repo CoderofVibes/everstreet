@@ -413,6 +413,7 @@ describe("product studio", () => {
     const double: BuildProvider = {
       id: "test-double",
       availability: () => ({ available: false, provider: "test-double", reason: "Budget not set" }),
+      pricing: () => null,
       start: () => {
         throw new Error("never started in M1");
       },

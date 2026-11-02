@@ -1,6 +1,9 @@
-// The boundary between the product studio and whatever turns a revision into a working build.
-// M1 ships the interface and the honest "not connected" answer; no provider runs here yet.
-// Design for the implementation that follows: docs/design/BUILD_RUNTIME.md.
+// The boundary between the platform and a build provider (the AI that drafts a product).
+// The platform owns jobs, budgets, fencing, validation and success; a provider only turns one
+// validated revision snapshot into a proposed artifact and reports token usage. Nothing a
+// provider says is a successful build by itself. Design: docs/design/BUILD_RUNTIME.md.
+
+import type { Brief, Foundation, Prototype } from "./products.ts";
 
 export interface BuildAvailability {
   available: boolean;
@@ -10,33 +13,57 @@ export interface BuildAvailability {
   reason: string;
 }
 
-/** One build of one immutable revision. The key makes a retried request the same build. */
+/**
+ * Declared prices in US cents per million tokens. With the limits in the request these bound
+ * the worst-case cost, but only if the provider honours its side of the contract below.
+ */
+export interface BuildPricing {
+  inputCentsPerMillionTokens: number;
+  outputCentsPerMillionTokens: number;
+}
+
+export interface BuildLimits {
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  maxSeconds: number;
+}
+
+/** One attempt at building one immutable revision. */
 export interface BuildRequest {
+  jobId: string;
+  attempt: number;
+  /** Stable across nothing but this attempt; a provider may use it to deduplicate its own calls. */
+  dispatchKey: string;
   projectId: string;
   businessId: string;
   revision: number;
   contentHash: string;
-  idempotencyKey: string;
-  budget: { maxCostCents: number; maxSeconds: number };
+  /** The validated revision snapshot: the provider works from content, not ids. */
+  content: { foundation: Foundation; brief: Brief; prototype: Prototype };
+  limits: BuildLimits;
+  /** The only artifact the platform accepts in this version. */
+  outputSchema: "extraction_spec/1";
 }
 
+/** What a provider may report. Everything else (state, success, cost) the platform decides. */
 export type BuildEvent =
-  | { type: "queued" | "started"; at: string }
-  | { type: "progress"; at: string; message: string }
-  | { type: "usage"; at: string; inputTokens: number; outputTokens: number; costCents: number }
-  | { type: "artifact"; at: string; digest: string; bytes: number }
-  | { type: "failed"; at: string; reason: string; retryable: boolean }
-  | { type: "cancelled"; at: string }
-  | { type: "succeeded"; at: string; digest: string };
+  | { type: "progress"; message: string }
+  | { type: "usage"; inputTokens: number; outputTokens: number }
+  | { type: "output"; artifact: unknown };
 
 /**
- * What a build provider implements. `start` streams events for one request and stops when the
- * signal aborts. A provider's text is never itself a successful build: success needs an
- * artifact digest that the platform has validated and checked.
+ * Provider contract:
+ * - `pricing()` returns declared prices or null; an unpriced provider is refused.
+ * - Before sending anything, count input tokens and refuse (throw) above `maxInputTokens`.
+ * - Cap generation at `maxOutputTokens` in the request to the model.
+ * - Report every call's token usage as a `usage` event, including on failure if known.
+ * - Stop promptly when the signal aborts. Never run tools, code or URLs from model output.
+ * - Throw on failure; the platform redacts and records the message.
  */
 export interface BuildProvider {
   readonly id: string;
   availability(): BuildAvailability;
+  pricing(): BuildPricing | null;
   start(request: BuildRequest, signal: AbortSignal): AsyncIterable<BuildEvent>;
 }
 
@@ -48,5 +75,30 @@ export const NO_BUILD_PROVIDER: BuildAvailability = {
 };
 
 export function buildAvailability(provider: BuildProvider | null | undefined): BuildAvailability {
-  return provider ? provider.availability() : NO_BUILD_PROVIDER;
+  if (!provider) return NO_BUILD_PROVIDER;
+  const a = provider.availability();
+  if (a.available && !provider.pricing())
+    return {
+      available: false,
+      provider: provider.id,
+      reason: "The build provider has no declared prices, so no budget can be reserved for it.",
+    };
+  return a;
+}
+
+/** Worst-case cost in cents for the limits, rounded up. */
+export function worstCaseCents(pricing: BuildPricing, limits: BuildLimits): number {
+  return Math.ceil(
+    (limits.maxInputTokens * pricing.inputCentsPerMillionTokens +
+      limits.maxOutputTokens * pricing.outputCentsPerMillionTokens) /
+      1_000_000,
+  );
+}
+
+export function costCents(pricing: BuildPricing, inputTokens: number, outputTokens: number) {
+  return worstCaseCents(pricing, {
+    maxInputTokens: inputTokens,
+    maxOutputTokens: outputTokens,
+    maxSeconds: 0,
+  });
 }
