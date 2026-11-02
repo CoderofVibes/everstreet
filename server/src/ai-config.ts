@@ -17,6 +17,13 @@ export interface SupportedModel {
   pricingVersion: string;
   pricing: BuildPricing;
   /**
+   * Thinking is on by default for these models and its tokens are billed as output. The
+   * lowest setting each accepts is pinned here (Sonnet 5.5: `between_tools`, which turns off
+   * up-front thinking; Haiku 5.5: `disabled`), at an effort both accept with it.
+   */
+  thinking: { type: "between_tools" } | { type: "disabled" };
+  effort: "low" | "medium" | "high";
+  /**
    * Prompts above this many input tokens are refused: the declared prices apply only below it
    * (Haiku 5.5 charges more above 100,000), and refusing is safer than undercounting.
    */
@@ -25,15 +32,17 @@ export interface SupportedModel {
 }
 
 /**
- * Models this platform can price exactly, from Anthropic's pricing page as read on
- * 2026-11-02: base input and output only, global routing (no `inference_geo`), no prompt
- * caching, no batch, no tools or extended thinking. Whole cents per million tokens.
+ * Models this platform can price exactly, from Anthropic's pricing and thinking pages as read
+ * on 2026-11-02: base input and output only, global routing (no `inference_geo`), no prompt
+ * caching, no batch, no tools, thinking at its lowest setting. Whole cents per million tokens.
  */
 export const SUPPORTED_MODELS: Record<string, SupportedModel> = {
   "claude-sonnet-5-5": {
     model: "claude-sonnet-5-5",
     pricingVersion: "2026-11-02",
     pricing: { inputCentsPerMillionTokens: 200, outputCentsPerMillionTokens: 1000 },
+    thinking: { type: "between_tools" },
+    effort: "medium",
     maxPromptTokens: 200_000,
     maxOutputTokens: 16_000,
   },
@@ -41,6 +50,8 @@ export const SUPPORTED_MODELS: Record<string, SupportedModel> = {
     model: "claude-haiku-5-5",
     pricingVersion: "2026-11-02",
     pricing: { inputCentsPerMillionTokens: 10, outputCentsPerMillionTokens: 50 },
+    thinking: { type: "disabled" },
+    effort: "medium",
     maxPromptTokens: 100_000,
     maxOutputTokens: 16_000,
   },

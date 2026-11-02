@@ -133,15 +133,11 @@ describe("Anthropic adapter: the request it sends", () => {
     expect(count.body).toEqual(
       Object.fromEntries(Object.entries(gen.body).filter(([k]) => k !== "max_tokens")),
     );
-    for (const extra of [
-      "tools",
-      "thinking",
-      "stream",
-      "metadata",
-      "service_tier",
-      "inference_geo",
-    ])
+    for (const extra of ["tools", "stream", "metadata", "service_tier", "inference_geo"])
       expect(gen.body).not.toHaveProperty(extra);
+    // Thinking is pinned to the model's lowest accepted setting, never left to the default.
+    expect(gen.body.thinking).toEqual({ type: "between_tools" });
+    expect(gen.body.output_config).toMatchObject({ effort: "medium" });
     // The founder's words travel as data inside the user turn, never as instructions.
     expect(String(gen.body.system)).toMatch(/untrusted/);
     const user = (gen.body.messages as { role: string; content: string }[])[0];
@@ -155,8 +151,72 @@ describe("Anthropic adapter: the request it sends", () => {
     const t = new Recorded(ok(message(), 23_000));
     const { events, error } = await run(new AnthropicProvider(config(), t));
     expect(error?.message).toMatch(/about 23000 input tokens, over this build's limit of 22800/);
+    expect(error?.message).toMatch(/Nothing was sent for generation/);
     expect(t.requests.map((r) => r.path)).toEqual(["/v1/messages/count_tokens"]);
-    expect(events).toEqual([]);
+    // Only the free count was used, so the receipt is zero and nothing stays reserved.
+    expect(events).toEqual([{ type: "usage_final", inputTokens: 0, outputTokens: 0 }]);
+  });
+
+  it("reports a zero receipt when the free count is refused or unreachable", async () => {
+    for (const answer of [
+      () => ({ status: 503, json: {} }),
+      () => {
+        throw new Error("ENOTFOUND");
+      },
+    ]) {
+      const t = new Recorded((path) => (path.endsWith("count_tokens") ? answer() : message()));
+      const { events, error } = await run(new AnthropicProvider(config(), t));
+      expect(error?.message).toMatch(/Nothing was sent for generation/);
+      expect(events).toEqual([{ type: "usage_final", inputTokens: 0, outputTokens: 0 }]);
+      expect(t.requests.map((r) => r.path)).toEqual(["/v1/messages/count_tokens"]);
+    }
+  });
+
+  it("pins Haiku 5.5 with thinking disabled", async () => {
+    const t = new Recorded(ok(message()));
+    const haiku = {
+      ...config(),
+      model: SUPPORTED_MODELS["claude-haiku-5-5"] as (typeof SUPPORTED_MODELS)[string],
+    };
+    await run(new AnthropicProvider(haiku, t));
+    const [count, gen] = t.requests as unknown as [
+      { body: Record<string, unknown> },
+      { body: Record<string, unknown> },
+    ];
+    expect(gen.body.thinking).toEqual({ type: "disabled" });
+    expect(count.body.thinking).toEqual({ type: "disabled" });
+    expect(new AnthropicProvider(haiku, t).identity().version).toMatch(/thinking-disabled/);
+  });
+
+  it("discards thinking blocks and keeps only the one text answer", async () => {
+    const answer = message({
+      content: [
+        { type: "thinking", thinking: "private reasoning", signature: "sig" },
+        { type: "redacted_thinking", data: "opaque" },
+        { type: "text", text: JSON.stringify(PROPOSAL) },
+      ],
+    });
+    const { events, error } = await run(new AnthropicProvider(config(), new Recorded(ok(answer))));
+    expect(error).toBeNull();
+    expect(events.map((e) => e.type)).toEqual(["progress", "usage_final", "output"]);
+    expect(JSON.stringify(events)).not.toMatch(/private reasoning|opaque/);
+  });
+
+  it("does not issue a final receipt when actual usage crosses the priced band", async () => {
+    // Astra's case: Haiku 5.5, estimate 94,000 passes the 95% margin of a 100,000 limit, but
+    // the response bills 100,001 input tokens, where a higher price applies.
+    const haiku = {
+      ...config(),
+      model: SUPPORTED_MODELS["claude-haiku-5-5"] as (typeof SUPPORTED_MODELS)[string],
+    };
+    const answer = message({ usage: { input_tokens: 100_001, output_tokens: 1000 } });
+    const { events, error } = await run(
+      new AnthropicProvider(haiku, new Recorded(ok(answer, 94_000))),
+      request({ limits: { maxInputTokens: 100_000, maxOutputTokens: 6_000, maxSeconds: 60 } }),
+    );
+    expect(error?.message).toMatch(/outside this build's limits or priced band/);
+    expect(events.map((e) => e.type)).toEqual(["progress", "usage"]);
+    expect(events[1]).toEqual({ type: "usage", inputTokens: 100_001, outputTokens: 1000 });
   });
 
   it("refuses limits above what the model is configured and priced for, before any request", async () => {
@@ -336,6 +396,18 @@ describe("Anthropic adapter inside durable jobs", () => {
     expect(log.proposals).toHaveLength(0);
   });
 
+  it("releases the reservation when a free preflight refuses, so trying costs nothing", async () => {
+    const { job } = await world(ok(message(), 30_000));
+    expect(job).toMatchObject({
+      state: "failed",
+      usage_state: "final",
+      reserved_cents: 0,
+      charged_microcents: 0,
+      retry_needs_ack: false,
+    });
+    expect(job.failure.detail).toMatch(/Nothing was sent/);
+  });
+
   it("keeps the reservation when the provider could not be reached after dispatch", async () => {
     const { job } = await world((path) => {
       if (path.endsWith("count_tokens")) return { status: 200, json: { input_tokens: 100 } };
@@ -447,7 +519,7 @@ describe("AI configuration", () => {
     const provider = new AnthropicProvider(config(), new Recorded(ok(message())));
     const identity = JSON.stringify(provider.identity());
     expect(identity).toBe(
-      '{"id":"anthropic","model":"claude-sonnet-5-5","version":"test-1+pricing-2026-11-02"}',
+      '{"id":"anthropic","model":"claude-sonnet-5-5","version":"test-1+pricing-2026-11-02+thinking-between_tools+effort-medium"}',
     );
     expect(identity).not.toContain(FAKE_KEY);
   });

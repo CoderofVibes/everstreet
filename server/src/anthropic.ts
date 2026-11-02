@@ -9,7 +9,7 @@
 // `/v1/messages/count_tokens` returns an estimate `{ input_tokens }`; stop reasons end_turn,
 // max_tokens, stop_sequence, tool_use, pause_turn, refusal, model_context_window_exceeded.
 
-import type { AiConfig } from "./ai-config.ts";
+import type { AiConfig, SupportedModel } from "./ai-config.ts";
 import type {
   BuildAvailability,
   BuildEvent,
@@ -244,13 +244,16 @@ export function userContent(request: BuildRequest): string {
   });
 }
 
-export function requestBody(request: BuildRequest, model: string) {
+export function requestBody(request: BuildRequest, model: SupportedModel) {
   return {
-    model,
+    model: model.model,
     max_tokens: request.limits.maxOutputTokens,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userContent(request) }],
+    // Explicit, never the model's default: thinking at its lowest accepted setting.
+    thinking: model.thinking,
     output_config: {
+      effort: model.effort,
       format: {
         type: "json_schema",
         schema: request.intent === "propose" ? PROPOSAL_JSON_SCHEMA : EXTRACTION_JSON_SCHEMA,
@@ -294,7 +297,7 @@ export class AnthropicProvider implements BuildProvider {
     return {
       id: this.id,
       model: this.config.model.model,
-      version: `${this.config.configVersion}+pricing-${this.config.model.pricingVersion}`,
+      version: `${this.config.configVersion}+pricing-${this.config.model.pricingVersion}+thinking-${this.config.model.thinking.type}+effort-${this.config.model.effort}`,
     };
   }
 
@@ -312,23 +315,43 @@ export class AnthropicProvider implements BuildProvider {
 
   async *start(request: BuildRequest, signal: AbortSignal): AsyncGenerator<BuildEvent> {
     const m = this.config.model;
+    // Before the generation nothing billable is sent: the count endpoint is free. A refusal at
+    // this stage is reported with a zero receipt, so no reservation is held for unsent work.
+    const notSent = (reason: string) => ({ reason });
+    let stopped: { reason: string } | null = null;
     if (request.limits.maxInputTokens > m.maxPromptTokens)
-      throw new Error(`This build's input limit is above what ${m.model} is priced for here`);
-    if (request.limits.maxOutputTokens > m.maxOutputTokens)
-      throw new Error(`This build's output limit is above the configured maximum for ${m.model}`);
-    const body = requestBody(request, m.model);
-
-    // 1. Count the exact request (free; an estimate) and refuse before generating if too big.
-    const { max_tokens: _omit, ...countBody } = body;
-    const counted = await this.transport.post("/v1/messages/count_tokens", countBody, signal);
-    if (counted.status !== 200) throw httpFailure(counted.status, counted.json);
-    const estimate = count((counted.json as { input_tokens?: unknown } | null)?.input_tokens);
-    if (estimate === null) throw new Error("The AI provider's token count could not be read");
+      stopped = notSent(`This build's input limit is above what ${m.model} is priced for here`);
+    else if (request.limits.maxOutputTokens > m.maxOutputTokens)
+      stopped = notSent(`This build's output limit is above the configured maximum for ${m.model}`);
+    const body = requestBody(request, m);
+    let estimate: number | null = null;
+    if (!stopped) {
+      // 1. Count the exact request (prompt, schema, thinking and effort settings).
+      const { max_tokens: _omit, ...countBody } = body;
+      try {
+        const counted = await this.transport.post("/v1/messages/count_tokens", countBody, signal);
+        if (counted.status !== 200)
+          stopped = notSent(httpFailure(counted.status, counted.json).message);
+        else {
+          estimate = count((counted.json as { input_tokens?: unknown } | null)?.input_tokens);
+          if (estimate === null)
+            stopped = notSent("The AI provider's token count could not be read");
+        }
+      } catch (e) {
+        stopped = notSent(
+          e instanceof TransportError ? e.message : "The AI provider could not be reached",
+        );
+      }
+    }
     const allowed = Math.floor(request.limits.maxInputTokens * COUNT_MARGIN);
-    if (estimate > allowed)
-      throw new Error(
+    if (!stopped && estimate !== null && estimate > allowed)
+      stopped = notSent(
         `The request would use about ${estimate} input tokens, over this build's limit of ${allowed} (with a margin for estimation)`,
       );
+    if (stopped) {
+      yield { type: "usage_final", inputTokens: 0, outputTokens: 0 };
+      throw new Error(`${stopped.reason}. Nothing was sent for generation.`);
+    }
     yield { type: "progress", message: `Request checked: about ${estimate} input tokens` };
 
     // 2. One generation. Anything from here on may be billed.
@@ -359,6 +382,18 @@ export class AnthropicProvider implements BuildProvider {
         "The response used a billing feature this platform does not price; its cost stays unresolved",
       );
     }
+    // A final receipt only inside the priced band and the request's limits. Outside them the
+    // declared prices may not apply (Haiku 5.5 charges more above 100,000 input tokens), so the
+    // tokens are recorded as an "at least" figure, the reservation stays held, and no output.
+    if (
+      input > Math.min(request.limits.maxInputTokens, m.maxPromptTokens) ||
+      output > request.limits.maxOutputTokens
+    ) {
+      yield { type: "usage", inputTokens: input, outputTokens: output };
+      throw new Error(
+        "The provider reported usage outside this build's limits or priced band; its full cost stays unresolved",
+      );
+    }
     yield { type: "usage_final", inputTokens: input, outputTokens: output };
 
     const stop = msg.stop_reason;
@@ -367,9 +402,16 @@ export class AnthropicProvider implements BuildProvider {
       throw new Error("The answer was cut off at its length limit");
     if (stop !== "end_turn")
       throw new Error("The AI provider returned an unexpected kind of answer");
-    const blocks = Array.isArray(msg.content) ? msg.content : [];
-    const text = blocks.length === 1 ? (blocks[0] as { type?: unknown; text?: unknown }) : null;
-    if (text?.type !== "text" || typeof text.text !== "string")
+    // Thinking blocks (their tokens are in output_tokens) are discarded unread; the answer is
+    // the one text block.
+    const blocks = Array.isArray(msg.content)
+      ? (msg.content as { type?: unknown; text?: unknown }[])
+      : [];
+    if (blocks.some((b) => !["text", "thinking", "redacted_thinking"].includes(String(b?.type))))
+      throw new Error("The AI provider returned unexpected content");
+    const texts = blocks.filter((b) => b?.type === "text");
+    const text = texts.length === 1 ? texts[0] : null;
+    if (typeof text?.text !== "string")
       throw new Error("The AI provider returned unexpected content");
     let parsed: unknown;
     try {

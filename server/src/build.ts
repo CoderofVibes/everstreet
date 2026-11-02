@@ -79,6 +79,8 @@ export interface BuildIdentity {
  * - Cap generation at `maxOutputTokens` in the request to the model.
  * - Report token use as `usage` deltas while running and one `usage_final` receipt with the
  *   attempt's billed totals. Without the receipt, usage is incomplete and stays reserved.
+ *   Report `usage_final` of 0/0 only when nothing billable was sent (e.g. a free preflight
+ *   refused the request), and only `usage` when the bill may fall outside declared prices.
  * - Stop promptly when the signal aborts. Never run tools, code or URLs from model output.
  * - Throw on failure; the platform redacts and records the message.
  */
