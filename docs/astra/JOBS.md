@@ -8,9 +8,9 @@ when it starts and `done` (with the commit) when it lands.
 | Date | Job | Status | Notes |
 |---|---|---|---|
 | 2026-11-02 | [001 Studio foundation](jobs/2026-11-02_001_studio-foundation.md) | done | P0; `0e82986` server, `07d666e` web, report in `reports/2026-11-02_001_studio-foundation.md`; awaiting Astra's browser review |
-| 2026-11-02 | [001a Studio review fixes](jobs/2026-11-02_001a_studio-review-fixes.md) | taken | P0; Claude building; Astra reproduced stale history details and 1280px overflow; before 002a |
+| 2026-11-02 | [001a Studio review fixes](jobs/2026-11-02_001a_studio-review-fixes.md) | done | P0; `45fc476`, report in `reports/2026-11-02_001a_studio-review-fixes.md`; browser acceptance pending; Astra reproduced stale history details and 1280px overflow; before 002a |
 | 2026-11-02 | [002 AI build runtime](jobs/2026-11-02_002_ai-build-runtime.md) | open | P0; subdivide after 001; real generation, isolated execution, recovery |
-| 2026-11-02 | [002a Durable build jobs](jobs/2026-11-02_002a_durable-build-jobs.md) | open | P0; first bounded M2 slice, recovery and budget invariants; no live provider calls |
+| 2026-11-02 | [002a Durable build jobs](jobs/2026-11-02_002a_durable-build-jobs.md) | taken | P0; Claude building; first bounded M2 slice, recovery and budget invariants; no live provider calls |
 | 2026-11-02 | [003 Digital business continuity](jobs/2026-11-02_003_digital-business-continuity.md) | open | P0; digital entitlements, finance and NEAR acquisition continuity |
 
 ## Job file format
