@@ -36,6 +36,7 @@ preparation. The proposed platform is detailed in `docs/design/PLATFORM_VISION.m
   transfer journey, keeping acquisition central while the studio grows.
 - `docs/astra/JOBS.md`, `docs/astra/INDEX.md`: indexed this work.
 - `docs/astra/BUILD_STATE.md`: coordinator checkpoint for multi-day continuation.
+- `docs/astra/ACCEPTANCE.md`: observable review gates and evidence ledger across M1-M6.
 - `docs/BRIEF.md`, `docs/DECISIONS.md`: point readers to Tony's updated audience and mandate.
 
 ## Risks and sequencing
