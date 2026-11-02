@@ -1,0 +1,8 @@
+node_modules/
+target/
+.env
+.near-credentials/
+data/runtime/
+*.db
+*.db-wal
+*.db-shm

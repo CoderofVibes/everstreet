@@ -1,0 +1,152 @@
+{
+  "kind": "handoff-evidence/v1",
+  "network": "testnet",
+  "business": "openseat.everstreet.testnet",
+  "code_hash": "CgS69NFiqRAmYWjum2RPryrbV7nzgUUxW4n7zknB1taU",
+  "deploy_tx": "EGvBR87Br3WhT9rboKHTsQjVUcWfkZVcV9vmPoeMFbA1",
+  "note": "OpenSeat ran locally and checked authority against this contract over testnet RPC at final finality. Attendee names stay in OpenSeat; nothing personal is on chain.",
+  "steps": [
+    {
+      "step": "fixture on chain",
+      "actor": "founder",
+      "expected": "treasury 45, reserved 20, available 25; worker A appointed in generation 1",
+      "observed": "treasury 45, reserved 20, available 25; worker A appointed",
+      "ok": true,
+      "mode": "live testnet",
+      "tx": "BM1AEB8tZBEmcfyATd19qPAMqfYbDVZwcPgkqRNJP2jm",
+      "url": "https://testnet.nearblocks.io/txns/BM1AEB8tZBEmcfyATd19qPAMqfYbDVZwcPgkqRNJP2jm",
+      "at": "2026-11-02T00:36:26.403Z"
+    },
+    {
+      "step": "class full, Sam waiting",
+      "actor": "attendees",
+      "expected": "Maya confirmed, Sam waitlisted at position 1",
+      "observed": "Maya OS-U43FA-844RZ confirmed, Sam OS-HZ6VB-SBDEA waitlisted #1",
+      "ok": true,
+      "mode": "seeded demo",
+      "at": "2026-11-02T00:36:26.454Z"
+    },
+    {
+      "step": "founder operates before the sale",
+      "actor": "founder",
+      "expected": "signed command accepted at generation 1",
+      "observed": "accepted: authorized as owner (authority testnet, generation 1)",
+      "ok": true,
+      "mode": "live testnet",
+      "at": "2026-11-02T00:36:36.138Z"
+    },
+    {
+      "step": "founder proposes the sale",
+      "actor": "founder",
+      "expected": "deal open, no acceptances",
+      "observed": "deal D-OPENSEAT-1 proposed for 100 demo credits",
+      "ok": true,
+      "mode": "live testnet",
+      "tx": "8j4sVp7i8dfHoqEsntN1JomWEDvaqDAH3gTnHBFTSmda",
+      "url": "https://testnet.nearblocks.io/txns/8j4sVp7i8dfHoqEsntN1JomWEDvaqDAH3gTnHBFTSmda",
+      "at": "2026-11-02T00:36:52.508Z"
+    },
+    {
+      "step": "seller accepts the terms",
+      "actor": "founder",
+      "expected": "acceptance recorded; nothing moves yet",
+      "observed": "accepted digest cc03facc7c41…",
+      "ok": true,
+      "mode": "live testnet",
+      "tx": "CXmDutFQhGnMarw7AkMXq5cHxmG76CYYu6YJGF8Cz2pW",
+      "url": "https://testnet.nearblocks.io/txns/CXmDutFQhGnMarw7AkMXq5cHxmG76CYYu6YJGF8Cz2pW",
+      "at": "2026-11-02T00:37:09.032Z"
+    },
+    {
+      "step": "buyer accepts and the sale closes",
+      "actor": "northline",
+      "expected": "owner Northline, generation 2, seller +100, buyer 50 left, treasury still 45/20/25",
+      "observed": "owner northline.everstreet.testnet, generation 2, founder 100, buyer 50, treasury 45/20/25",
+      "ok": true,
+      "mode": "live testnet",
+      "tx": "64bggSVqanKEX9ddWiSdHyYnyXnDuQ3ELZ5ekAmv4dsP",
+      "url": "https://testnet.nearblocks.io/txns/64bggSVqanKEX9ddWiSdHyYnyXnDuQ3ELZ5ekAmv4dsP",
+      "at": "2026-11-02T00:37:31.903Z"
+    },
+    {
+      "step": "founder appoints after the sale",
+      "actor": "founder",
+      "expected": "transaction fails on chain with E_NOT_OWNER",
+      "observed": "failed: Smart contract panicked: E_NOT_OWNER: only the current owner (northline.everstreet.testnet) may appoint operators; generation 2",
+      "ok": true,
+      "mode": "live testnet",
+      "tx": "CLwueaEr3PwG1cqVG6Cvb8t6RiLF5yBxGUoTYfe9FkNk",
+      "url": "https://testnet.nearblocks.io/txns/CLwueaEr3PwG1cqVG6Cvb8t6RiLF5yBxGUoTYfe9FkNk",
+      "at": "2026-11-02T00:37:41.675Z"
+    },
+    {
+      "step": "founder withdraws the treasury after the sale",
+      "actor": "founder",
+      "expected": "transaction fails on chain with E_NOT_OWNER",
+      "observed": "failed: Smart contract panicked: E_NOT_OWNER: only the current owner (northline.everstreet.testnet) may withdraw from the treasury; generation 2",
+      "ok": true,
+      "mode": "live testnet",
+      "tx": "3HebjJjHA3t6n3DgB4z4x7ZG15CynYMFzNcZGoC1u9Ew",
+      "url": "https://testnet.nearblocks.io/txns/3HebjJjHA3t6n3DgB4z4x7ZG15CynYMFzNcZGoC1u9Ew",
+      "at": "2026-11-02T00:37:51.340Z"
+    },
+    {
+      "step": "the same close replayed",
+      "actor": "northline",
+      "expected": "fails: the deal is closed and the seller is not paid twice",
+      "observed": "failed: Smart contract panicked: E_STATE: deal is Closed; founder holds 100",
+      "ok": true,
+      "mode": "live testnet",
+      "tx": "CMdAJog6uXWmqp7v2gf7batx4pddeXyjCfMtuCCzhcHV",
+      "url": "https://testnet.nearblocks.io/txns/CMdAJog6uXWmqp7v2gf7batx4pddeXyjCfMtuCCzhcHV",
+      "at": "2026-11-02T00:38:29.125Z"
+    },
+    {
+      "step": "founder's stale dashboard changes capacity",
+      "actor": "founder",
+      "expected": "OpenSeat refuses after checking the contract",
+      "observed": "refused: not authorized: not an operator",
+      "ok": true,
+      "mode": "live testnet",
+      "at": "2026-11-02T00:38:29.547Z"
+    },
+    {
+      "step": "Maya cancels; the founder-era worker tries to promote",
+      "actor": "worker A",
+      "expected": "refused: grant from generation 1; Sam keeps his place, job waits",
+      "observed": "refused: not authorized: not an operator; Sam waitlisted",
+      "ok": true,
+      "mode": "live testnet",
+      "at": "2026-11-02T00:38:29.965Z"
+    },
+    {
+      "step": "Northline appoints worker B",
+      "actor": "northline",
+      "expected": "worker B authorized for fulfillment in generation 2",
+      "observed": "appointed",
+      "ok": true,
+      "mode": "live testnet",
+      "tx": "Cg5Xtzr3wkhxNiXvtQUFwBggsB8xLpzU3ujvLmCMDHNx",
+      "url": "https://testnet.nearblocks.io/txns/Cg5Xtzr3wkhxNiXvtQUFwBggsB8xLpzU3ujvLmCMDHNx",
+      "at": "2026-11-02T00:38:34.159Z"
+    },
+    {
+      "step": "worker B promotes Sam",
+      "actor": "worker B",
+      "expected": "Sam confirmed once under generation 2; a redelivered cancel changes nothing",
+      "observed": "authorized as operator with fulfillment; Sam confirmed by worker-b.everstreet.testnet at generation 2; 1 notification; 0 further jobs",
+      "ok": true,
+      "mode": "live testnet",
+      "at": "2026-11-02T00:38:34.554Z"
+    },
+    {
+      "step": "Sam checks his original reference",
+      "actor": "Sam",
+      "expected": "the reference he got before the sale shows a confirmed seat and a calendar file",
+      "observed": "OS-HZ6VB-SBDEA: confirmed; calendar file written",
+      "ok": true,
+      "mode": "live testnet",
+      "at": "2026-11-02T00:38:34.555Z"
+    }
+  ]
+}

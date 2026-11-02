@@ -1,0 +1,20 @@
+{
+  "kind": "closing-packet/v1",
+  "business": "openseat.everstreet.testnet",
+  "rights": [
+    "owner role of the business contract",
+    "appointment of operators from generation 2"
+  ],
+  "protected_obligations": [
+    "monetary: credit-juniper-2610, 20 demo credits reserved in the treasury",
+    "service: OpenSeat bookings and waitlist places for juniper-linocut-2611"
+  ],
+  "transfer_items_outside_the_contract": [
+    {
+      "item": "openseat.example domain (simulated provider)",
+      "status": "pending",
+      "owner": "founder"
+    }
+  ],
+  "price": "100 demo credits"
+}

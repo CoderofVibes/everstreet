@@ -1,0 +1,15 @@
+{
+  "network": "testnet",
+  "rpc": "https://test.rpc.fastnear.com",
+  "root": "everstreet.testnet",
+  "business": "openseat.everstreet.testnet",
+  "issuer": "issuer.everstreet.testnet",
+  "founder": "founder.everstreet.testnet",
+  "buyer": "northline.everstreet.testnet",
+  "workerA": "worker-a.everstreet.testnet",
+  "workerB": "worker-b.everstreet.testnet",
+  "wasmSha256Hex": "ad8a935bdd48b3eaa3f208ce67445631c761e68fc4f21343a73072d404ad74c1",
+  "codeHash": "CgS69NFiqRAmYWjum2RPryrbV7nzgUUxW4n7zknB1taU",
+  "deployTx": "EGvBR87Br3WhT9rboKHTsQjVUcWfkZVcV9vmPoeMFbA1",
+  "deployedAt": "2026-11-02T00:33:50.599Z"
+}
