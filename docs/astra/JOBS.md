@@ -7,7 +7,7 @@ when it starts and `done` (with the commit) when it lands.
 
 | Date | Job | Status | Notes |
 |---|---|---|---|
-| 2026-11-02 | [001 Studio foundation](jobs/2026-11-02_001_studio-foundation.md) | taken | P0; new visual system and persistent digital product studio; Claude building |
+| 2026-11-02 | [001 Studio foundation](jobs/2026-11-02_001_studio-foundation.md) | done | P0; `0e82986` server, `07d666e` web, report in `reports/2026-11-02_001_studio-foundation.md`; awaiting Astra's browser review |
 | 2026-11-02 | [002 AI build runtime](jobs/2026-11-02_002_ai-build-runtime.md) | open | P0; subdivide after 001; real generation, isolated execution, recovery |
 | 2026-11-02 | [003 Digital business continuity](jobs/2026-11-02_003_digital-business-continuity.md) | open | P0; digital entitlements, finance and NEAR acquisition continuity |
 
