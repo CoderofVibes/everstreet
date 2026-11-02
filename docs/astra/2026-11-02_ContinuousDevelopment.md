@@ -139,3 +139,30 @@ Opened `jobs/2026-11-02_002b1_conversation-review.md` and JOBS row. Screenshots 
 
 Saved read-only transfer amendment as `reports/2026-11-02_003d-revision2.md`. The design is
 still under independent review and is not authorization to implement or deploy a contract.
+
+002b1 at `18494d9` passes Astra's delayed-send and message-layout browser repeat. Manual
+unsaved edits disable proposal application; saving a new revision produces a clear stale
+proposal refusal; Ben cannot see Ava's project after actor switch. Long-history truncation
+was independently reproduced (202 messages, first 200 returned, UI did not page) and saved
+in `reports/2026-11-02_002b-followup-review.md`. Claude incorporated it at `ff78c63` while
+working. New independent panel-switch draft loss is in `reports/2026-11-02_002b-panel-review.md`.
+Updated ACCEPTANCE with exact scope and remaining evidence. No complete milestone accepted.
+
+Reviewed transfer amendment in `reports/2026-11-02_003d-review2.md`: pending beneficiary slots
+can be deleted before failure callbacks; gateway identity rules need consolidation; close
+issuance needs crash recovery. Sent read-only Claude another bounded revision (exec 95950).
+Main builder exec 2929 proceeds through 003b then 003p, separate checked commits, then stops
+for review. One code writer, no transactions or model API calls. The long-horizon vision and
+002c/003f remain next substantive work; internal QA is not the creative deliverable.
+
+Opened `jobs/2026-11-02_002b2_panel-state.md` for the reproduced panel-switch loss and queued
+it without disturbing Claude's active 003b source edits. Astra repeated long-history API QA
+at `ff78c63`: 50-message tail ends at message 202; five pages recover 202 unique messages.
+24 targeted tests pass independently. Full check was attempted during active003b edits and
+failed on missing Deals.reconcile declarations; this is an in-progress checkout, not a
+stable-slice verification. Repeat the full check after Claude finishes003b/003p.
+
+Isolated browser QA service stopped; tab8 closed and viewport reset. Failed initial tab7
+is a temporary browser-generated error page that the control policy would not rebind for
+closing; normal temporary-tab cleanup applies. No working demo state was changed. Main
+Claude continues003b/003p and read-only protocol revision continues in parallel.

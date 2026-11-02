@@ -50,6 +50,21 @@ usage detail. Remaining UI issues (completed event pagination and rounded-budget
 are explicit 002b acceptance items. The corrected durable foundation may support 002b; this
 does not accept live-provider, runtime, release or full M2 gates.
 
+002b at `e491dcc` / `a6340f4` / `233d2bf`: Astra independently ran lint/types/158 tests and
+web build successfully. Three provider-adapter probes pass after correction (thinking block,
+actual usage over price band, free token-preflight refusal). These use injected transports,
+not live Anthropic. Browser with an explicitly scripted provider confirms budget setup,
+conversation → proposal → revision 2, exact computed cost versus rounded budget amount,
+unsaved-edit protection, stale-base refusal after a manual save, and alternate-actor denial.
+
+002b1 `18494d9`: delayed-send browser test now preserves typed-ahead text; founder message
+styles are readable; narrow controls are reachable and 1280/390 document widths fit. Further
+browser finding: Assistant → Brief → Assistant loses unsent composer/outbox state; see
+`reports/2026-11-02_002b-panel-review.md`. Long-history truncation was independently reproduced
+and corrected by Claude at `ff78c63`; Astra repeated 101 exchanges, recovered all 202 unique
+messages across five pages and the tail shows the newest reply; 24 targeted tests pass. These are
+partial guided-creation/iteration/limit evidence, not acceptance of a real generated product.
+
 ## M3: commerce, performance and transfer
 
 | Gate | Observable result | Evidence/status |
