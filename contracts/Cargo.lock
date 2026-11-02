@@ -315,6 +315,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "business-v3"
+version = "0.3.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "near-sdk",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -982,6 +991,7 @@ version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
+ "pkcs8",
  "signature",
 ]
 
@@ -994,8 +1004,10 @@ dependencies = [
  "curve25519-dalek",
  "ed25519",
  "rand_core",
+ "serde",
  "sha2 0.10.9",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
