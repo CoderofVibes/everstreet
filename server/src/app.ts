@@ -12,9 +12,11 @@ import { Builds, proposalBudget } from "./builds.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
 import { Deals } from "./deals.ts";
+import { Evaluations } from "./evaluations.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { Payments } from "./payments.ts";
 import { Products } from "./products.ts";
+import { Releases } from "./releases.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { type Overrides, Valuation } from "./value.ts";
 
@@ -57,6 +59,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
     proposalBudget(builds.provider),
   );
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
+  const evaluations = new Evaluations(store.db, store, runtime);
+  const releases = new Releases(store.db, store, runtime, evaluations);
   const books = new Books(store.db, store, options.chain ?? null);
   const valuation = new Valuation(store.db, store, books);
   const acquire = new Acquisitions(store.db, store, books, valuation, options.chain ?? null);
@@ -282,6 +286,33 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.post("/api/runtime/invocations/:id/cancel", (c) =>
     c.json({ invocation: runtime.cancel(me(c), c.req.param("id")) }),
+  );
+  app.get("/api/product-projects/:id/test-cases", (c) =>
+    c.json(evaluations.fixtures(me(c), c.req.param("id"))),
+  );
+  app.post("/api/product-projects/:id/test-cases", async (c) =>
+    c.json(evaluations.saveFixtures(me(c), c.req.param("id"), await body(c)), 201),
+  );
+  app.get("/api/product-projects/:id/evaluations", (c) =>
+    c.json({ runs: evaluations.list(me(c), c.req.param("id")) }),
+  );
+  app.post("/api/product-projects/:id/evaluations", async (c) => {
+    const { run, done } = evaluations.start(me(c), c.req.param("id"), await body(c));
+    // Runs in the background; the page follows it. Failures are recorded on the run.
+    done.catch((e) => console.error("evaluation run failed", (e as Error).message));
+    return c.json({ run }, 202);
+  });
+  app.get("/api/evaluations/:id", (c) =>
+    c.json({ run: evaluations.get(me(c), c.req.param("id")) }),
+  );
+  app.get("/api/product-projects/:id/releases", (c) =>
+    c.json(releases.view(me(c), c.req.param("id"))),
+  );
+  app.post("/api/product-projects/:id/releases", async (c) =>
+    c.json(releases.activate(me(c), c.req.param("id"), await body(c)), 201),
+  );
+  app.post("/api/product-projects/:id/releases/:rid/rollback", (c) =>
+    c.json(releases.rollback(me(c), c.req.param("id"), c.req.param("rid"))),
   );
   app.get("/api/businesses/:id/runtime-budget", (c) => {
     store.ownedBusiness(me(c), c.req.param("id"));

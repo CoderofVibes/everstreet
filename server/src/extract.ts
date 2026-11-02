@@ -37,6 +37,11 @@ export interface Extraction {
   problems: string[];
   /** The model's reason when it declined (`refused`), in its words, bounded. */
   reason: string | null;
+  /**
+   * Disagreements the model noticed in the source (e.g. line items vs the stated total), kept
+   * as evidence beside the stated values; never used to change them.
+   */
+  issues: string[];
   model_status: ModelStatus | null;
 }
 
@@ -87,6 +92,7 @@ const invalid = (problems: string[], status: ModelStatus | null = null): Extract
   missing: [],
   problems: problems.slice(0, 20),
   reason: null,
+  issues: [],
   model_status: status,
 });
 
@@ -100,7 +106,10 @@ export function validateExtraction(spec: ExtractionSpec, raw: unknown): Extracti
     : null;
   if (!status) return invalid(["The answer had no recognised status"]);
   const issues = Array.isArray(o.issues)
-    ? o.issues.filter((x): x is string => typeof x === "string").map((x) => clean(x, 300))
+    ? o.issues
+        .filter((x): x is string => typeof x === "string")
+        .slice(0, 10)
+        .map((x) => clean(x, 300))
     : [];
   if (status !== "extracted")
     return {
@@ -115,6 +124,7 @@ export function validateExtraction(spec: ExtractionSpec, raw: unknown): Extracti
           multiple_documents: "The text contains more than one document; send one at a time",
           ambiguous: "The document is ambiguous, so no value was guessed",
         }[status],
+      issues,
       model_status: status,
     };
   if (!Array.isArray(o.fields)) return invalid(["The answer had no list of fields"], status);
@@ -179,6 +189,7 @@ export function validateExtraction(spec: ExtractionSpec, raw: unknown): Extracti
     missing,
     problems: [],
     reason: missing.length ? issues.slice(0, 3).join("; ") || null : null,
+    issues,
     model_status: status,
   };
 }

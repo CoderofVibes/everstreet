@@ -342,13 +342,21 @@ export class ManagedRuntime {
     // Which artifact: the active release, or a named checked version (a candidate).
     let release: { id: string; artifact_job: string } | null = null;
     if (input.release === true) {
-      release =
-        (this.db
-          .prepare(
-            "SELECT id, artifact_job FROM runtime_releases WHERE project_id = ? AND state = 'active'",
-          )
-          .get(project.id) as { id: string; artifact_job: string } | undefined) ?? null;
-      if (!release) throw new HttpError(409, "Nothing is released yet");
+      const active = this.db
+        .prepare(
+          "SELECT id, artifact_job, provider_config, validator FROM runtime_releases WHERE project_id = ? AND state = 'active'",
+        )
+        .get(project.id) as
+        | { id: string; artifact_job: string; provider_config: string; validator: string }
+        | undefined;
+      if (!active) throw new HttpError(409, "Nothing is released yet");
+      // A release serves only under the model and checks it was released with.
+      if (active.provider_config !== this.configNow() || active.validator !== EXTRACT_VALIDATOR)
+        throw new HttpError(
+          409,
+          "The model or the platform's checks changed since this release; check it again and release it before it serves requests",
+        );
+      release = { id: active.id, artifact_job: active.artifact_job };
     }
     const artifact = this.artifact(
       project.id,
