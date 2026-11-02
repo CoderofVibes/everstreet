@@ -59,11 +59,11 @@ export class Payments {
     return this.chain;
   }
 
-  private units(cents: number) {
+  units(cents: number) {
     return (BigInt(cents) * 10n ** BigInt(this.need().decimals - 2)).toString();
   }
 
-  private cents(units: string) {
+  cents(units: string) {
     return Number(BigInt(units) / 10n ** BigInt(this.need().decimals - 2));
   }
 
@@ -99,6 +99,14 @@ export class Payments {
       explorer: `${chain.explorer}/address/${account.account_id}`,
       custody: "local-preview",
     };
+  }
+
+  /** The person's own testnet account and key (local-preview custody), created if needed. */
+  async signer(person: Person) {
+    await this.wallet(person);
+    const a = this.account("person", person.id);
+    if (!a?.secret) throw new HttpError(409, "This person's testnet key isn't on this computer");
+    return { account_id: a.account_id, secret: a.secret };
   }
 
   existingWallet(person: Person) {

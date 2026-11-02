@@ -54,6 +54,31 @@ export interface Period {
   sale_proceeds: string;
 }
 
+export interface ChainDeal {
+  deal_id: string;
+  digest: string;
+  deal: {
+    seller: string;
+    buyer: string;
+    price: string;
+    expires_at_ms: string;
+    terms_hash: string;
+    expected_generation: number;
+    version: number;
+    seller_accepted: string | null;
+    buyer_accepted: string | null;
+    held: string;
+    status: "Open" | "Closed" | "Cancelled" | "Expired" | "Void";
+    closed_at_ms: string | null;
+  };
+}
+
+export interface Control {
+  owner: string;
+  generation: number;
+  operators: [string, { capabilities: string[]; generation: number }][];
+}
+
 export interface TxResult {
   ok: boolean;
   hash: string;
@@ -123,6 +148,56 @@ export interface Chain {
     account: string,
     capability: string,
   ): Promise<{ authorized: boolean; owner: string; generation: number; reason: string }>;
+  // ---------- the two-party sale (contracts/business-v2) ----------
+  proposeSale(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    buyer: string;
+    amount: string;
+    expiresAtMs: number;
+    termsHash: string;
+  }): Promise<TxResult>;
+  reviseSale(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    amount: string;
+    expiresAtMs: number;
+    termsHash: string;
+  }): Promise<TxResult>;
+  fundDeal(input: {
+    buyer: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    amount: string;
+  }): Promise<TxResult>;
+  acceptSale(input: {
+    party: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    digest: string;
+  }): Promise<TxResult>;
+  cancelSale(input: {
+    party: string;
+    secret: string;
+    business: string;
+    dealId: string;
+  }): Promise<TxResult>;
+  withdrawDealHold(input: {
+    buyer: string;
+    secret: string;
+    business: string;
+    dealId: string;
+  }): Promise<TxResult>;
+  claimProceeds(input: { seller: string; secret: string; business: string }): Promise<TxResult>;
+  getDeal(business: string, dealId: string): Promise<ChainDeal | null>;
+  control(business: string): Promise<Control>;
+  proceedsOf(business: string, account: string): Promise<string>;
 }
 
 function executionError(failure: unknown): string {
@@ -414,6 +489,139 @@ export class NearChain implements Chain {
 
   period(business: string, yyyymm: number) {
     return this.view<Period>(business, "get_period", { yyyymm });
+  }
+
+  proposeSale(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    buyer: string;
+    amount: string;
+    expiresAtMs: number;
+    termsHash: string;
+  }) {
+    return this.send(
+      this.as(input.owner, input.secret),
+      input.business,
+      "propose_sale",
+      {
+        deal_id: input.dealId,
+        buyer: input.buyer,
+        price: input.amount,
+        expires_at_ms: String(input.expiresAtMs),
+        terms_hash: input.termsHash,
+      },
+      1n,
+      30,
+    );
+  }
+
+  reviseSale(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    amount: string;
+    expiresAtMs: number;
+    termsHash: string;
+  }) {
+    return this.send(
+      this.as(input.owner, input.secret),
+      input.business,
+      "revise_sale",
+      {
+        deal_id: input.dealId,
+        price: input.amount,
+        expires_at_ms: String(input.expiresAtMs),
+        terms_hash: input.termsHash,
+      },
+      1n,
+      30,
+    );
+  }
+
+  fundDeal(input: {
+    buyer: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    amount: string;
+  }) {
+    return this.send(
+      this.as(input.buyer, input.secret),
+      this.token,
+      "ft_transfer_call",
+      {
+        receiver_id: input.business,
+        amount: input.amount,
+        msg: JSON.stringify({ fund_deal: { deal_id: input.dealId } }),
+      },
+      1n,
+      80,
+    );
+  }
+
+  acceptSale(input: {
+    party: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    digest: string;
+  }) {
+    return this.send(
+      this.as(input.party, input.secret),
+      input.business,
+      "accept_sale",
+      { deal_id: input.dealId, digest: input.digest },
+      1n,
+      60,
+    );
+  }
+
+  cancelSale(input: { party: string; secret: string; business: string; dealId: string }) {
+    return this.send(
+      this.as(input.party, input.secret),
+      input.business,
+      "cancel_sale",
+      { deal_id: input.dealId },
+      1n,
+      30,
+    );
+  }
+
+  withdrawDealHold(input: { buyer: string; secret: string; business: string; dealId: string }) {
+    return this.send(
+      this.as(input.buyer, input.secret),
+      input.business,
+      "withdraw_deal_hold",
+      { deal_id: input.dealId },
+      1n,
+      60,
+    );
+  }
+
+  claimProceeds(input: { seller: string; secret: string; business: string }) {
+    return this.send(
+      this.as(input.seller, input.secret),
+      input.business,
+      "claim_proceeds",
+      {},
+      1n,
+      60,
+    );
+  }
+
+  async getDeal(business: string, dealId: string) {
+    return (await this.view<ChainDeal | null>(business, "get_deal", { deal_id: dealId })) ?? null;
+  }
+
+  async control(business: string) {
+    return this.view<Control>(business, "get_control");
+  }
+
+  async proceedsOf(business: string, account: string) {
+    return (await this.view<string>(business, "proceeds_of", { account_id: account })) ?? "0";
   }
 
   async tokenBalance(account: string) {

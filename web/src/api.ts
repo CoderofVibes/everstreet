@@ -118,6 +118,14 @@ export interface PublicBusiness {
   stage: Business["stage"];
   published_at: string;
   founder: { id?: string; display_name: string; headline: string; bio: string };
+  history?: {
+    at: string;
+    from: string;
+    to: string;
+    team: string | null;
+    generation: number | null;
+    tx_url: string | null;
+  }[];
   idea: Omit<Idea, "published_at"> | null;
   offer: Omit<Offer, "id" | "published_at"> | null;
   unknown: string[];

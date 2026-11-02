@@ -282,7 +282,7 @@ export class Acquisitions {
   }
 
   /** The viewer's role on a buying team; the creator approves. Anyone else gets a 404. */
-  private role(viewer: Person, buyerId: string, min: Role = "research"): Role {
+  role(viewer: Person, buyerId: string, min: Role = "research"): Role {
     const b = this.buyerRow(buyerId);
     if (!b) throw new HttpError(404, "No such buying profile");
     let role: Role | null = b.owner_id === viewer.id ? "approve" : null;
@@ -726,7 +726,7 @@ export class Acquisitions {
       | undefined;
   }
 
-  private async facts(businessId: string) {
+  async facts(businessId: string) {
     const { months, chain_error } = await this.books.months(businessId, 12);
     const e = await this.valuation.current(businessId, months);
     const used = months.filter((m) => e.inputs.months_used.includes(m.yyyymm));
@@ -1480,7 +1480,7 @@ export class Acquisitions {
     };
   }
 
-  private async operations(businessId: string, hours: number | null) {
+  async operations(businessId: string, hours: number | null) {
     const b = this.biz(businessId);
     const founder = this.store.person(b.owner_id).display_name;
     const helpers = (
@@ -1597,7 +1597,7 @@ export class Acquisitions {
                 item(
                   "Booking service account (OpenSeat studio)",
                   "Pending",
-                  "Moves with a separate step on the booking service",
+                  "Everstreet holds the studio key for the business, so it moves with the business on Everstreet at close; not on NEAR",
                   "Enforced by the service",
                 ),
               ]

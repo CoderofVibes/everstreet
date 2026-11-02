@@ -7,6 +7,7 @@ import { Acquire } from "./pages/Acquire.tsx";
 import { AcquireListing } from "./pages/AcquireListing.tsx";
 import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
+import { DealPage } from "./pages/Deal.tsx";
 import { DeskList, DeskPage } from "./pages/Desk.tsx";
 import { DeskSale } from "./pages/DeskSale.tsx";
 import { Explore } from "./pages/Explore.tsx";
@@ -163,6 +164,8 @@ function Routes() {
   const profile = match("/p/:id", path);
   if (profile) return <Person id={profile.id as string} />;
   if (path === "/find") return <Find />;
+  const deal = match("/deal/:id", path);
+  if (deal) return <DealPage id={deal.id as string} />;
   if (path === "/acquire") return <Acquire />;
   const listing = match("/acquire/l/:id", path);
   if (listing) return <AcquireListing id={listing.id as string} />;

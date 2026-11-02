@@ -340,7 +340,11 @@ export function StorefrontView({
             )}
             {(page.idea.why_me || page.idea.evidence) && (
               <>
-                <h3 style={{ fontSize: 16, marginTop: 16 }}>Why {first}</h3>
+                <h3 style={{ fontSize: 16, marginTop: 16 }}>
+                  {page.history?.length
+                    ? `Why ${page.history[0]?.from.split(" ")[0]} started it`
+                    : `Why ${first}`}
+                </h3>
                 <p>{page.idea.why_me || page.idea.evidence}</p>
               </>
             )}
@@ -387,6 +391,25 @@ export function StorefrontView({
               {page.founder.bio && <p style={{ whiteSpace: "pre-wrap" }}>{page.founder.bio}</p>}
             </div>
           </div>
+          {page.history?.map((h) => (
+            <p key={h.at} className="near-note">
+              Changed hands{" "}
+              {new Date(h.at).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+              : {h.from} to {h.team ? `${h.team} (${h.to})` : h.to}, on NEAR testnet
+              {h.generation ? ` at control generation ${h.generation}` : ""}.{" "}
+              {h.tx_url && (
+                <a href={h.tx_url} target="_blank" rel="noreferrer">
+                  The sale on NEAR
+                </a>
+              )}
+              {". "}
+              Customers' bookings and refund rights carried over.
+            </p>
+          ))}
         </section>
 
         {page.numbers ? (

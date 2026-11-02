@@ -1,7 +1,17 @@
 // An in-memory stand-in for NEAR testnet with the v2 contract's money rules (contracts/
 // business-v2, tested on a real node in its sandbox test). Used only by platform tests.
 
-import type { Chain, ChainOrder, Period, Rules, Treasury, TxResult } from "../src/chain.ts";
+import { createHash } from "node:crypto";
+import type {
+  Chain,
+  ChainDeal,
+  ChainOrder,
+  Control,
+  Period,
+  Rules,
+  Treasury,
+  TxResult,
+} from "../src/chain.ts";
 
 interface Biz {
   owner: string;
@@ -14,6 +24,11 @@ interface Biz {
   refunds: bigint;
   withdrawn: bigint;
   ordersIn: bigint;
+  generation: number;
+  deals: Map<string, ChainDeal["deal"]>;
+  dealHolds: bigint;
+  proceeds: Map<string, bigint>;
+  proceedsTotal: bigint;
 }
 
 export class FakeChain implements Chain {
@@ -52,6 +67,11 @@ export class FakeChain implements Chain {
       refunds: 0n,
       withdrawn: 0n,
       ordersIn: 0n,
+      generation: 1,
+      deals: new Map(),
+      dealHolds: 0n,
+      proceeds: new Map(),
+      proceedsTotal: 0n,
     });
     return { account_id: id, tx: this.tx() };
   }
@@ -176,8 +196,8 @@ export class FakeChain implements Chain {
       available: String(b.available),
       withdrawable: String(b.available > reserve ? b.available - reserve : 0n),
       pending_payouts: "0",
-      deal_holds: "0",
-      seller_proceeds: "0",
+      deal_holds: String(b.dealHolds),
+      seller_proceeds: String(b.proceedsTotal),
     };
   }
 
@@ -233,18 +253,237 @@ export class FakeChain implements Chain {
   async operatorCheck(business: string, account: string, capability: string) {
     const b = this.businesses.get(business);
     if (!b) throw new Error("no business");
+    const generation = b.generation;
     if (account === b.owner)
-      return { authorized: true, owner: b.owner, generation: 1, reason: "owner" };
+      return { authorized: true, owner: b.owner, generation, reason: "owner" };
     const caps = b.operators.get(account);
-    if (!caps)
-      return { authorized: false, owner: b.owner, generation: 1, reason: "not an operator" };
+    if (!caps) return { authorized: false, owner: b.owner, generation, reason: "not an operator" };
     return {
       authorized: caps.includes(capability),
       owner: b.owner,
-      generation: 1,
+      generation,
       reason: caps.includes(capability)
         ? `operator with ${capability}`
         : `not granted ${capability}`,
     };
+  }
+
+  // ---------- the two-party sale, with the contract's rules ----------
+
+  /** Set to make the next proceeds payout fail in its callback (the contract restores it). */
+  failNextPayout = false;
+
+  private fail(error: string): TxResult {
+    return { ok: false, hash: this.tx(), error: `Smart contract panicked: ${error}` };
+  }
+
+  private digest(business: string, id: string, d: ChainDeal["deal"]) {
+    return createHash("sha256")
+      .update(
+        `business-deal/v2|${business}|${id}|${d.version}|${d.seller}|${d.buyer}|${d.price}|${d.expires_at_ms}|${d.terms_hash}|${d.expected_generation}`,
+      )
+      .digest("hex");
+  }
+
+  async proposeSale(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    buyer: string;
+    amount: string;
+    expiresAtMs: number;
+    termsHash: string;
+  }): Promise<TxResult> {
+    const b = this.businesses.get(input.business);
+    if (!b || b.owner !== input.owner)
+      return this.fail("E_NOT_OWNER: only the owner may propose a sale");
+    if (b.deals.has(input.dealId)) return this.fail("E_ARGS: deal id already used");
+    b.deals.set(input.dealId, {
+      seller: input.owner,
+      buyer: input.buyer,
+      price: input.amount,
+      expires_at_ms: String(input.expiresAtMs),
+      terms_hash: input.termsHash,
+      expected_generation: b.generation,
+      version: 1,
+      seller_accepted: null,
+      buyer_accepted: null,
+      held: "0",
+      status: "Open",
+      closed_at_ms: null,
+    });
+    return { ok: true, hash: this.tx() };
+  }
+
+  async reviseSale(input: {
+    owner: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    amount: string;
+    expiresAtMs: number;
+    termsHash: string;
+  }): Promise<TxResult> {
+    const d = this.businesses.get(input.business)?.deals.get(input.dealId);
+    if (d?.status !== "Open") return this.fail("E_STATE: the deal is not open");
+    if (d.seller !== input.owner) return this.fail("E_NOT_SELLER: only the seller revises terms");
+    Object.assign(d, {
+      price: input.amount,
+      expires_at_ms: String(input.expiresAtMs),
+      terms_hash: input.termsHash,
+      version: d.version + 1,
+      seller_accepted: null,
+      buyer_accepted: null,
+    });
+    return { ok: true, hash: this.tx() };
+  }
+
+  /** Like ft_transfer_call: if the contract refuses, the token refunds and nothing moves. */
+  async fundDeal(input: {
+    buyer: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    amount: string;
+  }): Promise<TxResult> {
+    const b = this.businesses.get(input.business);
+    const d = b?.deals.get(input.dealId);
+    const amount = BigInt(input.amount);
+    const bal = this.balances.get(input.buyer) ?? 0n;
+    if (
+      !b ||
+      !d ||
+      d.status !== "Open" ||
+      d.buyer !== input.buyer ||
+      d.held !== "0" ||
+      input.amount !== d.price ||
+      bal < amount
+    )
+      return {
+        ok: true,
+        hash: this.tx(),
+        error: "Smart contract panicked: E_FUNDS: refunded by the token",
+      };
+    this.balances.set(input.buyer, bal - amount);
+    this.balances.set(input.business, (this.balances.get(input.business) ?? 0n) + amount);
+    d.held = input.amount;
+    b.dealHolds += amount;
+    return { ok: true, hash: this.tx() };
+  }
+
+  async acceptSale(input: {
+    party: string;
+    secret: string;
+    business: string;
+    dealId: string;
+    digest: string;
+  }): Promise<TxResult> {
+    const b = this.businesses.get(input.business);
+    const d = b?.deals.get(input.dealId);
+    if (!b || !d || d.status !== "Open") return this.fail("E_STATE: the deal is not open");
+    if (Date.now() >= Number(d.expires_at_ms)) return this.fail("E_EXPIRED: the offer has expired");
+    if (d.expected_generation !== b.generation || d.seller !== b.owner)
+      return this.fail("E_GENERATION: control changed since these terms were proposed");
+    const current = this.digest(input.business, input.dealId, d);
+    if (input.digest !== current)
+      return this.fail("E_TERMS: these are not the current terms; read the deal again");
+    if (input.party === d.seller) d.seller_accepted = current;
+    else if (input.party === d.buyer) {
+      if (d.held !== d.price)
+        return this.fail("E_FUNDS: fund the deal with the exact price before accepting");
+      d.buyer_accepted = current;
+    } else return this.fail("E_NOT_PARTY: only the seller or the buyer accepts");
+    if (d.seller_accepted === current && d.buyer_accepted === current) {
+      const price = BigInt(d.price);
+      d.held = "0";
+      b.dealHolds -= price;
+      b.proceeds.set(d.seller, (b.proceeds.get(d.seller) ?? 0n) + price);
+      b.proceedsTotal += price;
+      b.owner = d.buyer;
+      b.generation += 1;
+      d.status = "Closed";
+      d.closed_at_ms = String(Date.now());
+      b.operators.clear();
+      for (const [id, other] of b.deals)
+        if (id !== input.dealId && other.status === "Open") other.status = "Void";
+    }
+    return { ok: true, hash: this.tx() };
+  }
+
+  async cancelSale(input: {
+    party: string;
+    secret: string;
+    business: string;
+    dealId: string;
+  }): Promise<TxResult> {
+    const d = this.businesses.get(input.business)?.deals.get(input.dealId);
+    if (d?.status !== "Open") return this.fail("E_STATE: the deal is not open");
+    if (input.party !== d.seller && input.party !== d.buyer) return this.fail("E_NOT_PARTY");
+    d.status = "Cancelled";
+    return { ok: true, hash: this.tx() };
+  }
+
+  async withdrawDealHold(input: {
+    buyer: string;
+    secret: string;
+    business: string;
+    dealId: string;
+  }): Promise<TxResult> {
+    const b = this.businesses.get(input.business);
+    const d = b?.deals.get(input.dealId);
+    if (!b || !d || d.buyer !== input.buyer) return this.fail("E_NOT_PARTY");
+    if (d.status === "Closed")
+      return this.fail("E_STATE: the sale closed; the hold paid the seller");
+    const amount = BigInt(d.held);
+    if (amount === 0n) return this.fail("E_FUNDS: nothing held");
+    d.held = "0";
+    d.buyer_accepted = null;
+    b.dealHolds -= amount;
+    this.balances.set(input.business, (this.balances.get(input.business) ?? 0n) - amount);
+    this.balances.set(input.buyer, (this.balances.get(input.buyer) ?? 0n) + amount);
+    return { ok: true, hash: this.tx() };
+  }
+
+  async claimProceeds(input: {
+    seller: string;
+    secret: string;
+    business: string;
+  }): Promise<TxResult> {
+    const b = this.businesses.get(input.business);
+    const p = b?.proceeds.get(input.seller) ?? 0n;
+    if (!b || p === 0n) return this.fail("E_FUNDS: no sale proceeds to claim");
+    if (this.failNextPayout) {
+      this.failNextPayout = false;
+      // The transaction succeeds; the token transfer fails and the callback restores proceeds.
+      return { ok: true, hash: this.tx(), error: "Smart contract panicked: transfer failed" };
+    }
+    b.proceeds.delete(input.seller);
+    b.proceedsTotal -= p;
+    this.balances.set(input.business, (this.balances.get(input.business) ?? 0n) - p);
+    this.balances.set(input.seller, (this.balances.get(input.seller) ?? 0n) + p);
+    return { ok: true, hash: this.tx() };
+  }
+
+  async getDeal(business: string, dealId: string): Promise<ChainDeal | null> {
+    const d = this.businesses.get(business)?.deals.get(dealId);
+    return d ? { deal_id: dealId, digest: this.digest(business, dealId, d), deal: { ...d } } : null;
+  }
+
+  async control(business: string): Promise<Control> {
+    const b = this.businesses.get(business);
+    if (!b) throw new Error("no business");
+    return {
+      owner: b.owner,
+      generation: b.generation,
+      operators: [...b.operators].map(([a, caps]) => [
+        a,
+        { capabilities: caps, generation: b.generation },
+      ]),
+    };
+  }
+
+  async proceedsOf(business: string, account: string) {
+    return String(this.businesses.get(business)?.proceeds.get(account) ?? 0n);
   }
 }

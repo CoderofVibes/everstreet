@@ -1,0 +1,140 @@
+{
+  "kind": "sale-evidence/v1",
+  "network": "testnet",
+  "token": "tusd.everstreet.testnet",
+  "at": "2026-11-02T16:25:15.758Z",
+  "steps": [
+    {
+      "step": "business account",
+      "ok": true,
+      "observed": "b-kiln-lane-pottery-2324.everstreet.testnet, owned by June's own account",
+      "url": "https://testnet.nearblocks.io/address/b-kiln-lane-pottery-2324.everstreet.testnet"
+    },
+    {
+      "step": "customer pays before the sale",
+      "ok": true,
+      "observed": "Pat paid $35 for 2026-11-05",
+      "url": "https://testnet.nearblocks.io/txns/2yvY2ut8en3UKfFRmHFLgYHL3pPnqWGkxuaqZFJN9sLz"
+    },
+    {
+      "step": "customer pays before the sale",
+      "ok": true,
+      "observed": "Pat paid $35 for 2026-11-12",
+      "url": "https://testnet.nearblocks.io/txns/CS8YQC1AwAA7gGZuhuFx3CrMZ2bw7tCiiobv2cMca9XR"
+    },
+    {
+      "step": "helper appointed before the sale",
+      "ok": true,
+      "observed": "Dev may answer customers and mark orders delivered",
+      "url": "https://testnet.nearblocks.io/txns/7nEB4wL2x5Ffz1joPdb5twLazkeZYz9zvXDnQ6pzpffR"
+    },
+    {
+      "step": "buyer team has access",
+      "ok": true,
+      "observed": "Kiln Lane Regulars Co-op (Lena accepts for the team)"
+    },
+    {
+      "step": "terms proposed (v1)",
+      "ok": true,
+      "observed": "$500; the contract holds the same terms fingerprint",
+      "url": "https://testnet.nearblocks.io/txns/H67NB6oLR17eagWo3ZABx2Wkr5SYb3TEWoX2Khgxk5BB"
+    },
+    {
+      "step": "buyer funds v1",
+      "ok": true,
+      "observed": "$500 held by the contract for this deal",
+      "url": "https://testnet.nearblocks.io/txns/DHwJfB5VvN4gNjCZKTnyf9zXK39torPX6X7Jjbpv3woL"
+    },
+    {
+      "step": "seller accepts v1",
+      "ok": true,
+      "observed": "June's acceptance of v1 recorded",
+      "url": "https://testnet.nearblocks.io/txns/Aov4RGMwboZFaTpRUFuC4ichr3rdZHx1VR6VDZKzXi8b"
+    },
+    {
+      "step": "seller revises (v2)",
+      "ok": true,
+      "observed": "Price $500 → $450; both acceptances cleared; the $500 hold no longer matches",
+      "url": "https://testnet.nearblocks.io/txns/8Ldvv9XSzryLWUoutdX2yrJbqhAJhB8u3pVJL4u36GEG"
+    },
+    {
+      "step": "buyer can't accept the old version",
+      "ok": true,
+      "observed": "Refused by the contract: These aren't the current terms any more. Read the latest version and accept that.",
+      "url": "https://testnet.nearblocks.io/txns/CgTJx2Lf2Y3sCbLYwutqzbJYtapYcjP1BtPei5DxR7j1"
+    },
+    {
+      "step": "buyer takes the old hold back",
+      "ok": true,
+      "observed": "$500 back in Lena's account",
+      "url": "https://testnet.nearblocks.io/txns/DXH2Nrq43h6GRTuA7XGj9sPtv9jmvHsa51WoexHtfFhG"
+    },
+    {
+      "step": "buyer funds v2",
+      "ok": true,
+      "observed": "$450 held",
+      "url": "https://testnet.nearblocks.io/txns/E1yjPwUS8HzrNzkprfsksW3J5KdUVq8bpbfHR4LH6fhB"
+    },
+    {
+      "step": "buyer accepts v2",
+      "ok": true,
+      "observed": "Waiting for the seller",
+      "url": "https://testnet.nearblocks.io/txns/CWzqdSBfXpF5LgZ9yV1c2NfQnc5iGJdq218XMen91zSX"
+    },
+    {
+      "step": "seller accepts v2: the sale closes",
+      "ok": true,
+      "observed": "Control at generation 2; proceeds $450 held for June",
+      "url": "https://testnet.nearblocks.io/txns/4Xk6g4khh5C3dmGxxTcWp1YN4aW8WLrkyz8R6FxQpY7f"
+    },
+    {
+      "step": "it can't close twice",
+      "ok": true,
+      "observed": "This deal isn't open any more."
+    },
+    {
+      "step": "the buyer controls it on NEAR",
+      "ok": true,
+      "observed": "Owner p-lena-park-0873.everstreet.testnet at generation 2, 0 helpers"
+    },
+    {
+      "step": "customer money stayed with the business",
+      "ok": true,
+      "observed": "In the terms $70; now $70"
+    },
+    {
+      "step": "the former owner is refused",
+      "ok": true,
+      "observed": "E_NOT_OWNER: only the current owner (p-lena-park-0873.everstreet.testnet) may withdraw; generation 2",
+      "url": "https://testnet.nearblocks.io/txns/HFpLECTQeZ3mnwqEwBjkqE1zvCxk2Wv8KpH4yjXzME2Y"
+    },
+    {
+      "step": "the old helper is refused",
+      "ok": true,
+      "observed": "operator_check: not an operator (generation 2)"
+    },
+    {
+      "step": "the new owner serves a pre-sale customer",
+      "ok": true,
+      "observed": "Pat's first session marked delivered by Lena",
+      "url": "https://testnet.nearblocks.io/txns/DAgKpifYuELa1bn2LCpiWky2wt182fJzymEJNeYyKEnA"
+    },
+    {
+      "step": "a pre-sale customer's refund right survives",
+      "ok": true,
+      "observed": "Pat cancelled the second session and the contract refunded $35 under the rules June set",
+      "url": "https://testnet.nearblocks.io/txns/FndtNHpq6LohhUu5pR1kEVsaSmcqejgjoPaAedSxmYz5"
+    },
+    {
+      "step": "the public page shows the change of hands",
+      "ok": true,
+      "observed": "June Okafor → Kiln Lane Regulars Co-op"
+    },
+    {
+      "step": "the seller claims proceeds",
+      "ok": true,
+      "observed": "$450 arrived in June's account",
+      "url": "https://testnet.nearblocks.io/txns/K1YWVTUrvpqZEgGX1EP9WnygxuQCTADgRfnzscbZHZU"
+    }
+  ]
+}

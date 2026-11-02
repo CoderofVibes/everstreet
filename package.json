@@ -23,6 +23,7 @@
     "check": "npm run lint && npm run typecheck && npm test",
     "setup:v2": "tsx scripts/setup-v2.ts",
     "smoke:payments": "tsx scripts/smoke-payments.ts",
+    "smoke:sale": "tsx scripts/smoke-sale.ts",
     "seed:history": "tsx scripts/seed-history.ts"
   },
   "dependencies": {

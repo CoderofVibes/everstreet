@@ -19,6 +19,7 @@ import {
 } from "../api5.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { DealsList } from "./Deal.tsx";
 
 const FAMILIES: [string, string][] = [
   ["software", "Software or API"],
@@ -525,49 +526,52 @@ function RequestsTab({ ws, onChange }: { ws: Workspace; onChange: () => void }) 
       </section>
     );
   return (
-    <section className="card">
-      <h2>Your team's access requests</h2>
-      {ws.requests.map((r) => (
-        <div key={r.id} className="message">
-          <div className="row">
-            <strong>{r.title}</strong>
-            <span
-              className={`pill ${r.status === "granted" ? "lime" : r.status === "pending" ? "" : "caution"}`}
-            >
-              {STATUS_LABEL[r.status]}
-            </span>
-            <span className="spacer" />
-            {r.status === "granted" && (
-              <Link to={`/acquire/room/${r.id}`} className="btn btn-primary">
-                Open the evidence room
-              </Link>
-            )}
-            {r.status === "pending" && ws.role === "approve" && (
-              <button
-                type="button"
-                className="btn btn-quiet"
-                onClick={async () => {
-                  await api5.withdraw(r.id);
-                  onChange();
-                }}
+    <>
+      <DealsList title="Deals offered to your team" buyerId={ws.buyer.id} />
+      <section className="card">
+        <h2>Your team's access requests</h2>
+        {ws.requests.map((r) => (
+          <div key={r.id} className="message">
+            <div className="row">
+              <strong>{r.title}</strong>
+              <span
+                className={`pill ${r.status === "granted" ? "lime" : r.status === "pending" ? "" : "caution"}`}
               >
-                Withdraw
-              </button>
-            )}
+                {STATUS_LABEL[r.status]}
+              </span>
+              <span className="spacer" />
+              {r.status === "granted" && (
+                <Link to={`/acquire/room/${r.id}`} className="btn btn-primary">
+                  Open the evidence room
+                </Link>
+              )}
+              {r.status === "pending" && ws.role === "approve" && (
+                <button
+                  type="button"
+                  className="btn btn-quiet"
+                  onClick={async () => {
+                    await api5.withdraw(r.id);
+                    onChange();
+                  }}
+                >
+                  Withdraw
+                </button>
+              )}
+            </div>
+            <div className="meta">
+              Asked by {r.requested_by} on {when(r.created_at)} for {r.days} days:{" "}
+              {r.categories.join(", ")}
+              {r.granted && ` · Granted: ${r.granted.join(", ")}`}
+              {r.status === "granted" && r.expires_at && ` · until ${when(r.expires_at)}`}
+              {r.status === "expired" && r.expires_at && ` · ended ${when(r.expires_at)}`}
+              {r.status === "revoked" && r.revoked_at && ` · ended ${when(r.revoked_at)}`}
+            </div>
+            <blockquote>{r.purpose}</blockquote>
+            {r.decision_note && <div className="reply">Seller: {r.decision_note}</div>}
           </div>
-          <div className="meta">
-            Asked by {r.requested_by} on {when(r.created_at)} for {r.days} days:{" "}
-            {r.categories.join(", ")}
-            {r.granted && ` · Granted: ${r.granted.join(", ")}`}
-            {r.status === "granted" && r.expires_at && ` · until ${when(r.expires_at)}`}
-            {r.status === "expired" && r.expires_at && ` · ended ${when(r.expires_at)}`}
-            {r.status === "revoked" && r.revoked_at && ` · ended ${when(r.revoked_at)}`}
-          </div>
-          <blockquote>{r.purpose}</blockquote>
-          {r.decision_note && <div className="reply">Seller: {r.decision_note}</div>}
-        </div>
-      ))}
-    </section>
+        ))}
+      </section>
+    </>
   );
 }
 

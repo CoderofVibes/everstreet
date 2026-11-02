@@ -6,6 +6,17 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "serve"],
       "port": 8800
+    },
+    {
+      "name": "everstreet-sale-smoke",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "serve"],
+      "port": 8801,
+      "env": {
+        "PORT": "8801",
+        "EVERSTREET_DB": "data/runtime/sale-smoke.db",
+        "OPENSEAT_DB": "data/runtime/sale-smoke-openseat.db"
+      }
     }
   ]
 }

@@ -676,7 +676,33 @@ export class Store {
       unknown: missingFacts(offer),
       action: customerAction(offer, b.family),
       interested: this.inquiryCount(b.id),
+      history: this.ownershipHistory(b.id),
     };
+  }
+
+  /** Changes of hands, oldest first; the first entry names who started it. */
+  ownershipHistory(businessId: string) {
+    return (
+      this.db
+        .prepare(
+          "SELECT o.at, o.generation, o.tx, f.display_name AS from_name, t.display_name AS to_name, y.name AS team FROM ownership o JOIN people f ON f.id = o.from_id JOIN people t ON t.id = o.to_id LEFT JOIN buyers y ON y.id = o.buyer_id WHERE o.business_id = ? ORDER BY o.id",
+        )
+        .all(businessId) as {
+        at: string;
+        generation: number | null;
+        tx: string | null;
+        from_name: string;
+        to_name: string;
+        team: string | null;
+      }[]
+    ).map((h) => ({
+      at: h.at,
+      from: h.from_name,
+      to: h.to_name,
+      team: h.team,
+      generation: h.generation,
+      tx_url: h.tx ? `https://testnet.nearblocks.io/txns/${h.tx}` : null,
+    }));
   }
 
   isOwnerOf(viewer: Person, businessId: string) {

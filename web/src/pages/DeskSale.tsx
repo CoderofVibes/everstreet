@@ -11,8 +11,10 @@ import {
   STATUS_LABEL,
   when,
 } from "../api5.ts";
-import { Link } from "../router.tsx";
+import { api6 } from "../api6.ts";
+import { Link, useRouter } from "../router.tsx";
 import { CandidateHead, FigLine } from "./Acquire.tsx";
+import { DealsList, TermsForm } from "./Deal.tsx";
 
 const MODE_HELP: Record<string, string> = {
   closed: "No acquisition listing. Nobody can find it as a business to buy.",
@@ -90,7 +92,51 @@ function Decide({ r, meta, onDone }: { r: AccessRequest; meta: Meta; onDone: () 
   );
 }
 
-function RequestCard({ r, meta, onDone }: { r: AccessRequest; meta: Meta; onDone: () => void }) {
+function ProposeTerms({ r, businessId }: { r: AccessRequest; businessId: string }) {
+  const { go } = useRouter();
+  const [open, setOpen] = useState(false);
+  if (!open)
+    return (
+      <button
+        type="button"
+        className="btn btn-secondary"
+        style={{ marginTop: 8 }}
+        onClick={() => setOpen(true)}
+      >
+        Propose terms to {r.buyer.name}
+      </button>
+    );
+  return (
+    <div style={{ background: "var(--paper)", borderRadius: 8, padding: 14, marginTop: 10 }}>
+      <strong style={{ fontSize: 14 }}>Exact terms for {r.buyer.name}</strong>
+      <p className="muted" style={{ fontSize: 13 }}>
+        What transfers, what stays and what's excluded are filled in from the business as it is now
+        and frozen into the terms. {r.buyer.members.find((m) => m.lead)?.name ?? "The team's lead"}
+        's testnet account accepts for the team.
+      </p>
+      <TermsForm
+        label="Propose these terms on NEAR"
+        initial={{ days: 7, handover: "Two weeks of help after the sale" }}
+        submit={async (t) => {
+          const v = await api6.propose(businessId, { ...t, buyer_id: r.buyer.id });
+          go(`/deal/${v.deal.id}`);
+        }}
+      />
+    </div>
+  );
+}
+
+function RequestCard({
+  r,
+  meta,
+  onDone,
+  businessId,
+}: {
+  r: AccessRequest;
+  meta: Meta;
+  onDone: () => void;
+  businessId: string;
+}) {
   const b = r.buyer;
   return (
     <div className="message">
@@ -146,6 +192,9 @@ function RequestCard({ r, meta, onDone }: { r: AccessRequest; meta: Meta; onDone
       </dl>
       <blockquote>{r.purpose}</blockquote>
       {r.status === "pending" && <Decide r={r} meta={meta} onDone={onDone} />}
+      {r.status !== "declined" && r.status !== "withdrawn" && (
+        <ProposeTerms r={r} businessId={businessId} />
+      )}
       {r.status === "granted" && (
         <div className="row" style={{ marginTop: 8 }}>
           <span className="muted" style={{ fontSize: 14 }}>
@@ -378,6 +427,8 @@ export function DeskSale({ id }: { id: string }) {
             </div>
           </section>
 
+          <DealsList title="Deals" businessId={id} />
+
           <section className="card">
             <h2>Access requests</h2>
             {data.requests.length === 0 && (
@@ -386,10 +437,10 @@ export function DeskSale({ id }: { id: string }) {
               </p>
             )}
             {pending.map((r) => (
-              <RequestCard key={r.id} r={r} meta={meta} onDone={load} />
+              <RequestCard key={r.id} r={r} meta={meta} onDone={load} businessId={id} />
             ))}
             {others.map((r) => (
-              <RequestCard key={r.id} r={r} meta={meta} onDone={load} />
+              <RequestCard key={r.id} r={r} meta={meta} onDone={load} businessId={id} />
             ))}
           </section>
         </div>

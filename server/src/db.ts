@@ -171,6 +171,36 @@ CREATE TABLE IF NOT EXISTS buyer_scenarios (
   business_id TEXT NOT NULL REFERENCES businesses(id), name TEXT NOT NULL, overrides TEXT NOT NULL,
   result TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL
 ) STRICT;
+CREATE TABLE IF NOT EXISTS deals (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  buyer_id TEXT NOT NULL REFERENCES buyers(id), seller_id TEXT NOT NULL REFERENCES people(id),
+  representative_id TEXT NOT NULL REFERENCES people(id), seller_account TEXT NOT NULL,
+  buyer_account TEXT NOT NULL, business_account TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open','closed','cancelled','expired','void')),
+  version INTEGER NOT NULL, closed_at TEXT, generation_after INTEGER, close_tx TEXT,
+  claim_tx TEXT, claim_error TEXT, claimed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS deal_versions (
+  deal_id TEXT NOT NULL REFERENCES deals(id), version INTEGER NOT NULL, price_cents INTEGER NOT NULL,
+  expires_at TEXT NOT NULL, terms TEXT NOT NULL, terms_hash TEXT NOT NULL, digest TEXT NOT NULL,
+  tx TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (deal_id, version)
+) STRICT;
+CREATE TABLE IF NOT EXISTS deal_steps (
+  id INTEGER PRIMARY KEY, deal_id TEXT NOT NULL REFERENCES deals(id), kind TEXT NOT NULL,
+  person_id TEXT, version INTEGER, ok INTEGER NOT NULL, tx TEXT, detail TEXT NOT NULL DEFAULT '',
+  at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS transfer_items (
+  deal_id TEXT NOT NULL REFERENCES deals(id), key TEXT NOT NULL, name TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','completed','excluded')), detail TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL, PRIMARY KEY (deal_id, key)
+) STRICT;
+CREATE TABLE IF NOT EXISTS ownership (
+  id INTEGER PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  from_id TEXT NOT NULL REFERENCES people(id), to_id TEXT NOT NULL REFERENCES people(id),
+  buyer_id TEXT REFERENCES buyers(id), deal_id TEXT REFERENCES deals(id), generation INTEGER,
+  tx TEXT, at TEXT NOT NULL
+) STRICT;
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY, type TEXT NOT NULL, subject TEXT NOT NULL, actor TEXT,
   payload TEXT NOT NULL, at TEXT NOT NULL

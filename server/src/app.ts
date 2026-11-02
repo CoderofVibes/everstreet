@@ -8,6 +8,7 @@ import { type BookingProvider, Bookings } from "./bookings.ts";
 import { Books } from "./books.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
+import { Deals } from "./deals.ts";
 import { Payments } from "./payments.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { type Overrides, Valuation } from "./value.ts";
@@ -34,6 +35,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const books = new Books(store.db, store, options.chain ?? null);
   const valuation = new Valuation(store.db, store, books);
   const acquire = new Acquisitions(store.db, store, books, valuation, options.chain ?? null);
+  const deals = payments
+    ? new Deals(store.db, store, payments, acquire, options.chain ?? null)
+    : null;
+  const needDeals = () => {
+    if (!deals)
+      throw new HttpError(409, "Deals need payments on NEAR, which aren't connected here");
+    return deals;
+  };
   const pricedAndPaid = (businessId: string) => {
     const offer = store.offerOf(businessId);
     return Boolean(
@@ -504,6 +513,45 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/businesses/:id/listing/summary", (c) =>
     c.json(acquire.summary(me(c), c.req.param("id"))),
   );
+
+  // ---------- deals: exact terms, both acceptances on NEAR, the handover ----------
+
+  app.get("/api/deals", (c) => c.json({ deals: deals?.mine(me(c)) ?? [] }));
+  app.post("/api/businesses/:id/deals", async (c) =>
+    c.json(await needDeals().propose(me(c), c.req.param("id"), await body(c)), 201),
+  );
+  app.get("/api/deals/:id", async (c) => c.json(await needDeals().view(me(c), c.req.param("id"))));
+  app.post("/api/deals/:id/revise", async (c) =>
+    c.json(await needDeals().revise(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/deals/:id/fund", async (c) =>
+    c.json(await needDeals().fund(me(c), c.req.param("id"))),
+  );
+  app.post("/api/deals/:id/test-dollars", async (c) =>
+    c.json(await needDeals().testDollars(me(c), c.req.param("id"))),
+  );
+  app.post("/api/deals/:id/withdraw-hold", async (c) =>
+    c.json(await needDeals().withdrawHold(me(c), c.req.param("id"))),
+  );
+  app.post("/api/deals/:id/accept", async (c) => {
+    const { digest } = await body<{ digest?: string }>(c);
+    return c.json(await needDeals().accept(me(c), c.req.param("id"), String(digest ?? "")));
+  });
+  app.post("/api/deals/:id/cancel", async (c) =>
+    c.json(await needDeals().cancel(me(c), c.req.param("id"))),
+  );
+  app.post("/api/deals/:id/claim", async (c) =>
+    c.json(await needDeals().claim(me(c), c.req.param("id"))),
+  );
+  app.post("/api/deals/:id/former-owner-check", async (c) =>
+    c.json(await needDeals().formerOwnerCheck(me(c), c.req.param("id"))),
+  );
+  app.post("/api/deals/:id/items/:key", async (c) => {
+    const { note } = await body<{ note?: string }>(c);
+    return c.json(
+      await needDeals().markItem(me(c), c.req.param("id"), c.req.param("key"), String(note ?? "")),
+    );
+  });
 
   app.get("/api/helping", (c) => c.json({ businesses: payments?.helping(me(c)) ?? [] }));
   app.get("/api/helping/:id", async (c) =>

@@ -448,8 +448,10 @@ export class Valuation {
     this.store.business(founder, businessId);
     return (
       this.db
-        .prepare("SELECT * FROM value_scenarios WHERE business_id = ? ORDER BY created_at DESC")
-        .all(businessId) as {
+        .prepare(
+          "SELECT * FROM value_scenarios WHERE business_id = ? AND created_at >= COALESCE((SELECT MAX(at) FROM ownership WHERE business_id = ?), '') ORDER BY created_at DESC",
+        )
+        .all(businessId, businessId) as {
         id: string;
         name: string;
         overrides: string;

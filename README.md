@@ -5,9 +5,9 @@ breaking a single customer's booking. Built for NEAR HACKATHON (November 2026). 
 NEAR testnet only.
 
 > Status: the launch pad, real bookings, real testnet payments, books, valuations, scoped
-> helpers and the acquisition marketplace run on your computer, and the ownership handoff works
-> on testnet. Accepting a deal on the token-backed contract is next (design: `docs/astra/`,
-> `docs/design/BUSINESS_V2.md`). Everstreet is a separate project from the
+> helpers, the acquisition marketplace and two-party deals on the token-backed contract run on
+> your computer, against NEAR testnet. More kinds of business (services, products, software) are
+> next (design: `docs/astra/`, `docs/design/BUSINESS_V2.md`). Everstreet is a separate project from the
 > same team's other entry, Day One (an AI purchasing assistant); the two share no code, data or
 > deployments.
 
@@ -88,11 +88,24 @@ What you can do today:
   and a preliminary list of what a sale would cover and its status. Access is checked on every
   visit; when the founder ends it or it expires, the room stops working. The founder sees how
   often it was opened.
+- **Deals on NEAR**: the founder proposes exact terms to a team that asked for access: price in
+  test dollars, expiry, handover, what control the buyer receives, what stays with the business,
+  separate transfer items, what's excluded, and an evidence snapshot. The terms are frozen and
+  their fingerprint goes on the business's contract with the price and both accounts. The
+  team's accepting account funds the exact price (held by the contract), and both people accept
+  that exact version; any revision clears both acceptances and shows what changed. The second
+  acceptance closes the sale on chain, once. Everstreet then follows the contract: the business,
+  its page and records move to the buyer, old helpers and grants end, customers keep their
+  bookings, money and refund rights. The seller claims proceeds from the contract (a failed
+  payout stays visible and can be retried) and can try a real owner action to see the
+  contract refuse it. The buyer gets a first shift: confirm control, appoint their own team,
+  serve customers who paid before the sale. The public page records the change of hands.
 - **Switch people** from the top-right menu (local preview only) to see each side. Try: as Theo,
   cancel his Nov 14 place in My activity; within seconds Ana (waiting) gets it. Then as Mara,
   turn on payments on Juniper's desk, and as another person pay for the Nov 7 session.
 
-Not yet: agreeing and accepting a deal on the token-backed contract, researched market multiples, AI drafting (drafts come from templates today), sign-in with a real identity (people's
+Not yet: group-controlled ownership (a co-op buys through its representative's account),
+financing and earn-outs, a public notice period before a close, researched market multiples, AI drafting (drafts come from templates today), sign-in with a real identity (people's
 testnet keys are kept on this computer in the local preview), paid waitlists, and payments for
 kinds other than classes.
 
@@ -109,6 +122,13 @@ On testnet, its founder sold control to a buyer, Northline, and:
   still uses the same booking reference.
 
 Every step with its transaction link: [data/evidence/handoff-testnet.json](data/evidence/handoff-testnet.json).
+
+The same sale now runs through Everstreet itself on the token-backed v2 contract: a fictional
+pottery studio was sold to a customer co-op on testnet, with a revision that cleared both
+acceptances, the buyer's stale acceptance refused, the old hold returned, the close, the former
+owner and old helper refused, the new owner serving a customer who paid before the sale, that
+customer's refund honoured under the original rules, and the seller's proceeds claimed. Every
+step: [data/evidence/sale-testnet.json](data/evidence/sale-testnet.json).
 Who can do what, and what the sale does and does not cover: [docs/AUTHORITY.md](docs/AUTHORITY.md).
 
 ## Run it
@@ -122,12 +142,13 @@ Requirements: Node 24+. For the contract: WSL Ubuntu with Rust and `cargo-near`.
 | Fill an empty local database with fictional examples | `npm run seed:demo` (`-- --reset` starts over; stop the app first) |
 | Work on the UI with live reload | `npm run serve` and, beside it, `npm run web:dev` → http://localhost:5173 |
 | Add the examples' fictional history, buyers and listings to an existing local database (no reset) | `npm run seed:history` |
-| Lint, typecheck, all tests (47) | `npm run check` |
+| Lint, typecheck, all tests (52) | `npm run check` |
 | Contract unit tests (WSL, `contracts/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --lib` → 21 tests (v1); `-p business-v2 --lib` → 19 tests (v2) |
 | Contract on a local NEAR node (WSL) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business --test sandbox` (v1); `-p business-v2 --test sandbox` (v2 with real token transfers) |
 | Build the wasm (WSL, `contracts/business/` or `contracts/business-v2/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo near build non-reproducible-wasm` |
 | Publish v2 as shared code and create test dollars (needs `everstreet.testnet`'s key) | `npm run setup:v2` |
 | Run the payment path on testnet (needs the root key) | `npm run smoke:payments` → `data/evidence/payments-testnet.json` |
+| Run a whole sale on testnet through Everstreet's API, fresh fictional accounts (needs the root key) | `npm run smoke:sale` → `data/evidence/sale-testnet.json` |
 | Check who can still change the contract (no keys needed) | `npm run inspect` → expects 0 access keys |
 | Check testnet and the Chain Signatures signer (read-only) | `npm run probe:signer` |
 | Create accounts and deploy (needs `everstreet.testnet`'s key) | `npm run setup:testnet` |

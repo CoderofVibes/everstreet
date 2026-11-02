@@ -7,6 +7,7 @@ import { api4 } from "../api4.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, OfferCard, STAGE_LABEL } from "../ui.tsx";
+import { DealsList } from "./Deal.tsx";
 import { DeskGrowth, DeskShare, DeskTeamIfPaid } from "./DeskGrowth.tsx";
 import { DeskSelling } from "./DeskSale.tsx";
 
@@ -92,6 +93,9 @@ export function DeskList() {
           ))}
         </div>
       )}
+      <div style={{ marginTop: 24 }}>
+        <DealsList title="Deals" />
+      </div>
       {helping.length > 0 && (
         <>
           <h2 className="section-title" style={{ marginTop: 32 }}>

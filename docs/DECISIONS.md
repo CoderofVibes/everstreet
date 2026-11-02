@@ -182,3 +182,36 @@ Built from Astra's launch-pad pass, for Tony's computer rather than a phone (Ton
 8. **Cut for now:** outbound alerts, advanced natural-language briefs, adviser integrations,
    pooled group funding, payment-aware ownership for non-class businesses, and accepting a deal
    (phase 6).
+
+## 2026-11-02 · Phase 6: two people accept a deal and keep serving customers
+
+1. **The contract decides; Everstreet follows.** Deals (`server/src/deals.ts`) use v2's
+   `propose_sale`, `revise_sale`, `fund_deal`, `accept_sale`, `cancel_sale`,
+   `withdraw_deal_hold` and `claim_proceeds`. After every step Everstreet reads the deal and the
+   owner back from the contract. Only when `get_control` shows the buyer as owner does it move
+   the business, page and records to the buyer, end old helpers (the contract already voided
+   them), revoke evidence grants, close the listing, void competing deals and reset the seller's
+   own work and sharing settings. The seller's private what-ifs stay hidden from the new owner.
+2. **Exact terms, fingerprinted.** Terms are frozen JSON: parties and accounts, price, expiry,
+   control received, what stays, separate transfer items, exclusions, handover, conditions and
+   an evidence snapshot. Their sha256 is the contract's `terms_hash`; the contract's digest is
+   what both accept. A revision clears both acceptances and the UI lists what changed. A stale
+   acceptance is refused by the contract (`E_TERMS`).
+3. **One accepting account per buying team.** The team lead's account funds and accepts; other
+   members can read the deal. For a co-op this is its representative; group-controlled
+   ownership on NEAR is not built and the deal page says so.
+4. **Proposals go to teams that asked for access**, one open deal per team; competing deals are
+   voided at close and their holds can be withdrawn.
+5. **Proof, not a film.** The former owner can send a real `withdraw_profit` from their own key
+   and see the contract's `E_NOT_OWNER`; payouts are confirmed by reading `proceeds_of`, and a
+   failed one stays visible with a retry.
+6. **Test dollars on demand.** The buyer's accepting account can ask the faucet for exactly the
+   shortfall for the deal's price (test dollars only).
+7. **Verified on testnet** with `npm run smoke:sale` (fresh fictional accounts, separate
+   databases): 23 steps, all with transaction links, in `data/evidence/sale-testnet.json`; and
+   the same flow clicked through the UI on a second fresh business. Your local Juniper is not
+   sold; that is left for Tony to try.
+8. **Not in the deployed contract** (it can't change): v2's design called for a public notice
+   period before a close and retained operators in the terms. The product shows neither as
+   enforced; the buyer appoints their own team in the first shift. Cut for now: financing,
+   earn-outs, fractional interests, automated provider transfers, group ownership.
