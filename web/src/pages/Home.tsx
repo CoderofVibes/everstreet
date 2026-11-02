@@ -6,7 +6,7 @@ import { FAMILY_LABEL, money, STAGE_LABEL } from "../ui.tsx";
 
 export function BusinessTile({ b }: { b: PublicBusiness }) {
   return (
-    <Link to={`/b/${b.slug}`} className="card link">
+    <Link to={`/b/${b.slug}?via=discovery`} className="card link">
       <div className="row" style={{ marginBottom: 8 }}>
         <span className="pill">{FAMILY_LABEL[b.family]}</span>
         <span className="pill lime">{STAGE_LABEL[b.stage]}</span>

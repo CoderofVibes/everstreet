@@ -98,7 +98,7 @@ const OFFER_FIELDS = [
 ] as const;
 
 const STOPWORDS = new Set(
-  "a an and are as at be but by can do for from get have help i in into is it its me my need of on or our so some that the their them this to want we with you your".split(
+  "a about an and are around as at be below but by can do for from get have help i in into is it its me my need of on or our so some that the their them this to under want we with you your".split(
     " ",
   ),
 );
@@ -647,7 +647,12 @@ export class Store {
       family: b.family,
       stage: b.stage,
       published_at: b.published_at,
-      founder: { display_name: owner.display_name, headline: owner.headline, bio: owner.bio },
+      founder: {
+        id: owner.id,
+        display_name: owner.display_name,
+        headline: owner.headline,
+        bio: owner.bio,
+      },
       idea: idea.published_at
         ? { problem: idea.problem, why_me: idea.why_me, ask: idea.ask, evidence: idea.evidence }
         : null,
@@ -721,6 +726,7 @@ export class Store {
     kind: "interest" | "question",
     message: string,
     shareContact: boolean,
+    source = "unknown",
   ) {
     const b = this.db
       .prepare("SELECT * FROM businesses WHERE slug = ? AND published_at IS NOT NULL")
@@ -737,9 +743,18 @@ export class Store {
     this.tx(() => {
       this.db
         .prepare(
-          "INSERT INTO inquiries (id, business_id, from_id, kind, message, share_contact, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO inquiries (id, business_id, from_id, kind, message, share_contact, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .run(id, b.id, visitor.id, kind, text.slice(0, 2000), shareContact ? 1 : 0, now());
+        .run(
+          id,
+          b.id,
+          visitor.id,
+          kind,
+          text.slice(0, 2000),
+          shareContact ? 1 : 0,
+          ["link", "discovery", "need", "follow"].includes(source) ? source : "unknown",
+          now(),
+        );
       this.db
         .prepare(
           "INSERT OR IGNORE INTO tasks (id, business_id, title, detail, source, ref, sort, created_at) VALUES (?, ?, ?, ?, 'inquiry', ?, -1, ?)",

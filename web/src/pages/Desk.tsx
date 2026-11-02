@@ -6,6 +6,7 @@ import { api, type Desk } from "../api.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, OfferCard, STAGE_LABEL } from "../ui.tsx";
+import { DeskGrowth, DeskShare } from "./DeskGrowth.tsx";
 
 function SignInFirst({ reason }: { reason: string }) {
   const { requireSignIn } = useSession();
@@ -250,8 +251,10 @@ export function DeskPage({ id }: { id: string }) {
               ))
             )}
           </section>
+          <DeskGrowth key={b.id + String(b.published_at)} desk={desk} />
         </div>
         <aside className="studio-side">
+          <DeskShare desk={desk} />
           <OfferCard offer={desk.offer} family={b.family} action={desk.action} />
           {desk.missing.length > 0 && (
             <div className="card" style={{ padding: 18 }}>

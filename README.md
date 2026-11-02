@@ -29,7 +29,23 @@ What you can do today:
   founder confirms the details). Contact details are shared only if the visitor ticks the box.
 - **Run it from your desk**: responses arrive as tasks, replies go back to the visitor's inbox, and
   the first-week plan ticks itself off as you fill in what was missing.
-- **Switch people** from the top-right menu (local preview only) to see each side.
+- **Take real bookings** (classes): the founder opens dated sessions; places, the waitlist and
+  automatic moving-up live in **OpenSeat**, the booking service, which runs beside Everstreet with
+  its own database. Its waitlist worker acts only when OpenSeat's contract on **NEAR testnet**
+  says it is authorized, and the customer's booking shows who moved them up and under which
+  authority generation.
+- **My activity**: a customer's bookings (live status, calendar file, cancel), the requests they
+  posted and founders' replies, messages, and updates from businesses they follow.
+- **Explore**: Starting now, Open for customers, What people need, Following.
+- **Need board**: when search can't find it, post the request (anonymously, with an expiry);
+  founders whose offer fits see it on their desk and reply.
+- **Search with constraints**: "class under $40, online" becomes removable chips; hard limits
+  filter first, each result says why it is there, and an empty result says which limit ruled
+  things out with a one-click relax and a way back.
+- **Be seen**: founder profiles, updates for followers, a share kit with a trackable link, and
+  "how people found you" (own link, Everstreet, a request, unknown). Pages can be reported.
+- **Switch people** from the top-right menu (local preview only) to see each side. Try: as Theo,
+  cancel his Nov 14 place in My activity; within seconds Ana (waiting) gets it.
 
 Not yet: payments, financials and valuations on profiles, the acquisition marketplace (its page
 says so), AI drafting (drafts come from templates today), sign-in with a real identity.

@@ -49,6 +49,42 @@ CREATE TABLE IF NOT EXISTS tasks (
   detail TEXT NOT NULL DEFAULT '', source TEXT NOT NULL, ref TEXT, done_at TEXT, sort INTEGER NOT NULL,
   created_at TEXT NOT NULL, UNIQUE (business_id, source, ref)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS integrations (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id), provider TEXT NOT NULL,
+  account_id TEXT NOT NULL, secret TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS sessions_offered (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  provider_ref TEXT NOT NULL, starts_at TEXT NOT NULL, ends_at TEXT NOT NULL,
+  capacity INTEGER NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS bookings (
+  id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES people(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id), session_id TEXT NOT NULL REFERENCES sessions_offered(id),
+  ref TEXT NOT NULL UNIQUE, source TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS follows (
+  person_id TEXT NOT NULL REFERENCES people(id), business_id TEXT NOT NULL REFERENCES businesses(id),
+  created_at TEXT NOT NULL, PRIMARY KEY (person_id, business_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS updates (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id), body TEXT NOT NULL,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS needs (
+  id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES people(id), text TEXT NOT NULL,
+  constraints TEXT NOT NULL, allow_replies INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open','closed')), expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS need_responses (
+  id TEXT PRIMARY KEY, need_id TEXT NOT NULL REFERENCES needs(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id), message TEXT NOT NULL, reply TEXT,
+  created_at TEXT NOT NULL, replied_at TEXT, UNIQUE (need_id, business_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS reports (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, subject TEXT NOT NULL, person_id TEXT NOT NULL,
+  reason TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY, type TEXT NOT NULL, subject TEXT NOT NULL, actor TEXT,
   payload TEXT NOT NULL, at TEXT NOT NULL
@@ -59,6 +95,11 @@ export function openDb(path: string) {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
+  // Columns added after the first release: attribution of how a response arrived.
+  const cols = db.prepare("PRAGMA table_info(inquiries)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "source")) {
+    db.exec("ALTER TABLE inquiries ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'");
+  }
   return db;
 }
 

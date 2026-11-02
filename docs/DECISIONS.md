@@ -83,3 +83,23 @@ Built from Astra's launch-pad pass, for Tony's computer rather than a phone (Ton
 5. **Privacy defaults.** Drafts are invisible to every public route; a founder sees a visitor's
    first name only unless the visitor ticks "share my name and contact"; a business's page address
    follows its name until first published, then never changes.
+
+## 2026-11-02 · Phase 2: being seen, and real bookings
+
+1. **OpenSeat is a real service, not a widget.** It runs in the same process for convenience but
+   with its own database and is reached only through its HTTP API ().
+   Studios (OpenSeat's customers) sign up, get an API key once (stored hashed), and can only
+   see their own classes and rosters. Customer references never appear on public pages.
+2. **Waitlist promotions are NEAR-checked in the running app.**  runs
+   OpenSeat's  as  and checks  on
+    before every drain. Without network or the key, promotions wait
+   and the waitlist stays truthful. (OpenSeat itself is the business sold to Northline in gate 1,
+   so it now runs under the buyer's worker at generation 2.)
+3. **Bookings first for classes only.** Other kinds keep honest inquiry actions until their
+   adapters exist (Astra's rule: never a buy button without fulfilment).
+4. **Needs are anonymous and deliberate.** Private searches are never shown to founders; only
+   requests someone posts, with an expiry and a replies on/off choice.
+5. **Search is deterministic.** Words → editable constraints (kind, price limit, online,
+   confirmed). No AI calls yet, so nothing is spent.
+6. **Attribution is coarse and honest.** Own link, discovery, need, follow, or unknown; no
+   tracking beyond the page's own link parameter.

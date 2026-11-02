@@ -52,6 +52,26 @@ export function openSeatApp(service: OpenSeat) {
     });
   });
 
+  // Studios are OpenSeat's own customers (Juniper and others): they sign up, receive an API key
+  // once, and publish their classes with it. The key reaches only that studio's classes.
+  app.post("/studios", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { name?: string };
+    return c.json(service.createStudio(String(body.name ?? "")), 201);
+  });
+
+  const studio = (authorization: string | undefined) =>
+    service.studioForKey(authorization?.replace(/^Bearer\s+/i, ""));
+
+  app.post("/studio/classes", async (c) => {
+    const s = studio(c.req.header("authorization"));
+    const body = (await c.req.json().catch(() => ({}))) as Parameters<OpenSeat["publishClass"]>[1];
+    return c.json(service.publishClass(s, body), 201);
+  });
+
+  app.get("/studio/classes/:id/roster", (c) =>
+    c.json(service.roster(studio(c.req.header("authorization")), c.req.param("id"))),
+  );
+
   app.post("/operator/commands", async (c) => {
     const signed = (await c.req.json()) as SignedCommand;
     if (!signed?.command || typeof signed.signature !== "string")

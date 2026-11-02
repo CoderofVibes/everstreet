@@ -5,7 +5,7 @@
 // authority check against the business contract before anything changes. Every state change
 // writes an outbox event in the same transaction.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type { Authority } from "./authority.ts";
 import {
@@ -93,6 +93,9 @@ CREATE TABLE IF NOT EXISTS outbox (
   at TEXT NOT NULL
 ) STRICT;
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS studios (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+) STRICT;
 `;
 
 export class ServiceError extends Error {
@@ -128,6 +131,10 @@ export class OpenSeat {
       "PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;",
     );
     this.db.exec(SCHEMA);
+    // Classes gained an owning studio after the first deployment; older files get the column.
+    const cols = this.db.prepare("PRAGMA table_info(classes)").all() as { name: string }[];
+    if (!cols.some((c) => c.name === "studio_id"))
+      this.db.exec("ALTER TABLE classes ADD COLUMN studio_id TEXT");
     this.authority = options.authority;
     this.now = options.now ?? (() => new Date());
   }
@@ -157,15 +164,90 @@ export class OpenSeat {
 
   // ---------- catalog ----------
 
-  addClass(c: ClassRow) {
+  addClass(c: ClassRow, studioId: string | null = null) {
     this.tx(() => {
       this.db
         .prepare(
-          "INSERT INTO classes (id, studio, title, starts_at, ends_at, location, capacity) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO classes (id, studio, title, starts_at, ends_at, location, capacity, studio_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .run(c.id, c.studio, c.title, c.starts_at, c.ends_at, c.location, c.capacity);
-      this.emit("class_published", c.id, { capacity: c.capacity });
+        .run(c.id, c.studio, c.title, c.starts_at, c.ends_at, c.location, c.capacity, studioId);
+      this.emit("class_published", c.id, { capacity: c.capacity, studio_id: studioId });
     });
+  }
+
+  // ---------- studios (OpenSeat's own customers) ----------
+
+  /** A studio signs up and receives its API key once; only a hash is stored. */
+  createStudio(name: string): { studio_id: string; api_key: string } {
+    if (!name.trim()) throw new ServiceError(400, "Studio name is required");
+    const studioId = `st_${randomBytes(6).toString("hex")}`;
+    const apiKey = `osk_${randomBytes(24).toString("base64url")}`;
+    this.db
+      .prepare("INSERT INTO studios (id, name, key_hash, created_at) VALUES (?, ?, ?, ?)")
+      .run(studioId, name.trim().slice(0, 120), hashKey(apiKey), this.iso());
+    this.emit("studio_created", studioId, {});
+    return { studio_id: studioId, api_key: apiKey };
+  }
+
+  studioForKey(apiKey: string | undefined): { id: string; name: string } {
+    const row = apiKey
+      ? (this.db.prepare("SELECT id, name FROM studios WHERE key_hash = ?").get(hashKey(apiKey)) as
+          | { id: string; name: string }
+          | undefined)
+      : undefined;
+    if (!row) throw new ServiceError(403, "A valid studio API key is required");
+    return row;
+  }
+
+  /** A studio publishes one session of a class. */
+  publishClass(
+    studio: { id: string; name: string },
+    fields: {
+      title: string;
+      starts_at: string;
+      ends_at: string;
+      location: string;
+      capacity: number;
+    },
+  ) {
+    const capacity = Number(fields.capacity);
+    if (!fields.title?.trim()) throw new ServiceError(400, "Title is required");
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 500)
+      throw new ServiceError(400, "Capacity is a whole number from 1 to 500");
+    const start = Date.parse(fields.starts_at);
+    const end = Date.parse(fields.ends_at);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start)
+      throw new ServiceError(400, "Give a start and an end time, end after start");
+    const id = `cls_${randomBytes(6).toString("hex")}`;
+    this.addClass(
+      {
+        id,
+        studio: studio.name,
+        title: fields.title.trim().slice(0, 160),
+        starts_at: new Date(start).toISOString(),
+        ends_at: new Date(end).toISOString(),
+        location: (fields.location ?? "").trim().slice(0, 200),
+        capacity,
+      },
+      studio.id,
+    );
+    return this.getClass(id);
+  }
+
+  /** Who is booked into one of the studio's own classes; never another studio's. */
+  roster(studio: { id: string }, classId: string) {
+    const c = this.db.prepare("SELECT studio_id FROM classes WHERE id = ?").get(classId) as
+      | { studio_id: string | null }
+      | undefined;
+    if (!c || c.studio_id !== studio.id) throw new ServiceError(404, "No such class");
+    return {
+      class: this.getClass(classId),
+      attendees: this.db
+        .prepare(
+          "SELECT attendee, status, booked_at, promoted_at, promoted_by, promoted_generation, cancelled_at FROM bookings WHERE class_id = ? ORDER BY status = 'cancelled', status = 'waitlisted', seq",
+        )
+        .all(classId),
+    };
   }
 
   getClass(id: string): ClassRow & { confirmed: number; waitlisted: number; seats_left: number } {
@@ -505,4 +587,8 @@ export class OpenSeat {
   close() {
     this.db.close();
   }
+}
+
+function hashKey(apiKey: string) {
+  return createHash("sha256").update(apiKey).digest("hex");
 }

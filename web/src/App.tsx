@@ -4,10 +4,13 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api.ts";
 import { Acquire } from "./pages/Acquire.tsx";
+import { Activity } from "./pages/Activity.tsx";
 import { DeskList, DeskPage } from "./pages/Desk.tsx";
+import { Explore } from "./pages/Explore.tsx";
 import { Find } from "./pages/Find.tsx";
 import { Home } from "./pages/Home.tsx";
 import { Inbox } from "./pages/Inbox.tsx";
+import { Person } from "./pages/Person.tsx";
 import { Profile } from "./pages/Profile.tsx";
 import { PublicPage } from "./pages/PublicPage.tsx";
 import { Start } from "./pages/Start.tsx";
@@ -144,6 +147,10 @@ function Routes() {
   const desk = match("/desk/:id", path);
   if (desk) return <DeskPage id={desk.id as string} />;
   if (path === "/inbox") return <Inbox />;
+  if (path === "/explore") return <Explore />;
+  if (path === "/activity") return <Activity />;
+  const profile = match("/p/:id", path);
+  if (profile) return <Person id={profile.id as string} />;
   if (path === "/find") return <Find />;
   if (path === "/acquire") return <Acquire />;
   if (path === "/profile") return <Profile />;
@@ -186,7 +193,10 @@ export function App() {
           <Nav to="/start" label="Start a business" />
           <Nav to="/desk" label="My businesses" />
           <Nav to="/inbox" label="Inbox" count={counts.inbox} />
+          <div className="rail-label">As a customer</div>
+          <Nav to="/activity" label="My activity" />
           <div className="rail-label">Explore</div>
+          <Nav to="/explore" label="Explore" />
           <Nav to="/find" label="Find a solution" />
           <Nav to="/acquire" label="Explore acquisitions" />
           <div className="rail-foot">Built to change hands intact.</div>

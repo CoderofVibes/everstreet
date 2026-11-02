@@ -6,13 +6,20 @@
 //   npm run seed:demo -- --reset  delete the local database first (stop the app before)
 
 import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { Bookings, openSeatProvider } from "../server/src/bookings.ts";
+import { Community } from "../server/src/community.ts";
 import { openDb } from "../server/src/db.ts";
-import { Store } from "../server/src/store.ts";
+import { type Person, Store } from "../server/src/store.ts";
+import { TestDoubleAuthority } from "../services/openseat/src/authority.ts";
+import { openSeatApp } from "../services/openseat/src/http.ts";
+import { OpenSeat } from "../services/openseat/src/service.ts";
 
 const DB = process.env.EVERSTREET_DB ?? "data/runtime/everstreet.db";
+const SEATS_DB = process.env.OPENSEAT_DB ?? "data/runtime/openseat.db";
 mkdirSync("data/runtime", { recursive: true });
 if (process.argv.includes("--reset")) {
-  for (const f of [DB, `${DB}-wal`, `${DB}-shm`]) if (existsSync(f)) rmSync(f);
+  for (const db of [DB, SEATS_DB])
+    for (const f of [db, `${db}-wal`, `${db}-shm`]) if (existsSync(f)) rmSync(f);
 }
 const store = new Store(openDb(DB));
 if (store.people().length > 0) {
@@ -133,7 +140,7 @@ const EXAMPLES: Example[] = [
   },
 ];
 
-const people = [];
+const people: { me: Person; slug: string }[] = [];
 for (const ex of EXAMPLES) {
   const { person } = store.createPerson(ex.founder);
   store.updatePerson(person.id, { headline: ex.headline, bio: ex.bio });
@@ -161,6 +168,63 @@ store.inquire(
 );
 store.inquire(sam, people[3]?.slug as string, "interest", "Cedar and smoke, please.", false);
 
+// Real sessions for Juniper through OpenSeat (its studio API needs no NEAR authority; the
+// waitlist worker in the running app does). The second Saturday is full with one person waiting.
+const openseat = new OpenSeat({
+  dbPath: SEATS_DB,
+  authority: new TestDoubleAuthority("seed", "seed"),
+});
+const http = openSeatApp(openseat);
+const bookings = new Bookings(
+  store.db,
+  store,
+  openSeatProvider((p, i) => Promise.resolve(http.request(p, i))),
+);
+const community = new Community(store.db, store);
+const [mara, nadia, theo, ana] = people.map((p) => p.me) as [Person, Person, Person, Person];
+const juniperId = store.business(mara, store.projects(mara)[0]?.business_id as string).business.id;
+const saturday = (weeks: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7 || 7) + 7 * weeks);
+  d.setHours(10, 0, 0, 0);
+  return d.toISOString();
+};
+await bookings.openSession(mara, juniperId, {
+  starts_at: saturday(0),
+  duration_minutes: 90,
+  capacity: 6,
+});
+await bookings.openSession(mara, juniperId, {
+  starts_at: saturday(1),
+  duration_minutes: 90,
+  capacity: 2,
+});
+const [first, second] = (await bookings.publicSessions(juniperId)).map((s) => s.id);
+await bookings.book(sam, first as string, "link");
+await bookings.book(theo, second as string, "discovery");
+await bookings.book(nadia, second as string, "discovery");
+await bookings.book(ana, second as string, "discovery");
+
+community.postUpdate(
+  mara,
+  juniperId,
+  "Added a second Saturday after three people asked. Two places, and a waitlist if it fills.",
+);
+community.follow(sam, people[0]?.slug as string, true);
+community.postNeed(ana, {
+  text: "A weekend printmaking or pottery class my teenager could join",
+  constraints: { family: "class" },
+  allow_replies: true,
+  days: 30,
+});
+community.postNeed(sam, {
+  text: "Someone to photograph twelve products for my online shop, under $150",
+  constraints: { family: "service", max_price_cents: 15000 },
+  allow_replies: true,
+  days: 14,
+});
+openseat.db.close();
+
 console.log(
-  `Seeded ${EXAMPLES.length} fictional businesses and ${EXAMPLES.length + 1} people into ${DB}.`,
+  `Seeded ${EXAMPLES.length} fictional businesses, ${EXAMPLES.length + 1} people, two Juniper sessions and two requests.`,
 );

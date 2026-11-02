@@ -117,7 +117,7 @@ export interface PublicBusiness {
   family: Business["family"];
   stage: Business["stage"];
   published_at: string;
-  founder: { display_name: string; headline: string; bio: string };
+  founder: { id?: string; display_name: string; headline: string; bio: string };
   idea: Omit<Idea, "published_at"> | null;
   offer: Omit<Offer, "id" | "published_at"> | null;
   unknown: string[];
@@ -125,6 +125,109 @@ export interface PublicBusiness {
   interested: number;
   viewer_is_owner?: boolean;
   matched?: string[];
+  met?: string[];
+  unknown_constraints?: string[];
+  new_here?: boolean;
+  sessions?: PublicSession[];
+  bookings_connected?: boolean;
+  updates?: Update[];
+  followers?: number;
+  following?: boolean;
+}
+
+export interface PublicSession {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  capacity: number;
+  seats_left: number | null;
+  waitlisted: number | null;
+  available: boolean;
+  checked_at: string;
+}
+
+export interface Update {
+  id: string;
+  body: string;
+  created_at: string;
+  business_name?: string;
+  slug?: string;
+}
+
+export interface Constraints {
+  family?: "class" | "service" | "product" | "software";
+  max_price_cents?: number;
+  online?: boolean;
+  confirmed_only?: boolean;
+}
+
+export interface SearchResult {
+  words: string[];
+  constraints: Constraints;
+  matches: PublicBusiness[];
+  ask_to_confirm: PublicBusiness[];
+  blocked_by: Record<string, number>;
+  relevant_without_constraints: number;
+}
+
+export interface Need {
+  id: string;
+  text: string;
+  constraints: Constraints;
+  allow_replies: boolean;
+  expires_at: string;
+  created_at: string;
+  responses: number;
+  matched?: string[];
+  answered?: boolean;
+}
+
+export interface MyNeed {
+  id: string;
+  text: string;
+  status: "open" | "closed";
+  expired: boolean;
+  expires_at: string;
+  created_at: string;
+  allow_replies: number;
+  responses: {
+    id: string;
+    message: string;
+    reply: string | null;
+    created_at: string;
+    business_name: string;
+    slug: string;
+  }[];
+}
+
+export interface MyBooking {
+  id: string;
+  business: { name: string; slug: string };
+  title: string;
+  where: string;
+  starts_at: string;
+  ends_at: string;
+  reference: string;
+  status: "confirmed" | "waitlisted" | "cancelled" | "unknown";
+  position: number | null;
+  promoted_by: string | null;
+  promoted_generation: number | null;
+  booked_at: string;
+}
+
+export interface OwnerSession {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  class: { capacity: number; seats_left: number; waitlisted: number } | null;
+  attendees: {
+    attendee: string;
+    status: string;
+    booked_at: string;
+    promoted_by: string | null;
+    promoted_generation: number | null;
+  }[];
+  available: boolean;
 }
 
 export class ApiError extends Error {
@@ -200,10 +303,106 @@ export const api = {
   discover: (q = "") =>
     call<{ businesses: PublicBusiness[] }>(`/api/public/discover?q=${encodeURIComponent(q)}`),
   page: (slug: string) => call<PublicBusiness>(`/api/public/businesses/${slug}`),
-  inquire: (slug: string, kind: Action["kind"], message: string, share_contact: boolean) =>
+  inquire: (
+    slug: string,
+    kind: Action["kind"],
+    message: string,
+    share_contact: boolean,
+    source = "unknown",
+  ) =>
     call<{ id: string }>(`/api/public/businesses/${slug}/inquiries`, "POST", {
       kind,
       message,
       share_contact,
+      source,
     }),
+  follow: (slug: string, on: boolean) =>
+    call<{ following: boolean; followers: number }>(
+      `/api/public/businesses/${slug}/follow`,
+      "POST",
+      { on },
+    ),
+  book: (sessionId: string, source: string) =>
+    call<MyBooking>(`/api/public/sessions/${sessionId}/book`, "POST", { source }),
+  ownerSessions: (businessId: string) =>
+    call<{ sessions: OwnerSession[] }>(`/api/businesses/${businessId}/sessions`),
+  openSession: (
+    businessId: string,
+    fields: { starts_at: string; duration_minutes: number; capacity: number },
+  ) => call<{ sessions: OwnerSession[] }>(`/api/businesses/${businessId}/sessions`, "POST", fields),
+  activity: () =>
+    call<{
+      bookings: MyBooking[];
+      needs: MyNeed[];
+      sent: Inquiry[];
+      following: { name: string; slug: string }[];
+      feed: Update[];
+    }>("/api/activity"),
+  cancelBooking: (id: string) => call<MyBooking>(`/api/activity/bookings/${id}/cancel`, "POST"),
+  search: (q: string, params: Record<string, string> = {}) =>
+    call<SearchResult>(`/api/public/search?${new URLSearchParams({ q, ...params }).toString()}`),
+  needs: () => call<{ needs: Need[] }>("/api/public/needs"),
+  postNeed: (fields: {
+    text: string;
+    constraints?: Constraints;
+    allow_replies: boolean;
+    days: number;
+  }) => call<{ needs: MyNeed[] }>("/api/needs", "POST", fields),
+  closeNeed: (id: string) => call<{ needs: MyNeed[] }>(`/api/needs/${id}/close`, "POST"),
+  respondToNeed: (id: string, business_id: string, message: string) =>
+    call<{ ok: boolean }>(`/api/needs/${id}/respond`, "POST", { business_id, message }),
+  replyToResponse: (id: string, text: string) =>
+    call<{ needs: MyNeed[] }>(`/api/need-responses/${id}/reply`, "POST", { text }),
+  extras: (businessId: string) =>
+    call<{
+      updates: Update[];
+      needs: Need[];
+      sources: {
+        responses: Record<string, number>;
+        bookings: Record<string, number>;
+        followers: number;
+      };
+      need_replies: {
+        id: string;
+        message: string;
+        reply: string | null;
+        need_text: string;
+        business_name: string;
+        created_at: string;
+      }[];
+    }>(`/api/businesses/${businessId}/extras`),
+  postUpdate: (businessId: string, body: string) =>
+    call<{ updates: Update[] }>(`/api/businesses/${businessId}/updates`, "POST", { body }),
+  exploreFeed: () =>
+    call<{ starting: PublicBusiness[]; open: PublicBusiness[]; needs: Need[] }>(
+      "/api/public/explore",
+    ),
+  person: (id: string) =>
+    call<{
+      id: string;
+      display_name: string;
+      headline: string;
+      bio: string;
+      member_since: string;
+      businesses: PublicBusiness[];
+      updates: Update[];
+    }>(`/api/public/people/${id}`),
+  report: (kind: "business" | "need", subject: string, reason: string) =>
+    call<{ ok: boolean }>("/api/public/reports", "POST", { kind, subject, reason }),
+  system: () =>
+    call<{
+      bookings: {
+        provider: string;
+        waitlist: {
+          business: string;
+          worker: string;
+          worker_key_present: boolean;
+          authorized: boolean;
+          generation: number | null;
+          reason: string;
+          last_checked: string | null;
+          promotions: number;
+        };
+      };
+    }>("/api/system"),
 };

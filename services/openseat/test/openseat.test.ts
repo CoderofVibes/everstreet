@@ -172,3 +172,66 @@ describe("change of operator", () => {
     expect(service.calendar(sam.ref)).toContain(sam.ref);
   });
 });
+
+describe("studios", () => {
+  async function call(
+    app: ReturnType<typeof openSeatApp>,
+    path: string,
+    method = "GET",
+    body?: unknown,
+    key?: string,
+  ) {
+    const res = await app.request(path, {
+      method,
+      headers: {
+        "content-type": "application/json",
+        ...(key ? { authorization: `Bearer ${key}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  }
+
+  it("lets a studio publish its own class and see only its own roster", async () => {
+    const service = new OpenSeat({
+      dbPath: ":memory:",
+      authority: new TestDoubleAuthority(BUSINESS, "founder.test"),
+    });
+    const app = openSeatApp(service);
+    const juniper = (await call(app, "/studios", "POST", { name: "Juniper Print Studio" })).body;
+    const other = (await call(app, "/studios", "POST", { name: "Elsewhere" })).body;
+    const cls = await call(
+      app,
+      "/studio/classes",
+      "POST",
+      {
+        title: "Beginner linocut",
+        starts_at: "2026-11-07T18:00:00Z",
+        ends_at: "2026-11-07T19:30:00Z",
+        location: "Alder Lane",
+        capacity: 1,
+      },
+      juniper.api_key as string,
+    );
+    expect(cls.status).toBe(201);
+    const id = cls.body.id as string;
+    await call(app, `/classes/${id}/bookings`, "POST", { name: "Sam Lee" });
+    await call(app, `/classes/${id}/bookings`, "POST", { name: "Ana Ruiz" });
+    const roster = await call(
+      app,
+      `/studio/classes/${id}/roster`,
+      "GET",
+      undefined,
+      juniper.api_key as string,
+    );
+    expect(
+      (roster.body.attendees as { attendee: string; status: string }[]).map((a) => a.status),
+    ).toEqual(["confirmed", "waitlisted"]);
+    expect(
+      (await call(app, `/studio/classes/${id}/roster`, "GET", undefined, other.api_key as string))
+        .status,
+    ).toBe(404);
+    expect((await call(app, "/studio/classes", "POST", { title: "x" })).status).toBe(403);
+    expect(JSON.stringify(roster.body)).not.toContain("OS-");
+  });
+});
