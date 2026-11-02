@@ -56,6 +56,12 @@ Assumptions that weaken the promise (flagged for Tony and Astra):
   Accurate, but "grant is from generation 1" would tell the story better; small contract change
   for the next deployment.
 
+- **Stale comment kept on purpose (Astra caught it, Nov 1).** The header of
+  `contracts/business/src/lib.rs` says the deploy deletes the key after `new`; the real deploy
+  never adds one (AUTHORITY.md is right). Even a comment change alters the built wasm (cargo-near
+  embeds metadata), which would break `npm run inspect`'s "local build matches" check, so the
+  comment is fixed with the next contract version.
+
 Not done in gate 1 (next gates): founder launch flow, catalog and search, web UI, evidence room,
 rehearsal mode, external simulated asset with its own completion evidence, sandbox replay of
 the whole run from TypeScript, Chain Signatures action.

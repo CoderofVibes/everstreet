@@ -37,7 +37,7 @@ former founder all fail at once, without anyone having to find and revoke them o
 
 | Power | Who holds it | How to check |
 |---|---|---|
-| Replace contract code | **nobody**: the deploy script deletes the contract account's only full-access key after `new`, and the contract has no method that adds keys or redeploys | `near account list-keys <contract> network-config testnet now` → no keys |
+| Replace contract code | **nobody**: `setup:testnet` creates the account, funds it, deploys and calls `new` in one transaction without ever adding a key, and the contract has no method that adds keys or redeploys (the sandbox test instead deletes its genesis key; same end state) | `near account list-keys <contract> network-config testnet now` → no keys |
 | Rotate or recover the contract account | nobody (same reason; a NEAR parent account has no power over a sub-account's keys) | same |
 | Change owner | only a finalized sale both parties accepted | `get_control` view |
 | Mint demo credits | the named `issuer` (the platform's demo faucet), fixed at `new`; it can credit any account **except** the business contract itself, so it cannot inflate the treasury or touch obligations, owner or deals | `get_config` view, contract source |
