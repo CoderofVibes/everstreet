@@ -13,6 +13,7 @@ import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
 import { Deals } from "./deals.ts";
 import { Evaluations } from "./evaluations.ts";
+import { type ImportInspector, Imports } from "./imports.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { Payments } from "./payments.ts";
 import { Products } from "./products.ts";
@@ -38,6 +39,8 @@ export interface AppOptions {
   operatorCeilingCents?: number | null;
   /** The managed runtime (job 002c); built unconnected if not given, and says so. */
   runtime?: ManagedRuntime;
+  /** Import inspectors (job 004a); the local package.json inspector if not given. */
+  importInspectors?: ImportInspector[];
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -58,6 +61,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const authoring = new Authoring(store.db, store, products, builds, () =>
     proposalBudget(builds.provider),
   );
+  const imports = new Imports(store.db, store, options.importInspectors);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const evaluations = new Evaluations(store.db, store, runtime);
   const releases = new Releases(store.db, store, runtime, evaluations);
@@ -179,6 +183,34 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const { step } = await body<{ step?: string }>(c);
     return c.json(store.setStep(me(c), c.req.param("id"), String(step ?? "")));
   });
+
+  // ---------- bringing an existing product (job 004a): private import workspaces ----------
+
+  app.get("/api/imports", (c) => c.json({ imports: imports.list(me(c)) }));
+  app.post("/api/imports", async (c) => {
+    const { created, view } = await imports.create(me(c), await body(c));
+    return c.json({ ...view, created }, created ? 201 : 200);
+  });
+  app.get("/api/imports/:id", (c) => c.json(imports.view(me(c), c.req.param("id"))));
+  app.patch("/api/imports/:id", async (c) =>
+    c.json(imports.update(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/imports/:id/inspections", async (c) => {
+    const { created, view } = await imports.inspect(me(c), c.req.param("id"), await body(c));
+    return c.json({ ...view, created }, created ? 201 : 200);
+  });
+  app.get("/api/imports/:id/inspections/:n", (c) =>
+    c.json(imports.inspection(me(c), c.req.param("id"), Number(c.req.param("n")))),
+  );
+  app.get("/api/imports/:id/reports/:n", (c) =>
+    c.json(imports.report(me(c), c.req.param("id"), Number(c.req.param("n")))),
+  );
+  app.put("/api/imports/:id/dependencies/:category", async (c) =>
+    c.json(imports.declare(me(c), c.req.param("id"), c.req.param("category"), await body(c))),
+  );
+  app.get("/api/businesses/:id/imports", (c) =>
+    c.json({ imports: imports.list(me(c), c.req.param("id")) }),
+  );
 
   // ---------- product studio: digital product projects and their revisions ----------
 

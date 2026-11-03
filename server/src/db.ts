@@ -406,6 +406,49 @@ CREATE TABLE IF NOT EXISTS runtime_releases (
   activated_at TEXT NOT NULL, retired_at TEXT
 ) STRICT;
 CREATE UNIQUE INDEX IF NOT EXISTS runtime_releases_one_active ON runtime_releases(project_id) WHERE state = 'active';
+-- Job 004a: bringing an existing product. A private workspace belongs to a business; every
+-- inspection of a supplied manifest is an immutable snapshot of normalized facts (never the raw
+-- file), with an immutable readiness report. Founder statements are versioned per item.
+CREATE TABLE IF NOT EXISTS import_workspaces (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+  product_kind TEXT NOT NULL CHECK (product_kind IN ('saas','api','ai_tool','agent','website','online_service','near_app','other')),
+  version INTEGER NOT NULL CHECK (version >= 1), created_by TEXT NOT NULL REFERENCES people(id),
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS import_workspaces_business ON import_workspaces(business_id);
+CREATE TABLE IF NOT EXISTS import_requests (
+  person_id TEXT NOT NULL REFERENCES people(id), idempotency_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL, workspace_id TEXT NOT NULL REFERENCES import_workspaces(id),
+  created_at TEXT NOT NULL, PRIMARY KEY (person_id, idempotency_key)
+) STRICT;
+CREATE TABLE IF NOT EXISTS import_inspections (
+  workspace_id TEXT NOT NULL REFERENCES import_workspaces(id), number INTEGER NOT NULL CHECK (number >= 1),
+  inspector TEXT NOT NULL, inspector_version TEXT NOT NULL, input_digest TEXT NOT NULL,
+  input_bytes INTEGER NOT NULL, facts TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+  requested_by TEXT NOT NULL REFERENCES people(id), created_at TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, number), UNIQUE (workspace_id, idempotency_key)
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS import_inspections_no_update BEFORE UPDATE ON import_inspections
+BEGIN SELECT RAISE(ABORT, 'inspections are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS import_inspections_no_delete BEFORE DELETE ON import_inspections
+BEGIN SELECT RAISE(ABORT, 'inspections are immutable'); END;
+CREATE TABLE IF NOT EXISTS import_reports (
+  workspace_id TEXT NOT NULL REFERENCES import_workspaces(id), number INTEGER NOT NULL,
+  inspection_number INTEGER NOT NULL, report TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, number)
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS import_reports_no_update BEFORE UPDATE ON import_reports
+BEGIN SELECT RAISE(ABORT, 'readiness reports are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS import_reports_no_delete BEFORE DELETE ON import_reports
+BEGIN SELECT RAISE(ABORT, 'readiness reports are immutable'); END;
+CREATE TABLE IF NOT EXISTS import_dependencies (
+  workspace_id TEXT NOT NULL REFERENCES import_workspaces(id),
+  category TEXT NOT NULL CHECK (category IN ('source_ownership','hosting','database','model_provider','authentication','payments','domain','customer_promises')),
+  uses INTEGER CHECK (uses IN (0, 1)), note TEXT NOT NULL DEFAULT '',
+  asserted_by TEXT REFERENCES people(id), asserted_at TEXT, version INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (workspace_id, category)
+) STRICT;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_update BEFORE UPDATE ON build_usage
 BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_delete BEFORE DELETE ON build_usage
