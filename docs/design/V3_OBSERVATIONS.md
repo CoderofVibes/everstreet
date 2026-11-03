@@ -68,9 +68,16 @@ The cases, compared with the high-water mark and the projection's source:
 | Same source, a new block (`height` above high-water), `control_seq` ≥ high-water | Accepted. Equal `control_seq` is normal: customers and payouts change the treasury without control changing. |
 | Exactly the same block hash and digest as an earlier observation | `duplicate`: idempotent, nothing written |
 | Same block hash, different content; or same height, different hash | `conflict`: fails closed, nothing written; the projection is flagged |
-| Height below or equal to the high-water mark (different hash) | `stale`: nothing written |
-| Higher height but lower `control_seq` | `contradictory`: fails closed |
+| Height below the high-water mark (a hash not already recorded) | `stale`: nothing written |
+| Higher height but lower `control_seq` | `contradictory`: fails closed; the projection is flagged |
+| A deal outcome already recorded, now reported with different content | `conflict`: nothing written; the projection is flagged; the first outcome stands |
 | A different network, account or schema from the projection's | `source_changed`: nothing written; the old projection stays as it was, labelled with its source |
+
+Checks run in this order: source, same block hash, height, control sequence, outcomes.
+
+**Flags are sticky.** A later accepted observation updates the projection but never clears a
+`conflict` or `contradictory` flag. Nothing clears one in this job: deciding that conflicting
+evidence has been explained is an operator act that hasn't been designed yet.
 
 Outcomes are only ever copied from the ring. Deal numbers from 1 to the highest seen (live or
 ended) that were never observed as outcomes and aren't live are **gaps**: history is *incomplete*,
