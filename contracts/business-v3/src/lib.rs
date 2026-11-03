@@ -15,6 +15,19 @@
 //! Records are fixed-size, so rewrites never grow storage. Only `new`, `create_plan`,
 //! `appoint_operator` and `sponsor_shell` grow state, and they charge the measured growth.
 //! The FT receiver and the callback never allocate.
+//!
+//! 003e1 corrections:
+//! - use-keys that don't decode or are of small order are refused at both install paths, since
+//!   the host's non-strict `ed25519_verify` accepts forgeries for them (reproduced in the unit
+//!   host);
+//! - fixed ceilings on hold TTL and settle grace, with checked deadline arithmetic;
+//! - exact readback (`get_entitlement`, `check_use`) and an `already` that verifies the
+//!   signature;
+//! - books that keep customer returns apart from owner withdrawals through retries, with
+//!   explicit saturation flags;
+//! - party payout caps that keep slots for customers;
+//! - detached stranded retries;
+//! - checked identity counters and a defined answer for every month.
 
 use near_sdk::json_types::{U128, U64};
 use near_sdk::store::LookupMap;
@@ -33,8 +46,17 @@ pub const MAX_OPERATORS: usize = 8;
 pub const MAX_CUSTOMER_PENDING: u8 = 2;
 /// Largest purchase message accepted.
 pub const MAX_MSG: usize = 1024;
-/// A hold must leave at least this long to serve.
+/// A hold must leave at least this long to serve; also the shortest hold TTL a plan may have.
 pub const MIN_SERVE_MS: u64 = 60_000;
+/// Protocol ceilings for this product family (003e1): a hold serves at most an hour and settles
+/// within at most an hour after that. Rules and plans can only be tighter.
+pub const MAX_HOLD_TTL_MS: u64 = 3_600_000;
+pub const MAX_SETTLE_GRACE_MS: u64 = 3_600_000;
+/// Payouts to parties (owners, current or former: profit and their claims) in flight or
+/// stranded at once, across the business and per party. The rest of the 16 slots stay
+/// available to customers.
+pub const MAX_PARTY_PENDING_TOTAL: usize = 4;
+pub const MAX_PARTY_PENDING_EACH: u16 = 2;
 const DAY_MS: u64 = 86_400_000;
 
 pub const METERING: u8 = 1;
@@ -175,6 +197,8 @@ pub struct Entitlement {
     pub status: u8,
     pub free: u64,
     pub consumed: u64,
+    /// Units retired into a refund at the plan price. The money for them may still be in
+    /// flight or an unpaid claim; it is not "money returned".
     pub refunded: u64,
     pub purchased: u64,
     pub purchase_seq: u32,
@@ -245,6 +269,10 @@ pub struct PayoutSlot {
     pub reg_id: u64,
     /// Monotonic across the business; a callback must carry the same id.
     pub payout_id: u64,
+    /// A re-sent stranded payout: no record holds a reference to it, so its callback must never
+    /// touch a record's pending count or claim (a record of the same name may have been
+    /// recreated meanwhile). Failure leaves it stranded again.
+    pub detached: bool,
 }
 
 impl PayoutSlot {
@@ -258,20 +286,57 @@ impl PayoutSlot {
             plan_id: 0,
             reg_id: 0,
             payout_id: 0,
+            detached: false,
         }
+    }
+    /// Money returned to a customer (a refund, or a customer's claim from a failed one).
+    fn is_customer(&self) -> bool {
+        self.kind == KIND_REFUND || self.kind == KIND_CUSTOMER_CLAIM
     }
 }
 
-/// One month's books, in a fixed ring entry tagged with its month.
+pub const C_PURCHASES_IN: u8 = 1;
+pub const C_EARNED: u8 = 2;
+pub const C_CUSTOMER_RETURNS: u8 = 4;
+pub const C_OWNER_WITHDRAWALS: u8 = 8;
+pub const C_PAID_ON_RETRY: u8 = 16;
+
+/// One month's books, in a fixed ring entry tagged with its month. Payouts are booked by their
+/// economic category when the money actually leaves, whether on the first attempt or a later
+/// claim or stranded retry. Counters saturate rather than block money moving; a saturated
+/// counter sets its bit in `saturated`, and views then report it as a lower bound, not a total.
 #[near(serializers = [borsh])]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Period {
     pub yyyymm: u32,
     pub purchases_in: u128,
     pub earned: u128,
-    pub refunds_paid: u128,
-    pub claims_paid: u128,
+    /// Refunds and customer claims actually paid out.
+    pub customer_returns: u128,
+    /// Profit withdrawals and party claims actually paid out.
     pub owner_withdrawals: u128,
+    /// The part of the two above paid through a claim or a stranded retry, not the first attempt.
+    pub paid_on_retry: u128,
+    pub saturated: u8,
+}
+
+impl Period {
+    fn add(&mut self, counter: u8, amount: u128) {
+        let field = match counter {
+            C_PURCHASES_IN => &mut self.purchases_in,
+            C_EARNED => &mut self.earned,
+            C_CUSTOMER_RETURNS => &mut self.customer_returns,
+            C_OWNER_WITHDRAWALS => &mut self.owner_withdrawals,
+            _ => &mut self.paid_on_retry,
+        };
+        match field.checked_add(amount) {
+            Some(v) => *field = v,
+            None => {
+                *field = u128::MAX;
+                self.saturated |= counter;
+            }
+        }
+    }
 }
 
 // ---------- plain-data inputs and configuration ----------
@@ -372,22 +437,33 @@ pub struct EntitlementView {
     pub active: bool,
     pub free: U64,
     pub consumed: U64,
-    pub refunded: U64,
+    /// Units retired into refunds at the plan price. Not money returned: that money may still
+    /// be in flight (`pending_refs`) or an unpaid `claim`.
+    pub units_retired_to_refund: U64,
     pub purchased: U64,
     pub purchase_seq: u32,
     pub hold_seq: u32,
     pub hold_active: bool,
+    /// The active hold's identity: the key slot and epoch its HoldAuth was signed under.
+    pub hold_key_slot: u8,
+    pub hold_key_epoch: u32,
     pub hold_units: u8,
     pub hold_charged: u8,
     pub hold_used: u16,
+    /// One entry per slot of the active hold: the charged use's fingerprint (hex), or null.
+    pub hold_slots: Vec<Option<String>>,
+    pub hold_opened_at_ms: U64,
     pub serve_until_ms: U64,
     pub settle_until_ms: U64,
     pub last_hold_seq: u32,
     pub last_hold_used: u16,
     pub last_hold_charged: u8,
+    /// sha256(borsh(Vec<(slot u8, fingerprint [u8; 32])>)) over the closed hold's used slots in
+    /// slot order (see `closed_hold_root`).
     pub last_hold_root: String,
     pub key_states: Vec<u8>,
     pub key_epochs: Vec<u32>,
+    pub keys: Vec<KeyView>,
     pub claim: U128,
     pub pending_refs: u8,
     pub paused: bool,
@@ -429,15 +505,99 @@ pub struct PartyView {
     pub deposit: U128,
 }
 
+/// A key slot's public record: no secret is stored on chain.
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeyView {
+    pub slot: u8,
+    /// "empty", "active" or "revoked".
+    pub state: String,
+    pub epoch: u32,
+    pub public_key: String,
+    pub max_hold_units: u8,
+    pub max_units_per_day: u16,
+    /// UTC day number (ms / 86,400,000) that `held_today` counts; units held, not used.
+    pub day: u32,
+    pub held_today: u16,
+}
+
+/// A monthly counter. `exact` is false once it saturated; `amount` is then only a lower bound.
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct Counter {
+    pub amount: U128,
+    pub exact: bool,
+}
+
 #[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq)]
 pub struct PeriodView {
     pub yyyymm: u32,
-    pub purchases_in: U128,
-    pub earned: U128,
-    pub refunds_paid: U128,
-    pub claims_paid: U128,
-    pub owner_withdrawals: U128,
+    pub purchases_in: Counter,
+    pub earned: Counter,
+    pub customer_returns: Counter,
+    pub owner_withdrawals: Counter,
+    pub paid_on_retry: Counter,
+}
+
+/// The answer for one month. `status` is "recorded"; "no_activity" (nothing booked in that
+/// month); "not_retained" (overwritten by a month 24 or more later in the ring); or "invalid".
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PeriodLookup {
+    pub yyyymm: u32,
+    pub status: String,
+    pub period: Option<PeriodView>,
+}
+
+/// What the chain says about one use (customer, plan, registration, hold, slot, fingerprint).
+/// `status` is one of:
+/// - "charged": this exact fingerprint is charged in that slot of the active hold;
+/// - "conflict": a different fingerprint is charged there;
+/// - "unused": the active hold's slot is not charged (yet);
+/// - "closed": the hold has closed; `slot_used` says whether that slot was charged, and the
+///   client checks its fingerprints against `closed_root`;
+/// - "unknown_hold": neither the active nor the last closed hold;
+/// - "other_registration": the entitlement has a different registration (re-registered);
+/// - "no_entitlement".
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct UseCheck {
+    pub status: String,
+    pub slot_used: Option<bool>,
+    pub closed_root: Option<String>,
+}
+
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RulesView {
+    pub rules: Rules,
+    pub min_hold_ttl_ms: U64,
+    pub max_hold_ttl_ms: U64,
+    pub max_settle_grace_ms: U64,
+    pub payout_slots: u8,
+    pub max_party_pending_total: u8,
+    pub max_party_pending_each: u16,
+    pub max_customer_pending: u8,
+}
+
+/// The root a closed hold records over its used slots, in slot order. A client recomputes it
+/// from the fingerprints it submitted to check exactly which uses were charged.
+pub fn closed_hold_root(used: &[(u8, [u8; 32])]) -> [u8; 32] {
+    env::sha256_array(borsh::to_vec(&used.to_vec()).unwrap_or_default())
+}
+
+/// Decodes a use-key exactly as the host verifier does (ed25519-dalek 2.2.0, the version
+/// near-vm-runner 0.37.4 uses) and refuses keys that don't decode or are of small order.
+/// The host's `ed25519_verify` is the non-strict check, under which a small-order key accepts
+/// forged signatures (reproduced in the unit host, 003e1), so such a key must never be installed.
+fn use_key(pk_hex: &str) -> Result<[u8; 32], &'static str> {
+    let pk = hex32(pk_hex).ok_or("public key is 64 hex characters")?;
+    let key = ed25519_dalek::VerifyingKey::from_bytes(&pk).map_err(|_| "public key is not a valid ed25519 point")?;
+    if key.is_weak() {
+        return Err("public key is a weak (small-order) ed25519 key");
+    }
+    Ok(pk)
 }
 
 // ---------- helpers ----------
@@ -483,7 +643,12 @@ pub fn period_of(ms: u64) -> u32 {
     (year * 100 + m) as u32
 }
 
-/// Where a month lives in the ring.
+/// A calendar month written yyyymm, from 1970-01 to 9999-12.
+pub fn valid_month(yyyymm: u32) -> bool {
+    (197_001..=999_912).contains(&yyyymm) && (1..=12).contains(&(yyyymm % 100))
+}
+
+/// Where a (valid) month lives in the ring.
 pub fn ring_index(yyyymm: u32) -> u8 {
     let months = (yyyymm / 100) * 12 + (yyyymm % 100 - 1);
     (months % PERIOD_RING as u32) as u8
@@ -598,6 +763,11 @@ impl Business {
             rules.max_hold_units >= 1 && rules.max_hold_units as usize <= N_SLOTS,
             "E_ARGS: hold units ceiling must be 1 to 10"
         );
+        require!(
+            (MIN_SERVE_MS..=MAX_HOLD_TTL_MS).contains(&rules.max_hold_ttl_ms.0),
+            "E_ARGS: the hold TTL ceiling must be 60 s to 1 hour"
+        );
+        require!(rules.max_settle_grace_ms.0 <= MAX_SETTLE_GRACE_MS, "E_ARGS: the settle grace ceiling must be at most 1 hour");
         let mut b = Self {
             name,
             asset,
@@ -669,9 +839,12 @@ impl Business {
         id
     }
 
-    /// Grants capabilities to an operator for the current generation (owner only).
+    /// Grants capabilities to an operator for the current generation (owner only). Always needs
+    /// an attached deposit (at least 1 yoctoNEAR, an intentional full-access action; a new
+    /// operator also pays its storage). The excess is refunded.
     #[payable]
     pub fn appoint_operator(&mut self, account: AccountId, caps: u8) {
+        require!(env::attached_deposit().as_yoctonear() >= 1, "E_DEPOSIT: attach at least 1 yoctoNEAR");
         self.require_owner();
         require!(caps != 0 && caps & !(METERING | SUPPORT) == 0, "E_ARGS: capabilities are METERING (1) and SUPPORT (2)");
         let grant = OperatorGrant { caps, generation: self.generation };
@@ -692,6 +865,8 @@ impl Business {
         emit("operator_appointed", serde_json::json!({ "account": account, "caps": caps, "generation": self.generation }));
     }
 
+    /// Removes an operator. The storage the grant used stays with the contract rather than going
+    /// to the revoker, who may not be the account that paid for it (for example after a sale).
     #[payable]
     pub fn revoke_operator(&mut self, account: AccountId) {
         assert_one_yocto();
@@ -710,9 +885,9 @@ impl Business {
         let key = (customer.clone(), plan_id);
         require!(!self.entitlements.contains_key(&key), "E_EXISTS: already registered");
         let payer = env::predecessor_account_id();
+        let reg_id = self.reg_seq.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: registration ids"));
         let before = env::storage_usage();
-        self.reg_seq += 1;
-        let reg_id = self.reg_seq;
+        self.reg_seq = reg_id;
         self.entitlements.insert(key.clone(), Entitlement::shell(reg_id, &payer));
         self.entitlements.flush();
         let cost = self.charge_growth(before, 0);
@@ -753,7 +928,7 @@ impl Business {
                 self.entitlements.insert(key.clone(), e);
                 self.held += amount.0;
                 self.ent_free_value += amount.0;
-                self.book(|p| p.purchases_in = p.purchases_in.saturating_add(amount.0));
+                self.book(|p| p.add(C_PURCHASES_IN, amount.0));
                 self.check();
                 emit("units_bought", serde_json::json!({ "customer": key.0, "plan_id": key.1, "units": units, "amount": amount }));
                 PromiseOrValue::Value(U128(0))
@@ -769,7 +944,7 @@ impl Business {
         let (key, mut e) = self.own_entitlement(plan_id);
         require!((slot as usize) < KEY_SLOTS, "E_ARGS: key slot 0-3");
         require!(e.keys[slot as usize].state != KEY_ACTIVE, "E_KEY: that key slot is in use");
-        let pk = hex32(&pk).unwrap_or_else(|| env::panic_str("E_ARGS: public key is 64 hex characters"));
+        let pk = use_key(&pk).unwrap_or_else(|reason| env::panic_str(&format!("E_KEY_INVALID: {reason}")));
         require!(max_hold_units >= 1 && max_hold_units <= plan.max_hold_units, "E_ARGS: hold units outside the plan");
         require!(max_units_per_day >= 1, "E_ARGS: allow at least 1 unit a day");
         let k = &mut e.keys[slot as usize];
@@ -844,30 +1019,15 @@ impl Business {
     // ---------- holds ----------
 
     /// Locks units under a customer-signed HoldAuth (METERING operator of this generation, or
-    /// the owner). Returns "opened", or "already" for the identical active hold.
+    /// the owner). Returns "opened", or "already" for the identical active hold; "already" is
+    /// returned only when the submitted signature also verifies, so it never vouches for an
+    /// unchecked signature.
     pub fn open_hold(&mut self, customer: AccountId, plan_id: u32, auth: HoldAuth, sig: String) -> String {
         self.require_metering();
         let plan = self.plan(plan_id);
         let key = (customer.clone(), plan_id);
         let mut e = self.entitlement(&key);
         let k_idx = auth.key_slot as usize;
-        if e.hold.active
-            && e.hold.seq == auth.hold_seq
-            && e.hold.units == auth.units
-            && e.hold.serve_until_ms == auth.serve_until_ms.0
-            && e.hold.key_slot == auth.key_slot
-            && e.hold.key_epoch == auth.key_epoch
-        {
-            return "already".into();
-        }
-        require!(auth.hold_seq > e.hold_seq, "E_HOLD_SEQ_USED: that hold sequence was already used");
-        require!(e.status == ACTIVE, "E_STATE: nothing bought yet");
-        require!(!e.paused, "E_PAUSED: the customer paused new holds");
-        require!(!e.hold.active, "E_HOLD_ACTIVE: a hold is already open");
-        require!(Some(auth.hold_seq) == e.hold_seq.checked_add(1), "E_HOLD_SEQ: the next hold sequence is required");
-        require!(k_idx < KEY_SLOTS, "E_KEY: no such key slot");
-        let k = e.keys[k_idx];
-        require!(k.state == KEY_ACTIVE && k.epoch == auth.key_epoch, "E_KEY: key not active at that epoch");
         let sig = hex64(&sig).unwrap_or_else(|| env::panic_str("E_SIG: signature is 128 hex characters"));
         let msg = hold_message(
             &env::current_account_id(),
@@ -880,12 +1040,37 @@ impl Business {
             auth.units,
             auth.serve_until_ms.0,
         );
+        if e.hold.active
+            && e.hold.seq == auth.hold_seq
+            && e.hold.units == auth.units
+            && e.hold.serve_until_ms == auth.serve_until_ms.0
+            && e.hold.key_slot == auth.key_slot
+            && e.hold.key_epoch == auth.key_epoch
+        {
+            require!(env::ed25519_verify(&sig, msg, &e.hold.pk), "E_SIG: the hold is not signed by its key");
+            return "already".into();
+        }
+        require!(auth.hold_seq > e.hold_seq, "E_HOLD_SEQ_USED: that hold sequence was already used");
+        require!(e.status == ACTIVE, "E_STATE: nothing bought yet");
+        require!(!e.paused, "E_PAUSED: the customer paused new holds");
+        require!(!e.hold.active, "E_HOLD_ACTIVE: a hold is already open");
+        require!(Some(auth.hold_seq) == e.hold_seq.checked_add(1), "E_HOLD_SEQ: the next hold sequence is required");
+        require!(k_idx < KEY_SLOTS, "E_KEY: no such key slot");
+        let k = e.keys[k_idx];
+        require!(k.state == KEY_ACTIVE && k.epoch == auth.key_epoch, "E_KEY: key not active at that epoch");
         require!(env::ed25519_verify(&sig, msg, &k.pk), "E_SIG: the hold is not signed by that key");
         let max = (k.max_hold_units as u64).min(plan.max_hold_units as u64).min(N_SLOTS as u64).min(e.free);
         require!(auth.units >= 1 && auth.units as u64 <= max, "E_UNITS: hold size not allowed");
         let now = now_ms();
-        require!(auth.serve_until_ms.0 >= now + MIN_SERVE_MS, "E_EXPIRED: the hold would end too soon");
-        require!(auth.serve_until_ms.0 <= now + plan.hold_ttl_ms.0, "E_TTL: the hold would run past the plan's limit");
+        let earliest = now.checked_add(MIN_SERVE_MS).unwrap_or_else(|| env::panic_str("E_OVERFLOW: deadline"));
+        let latest = now.checked_add(plan.hold_ttl_ms.0).unwrap_or_else(|| env::panic_str("E_OVERFLOW: deadline"));
+        require!(auth.serve_until_ms.0 >= earliest, "E_EXPIRED: the hold would end too soon");
+        require!(auth.serve_until_ms.0 <= latest, "E_TTL: the hold would run past the plan's limit");
+        let settle_until = auth
+            .serve_until_ms
+            .0
+            .checked_add(plan.settle_grace_ms.0)
+            .unwrap_or_else(|| env::panic_str("E_OVERFLOW: deadline"));
         let day = (now / DAY_MS) as u32;
         let held_today = if k.day == day { k.held_today } else { 0 };
         require!(
@@ -904,7 +1089,7 @@ impl Business {
             units: auth.units,
             opened_at_ms: now,
             serve_until_ms: auth.serve_until_ms.0,
-            settle_until_ms: auth.serve_until_ms.0 + plan.settle_grace_ms.0,
+            settle_until_ms: settle_until,
             used: 0,
             charged: 0,
             slots: [[0u8; 32]; N_SLOTS],
@@ -965,7 +1150,7 @@ impl Business {
         self.ent_held_value = sub(self.ent_held_value, value);
         self.available = add(self.available, value);
         if value > 0 {
-            self.book(|p| p.earned = p.earned.saturating_add(value));
+            self.book(|p| p.add(C_EARNED, value));
         }
         if close {
             self.close_hold(&mut e, plan.unit_price.0);
@@ -1003,13 +1188,14 @@ impl Business {
         require!(e.pending_refs < MAX_CUSTOMER_PENDING, "E_PENDING_REFS: two payouts already in flight");
         let amount = mul(units.0, plan.unit_price.0);
         let slot = self.free_slot();
+        let payout_id = self.next_payout_id();
         e.free -= units.0;
         e.refunded += units.0;
         e.pending_refs += 1;
         let reg_id = e.reg_id;
         self.entitlements.insert(key.clone(), e);
         self.ent_free_value = sub(self.ent_free_value, amount);
-        self.start_payout(slot, KIND_REFUND, &key.0, plan_id, reg_id, amount)
+        self.start_payout(slot, payout_id, KIND_REFUND, &key.0, plan_id, reg_id, amount)
     }
 
     /// Pays a customer's claim (from a failed refund or claim payout).
@@ -1020,16 +1206,19 @@ impl Business {
         require!(e.claim > 0, "E_FUNDS: nothing to claim");
         require!(e.pending_refs < MAX_CUSTOMER_PENDING, "E_PENDING_REFS: two payouts already in flight");
         let slot = self.free_slot();
+        let payout_id = self.next_payout_id();
         let amount = e.claim;
         e.claim = 0;
         e.pending_refs += 1;
         let reg_id = e.reg_id;
         self.entitlements.insert(key.clone(), e);
         self.claims_total = sub(self.claims_total, amount);
-        self.start_payout(slot, KIND_CUSTOMER_CLAIM, &key.0, plan_id, reg_id, amount)
+        self.start_payout(slot, payout_id, KIND_CUSTOMER_CLAIM, &key.0, plan_id, reg_id, amount)
     }
 
-    /// The owner withdraws earned money above the reserve.
+    /// The owner withdraws earned money above the reserve. Party payouts are capped (2 per
+    /// party, 4 across the business, retries included) so they can't occupy the slots
+    /// customers' refunds need.
     #[payable]
     pub fn withdraw_profit(&mut self, amount: U128) -> Promise {
         assert_one_yocto();
@@ -1037,27 +1226,30 @@ impl Business {
         let mut r = *self.party.get(&owner).unwrap_or_else(|| env::panic_str("E_NO_RECORD: the owner has no party record"));
         let withdrawable = self.available.saturating_sub(self.rules.min_reserve.0);
         require!(amount.0 > 0 && amount.0 <= withdrawable, format!("E_RESERVED: {withdrawable} can be withdrawn"));
-        let slot = self.free_slot();
+        let slot = self.party_slot(&r);
+        let payout_id = self.next_payout_id();
         r.pending_refs += 1;
         self.party.insert(owner.clone(), r);
         self.available = sub(self.available, amount.0);
-        self.start_payout(slot, KIND_PROFIT, &owner, 0, 0, amount.0)
+        self.start_payout(slot, payout_id, KIND_PROFIT, &owner, 0, 0, amount.0)
     }
 
-    /// A party (a current or former owner) collects a claim from a failed payout.
+    /// A party (a current or former owner) collects a claim from a failed payout. Counts toward
+    /// the same party payout caps as withdrawals.
     #[payable]
     pub fn claim_party(&mut self) -> Promise {
         assert_one_yocto();
         let who = env::predecessor_account_id();
         let mut r = *self.party.get(&who).unwrap_or_else(|| env::panic_str("E_NO_RECORD: no party record"));
         require!(r.claim > 0, "E_FUNDS: nothing to claim");
-        let slot = self.free_slot();
+        let slot = self.party_slot(&r);
+        let payout_id = self.next_payout_id();
         let amount = r.claim;
         r.claim = 0;
         r.pending_refs += 1;
         self.party.insert(who.clone(), r);
         self.claims_total = sub(self.claims_total, amount);
-        self.start_payout(slot, KIND_PARTY_CLAIM, &who, 0, 0, amount)
+        self.start_payout(slot, payout_id, KIND_PARTY_CLAIM, &who, 0, 0, amount)
     }
 
     /// Settles a payout once the transfer's outcome is known. Never panics on an expected
@@ -1076,22 +1268,28 @@ impl Business {
         let ok = near_sdk::is_promise_success();
         let to = slot.to.account();
         let a = slot.amount;
-        let has_record = if slot.reg_id != 0 {
-            self.entitlements.get(&(to.clone(), slot.plan_id)).is_some_and(|e| e.reg_id == slot.reg_id)
-        } else {
-            self.party.contains_key(&to)
-        };
+        // A re-sent stranded payout is referenced by no record (even one recreated since).
+        let has_record = !slot.detached
+            && if slot.reg_id != 0 {
+                self.entitlements.get(&(to.clone(), slot.plan_id)).is_some_and(|e| e.reg_id == slot.reg_id)
+            } else {
+                self.party.contains_key(&to)
+            };
         if ok {
             self.held = sub(self.held, a);
             self.pending_total = sub(self.pending_total, a);
             if has_record {
                 self.unref(&slot, 0);
             }
-            match slot.kind {
-                KIND_REFUND => self.book(|p| p.refunds_paid = p.refunds_paid.saturating_add(a)),
-                KIND_PROFIT => self.book(|p| p.owner_withdrawals = p.owner_withdrawals.saturating_add(a)),
-                _ => self.book(|p| p.claims_paid = p.claims_paid.saturating_add(a)),
-            }
+            // Booked by what the money is, however many attempts it took.
+            let category = if slot.is_customer() { C_CUSTOMER_RETURNS } else { C_OWNER_WITHDRAWALS };
+            let retry = slot.kind == KIND_CUSTOMER_CLAIM || slot.kind == KIND_PARTY_CLAIM || slot.detached;
+            self.book(|p| {
+                p.add(category, a);
+                if retry {
+                    p.add(C_PAID_ON_RETRY, a);
+                }
+            });
             self.slots.insert(slot_id, PayoutSlot::free());
         } else if has_record {
             // The money never left: it becomes the fixed beneficiary's claim, never available.
@@ -1100,8 +1298,10 @@ impl Business {
             self.unref(&slot, a);
             self.slots.insert(slot_id, PayoutSlot::free());
         } else {
-            // Unreachable while P1-P2 hold; kept safe: the amount stays pending, recoverable by
-            // the beneficiary through `claim_stranded`.
+            // Reached only if a record was deleted with a payout still referencing it (prevented
+            // by P1-P2, so tests reach it by corrupting state) or after a re-sent stranded payout
+            // fails again. The amount stays pending, recoverable by the beneficiary through
+            // `claim_stranded`.
             let mut s = slot;
             s.state = SLOT_STRANDED;
             self.slots.insert(slot_id, s);
@@ -1111,16 +1311,19 @@ impl Business {
         ok
     }
 
-    /// The beneficiary of a stranded payout re-sends it through the same slot.
+    /// The beneficiary of a stranded payout re-sends it through the same slot. The re-sent
+    /// payout is detached: its callback never touches any record.
     #[payable]
     pub fn claim_stranded(&mut self, slot_id: u8) -> Promise {
         assert_one_yocto();
         let mut s = *self.slots.get(&slot_id).unwrap_or_else(|| env::panic_str("E_ARGS: no such slot"));
         require!(s.state == SLOT_STRANDED, "E_STATE: that slot is not stranded");
         require!(s.to.is(&env::predecessor_account_id()), "E_NOT_BENEFICIARY: only the payout's beneficiary");
-        self.payout_seq += 1;
+        let payout_id = self.next_payout_id();
+        self.payout_seq = payout_id;
         s.state = SLOT_IN_FLIGHT;
-        s.payout_id = self.payout_seq;
+        s.detached = true;
+        s.payout_id = payout_id;
         s.started_at_ms = now_ms();
         self.slots.insert(slot_id, s);
         self.check();
@@ -1155,14 +1358,20 @@ impl Business {
             active: e.status == ACTIVE,
             free: U64(e.free),
             consumed: U64(e.consumed),
-            refunded: U64(e.refunded),
+            units_retired_to_refund: U64(e.refunded),
             purchased: U64(e.purchased),
             purchase_seq: e.purchase_seq,
             hold_seq: e.hold_seq,
             hold_active: e.hold.active,
+            hold_key_slot: e.hold.key_slot,
+            hold_key_epoch: e.hold.key_epoch,
             hold_units: e.hold.units,
             hold_charged: e.hold.charged,
             hold_used: e.hold.used,
+            hold_slots: (0..e.hold.units)
+                .map(|i| (e.hold.used & (1u16 << i) != 0).then(|| hex::encode(e.hold.slots[i as usize])))
+                .collect(),
+            hold_opened_at_ms: U64(e.hold.opened_at_ms),
             serve_until_ms: U64(e.hold.serve_until_ms),
             settle_until_ms: U64(e.hold.settle_until_ms),
             last_hold_seq: e.last_hold.seq,
@@ -1171,6 +1380,21 @@ impl Business {
             last_hold_root: hex::encode(e.last_hold.slots_root),
             key_states: e.keys.iter().map(|k| k.state).collect(),
             key_epochs: e.keys.iter().map(|k| k.epoch).collect(),
+            keys: e
+                .keys
+                .iter()
+                .enumerate()
+                .map(|(i, k)| KeyView {
+                    slot: i as u8,
+                    state: ["empty", "active", "revoked"][k.state as usize].into(),
+                    epoch: k.epoch,
+                    public_key: hex::encode(k.pk),
+                    max_hold_units: k.max_hold_units,
+                    max_units_per_day: k.max_units_per_day,
+                    day: k.day,
+                    held_today: k.held_today,
+                })
+                .collect(),
             claim: U128(e.claim),
             pending_refs: e.pending_refs,
             paused: e.paused,
@@ -1215,15 +1439,84 @@ impl Business {
         self.party.get(&account).map(|r| PartyView { claim: U128(r.claim), pending_refs: r.pending_refs, deposit: U128(r.deposit) })
     }
 
-    pub fn get_period(&self, yyyymm: u32) -> Option<PeriodView> {
-        self.periods.get(&ring_index(yyyymm)).filter(|p| p.yyyymm == yyyymm).map(|p| PeriodView {
-            yyyymm: p.yyyymm,
-            purchases_in: U128(p.purchases_in),
-            earned: U128(p.earned),
-            refunds_paid: U128(p.refunds_paid),
-            claims_paid: U128(p.claims_paid),
-            owner_withdrawals: U128(p.owner_withdrawals),
-        })
+    /// One month's books, with a defined answer for every input (never panics).
+    pub fn get_period(&self, yyyymm: u32) -> PeriodLookup {
+        let answer = |status: &str, period: Option<PeriodView>| PeriodLookup { yyyymm, status: status.into(), period };
+        if !valid_month(yyyymm) {
+            return answer("invalid", None);
+        }
+        let Some(p) = self.periods.get(&ring_index(yyyymm)) else {
+            return answer("no_activity", None);
+        };
+        if p.yyyymm == yyyymm {
+            let c = |amount: u128, bit: u8| Counter { amount: U128(amount), exact: p.saturated & bit == 0 };
+            answer(
+                "recorded",
+                Some(PeriodView {
+                    yyyymm,
+                    purchases_in: c(p.purchases_in, C_PURCHASES_IN),
+                    earned: c(p.earned, C_EARNED),
+                    customer_returns: c(p.customer_returns, C_CUSTOMER_RETURNS),
+                    owner_withdrawals: c(p.owner_withdrawals, C_OWNER_WITHDRAWALS),
+                    paid_on_retry: c(p.paid_on_retry, C_PAID_ON_RETRY),
+                }),
+            )
+        } else if p.yyyymm > yyyymm {
+            // A later month (24 or more on) took this ring entry.
+            answer("not_retained", None)
+        } else {
+            answer("no_activity", None)
+        }
+    }
+
+    /// Exactly what the chain records about one signed use, so a client can reconcile an
+    /// uncertain charge against the use it submitted (see `UseCheck`).
+    pub fn check_use(&self, customer: AccountId, plan_id: u32, reg_id: U64, hold_seq: u32, slot: u8, fingerprint: String) -> UseCheck {
+        let answer = |status: &str, slot_used: Option<bool>, root: Option<[u8; 32]>| UseCheck {
+            status: status.into(),
+            slot_used,
+            closed_root: root.map(hex::encode),
+        };
+        let Some(e) = self.entitlements.get(&(customer, plan_id)) else {
+            return answer("no_entitlement", None, None);
+        };
+        if e.reg_id != reg_id.0 {
+            return answer("other_registration", None, None);
+        }
+        let Some(fp) = hex32(&fingerprint) else {
+            return answer("invalid", None, None);
+        };
+        let bit = if (slot as usize) < N_SLOTS { 1u16 << slot } else { 0 };
+        if e.hold.active && e.hold.seq == hold_seq {
+            if slot >= e.hold.units {
+                return answer("invalid", None, None);
+            }
+            return if e.hold.used & bit == 0 {
+                answer("unused", Some(false), None)
+            } else if e.hold.slots[slot as usize] == fp {
+                answer("charged", Some(true), None)
+            } else {
+                answer("conflict", Some(true), None)
+            };
+        }
+        if e.last_hold.seq == hold_seq && hold_seq != 0 {
+            return answer("closed", Some(bit != 0 && e.last_hold.used & bit != 0), Some(e.last_hold.slots_root));
+        }
+        answer("unknown_hold", None, None)
+    }
+
+    /// The fixed ceilings and this business's rules, so clients can show bounded deadlines.
+    pub fn get_rules(&self) -> RulesView {
+        RulesView {
+            rules: self.rules.clone(),
+            min_hold_ttl_ms: U64(MIN_SERVE_MS),
+            max_hold_ttl_ms: U64(MAX_HOLD_TTL_MS),
+            max_settle_grace_ms: U64(MAX_SETTLE_GRACE_MS),
+            payout_slots: PAYOUT_SLOTS,
+            max_party_pending_total: MAX_PARTY_PENDING_TOTAL as u8,
+            max_party_pending_each: MAX_PARTY_PENDING_EACH,
+            max_customer_pending: MAX_CUSTOMER_PENDING,
+        }
     }
 
     pub fn get_control(&self) -> (AccountId, u32) {
@@ -1314,7 +1607,7 @@ impl Business {
                 if e.keys[i.slot as usize].state == KEY_ACTIVE {
                     return Err("that key slot is in use");
                 }
-                let pk = hex32(&i.pk).ok_or("public key is 64 hex characters")?;
+                let pk = use_key(&i.pk)?;
                 if i.max_hold_units < 1 || i.max_hold_units > plan.max_hold_units || i.max_units_per_day < 1 {
                     return Err("key policy outside the plan");
                 }
@@ -1335,7 +1628,7 @@ impl Business {
             .filter(|i| e.hold.used & (1u16 << i) != 0)
             .map(|i| (i, e.hold.slots[i as usize]))
             .collect();
-        let root = env::sha256_array(borsh::to_vec(&used).unwrap_or_default());
+        let root = closed_hold_root(&used);
         e.last_hold = ClosedHold { seq: e.hold.seq, used: e.hold.used, charged: e.hold.charged, slots_root: root };
         e.hold = Hold::empty();
     }
@@ -1346,10 +1639,42 @@ impl Business {
             .unwrap_or_else(|| env::panic_str("E_BUSY: every payout slot is in use"))
     }
 
+    /// A free slot for a party payout, within the party caps (checked before any change).
+    fn party_slot(&self, r: &PartyRecord) -> u8 {
+        require!(
+            r.pending_refs < MAX_PARTY_PENDING_EACH,
+            "E_PARTY_CAP: 2 of your payouts are already in flight; wait for them to settle"
+        );
+        let party_slots = (0..PAYOUT_SLOTS)
+            .filter_map(|i| self.slots.get(&i))
+            .filter(|s| s.state != SLOT_FREE && !s.is_customer())
+            .count();
+        require!(
+            party_slots < MAX_PARTY_PENDING_TOTAL,
+            "E_PARTY_CAP: 4 owner payouts are already in flight; the other slots are kept for customers"
+        );
+        self.free_slot()
+    }
+
+    /// The next payout id, checked before anything changes.
+    fn next_payout_id(&self) -> u64 {
+        self.payout_seq.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: payout ids"))
+    }
+
     /// Moves `amount` (already taken out of its source bucket) into pending, records the payout
-    /// in the slot with a new monotonic id, and schedules the transfer and its callback.
-    fn start_payout(&mut self, slot_id: u8, kind: u8, to: &AccountId, plan_id: u32, reg_id: u64, amount: u128) -> Promise {
-        self.payout_seq += 1;
+    /// in the slot with its new monotonic id, and schedules the transfer and its callback.
+    #[allow(clippy::too_many_arguments)]
+    fn start_payout(
+        &mut self,
+        slot_id: u8,
+        payout_id: u64,
+        kind: u8,
+        to: &AccountId,
+        plan_id: u32,
+        reg_id: u64,
+        amount: u128,
+    ) -> Promise {
+        self.payout_seq = payout_id;
         let s = PayoutSlot {
             state: SLOT_IN_FLIGHT,
             kind,
@@ -1358,7 +1683,8 @@ impl Business {
             to: FixedAccount::of(to),
             plan_id,
             reg_id,
-            payout_id: self.payout_seq,
+            payout_id,
+            detached: false,
         };
         self.slots.insert(slot_id, s);
         self.pending_total = add(self.pending_total, amount);
@@ -1378,25 +1704,36 @@ impl Business {
             .then(Self::ext(env::current_account_id()).with_static_gas(CALLBACK_GAS).on_payout(slot_id, U64(s.payout_id)))
     }
 
-    /// Drops one pending reference from the payout's beneficiary, adding `claim` to its claim.
+    /// Drops one pending reference from the payout's beneficiary, adding `claim` to its claim. A
+    /// count already at zero would mean a broken invariant: it is not hidden by saturating, it
+    /// is reported (`pending_refs_underflow`) and left unchanged, since a callback must not panic.
     fn unref(&mut self, slot: &PayoutSlot, claim: u128) {
         let to = slot.to.account();
+        let underflow = |who: &AccountId| {
+            emit("pending_refs_underflow", serde_json::json!({ "account": who, "payout_id": U64(slot.payout_id) }));
+        };
         if slot.reg_id != 0 {
             let key = (to, slot.plan_id);
             if let Some(mut e) = self.entitlements.get(&key).copied() {
-                e.pending_refs = e.pending_refs.saturating_sub(1);
+                match e.pending_refs.checked_sub(1) {
+                    Some(v) => e.pending_refs = v,
+                    None => underflow(&key.0),
+                }
                 e.claim = add(e.claim, claim);
                 self.entitlements.insert(key, e);
             }
         } else if let Some(mut r) = self.party.get(&to).copied() {
-            r.pending_refs = r.pending_refs.saturating_sub(1);
+            match r.pending_refs.checked_sub(1) {
+                Some(v) => r.pending_refs = v,
+                None => underflow(&to),
+            }
             r.claim = add(r.claim, claim);
             self.party.insert(to, r);
         }
     }
 
-    /// Adds to this month's books. The counters are reporting totals and saturate: a month's
-    /// gross flow can exceed u128 (buy, refund, buy again) and must never block money moving.
+    /// Adds to this month's books (see `Period::add`: counters saturate and flag it, never
+    /// blocking money moving). A rewrite of a pre-allocated ring entry: never allocates.
     fn book(&mut self, f: impl FnOnce(&mut Period)) {
         let month = period_of(now_ms());
         let idx = ring_index(month);
