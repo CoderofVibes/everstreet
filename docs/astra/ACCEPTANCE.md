@@ -114,6 +114,13 @@ badge remains003f2. See002c2-003f1-independent-repeat.003e has26 reported v3/27 
 but source review requires003e1 before integration; weak-key hypothesis is unconfirmed pending
 pinned VM reproduction. All broader M2/M3 integration and live gates remain open.
 
+November3 review atbf75dcd:003e1's weak-key issue was reproduced in the pinned unit host and
+corrected (both install paths reject weak/invalid keys).003g adds exact sale/close methods;
+Astra independently passed all63 v3 unit tests, including actual-method100/20/80 and successor
+use, plus373 app tests. Pins/categories/floor/close-order source reviewed. This is bounded unit
+evidence for M3, not a live or end-to-end close.003h advances read-only observations next;
+signing, runtime closer, physical FT/gas/receipt and live customer gates remain open.
+
 ## M4: bring an existing product
 
 Connect authorized source and deployment metadata; identify framework, services, ownership
@@ -123,6 +130,13 @@ founder to correct mappings; do not claim transferred hosting from a repository 
 Status: pending.004a begins genuine supplied-manifest inspection and persistent import/readiness
 records. External source/deployment connections and execution remain later gates, not completed
 by a manually supplied manifest or founder assertion.
+
+November3:004a browser creation, saved/reloaded edits, revised manifest facts and immutable
+prior report passed.004a1 repeat preserves product/dependency drafts across tabs and recovers
+a committed-but-unanswered inspection once while retaining typed-ahead content.390px table
+focus/keyboard scroll and page containment pass. An ownership change during inspection yields
+the correct server404 but retains cached private browser data;004a2 blocks full local intake
+acceptance. Remote connectors, execution and full M4 remain pending.
 
 ## M5: a useful marketplace and operating network
 
