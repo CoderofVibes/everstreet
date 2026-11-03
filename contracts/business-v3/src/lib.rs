@@ -28,6 +28,15 @@
 //! - party payout caps that keep slots for customers;
 //! - detached stranded retries;
 //! - checked identity counters and a defined answer for every month.
+//!
+//! 003g, the sale (docs/design/BUSINESS_V3_SALE.md): a seller proposes exact terms to one buyer;
+//! the buyer funds escrow; both accept one digest. Direct mode closes on the second acceptance;
+//! Gated mode closes only by the configured closer's exact order before a deadline. Control moves
+//! to the buyer at the next generation with only the agreed operator grants; customers are
+//! untouched; the price becomes the seller's sale-proceeds claim and escrow that doesn't close
+//! returns as the buyer's escrow-return claim. Deal methods never send payouts. The owner and the
+//! 8 operator slots are fixed-width, and the deal slot and an 8-entry outcome ring are
+//! pre-allocated, so no transition changes storage.
 
 use near_sdk::json_types::{U128, U64};
 use near_sdk::store::LookupMap;
@@ -75,9 +84,42 @@ pub const KIND_REFUND: u8 = 0;
 pub const KIND_CUSTOMER_CLAIM: u8 = 1;
 pub const KIND_PARTY_CLAIM: u8 = 2;
 pub const KIND_PROFIT: u8 = 3;
+/// 003g: escrow returned to a buyer, and a sale price paid to a seller. Always from a claim.
+pub const KIND_ESCROW_RETURN: u8 = 4;
+pub const KIND_SALE_PROCEEDS: u8 = 5;
+
+/// 003g: what a party is owed, kept apart by economic category.
+pub const CLAIM_PROFIT: u8 = 0;
+pub const CLAIM_ESCROW_RETURN: u8 = 1;
+pub const CLAIM_SALE_PROCEEDS: u8 = 2;
+pub const CLAIM_CATEGORIES: usize = 3;
 
 pub const HOLD_DOMAIN: &str = "business-hold/v1";
 pub const USE_DOMAIN: &str = "business-use/v1";
+pub const DEAL_DOMAIN: &str = "business-deal/v3";
+
+// ---------- 003g: the sale ----------
+
+pub const MODE_DIRECT: u8 = 0;
+pub const MODE_GATED: u8 = 1;
+pub const DEAL_PROPOSED: u8 = 0;
+pub const DEAL_ACCEPTING: u8 = 1;
+pub const DEAL_CLOSING: u8 = 2;
+pub const OUTCOME_NONE: u8 = 0;
+pub const OUTCOME_CLOSED: u8 = 1;
+pub const OUTCOME_CANCELLED: u8 = 2;
+pub const OUTCOME_EXPIRED: u8 = 3;
+pub const OUTCOME_ABORTED: u8 = 4;
+pub const MAX_GRANTS: usize = 4;
+pub const OUTCOME_RING: u8 = 8;
+/// An offer must be open for at least a minute and at most 30 days.
+pub const MIN_OFFER_MS: u64 = 60_000;
+pub const MAX_OFFER_MS: u64 = 30 * DAY_MS;
+/// Gated mode: how long the closer has to finalize once both parties accept.
+pub const CLOSE_WINDOW_MIN_MS: u64 = 600_000;
+pub const CLOSE_WINDOW_MAX_MS: u64 = DAY_MS;
+/// A close order must have been issued within this long before it lands.
+pub const MAX_ISSUE_AGE_MS: u64 = 1_200_000;
 
 const EVENT_STANDARD: &str = "business_core";
 const EVENT_VERSION: &str = "3.0.0";
@@ -92,6 +134,8 @@ enum StorageKey {
     Party,
     Slots,
     Periods,
+    Deal,
+    Outcomes,
 }
 
 // ---------- fixed-size records ----------
@@ -250,10 +294,22 @@ impl Entitlement {
 #[near(serializers = [borsh])]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PartyRecord {
-    pub claim: u128,
+    /// What the party is owed, by category (`CLAIM_PROFIT`, `CLAIM_ESCROW_RETURN`,
+    /// `CLAIM_SALE_PROCEEDS`). A category never turns into another.
+    pub claims: [u128; CLAIM_CATEGORIES],
     pub pending_refs: u16,
+    /// Who paid this record's storage, and how much; refunded to them on release.
     pub payer: FixedAccount,
     pub deposit: u128,
+}
+
+impl PartyRecord {
+    fn new(payer: &AccountId, deposit: u128) -> Self {
+        Self { claims: [0; CLAIM_CATEGORIES], pending_refs: 0, payer: FixedAccount::of(payer), deposit }
+    }
+    pub fn owed(&self) -> u128 {
+        self.claims.iter().sum()
+    }
 }
 
 #[near(serializers = [borsh])]
@@ -295,11 +351,32 @@ impl PayoutSlot {
     }
 }
 
+/// The party claim a payout of this kind comes from and goes back to on failure.
+pub fn claim_category(kind: u8) -> u8 {
+    match kind {
+        KIND_ESCROW_RETURN => CLAIM_ESCROW_RETURN,
+        KIND_SALE_PROCEEDS => CLAIM_SALE_PROCEEDS,
+        _ => CLAIM_PROFIT,
+    }
+}
+
+/// The payout kind that collects a party claim of this category.
+pub fn claim_kind(category: u8) -> u8 {
+    match category {
+        CLAIM_ESCROW_RETURN => KIND_ESCROW_RETURN,
+        CLAIM_SALE_PROCEEDS => KIND_SALE_PROCEEDS,
+        _ => KIND_PARTY_CLAIM,
+    }
+}
+
 pub const C_PURCHASES_IN: u8 = 1;
 pub const C_EARNED: u8 = 2;
 pub const C_CUSTOMER_RETURNS: u8 = 4;
 pub const C_OWNER_WITHDRAWALS: u8 = 8;
 pub const C_PAID_ON_RETRY: u8 = 16;
+pub const C_ESCROW_IN: u8 = 32;
+pub const C_ESCROW_RETURNED: u8 = 64;
+pub const C_SALE_PROCEEDS_PAID: u8 = 128;
 
 /// One month's books, in a fixed ring entry tagged with its month. Payouts are booked by their
 /// economic category when the money actually leaves, whether on the first attempt or a later
@@ -317,6 +394,12 @@ pub struct Period {
     pub owner_withdrawals: u128,
     /// The part of the two above paid through a claim or a stranded retry, not the first attempt.
     pub paid_on_retry: u128,
+    /// 003g: acquisition escrow received from buyers (never customer purchases).
+    pub escrow_in: u128,
+    /// 003g: escrow actually paid back to buyers.
+    pub escrow_returned: u128,
+    /// 003g: sale prices actually paid to sellers (never operating profit).
+    pub sale_proceeds_paid: u128,
     pub saturated: u8,
 }
 
@@ -327,6 +410,9 @@ impl Period {
             C_EARNED => &mut self.earned,
             C_CUSTOMER_RETURNS => &mut self.customer_returns,
             C_OWNER_WITHDRAWALS => &mut self.owner_withdrawals,
+            C_ESCROW_IN => &mut self.escrow_in,
+            C_ESCROW_RETURNED => &mut self.escrow_returned,
+            C_SALE_PROCEEDS_PAID => &mut self.sale_proceeds_paid,
             _ => &mut self.paid_on_retry,
         };
         match field.checked_add(amount) {
@@ -335,6 +421,139 @@ impl Period {
                 *field = u128::MAX;
                 self.saturated |= counter;
             }
+        }
+    }
+}
+
+// ---------- 003g: fixed-size control and sale records ----------
+
+/// One of the 8 pre-allocated operator slots (`caps == 0` is empty).
+#[near(serializers = [borsh])]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OperatorSlot {
+    pub account: FixedAccount,
+    pub caps: u8,
+    pub generation: u32,
+}
+
+impl OperatorSlot {
+    const fn empty() -> Self {
+        Self { account: FixedAccount { len: 0, bytes: [0u8; 64] }, caps: 0, generation: 0 }
+    }
+}
+
+/// An operator grant agreed in a deal, installed at the next generation (`caps == 0` is empty).
+#[near(serializers = [borsh])]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GrantSlot {
+    pub account: FixedAccount,
+    pub caps: u8,
+}
+
+impl GrantSlot {
+    const fn empty() -> Self {
+        Self { account: FixedAccount { len: 0, bytes: [0u8; 64] }, caps: 0 }
+    }
+}
+
+/// The single deal slot, pre-allocated at `new` and rewritten in place; `live` says if it holds
+/// a deal. Every field is fixed-size, so no transition changes storage.
+#[near(serializers = [borsh])]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DealSlot {
+    pub live: bool,
+    pub state: u8,
+    pub seq: u64,
+    pub version: u32,
+    pub seller: FixedAccount,
+    pub buyer: FixedAccount,
+    pub price: u128,
+    pub expires_at_ms: u64,
+    pub close_window_ms: u64,
+    pub available_floor: u128,
+    pub grants: [GrantSlot; MAX_GRANTS],
+    pub terms_hash: [u8; 32],
+    pub expected_generation: u32,
+    pub manifest: [u8; 32],
+    pub manifest_seq: u64,
+    pub plan_count: u32,
+    pub seller_accepted: bool,
+    pub buyer_accepted: bool,
+    /// What was accepted (both parties must have accepted this same digest).
+    pub accepted_digest: [u8; 32],
+    pub escrow: u128,
+    /// Who funded the escrow; always the buyer (the buyer can't change while funded).
+    pub escrow_owner: FixedAccount,
+    pub closing_started_ms: u64,
+    pub deadline_ms: u64,
+    pub closing_control_seq: u64,
+}
+
+impl DealSlot {
+    const fn empty() -> Self {
+        const NONE: FixedAccount = FixedAccount { len: 0, bytes: [0u8; 64] };
+        Self {
+            live: false,
+            state: DEAL_PROPOSED,
+            seq: 0,
+            version: 0,
+            seller: NONE,
+            buyer: NONE,
+            price: 0,
+            expires_at_ms: 0,
+            close_window_ms: 0,
+            available_floor: 0,
+            grants: [GrantSlot::empty(); MAX_GRANTS],
+            terms_hash: [0u8; 32],
+            expected_generation: 0,
+            manifest: [0u8; 32],
+            manifest_seq: 0,
+            plan_count: 0,
+            seller_accepted: false,
+            buyer_accepted: false,
+            accepted_digest: [0u8; 32],
+            escrow: 0,
+            escrow_owner: NONE,
+            closing_started_ms: 0,
+            deadline_ms: 0,
+            closing_control_seq: 0,
+        }
+    }
+}
+
+/// How a deal ended, in an 8-entry ring (by `seq % 8`) pre-allocated at `new`.
+#[near(serializers = [borsh])]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DealOutcome {
+    pub status: u8,
+    pub seq: u64,
+    pub version: u32,
+    pub digest: [u8; 32],
+    pub generation_after: u32,
+    pub control_seq: u64,
+    pub at_ms: u64,
+    pub seller: FixedAccount,
+    pub buyer: FixedAccount,
+    pub price: u128,
+    /// Escrow returned to the buyer's claim (cancel, expire, abort, or a price revision).
+    pub escrow_returned: u128,
+}
+
+impl DealOutcome {
+    const fn empty() -> Self {
+        const NONE: FixedAccount = FixedAccount { len: 0, bytes: [0u8; 64] };
+        Self {
+            status: OUTCOME_NONE,
+            seq: 0,
+            version: 0,
+            digest: [0u8; 32],
+            generation_after: 0,
+            control_seq: 0,
+            at_ms: 0,
+            seller: NONE,
+            buyer: NONE,
+            price: 0,
+            escrow_returned: 0,
         }
     }
 }
@@ -375,11 +594,41 @@ pub struct PlanInput {
     pub settle_grace_ms: U64,
 }
 
-#[near(serializers = [borsh, json])]
-#[derive(Clone, Debug, PartialEq)]
-pub struct OperatorGrant {
-    pub caps: u8,
-    pub generation: u32,
+/// 003g: the terms a seller proposes. Grants are installed at the next generation on close.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct DealTermsInput {
+    pub buyer: AccountId,
+    pub price: U128,
+    pub expires_at_ms: U64,
+    /// 0 in Direct mode; 10 minutes to 24 hours in Gated mode.
+    pub close_window_ms: U64,
+    pub available_floor: U128,
+    pub grants: Vec<(AccountId, u8)>,
+    /// sha256 of the off-chain terms document, 64 hex characters.
+    pub terms_hash: String,
+}
+
+/// 003g: what the configured closer submits to finalize a Gated close.
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct CloseOrder {
+    pub deal_seq: U64,
+    pub version: u32,
+    pub digest: String,
+    pub expected_generation: u32,
+    pub closing_control_seq: U64,
+    pub manifest: String,
+    pub manifest_seq: U64,
+    pub issued_at_ms: U64,
+}
+
+#[near(serializers = [json])]
+#[derive(Clone, Debug)]
+pub struct FundDeal {
+    pub deal_seq: U64,
+    pub version: u32,
+    pub price: U128,
 }
 
 #[near(serializers = [json])]
@@ -406,6 +655,8 @@ pub struct Buy {
 enum Incoming {
     #[serde(rename = "buy")]
     Buy(Buy),
+    #[serde(rename = "fund_deal")]
+    FundDeal(FundDeal),
 }
 
 #[near(serializers = [json])]
@@ -482,6 +733,8 @@ pub struct TreasuryView {
     pub withdrawable: U128,
     pub pending_total: U128,
     pub claims_total: U128,
+    /// 003g: a buyer's escrow for the live deal; the buyer's until the close.
+    pub escrow_total: U128,
 }
 
 #[near(serializers = [json])]
@@ -500,9 +753,83 @@ pub struct PendingView {
 #[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartyView {
-    pub claim: U128,
+    /// Owed from failed profit withdrawals (and their retries).
+    pub profit_claim: U128,
+    /// Owed: escrow returned when a deal ended without closing, or its price was revised.
+    pub escrow_return_claim: U128,
+    /// Owed: the price of a business this party sold.
+    pub sale_proceeds_claim: U128,
     pub pending_refs: u16,
+    pub payer: AccountId,
     pub deposit: U128,
+    /// Referenced by the live deal (as seller or buyer), so it can't be released.
+    pub pinned: bool,
+}
+
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct GrantView {
+    pub account: AccountId,
+    pub caps: u8,
+}
+
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct DealView {
+    pub seq: U64,
+    pub version: u32,
+    /// "proposed", "accepting" or "closing".
+    pub state: String,
+    /// What both parties must accept: recomputed from the live state.
+    pub digest: String,
+    pub seller: AccountId,
+    pub buyer: AccountId,
+    pub price: U128,
+    pub available_floor: U128,
+    pub expires_at_ms: U64,
+    pub close_window_ms: U64,
+    pub grants: Vec<GrantView>,
+    pub terms_hash: String,
+    pub expected_generation: u32,
+    pub seller_accepted: bool,
+    pub buyer_accepted: bool,
+    pub escrow: U128,
+    pub deadline_ms: U64,
+    pub closing_started_ms: U64,
+    pub closing_control_seq: U64,
+}
+
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ControlView {
+    pub owner: AccountId,
+    pub generation: u32,
+    pub control_seq: U64,
+    /// "direct" or "gated".
+    pub close_mode: String,
+    pub closer: Option<AccountId>,
+    /// A hash pointer only: it is not evidence that any artifact is available.
+    pub service_manifest: String,
+    pub manifest_seq: U64,
+    pub operators: Vec<(AccountId, u8, u32)>,
+    pub live_deal: Option<DealView>,
+}
+
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct OutcomeView {
+    /// "closed", "cancelled", "expired" or "aborted".
+    pub status: String,
+    pub seq: U64,
+    pub version: u32,
+    pub digest: String,
+    pub generation_after: u32,
+    pub control_seq: U64,
+    pub at_ms: U64,
+    pub seller: AccountId,
+    pub buyer: AccountId,
+    pub price: U128,
+    pub escrow_returned: U128,
 }
 
 /// A key slot's public record: no secret is stored on chain.
@@ -538,6 +865,10 @@ pub struct PeriodView {
     pub customer_returns: Counter,
     pub owner_withdrawals: Counter,
     pub paid_on_retry: Counter,
+    /// 003g: acquisition escrow received, returned to buyers, and sale prices paid to sellers.
+    pub escrow_in: Counter,
+    pub escrow_returned: Counter,
+    pub sale_proceeds_paid: Counter,
 }
 
 /// The answer for one month. `status` is "recorded"; "no_activity" (nothing booked in that
@@ -712,6 +1043,14 @@ pub fn use_message(
     env::sha256_array(&bytes)
 }
 
+/// Keeps `keep` yoctoNEAR of the attached deposit and returns the rest to the caller.
+fn refund_above(keep: u128) {
+    let attached = env::attached_deposit().as_yoctonear();
+    if attached > keep {
+        Promise::new(env::predecessor_account_id()).transfer(NearToken::from_yoctonear(attached - keep)).detach();
+    }
+}
+
 fn mul(units: u64, price: u128) -> u128 {
     (units as u128).checked_mul(price).unwrap_or_else(|| env::panic_str("E_OVERFLOW"))
 }
@@ -732,9 +1071,11 @@ pub struct Business {
     name: String,
     asset: AccountId,
     rules: Rules,
-    owner: AccountId,
+    /// Fixed width (003g), so a change of owner never resizes the root record.
+    owner: FixedAccount,
     generation: u32,
-    operators: Vec<(AccountId, OperatorGrant)>,
+    /// Eight pre-allocated slots (003g), so appointing and closing never resize the root.
+    operators: [OperatorSlot; MAX_OPERATORS],
     plans: LookupMap<u32, Plan>,
     plan_count: u32,
     entitlements: LookupMap<(AccountId, u32), Entitlement>,
@@ -749,15 +1090,32 @@ pub struct Business {
     available: u128,
     pending_total: u128,
     claims_total: u128,
+    // ---- 003g: control and sale ----
+    /// `MODE_DIRECT` or `MODE_GATED`, fixed at `new`.
+    close_mode: u8,
+    /// The only account that may finalize a Gated close (empty in Direct mode).
+    closer: FixedAccount,
+    /// Rises by exactly 1 on each successful call that changes control state.
+    control_seq: u64,
+    /// A hash pointer to the service manifest; not evidence that any artifact exists.
+    service_manifest: [u8; 32],
+    manifest_seq: u64,
+    deal_seq: u64,
+    /// The live deal's escrow (0 or its price): the buyer's money until the close.
+    escrow_total: u128,
+    deal: LookupMap<u8, DealSlot>,
+    outcomes: LookupMap<u8, DealOutcome>,
 }
 
 #[near]
 impl Business {
     // ---------- setup ----------
 
-    /// Pre-allocates the payout slots, the period ring and the founder's party record.
+    /// Pre-allocates the payout slots, the period ring, the founder's party record, the deal slot
+    /// and the deal outcome ring. `closer` chooses the close mode for good: none is Direct (the
+    /// second matching acceptance closes); an account is Gated (only it may finalize).
     #[init]
-    pub fn new(name: String, owner: AccountId, asset: AccountId, rules: Rules) -> Self {
+    pub fn new(name: String, owner: AccountId, asset: AccountId, rules: Rules, closer: Option<AccountId>) -> Self {
         require!(!name.is_empty() && name.len() <= 64, "E_ARGS: name is 1-64 characters");
         require!(
             rules.max_hold_units >= 1 && rules.max_hold_units as usize <= N_SLOTS,
@@ -768,13 +1126,16 @@ impl Business {
             "E_ARGS: the hold TTL ceiling must be 60 s to 1 hour"
         );
         require!(rules.max_settle_grace_ms.0 <= MAX_SETTLE_GRACE_MS, "E_ARGS: the settle grace ceiling must be at most 1 hour");
+        if let Some(c) = &closer {
+            require!(*c != owner && *c != asset, "E_ARGS: the closer must be its own account");
+        }
         let mut b = Self {
             name,
             asset,
             rules,
-            owner: owner.clone(),
+            owner: FixedAccount::of(&owner),
             generation: 1,
-            operators: Vec::new(),
+            operators: [OperatorSlot::empty(); MAX_OPERATORS],
             plans: LookupMap::new(StorageKey::Plans),
             plan_count: 0,
             entitlements: LookupMap::new(StorageKey::Entitlements),
@@ -789,6 +1150,15 @@ impl Business {
             available: 0,
             pending_total: 0,
             claims_total: 0,
+            close_mode: if closer.is_some() { MODE_GATED } else { MODE_DIRECT },
+            closer: closer.as_ref().map(FixedAccount::of).unwrap_or_else(FixedAccount::none),
+            control_seq: 0,
+            service_manifest: [0u8; 32],
+            manifest_seq: 0,
+            deal_seq: 0,
+            escrow_total: 0,
+            deal: LookupMap::new(StorageKey::Deal),
+            outcomes: LookupMap::new(StorageKey::Outcomes),
         };
         for i in 0..PAYOUT_SLOTS {
             b.slots.insert(i, PayoutSlot::free());
@@ -796,15 +1166,22 @@ impl Business {
         for i in 0..PERIOD_RING {
             b.periods.insert(i, Period::default());
         }
-        b.party.insert(owner.clone(), PartyRecord { claim: 0, pending_refs: 0, payer: FixedAccount::of(&owner), deposit: 0 });
-        emit("business_created", serde_json::json!({ "owner": owner, "generation": 1 }));
+        b.party.insert(owner.clone(), PartyRecord::new(&owner, 0));
+        b.deal.insert(0, DealSlot::empty());
+        for i in 0..OUTCOME_RING {
+            b.outcomes.insert(i, DealOutcome::empty());
+        }
+        emit("business_created", serde_json::json!({ "owner": owner, "generation": 1, "closer": closer }));
         b
     }
 
-    /// Creates an immutable plan (owner only). Charges the measured storage growth.
+    /// Creates an immutable plan (owner only; not while a deal is live). Charges the measured
+    /// storage growth.
     #[payable]
     pub fn create_plan(&mut self, input: PlanInput) -> u32 {
         self.require_owner();
+        self.require_no_deal();
+        let control = self.next_control();
         require!(self.plan_count < MAX_PLANS, "E_LIMIT: at most 32 plans");
         require!(input.unit_price.0 > 0, "E_ARGS: unit price must be above 0");
         require!(input.max_units_per_purchase >= 1, "E_ARGS: allow at least 1 unit per purchase");
@@ -835,44 +1212,69 @@ impl Business {
         );
         self.plans.flush();
         self.charge_growth(before, 0);
+        self.control_seq = control;
         emit("plan_created", serde_json::json!({ "plan_id": id, "unit_price": input.unit_price }));
         id
     }
 
-    /// Grants capabilities to an operator for the current generation (owner only). Always needs
-    /// an attached deposit (at least 1 yoctoNEAR, an intentional full-access action; a new
-    /// operator also pays its storage). The excess is refunded.
+    /// Grants capabilities to an operator for the current generation (owner only; not while a
+    /// deal is live). Fills one of the 8 pre-allocated slots, so it never grows storage; it still
+    /// needs an attached deposit (at least 1 yoctoNEAR, an intentional full-access action), and
+    /// the excess is refunded.
     #[payable]
     pub fn appoint_operator(&mut self, account: AccountId, caps: u8) {
         require!(env::attached_deposit().as_yoctonear() >= 1, "E_DEPOSIT: attach at least 1 yoctoNEAR");
         self.require_owner();
+        self.require_no_deal();
         require!(caps != 0 && caps & !(METERING | SUPPORT) == 0, "E_ARGS: capabilities are METERING (1) and SUPPORT (2)");
-        let grant = OperatorGrant { caps, generation: self.generation };
-        let existing = self.operators.iter().position(|(a, _)| *a == account);
-        // The root record grows by exactly the new entry's encoded size; charged before any change.
-        let added = match existing {
-            Some(_) => 0,
-            None => {
-                require!(self.operators.len() < MAX_OPERATORS, "E_LIMIT: at most 8 operators");
-                borsh::to_vec(&(&account, &grant)).unwrap_or_default().len() as u64
-            }
-        };
-        self.charge_bytes(added);
-        match existing {
-            Some(i) => self.operators[i].1 = grant,
-            None => self.operators.push((account.clone(), grant)),
-        }
+        let control = self.next_control();
+        let slot = self
+            .operators
+            .iter()
+            .position(|s| s.caps != 0 && s.account.is(&account))
+            .or_else(|| self.operators.iter().position(|s| s.caps == 0))
+            .unwrap_or_else(|| env::panic_str("E_LIMIT: at most 8 operators"));
+        let fixed = FixedAccount::of(&account);
+        refund_above(1);
+        self.operators[slot] = OperatorSlot { account: fixed, caps, generation: self.generation };
+        self.control_seq = control;
         emit("operator_appointed", serde_json::json!({ "account": account, "caps": caps, "generation": self.generation }));
     }
 
-    /// Removes an operator. The storage the grant used stays with the contract rather than going
-    /// to the revoker, who may not be the account that paid for it (for example after a sale).
+    /// Removes an operator (owner only; not while a deal is live). The slot is pre-allocated, so
+    /// no storage is freed or refunded.
     #[payable]
     pub fn revoke_operator(&mut self, account: AccountId) {
         assert_one_yocto();
         self.require_owner();
-        self.operators.retain(|(a, _)| *a != account);
+        self.require_no_deal();
+        let control = self.next_control();
+        for s in self.operators.iter_mut() {
+            if s.caps != 0 && s.account.is(&account) {
+                *s = OperatorSlot::empty();
+            }
+        }
+        self.control_seq = control;
         emit("operator_revoked", serde_json::json!({ "account": account }));
+    }
+
+    /// Points to the service manifest by its hash (owner only, 1 yoctoNEAR; not while a deal is
+    /// live). `expected_seq` must be the current pointer sequence, so a stale update is refused.
+    /// The pointer is bound into every deal's terms. It is not evidence that anything it names is
+    /// available.
+    #[payable]
+    pub fn set_manifest(&mut self, digest: String, expected_seq: U64) {
+        assert_one_yocto();
+        self.require_owner();
+        self.require_no_deal();
+        let d = hex32(&digest).unwrap_or_else(|| env::panic_str("E_ARGS: the manifest digest is 64 hex characters"));
+        require!(expected_seq.0 == self.manifest_seq, "E_MANIFEST_SEQ: the manifest changed since you read it");
+        let seq = self.manifest_seq.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: manifest sequence"));
+        let control = self.next_control();
+        self.service_manifest = d;
+        self.manifest_seq = seq;
+        self.control_seq = control;
+        emit("manifest_set", serde_json::json!({ "digest": digest, "manifest_seq": U64(seq) }));
     }
 
     // ---------- entitlements ----------
@@ -905,7 +1307,19 @@ impl Business {
     /// record, over a cap, overflow) returns the whole amount with no state change.
     pub fn ft_on_transfer(&mut self, sender_id: AccountId, amount: U128, msg: String) -> PromiseOrValue<U128> {
         require!(env::predecessor_account_id() == self.asset, "E_ASSET: this business only accepts its own token");
-        match self.validate_buy(&sender_id, amount.0, &msg) {
+        let parsed = if amount.0 == 0 {
+            Err("nothing sent")
+        } else if msg.len() > MAX_MSG {
+            Err("message too long")
+        } else {
+            serde_json::from_str::<Incoming>(&msg).map_err(|_| "malformed message")
+        };
+        let buy = match parsed {
+            Ok(Incoming::FundDeal(f)) => return self.fund_deal(&sender_id, amount, f),
+            Ok(Incoming::Buy(b)) => self.validate_buy(&sender_id, amount.0, b),
+            Err(reason) => Err(reason),
+        };
+        match buy {
             Err(reason) => {
                 emit("purchase_returned", serde_json::json!({ "customer": sender_id, "amount": amount, "reason": reason }));
                 PromiseOrValue::Value(amount)
@@ -1218,13 +1632,21 @@ impl Business {
 
     /// The owner withdraws earned money above the reserve. Party payouts are capped (2 per
     /// party, 4 across the business, retries included) so they can't occupy the slots
-    /// customers' refunds need.
+    /// customers' refunds need. 003g: once the seller has accepted a sale, the agreed floor also
+    /// binds (`available` stays at or above it); while a sale is closing, nothing is withdrawn.
     #[payable]
     pub fn withdraw_profit(&mut self, amount: U128) -> Promise {
         assert_one_yocto();
         let owner = self.require_owner();
         let mut r = *self.party.get(&owner).unwrap_or_else(|| env::panic_str("E_NO_RECORD: the owner has no party record"));
-        let withdrawable = self.available.saturating_sub(self.rules.min_reserve.0);
+        let d = self.deal_slot();
+        require!(!(d.live && d.state == DEAL_CLOSING), "E_CLOSING: nothing can be withdrawn while the sale is closing");
+        let floor_binds = d.live && d.seller_accepted && d.available_floor > self.rules.min_reserve.0;
+        let keep = if floor_binds { d.available_floor } else { self.rules.min_reserve.0 };
+        let withdrawable = self.available.saturating_sub(keep);
+        if floor_binds {
+            require!(amount.0 > 0 && amount.0 <= withdrawable, format!("E_FLOOR: the accepted sale keeps {keep} available; {withdrawable} can be withdrawn"));
+        }
         require!(amount.0 > 0 && amount.0 <= withdrawable, format!("E_RESERVED: {withdrawable} can be withdrawn"));
         let slot = self.party_slot(&r);
         let payout_id = self.next_payout_id();
@@ -1234,22 +1656,25 @@ impl Business {
         self.start_payout(slot, payout_id, KIND_PROFIT, &owner, 0, 0, amount.0)
     }
 
-    /// A party (a current or former owner) collects a claim from a failed payout. Counts toward
-    /// the same party payout caps as withdrawals.
+    /// A party collects one category of what it is owed: `CLAIM_PROFIT` (0, a failed profit
+    /// withdrawal), `CLAIM_ESCROW_RETURN` (1, a buyer's returned escrow) or `CLAIM_SALE_PROCEEDS`
+    /// (2, a seller's price). The payout keeps that category through failure and retry. Counts
+    /// toward the same party payout caps as withdrawals.
     #[payable]
-    pub fn claim_party(&mut self) -> Promise {
+    pub fn claim_party(&mut self, category: u8) -> Promise {
         assert_one_yocto();
+        require!((category as usize) < CLAIM_CATEGORIES, "E_ARGS: claim categories are 0, 1 and 2");
         let who = env::predecessor_account_id();
         let mut r = *self.party.get(&who).unwrap_or_else(|| env::panic_str("E_NO_RECORD: no party record"));
-        require!(r.claim > 0, "E_FUNDS: nothing to claim");
+        let amount = r.claims[category as usize];
+        require!(amount > 0, "E_FUNDS: nothing to claim");
         let slot = self.party_slot(&r);
         let payout_id = self.next_payout_id();
-        let amount = r.claim;
-        r.claim = 0;
+        r.claims[category as usize] = 0;
         r.pending_refs += 1;
         self.party.insert(who.clone(), r);
         self.claims_total = sub(self.claims_total, amount);
-        self.start_payout(slot, payout_id, KIND_PARTY_CLAIM, &who, 0, 0, amount)
+        self.start_payout(slot, payout_id, claim_kind(category), &who, 0, 0, amount)
     }
 
     /// Settles a payout once the transfer's outcome is known. Never panics on an expected
@@ -1282,7 +1707,12 @@ impl Business {
                 self.unref(&slot, 0);
             }
             // Booked by what the money is, however many attempts it took.
-            let category = if slot.is_customer() { C_CUSTOMER_RETURNS } else { C_OWNER_WITHDRAWALS };
+            let category = match slot.kind {
+                KIND_REFUND | KIND_CUSTOMER_CLAIM => C_CUSTOMER_RETURNS,
+                KIND_ESCROW_RETURN => C_ESCROW_RETURNED,
+                KIND_SALE_PROCEEDS => C_SALE_PROCEEDS_PAID,
+                _ => C_OWNER_WITHDRAWALS,
+            };
             let retry = slot.kind == KIND_CUSTOMER_CLAIM || slot.kind == KIND_PARTY_CLAIM || slot.detached;
             self.book(|p| {
                 p.add(category, a);
@@ -1330,20 +1760,251 @@ impl Business {
         self.transfer(slot_id, &s)
     }
 
-    /// A former owner deletes their party record once nothing is owed or in flight.
+    /// A party (not the owner) deletes its record once nothing is owed or in flight and no live
+    /// deal names it. The storage deposit goes back to whoever paid it.
     #[payable]
     pub fn release_party_slot(&mut self) {
         assert_one_yocto();
         let who = env::predecessor_account_id();
-        require!(who != self.owner, "E_OWNER: the owner keeps their record");
+        require!(!self.owner.is(&who), "E_OWNER: the owner keeps their record");
+        require!(!self.pinned(&who), "E_DEAL_PINNED: a live deal names this account; its record must stay");
         let r = *self.party.get(&who).unwrap_or_else(|| env::panic_str("E_NO_RECORD: no party record"));
         require!(r.pending_refs == 0, "E_PENDING_REFS: a payout to you is in flight");
-        require!(r.claim == 0, "E_CLAIM: collect your claim first");
+        require!(r.owed() == 0, "E_CLAIM: collect your claims first");
         self.party.remove(&who);
         emit("party_released", serde_json::json!({ "account": who }));
         if r.deposit > 0 {
             Promise::new(r.payer.account()).transfer(NearToken::from_yoctonear(r.deposit)).detach();
         }
+    }
+
+    // ---------- 003g: the sale ----------
+
+    /// The owner proposes exact terms to one buyer (BUSINESS_V3_SALE.md). Needs at least
+    /// 1 yoctoNEAR; if the buyer has no party record yet, its measured storage too, recorded as
+    /// paid by the proposer. Returns the deal's sequence number.
+    #[payable]
+    pub fn propose_sale(&mut self, terms: DealTermsInput) -> U64 {
+        require!(env::attached_deposit().as_yoctonear() >= 1, "E_DEPOSIT: attach at least 1 yoctoNEAR");
+        let seller = self.require_owner();
+        self.require_no_deal();
+        let t = self.validate_terms(&seller, &terms);
+        let seq = self.deal_seq.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: deal sequence"));
+        let control = self.next_control();
+        self.ensure_party(&terms.buyer);
+        let mut d = DealSlot::empty();
+        d.live = true;
+        d.state = DEAL_PROPOSED;
+        d.seq = seq;
+        d.version = 1;
+        d.seller = FixedAccount::of(&seller);
+        t.apply(&mut d);
+        d.expected_generation = self.generation;
+        d.manifest = self.service_manifest;
+        d.manifest_seq = self.manifest_seq;
+        d.plan_count = self.plan_count;
+        self.deal.insert(0, d);
+        self.deal_seq = seq;
+        self.control_seq = control;
+        emit("sale_proposed", serde_json::json!({ "deal_seq": U64(seq), "buyer": terms.buyer, "price": terms.price, "control_seq": U64(control) }));
+        U64(seq)
+    }
+
+    /// The seller revises the terms (not while closing). Both acceptances are cleared. If escrow
+    /// is held and the price changes, it is returned at once as the buyer's escrow-return claim.
+    /// The buyer can change only while nothing is funded.
+    #[payable]
+    pub fn revise_sale(&mut self, deal_seq: U64, terms: DealTermsInput) {
+        require!(env::attached_deposit().as_yoctonear() >= 1, "E_DEPOSIT: attach at least 1 yoctoNEAR");
+        let seller = self.require_owner();
+        let mut d = self.live_deal(deal_seq.0);
+        require!(d.state != DEAL_CLOSING, "E_CLOSING: the sale is closing; terms can't change");
+        require!(d.seller.is(&seller) && d.expected_generation == self.generation, "E_GENERATION: control changed since this deal was proposed");
+        let t = self.validate_terms(&seller, &terms);
+        let buyer_changes = !d.buyer.is(&terms.buyer);
+        require!(!(buyer_changes && d.escrow > 0), "E_FUNDED_BUYER: the buyer can't change while their escrow is held");
+        let version = d.version.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: deal version"));
+        let control = self.next_control();
+        let returned = if d.escrow > 0 && t.price != d.price { d.escrow } else { 0 };
+        if returned > 0 {
+            self.party_record(&d.escrow_owner.account());
+        }
+        if buyer_changes {
+            self.ensure_party(&terms.buyer);
+        } else {
+            refund_above(1);
+        }
+        if returned > 0 {
+            self.credit_party(&d.escrow_owner.account(), CLAIM_ESCROW_RETURN, returned);
+            self.escrow_total = sub(self.escrow_total, returned);
+            d.escrow = 0;
+            d.escrow_owner = FixedAccount::none();
+        }
+        t.apply(&mut d);
+        d.version = version;
+        d.state = DEAL_PROPOSED;
+        d.seller_accepted = false;
+        d.buyer_accepted = false;
+        d.accepted_digest = [0u8; 32];
+        self.deal.insert(0, d);
+        self.control_seq = control;
+        self.check();
+        emit("sale_revised", serde_json::json!({ "deal_seq": deal_seq, "version": version, "escrow_returned": U128(returned) }));
+    }
+
+    /// The buyer takes their escrow back (not while closing); it becomes their escrow-return
+    /// claim, and their acceptance is cleared.
+    #[payable]
+    pub fn unfund_deal(&mut self, deal_seq: U64) {
+        assert_one_yocto();
+        let who = env::predecessor_account_id();
+        let mut d = self.live_deal(deal_seq.0);
+        require!(d.buyer.is(&who), "E_NOT_BUYER: only the buyer");
+        require!(d.state != DEAL_CLOSING, "E_CLOSING: the sale is closing; escrow stays until it closes or is aborted");
+        require!(d.escrow > 0, "E_FUNDS: nothing is funded");
+        let control = self.next_control();
+        let e = d.escrow;
+        self.credit_party(&d.escrow_owner.account(), CLAIM_ESCROW_RETURN, e);
+        self.escrow_total = sub(self.escrow_total, e);
+        d.escrow = 0;
+        d.escrow_owner = FixedAccount::none();
+        d.buyer_accepted = false;
+        if !d.seller_accepted {
+            d.state = DEAL_PROPOSED;
+            d.accepted_digest = [0u8; 32];
+        }
+        self.deal.insert(0, d);
+        self.control_seq = control;
+        self.check();
+        emit("sale_unfunded", serde_json::json!({ "deal_seq": deal_seq, "amount": U128(e) }));
+    }
+
+    /// The seller or the buyer accepts the live terms, named by version and digest. When both
+    /// have accepted the same digest, a Direct business closes here; a Gated one starts closing.
+    /// Returns "accepted", "closing" or "closed".
+    #[payable]
+    pub fn accept_sale(&mut self, deal_seq: U64, version: u32, digest: String) -> String {
+        assert_one_yocto();
+        let who = env::predecessor_account_id();
+        let mut d = self.live_deal(deal_seq.0);
+        require!(d.state != DEAL_CLOSING, "E_CLOSING: already closing");
+        require!(version == d.version, "E_VERSION: the terms were revised; read them again");
+        require!(now_ms() < d.expires_at_ms, "E_EXPIRED: the offer has expired");
+        require!(
+            self.generation == d.expected_generation && self.owner.is(&d.seller.account()),
+            "E_GENERATION: control changed since this deal was proposed"
+        );
+        let is_seller = d.seller.is(&who);
+        let is_buyer = d.buyer.is(&who);
+        require!(is_seller || is_buyer, "E_NOT_PARTY: only the seller or the buyer");
+        require!(!(is_seller && d.seller_accepted) && !(is_buyer && d.buyer_accepted), "E_ALREADY_ACCEPTED: you have accepted these terms");
+        let given = hex32(&digest).unwrap_or_else(|| env::panic_str("E_TERMS: the digest is 64 hex characters"));
+        let live = self.digest_of(&d);
+        require!(given == live, "E_TERMS: these aren't the live terms");
+        require!(self.available >= d.available_floor, "E_FLOOR: available money is below the agreed floor");
+        if is_buyer {
+            require!(d.escrow == d.price, "E_UNFUNDED: fund the escrow first");
+        }
+        let control = self.next_control();
+        let both = (d.seller_accepted || is_seller) && (d.buyer_accepted || is_buyer);
+        if both && self.close_mode == MODE_DIRECT {
+            let gen_after = self.generation.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: generation"));
+            self.finalize(d, control, gen_after);
+            return "closed".into();
+        }
+        if is_seller {
+            d.seller_accepted = true;
+        }
+        if is_buyer {
+            d.buyer_accepted = true;
+        }
+        d.accepted_digest = live;
+        if both {
+            let deadline = now_ms().checked_add(d.close_window_ms).unwrap_or_else(|| env::panic_str("E_OVERFLOW: deadline"));
+            self.generation.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: generation"));
+            d.state = DEAL_CLOSING;
+            d.closing_started_ms = now_ms();
+            d.deadline_ms = deadline;
+            d.closing_control_seq = control;
+        } else {
+            d.state = DEAL_ACCEPTING;
+        }
+        self.deal.insert(0, d);
+        self.control_seq = control;
+        emit("sale_accepted", serde_json::json!({ "deal_seq": deal_seq, "by": who, "closing": both, "control_seq": U64(control) }));
+        if both { "closing".into() } else { "accepted".into() }
+    }
+
+    /// The seller or the buyer ends a deal that isn't closing. Escrow returns as the buyer's claim.
+    #[payable]
+    pub fn cancel_sale(&mut self, deal_seq: U64) {
+        assert_one_yocto();
+        let who = env::predecessor_account_id();
+        let d = self.live_deal(deal_seq.0);
+        require!(d.seller.is(&who) || d.buyer.is(&who), "E_NOT_PARTY: only the seller or the buyer");
+        require!(d.state != DEAL_CLOSING, "E_CLOSING: a closing sale ends by its close or its abort");
+        let control = self.next_control();
+        self.terminate(d, OUTCOME_CANCELLED, control);
+    }
+
+    /// Anyone ends an offer that has expired (not one that is closing).
+    pub fn expire_sale(&mut self, deal_seq: U64) {
+        let d = self.live_deal(deal_seq.0);
+        require!(d.state != DEAL_CLOSING, "E_CLOSING: a closing sale ends by its close or its abort");
+        require!(now_ms() >= d.expires_at_ms, "E_NOT_EXPIRED: the offer is still open");
+        let control = self.next_control();
+        self.terminate(d, OUTCOME_EXPIRED, control);
+    }
+
+    /// Anyone ends a Gated close whose deadline passed without the closer finalizing it.
+    pub fn abort_close(&mut self, deal_seq: U64) {
+        let d = self.live_deal(deal_seq.0);
+        require!(d.state == DEAL_CLOSING, "E_STATE: the sale isn't closing");
+        require!(now_ms() >= d.deadline_ms, "E_NOT_EXPIRED: the closer still has time");
+        let control = self.next_control();
+        self.terminate(d, OUTCOME_ABORTED, control);
+    }
+
+    /// Gated mode only: the configured closer finalizes with an order naming exactly the live
+    /// deal, generation, closing sequence and manifest pointer. Not payable, so a function-call
+    /// key can sign it. Proves who closed and what they closed, not what they checked first.
+    pub fn close_sale(&mut self, order: CloseOrder) {
+        require!(self.close_mode == MODE_GATED, "E_MODE: this business closes directly");
+        require!(self.closer.is(&env::predecessor_account_id()), "E_NOT_CLOSER: only the configured closer");
+        let d = self.live_deal(order.deal_seq.0);
+        require!(d.state == DEAL_CLOSING, "E_STATE: the sale isn't closing");
+        require!(order.version == d.version, "E_VERSION: not the closing version");
+        require!(
+            order.expected_generation == d.expected_generation
+                && self.generation == d.expected_generation
+                && self.owner.is(&d.seller.account()),
+            "E_GENERATION: control changed"
+        );
+        require!(
+            order.closing_control_seq.0 == d.closing_control_seq && self.control_seq == d.closing_control_seq,
+            "E_CLOSE_SEQ: not the closing control sequence"
+        );
+        let given = hex32(&order.digest).unwrap_or_else(|| env::panic_str("E_TERMS: the digest is 64 hex characters"));
+        require!(given == self.digest_of(&d) && given == d.accepted_digest, "E_TERMS: not the accepted terms");
+        let manifest = hex32(&order.manifest).unwrap_or_else(|| env::panic_str("E_MANIFEST: the manifest is 64 hex characters"));
+        require!(
+            manifest == self.service_manifest
+                && manifest == d.manifest
+                && order.manifest_seq.0 == self.manifest_seq
+                && order.manifest_seq.0 == d.manifest_seq,
+            "E_MANIFEST: not the manifest the terms bind"
+        );
+        let now = now_ms();
+        let issued = order.issued_at_ms.0;
+        require!(issued <= now, "E_ISSUED_FUTURE: issued in the future");
+        require!(now - issued <= MAX_ISSUE_AGE_MS, "E_ISSUE_AGE: the order is too old");
+        require!(issued >= d.closing_started_ms, "E_ISSUED_BEFORE: issued before closing started");
+        require!(now < d.deadline_ms, "E_DEADLINE: the close deadline has passed");
+        require!(self.available >= d.available_floor, "E_FLOOR: available money is below the agreed floor");
+        require!(d.escrow == d.price, "E_UNFUNDED: escrow doesn't match the price");
+        let gen_after = self.generation.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: generation"));
+        let control = self.next_control();
+        self.finalize(d, control, gen_after);
     }
 
     // ---------- views ----------
@@ -1413,6 +2074,7 @@ impl Business {
             withdrawable: U128(self.available.saturating_sub(self.rules.min_reserve.0)),
             pending_total: U128(self.pending_total),
             claims_total: U128(self.claims_total),
+            escrow_total: U128(self.escrow_total),
         }
     }
 
@@ -1425,7 +2087,9 @@ impl Business {
             .map(|(i, s)| PendingView {
                 slot: i,
                 state: if s.state == SLOT_IN_FLIGHT { "in_flight".into() } else { "stranded".into() },
-                kind: ["refund", "customer_claim", "party_claim", "profit"][s.kind as usize].into(),
+                kind: ["refund", "customer_claim", "party_claim", "profit", "escrow_return", "sale_proceeds"]
+                    [s.kind as usize]
+                    .into(),
                 amount: U128(s.amount),
                 to: s.to.account(),
                 plan_id: s.plan_id,
@@ -1436,7 +2100,16 @@ impl Business {
     }
 
     pub fn get_party(&self, account: AccountId) -> Option<PartyView> {
-        self.party.get(&account).map(|r| PartyView { claim: U128(r.claim), pending_refs: r.pending_refs, deposit: U128(r.deposit) })
+        let pinned = self.pinned(&account);
+        self.party.get(&account).map(|r| PartyView {
+            profit_claim: U128(r.claims[CLAIM_PROFIT as usize]),
+            escrow_return_claim: U128(r.claims[CLAIM_ESCROW_RETURN as usize]),
+            sale_proceeds_claim: U128(r.claims[CLAIM_SALE_PROCEEDS as usize]),
+            pending_refs: r.pending_refs,
+            payer: r.payer.account(),
+            deposit: U128(r.deposit),
+            pinned,
+        })
     }
 
     /// One month's books, with a defined answer for every input (never panics).
@@ -1459,6 +2132,9 @@ impl Business {
                     customer_returns: c(p.customer_returns, C_CUSTOMER_RETURNS),
                     owner_withdrawals: c(p.owner_withdrawals, C_OWNER_WITHDRAWALS),
                     paid_on_retry: c(p.paid_on_retry, C_PAID_ON_RETRY),
+                    escrow_in: c(p.escrow_in, C_ESCROW_IN),
+                    escrow_returned: c(p.escrow_returned, C_ESCROW_RETURNED),
+                    sale_proceeds_paid: c(p.sale_proceeds_paid, C_SALE_PROCEEDS_PAID),
                 }),
             )
         } else if p.yyyymm > yyyymm {
@@ -1519,29 +2195,360 @@ impl Business {
         }
     }
 
-    pub fn get_control(&self) -> (AccountId, u32) {
-        (self.owner.clone(), self.generation)
+    /// Who controls the business, under which close mode, and the live deal with the digest both
+    /// parties must accept.
+    pub fn get_control(&self) -> ControlView {
+        let d = self.deal_slot();
+        let live_deal = d.live.then(|| DealView {
+            seq: U64(d.seq),
+            version: d.version,
+            state: ["proposed", "accepting", "closing"][d.state as usize].into(),
+            digest: hex::encode(self.digest_of(&d)),
+            seller: d.seller.account(),
+            buyer: d.buyer.account(),
+            price: U128(d.price),
+            available_floor: U128(d.available_floor),
+            expires_at_ms: U64(d.expires_at_ms),
+            close_window_ms: U64(d.close_window_ms),
+            grants: d
+                .grants
+                .iter()
+                .filter(|g| g.caps != 0)
+                .map(|g| GrantView { account: g.account.account(), caps: g.caps })
+                .collect(),
+            terms_hash: hex::encode(d.terms_hash),
+            expected_generation: d.expected_generation,
+            seller_accepted: d.seller_accepted,
+            buyer_accepted: d.buyer_accepted,
+            escrow: U128(d.escrow),
+            deadline_ms: U64(d.deadline_ms),
+            closing_started_ms: U64(d.closing_started_ms),
+            closing_control_seq: U64(d.closing_control_seq),
+        });
+        ControlView {
+            owner: self.owner.account(),
+            generation: self.generation,
+            control_seq: U64(self.control_seq),
+            close_mode: if self.close_mode == MODE_GATED { "gated".into() } else { "direct".into() },
+            closer: (self.close_mode == MODE_GATED).then(|| self.closer.account()),
+            service_manifest: hex::encode(self.service_manifest),
+            manifest_seq: U64(self.manifest_seq),
+            operators: self
+                .operators
+                .iter()
+                .filter(|s| s.caps != 0)
+                .map(|s| (s.account.account(), s.caps, s.generation))
+                .collect(),
+            live_deal,
+        }
+    }
+
+    /// How past deals ended, newest first (the last 8).
+    pub fn get_outcomes(&self) -> Vec<OutcomeView> {
+        let mut out: Vec<DealOutcome> = (0..OUTCOME_RING)
+            .filter_map(|i| self.outcomes.get(&i).copied())
+            .filter(|o| o.status != OUTCOME_NONE)
+            .collect();
+        out.sort_by_key(|o| std::cmp::Reverse(o.seq));
+        out.into_iter()
+            .map(|o| OutcomeView {
+                status: ["none", "closed", "cancelled", "expired", "aborted"][o.status as usize].into(),
+                seq: U64(o.seq),
+                version: o.version,
+                digest: hex::encode(o.digest),
+                generation_after: o.generation_after,
+                control_seq: U64(o.control_seq),
+                at_ms: U64(o.at_ms),
+                seller: o.seller.account(),
+                buyer: o.buyer.account(),
+                price: U128(o.price),
+                escrow_returned: U128(o.escrow_returned),
+            })
+            .collect()
+    }
+}
+
+/// Terms that passed validation, ready to write into the deal slot.
+struct ValidTerms {
+    buyer: FixedAccount,
+    price: u128,
+    expires_at_ms: u64,
+    close_window_ms: u64,
+    available_floor: u128,
+    grants: [GrantSlot; MAX_GRANTS],
+    terms_hash: [u8; 32],
+}
+
+impl ValidTerms {
+    fn apply(&self, d: &mut DealSlot) {
+        d.buyer = self.buyer;
+        d.price = self.price;
+        d.expires_at_ms = self.expires_at_ms;
+        d.close_window_ms = self.close_window_ms;
+        d.available_floor = self.available_floor;
+        d.grants = self.grants;
+        d.terms_hash = self.terms_hash;
     }
 }
 
 impl Business {
     fn require_owner(&self) -> AccountId {
         let who = env::predecessor_account_id();
-        require!(who == self.owner, "E_NOT_OWNER: only the current owner");
+        require!(self.owner.is(&who), "E_NOT_OWNER: only the current owner");
         who
     }
 
     /// The owner, or an operator holding METERING granted in the current generation.
     fn require_metering(&self) {
         let who = env::predecessor_account_id();
-        if who == self.owner {
+        if self.owner.is(&who) {
             return;
         }
         let ok = self
             .operators
             .iter()
-            .any(|(a, g)| *a == who && g.caps & METERING != 0 && g.generation == self.generation);
+            .any(|s| s.caps & METERING != 0 && s.generation == self.generation && s.account.is(&who));
         require!(ok, "E_NOT_OPERATOR: needs METERING in the current generation");
+    }
+
+    // ---------- 003g helpers ----------
+
+    fn deal_slot(&self) -> DealSlot {
+        *self.deal.get(&0).unwrap_or_else(|| env::panic_str("E_STATE: the deal slot is missing"))
+    }
+
+    /// The live deal with this sequence number.
+    fn live_deal(&self, seq: u64) -> DealSlot {
+        let d = self.deal_slot();
+        require!(d.live && d.seq == seq, "E_NO_DEAL: no live deal with that number");
+        d
+    }
+
+    fn require_no_deal(&self) {
+        require!(!self.deal_slot().live, "E_DEAL_PENDING: not while a sale is in progress");
+    }
+
+    /// The control sequence after this call's single rise, checked before anything changes.
+    fn next_control(&self) -> u64 {
+        self.control_seq.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: control sequence"))
+    }
+
+    /// Named by the live deal (as seller, buyer or escrow funder), so its record must stay.
+    fn pinned(&self, account: &AccountId) -> bool {
+        let d = self.deal_slot();
+        d.live && (d.seller.is(account) || d.buyer.is(account) || (d.escrow > 0 && d.escrow_owner.is(account)))
+    }
+
+    fn validate_terms(&self, seller: &AccountId, t: &DealTermsInput) -> ValidTerms {
+        let business = env::current_account_id();
+        require!(
+            t.buyer != *seller && t.buyer != business && t.buyer != self.asset && !self.closer.is(&t.buyer),
+            "E_ARGS: the buyer must be another account (not the owner, the business, its token or the closer)"
+        );
+        require!(t.price.0 > 0, "E_ARGS: the price must be above 0");
+        let now = now_ms();
+        let earliest = now.checked_add(MIN_OFFER_MS).unwrap_or_else(|| env::panic_str("E_OVERFLOW: deadline"));
+        let latest = now.checked_add(MAX_OFFER_MS).unwrap_or_else(|| env::panic_str("E_OVERFLOW: deadline"));
+        require!(
+            (earliest..=latest).contains(&t.expires_at_ms.0),
+            "E_ARGS: the offer must stay open between a minute and 30 days"
+        );
+        if self.close_mode == MODE_DIRECT {
+            require!(t.close_window_ms.0 == 0, "E_ARGS: a direct close has no close window");
+        } else {
+            require!(
+                (CLOSE_WINDOW_MIN_MS..=CLOSE_WINDOW_MAX_MS).contains(&t.close_window_ms.0),
+                "E_ARGS: the close window must be 10 minutes to 24 hours"
+            );
+        }
+        require!(t.grants.len() <= MAX_GRANTS, "E_ARGS: at most 4 operator grants");
+        let mut grants = [GrantSlot::empty(); MAX_GRANTS];
+        for (i, (a, caps)) in t.grants.iter().enumerate() {
+            require!(*caps != 0 && caps & !(METERING | SUPPORT) == 0, "E_ARGS: capabilities are METERING (1) and SUPPORT (2)");
+            require!(t.grants[..i].iter().all(|(b, _)| b != a), "E_ARGS: each grant names a different account");
+            grants[i] = GrantSlot { account: FixedAccount::of(a), caps: *caps };
+        }
+        if self.close_mode == MODE_GATED {
+            require!(
+                t.grants.iter().any(|(_, c)| c & METERING != 0),
+                "E_ARGS: a gated close needs a successor METERING grant"
+            );
+        }
+        let terms_hash = hex32(&t.terms_hash).unwrap_or_else(|| env::panic_str("E_ARGS: the terms hash is 64 hex characters"));
+        ValidTerms {
+            buyer: FixedAccount::of(&t.buyer),
+            price: t.price.0,
+            expires_at_ms: t.expires_at_ms.0,
+            close_window_ms: t.close_window_ms.0,
+            available_floor: t.available_floor.0,
+            grants,
+            terms_hash,
+        }
+    }
+
+    /// What both parties accept: every term, plus the state they are agreed against.
+    fn digest_of(&self, d: &DealSlot) -> [u8; 32] {
+        let grants: Vec<(String, u8)> =
+            d.grants.iter().filter(|g| g.caps != 0).map(|g| (g.account.account().to_string(), g.caps)).collect();
+        let bytes = borsh::to_vec(&(
+            (
+                DEAL_DOMAIN,
+                env::current_account_id().to_string(),
+                d.seq,
+                d.version,
+                d.seller.account().to_string(),
+                d.buyer.account().to_string(),
+                self.asset.to_string(),
+                d.price,
+                d.expires_at_ms,
+                d.close_window_ms,
+            ),
+            (
+                d.available_floor,
+                grants,
+                d.terms_hash,
+                d.expected_generation,
+                d.manifest,
+                d.manifest_seq,
+                d.plan_count,
+                self.rules.min_reserve.0,
+                self.close_mode,
+                if self.close_mode == MODE_GATED { self.closer.account().to_string() } else { String::new() },
+            ),
+        ))
+        .unwrap_or_else(|_| env::panic_str("E_STATE: cannot encode"));
+        env::sha256_array(&bytes)
+    }
+
+    /// A party record that must exist (a pinned record); never created here.
+    fn party_record(&self, account: &AccountId) -> PartyRecord {
+        *self.party.get(account).unwrap_or_else(|| env::panic_str("E_STATE: a pinned party record is missing"))
+    }
+
+    /// Adds to one category of a party's claim (a same-size rewrite of an existing record).
+    fn credit_party(&mut self, account: &AccountId, category: u8, amount: u128) {
+        let mut r = self.party_record(account);
+        r.claims[category as usize] = add(r.claims[category as usize], amount);
+        self.party.insert(account.clone(), r);
+        self.claims_total = add(self.claims_total, amount);
+    }
+
+    /// The buyer's party record: kept if it exists (only the intentional yoctoNEAR is kept),
+    /// otherwise created at its measured storage cost, paid and recorded as paid by the caller.
+    fn ensure_party(&mut self, account: &AccountId) {
+        if self.party.contains_key(account) {
+            refund_above(1);
+            return;
+        }
+        let payer = env::predecessor_account_id();
+        let before = env::storage_usage();
+        self.party.insert(account.clone(), PartyRecord::new(&payer, 0));
+        self.party.flush();
+        let cost = self.charge_growth(before, 0);
+        self.party.insert(account.clone(), PartyRecord::new(&payer, cost));
+        self.party.flush();
+    }
+
+    /// Ends a deal without a close: escrow returns as its funder's escrow-return claim.
+    fn terminate(&mut self, d: DealSlot, status: u8, control: u64) {
+        let returned = d.escrow;
+        if returned > 0 {
+            self.credit_party(&d.escrow_owner.account(), CLAIM_ESCROW_RETURN, returned);
+            self.escrow_total = sub(self.escrow_total, returned);
+        }
+        self.record_outcome(&d, status, self.generation, control, returned);
+        self.deal.insert(0, DealSlot::empty());
+        self.control_seq = control;
+        self.check();
+        emit("sale_ended", serde_json::json!({ "deal_seq": U64(d.seq), "status": status, "escrow_returned": U128(returned) }));
+    }
+
+    /// The close, in one receipt: the price becomes the seller's sale-proceeds claim, control
+    /// moves to the buyer at the next generation, and only the agreed grants operate after it.
+    fn finalize(&mut self, d: DealSlot, control: u64, gen_after: u32) {
+        require!(d.escrow == d.price, "E_UNFUNDED: escrow doesn't match the price");
+        let seller = d.seller.account();
+        self.party_record(&seller);
+        self.party_record(&d.buyer.account());
+        self.escrow_total = sub(self.escrow_total, d.price);
+        self.credit_party(&seller, CLAIM_SALE_PROCEEDS, d.price);
+        self.owner = d.buyer;
+        self.generation = gen_after;
+        self.operators = [OperatorSlot::empty(); MAX_OPERATORS];
+        for (i, g) in d.grants.iter().filter(|g| g.caps != 0).enumerate() {
+            self.operators[i] = OperatorSlot { account: g.account, caps: g.caps, generation: gen_after };
+        }
+        self.record_outcome(&d, OUTCOME_CLOSED, gen_after, control, 0);
+        self.deal.insert(0, DealSlot::empty());
+        self.control_seq = control;
+        self.check();
+        emit(
+            "sale_finalized",
+            serde_json::json!({ "deal_seq": U64(d.seq), "buyer": d.buyer.account(), "price": U128(d.price), "generation": gen_after }),
+        );
+    }
+
+    fn record_outcome(&mut self, d: &DealSlot, status: u8, generation_after: u32, control: u64, escrow_returned: u128) {
+        let digest = self.digest_of(d);
+        self.outcomes.insert(
+            (d.seq % OUTCOME_RING as u64) as u8,
+            DealOutcome {
+                status,
+                seq: d.seq,
+                version: d.version,
+                digest,
+                generation_after,
+                control_seq: control,
+                at_ms: now_ms(),
+                seller: d.seller,
+                buyer: d.buyer,
+                price: d.price,
+                escrow_returned,
+            },
+        );
+    }
+
+    /// The token delivered acquisition escrow. Anything not exactly right returns the whole
+    /// amount with nothing changed.
+    fn fund_deal(&mut self, sender: &AccountId, amount: U128, f: FundDeal) -> PromiseOrValue<U128> {
+        let d = self.deal_slot();
+        let reason = if !d.live || d.seq != f.deal_seq.0 {
+            Some("no live deal with that number")
+        } else if d.state == DEAL_CLOSING {
+            Some("the sale is closing")
+        } else if f.version != d.version {
+            Some("the terms were revised")
+        } else if !d.buyer.is(sender) {
+            Some("only the buyer funds the deal")
+        } else if f.price.0 != d.price || amount.0 != d.price {
+            Some("the amount is not the price")
+        } else if d.escrow != 0 {
+            Some("already funded")
+        } else if now_ms() >= d.expires_at_ms {
+            Some("the offer has expired")
+        } else if self.held.checked_add(amount.0).is_none() || self.escrow_total.checked_add(amount.0).is_none() {
+            Some("treasury overflow")
+        } else if self.control_seq.checked_add(1).is_none() {
+            Some("control sequence overflow")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            emit("funding_returned", serde_json::json!({ "sender": sender, "amount": amount, "reason": reason }));
+            return PromiseOrValue::Value(amount);
+        }
+        let control = self.next_control();
+        let mut d = d;
+        d.escrow = amount.0;
+        d.escrow_owner = d.buyer;
+        self.deal.insert(0, d);
+        self.held += amount.0;
+        self.escrow_total += amount.0;
+        self.book(|p| p.add(C_ESCROW_IN, amount.0));
+        self.control_seq = control;
+        self.check();
+        emit("sale_funded", serde_json::json!({ "deal_seq": f.deal_seq, "amount": amount }));
+        PromiseOrValue::Value(U128(0))
     }
 
     fn plan(&self, plan_id: u32) -> Plan {
@@ -1568,15 +2575,8 @@ impl Business {
         &self,
         sender: &AccountId,
         amount: u128,
-        msg: &str,
+        buy: Buy,
     ) -> Result<((AccountId, u32), Entitlement, u64, Option<(u8, [u8; 32], u8, u16)>), &'static str> {
-        if amount == 0 {
-            return Err("nothing sent");
-        }
-        if msg.len() > MAX_MSG {
-            return Err("message too long");
-        }
-        let Incoming::Buy(buy) = serde_json::from_str::<Incoming>(msg).map_err(|_| "malformed message")?;
         let plan = self.plans.get(&buy.plan_id).ok_or("no such plan")?;
         let key = (sender.clone(), buy.plan_id);
         let e = *self.entitlements.get(&key).ok_or("no entitlement record; sponsor a shell first")?;
@@ -1727,7 +2727,9 @@ impl Business {
                 Some(v) => r.pending_refs = v,
                 None => underflow(&to),
             }
-            r.claim = add(r.claim, claim);
+            // A failed party payout goes back to the claim category it came from.
+            let c = claim_category(slot.kind) as usize;
+            r.claims[c] = add(r.claims[c], claim);
             self.party.insert(to, r);
         }
     }
@@ -1763,29 +2765,16 @@ impl Business {
         cost
     }
 
-    /// I1: every token held is in exactly one bucket.
+    /// I1′: every token held is in exactly one bucket, acquisition escrow included.
     fn check(&self) {
         let sum = self
             .ent_free_value
             .checked_add(self.ent_held_value)
             .and_then(|v| v.checked_add(self.available))
             .and_then(|v| v.checked_add(self.pending_total))
-            .and_then(|v| v.checked_add(self.claims_total));
+            .and_then(|v| v.checked_add(self.claims_total))
+            .and_then(|v| v.checked_add(self.escrow_total));
         require!(sum == Some(self.held), "E_INVARIANT: buckets do not add up to what the business holds");
-    }
-
-    /// Test-only stand-in for a sale (labelled "injected" in reports): the owner and generation
-    /// change, every old operator grant stops counting, the listed successor grants are made at
-    /// the new generation, and the new owner gets a party record if missing.
-    #[cfg(test)]
-    pub fn test_set_owner(&mut self, owner: AccountId, generation: u32, grants: Vec<(AccountId, u8)>) {
-        require!(generation > self.generation, "test: generation must increase");
-        self.owner = owner.clone();
-        self.generation = generation;
-        self.operators = grants.into_iter().map(|(a, caps)| (a, OperatorGrant { caps, generation })).collect();
-        if !self.party.contains_key(&owner) {
-            self.party.insert(owner.clone(), PartyRecord { claim: 0, pending_refs: 0, payer: FixedAccount::of(&owner), deposit: 0 });
-        }
     }
 }
 
