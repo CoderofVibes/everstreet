@@ -511,6 +511,60 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
+ * Why a newer observation can't follow `prev` (both coherent, `next` at a higher block), or null.
+ * Rules and the contract methods behind them: docs/design/V3_OBSERVATIONS.md §4a.
+ */
+export function transitionProblem(
+  prev: Pick<V3Snapshot, "control" | "outcomes" | "treasury">,
+  next: Pick<V3Snapshot, "control" | "outcomes" | "treasury">,
+): string | null {
+  const a = prev.control;
+  const b = next.control;
+  const seqA = BigInt(a.control_seq);
+  const seqB = BigInt(b.control_seq);
+  if (seqB < seqA) return "a lower control sequence";
+  if (seqB === seqA) {
+    // Every change to these two views raises the control sequence.
+    if (JSON.stringify(a) !== JSON.stringify(b)) return "control changed without a control step";
+    if (JSON.stringify(prev.outcomes) !== JSON.stringify(next.outcomes))
+      return "outcomes changed without a control step";
+    return null;
+  }
+  const steps = seqB - seqA;
+  // Set only by `new`.
+  if (a.close_mode !== b.close_mode || a.closer !== b.closer) return "the close mode changed";
+  if (prev.treasury.asset !== next.treasury.asset) return "the asset changed";
+  // Only finalize raises the generation (by one, in one step) and changes the owner.
+  if (b.generation < a.generation) return "the generation went back";
+  if (BigInt(b.generation - a.generation) > steps) return "the generation rose too fast";
+  if (b.generation === a.generation && b.owner !== a.owner)
+    return "the owner changed within a generation";
+  // set_manifest raises both sequences together.
+  const mA = BigInt(a.manifest_seq);
+  const mB = BigInt(b.manifest_seq);
+  if (mB < mA) return "the manifest sequence went back";
+  if (mB - mA > steps) return "the manifest sequence rose too fast";
+  if (mB === mA && a.service_manifest !== b.service_manifest)
+    return "the manifest changed without its sequence";
+  // propose_sale is the only place deal numbers rise; its seller and generation stay fixed.
+  if (latestDeal(next) < latestDeal(prev)) return "the latest deal number went back";
+  if (
+    a.live_deal &&
+    b.live_deal &&
+    a.live_deal.seq === b.live_deal.seq &&
+    (a.live_deal.seller !== b.live_deal.seller ||
+      a.live_deal.expected_generation !== b.live_deal.expected_generation)
+  )
+    return "a live deal changed seller or generation";
+  return null;
+}
+
+function latestDeal(s: Pick<V3Snapshot, "control" | "outcomes">): bigint {
+  if (s.control.live_deal) return BigInt(s.control.live_deal.seq);
+  return s.outcomes.reduce((x, o) => (BigInt(o.seq) > x ? BigInt(o.seq) : x), 0n);
+}
+
+/**
  * Reads one snapshot at one pinned final block. Any failure refuses the whole snapshot; nothing
  * partial is returned. Raw transport text never leaves this function except inside the decoded
  * (validated) values.
@@ -572,9 +626,14 @@ export async function readSnapshot(
   return snapshot;
 }
 
-/** Views read at one block must agree with each other, as the contract's invariants say. */
-function coherent(s: V3Snapshot) {
-  const escrow = s.control.live_deal ? BigInt(s.control.live_deal.escrow) : 0n;
+/**
+ * Views read at one block must agree with each other, as the contract guarantees. Each rule cites
+ * the 003g methods that make it hold (docs/design/V3_OBSERVATIONS.md §4a); nothing is guessed.
+ */
+export function coherent(s: Pick<V3Snapshot, "control" | "outcomes" | "treasury" | "pending">) {
+  const c = s.control;
+  const d = c.live_deal;
+  const escrow = d ? BigInt(d.escrow) : 0n;
   if (BigInt(s.treasury.escrow_total) !== escrow)
     fail("malformed", "escrow differs between the views");
   const pending = s.pending.reduce((a, p) => a + BigInt(p.amount), 0n);
@@ -582,7 +641,80 @@ function coherent(s: V3Snapshot) {
     fail("malformed", "pending payouts don't add up");
   const seqs = s.outcomes.map((o) => o.seq);
   if (new Set(seqs).size !== seqs.length) fail("malformed", "an outcome appears twice");
-  const live = s.control.live_deal?.seq;
-  if (live !== undefined && seqs.includes(live))
-    fail("malformed", "the live deal also appears as ended");
+  if (d && seqs.includes(d.seq)) fail("malformed", "the live deal also appears as ended");
+
+  // 1. appoint_operator writes the current generation; finalize resets every slot.
+  if (c.operators.some((o) => o.generation !== c.generation))
+    fail("malformed", "an operator belongs to another generation");
+  if (new Set(c.operators.map((o) => o.account)).size !== c.operators.length)
+    fail("malformed", "an operator appears twice");
+  if (d) {
+    // 2. propose_sale takes seller and generation from control; only finalize changes either.
+    if (d.seller !== c.owner || d.expected_generation !== c.generation)
+      fail("malformed", "the live deal doesn't match the current owner and generation");
+    if (BigInt(d.seq) < 1n) fail("malformed", "the live deal has no number");
+    // 3. validate_terms and accept_sale: Direct has no close window and never sits closing; a
+    //    closing deal is fully accepted and freezes the control sequence until it ends.
+    if (c.close_mode === "direct" && (d.close_window_ms !== "0" || d.state === "closing"))
+      fail("malformed", "the live deal doesn't fit a direct close");
+    if (
+      d.state === "closing" &&
+      (!d.seller_accepted || !d.buyer_accepted || d.closing_control_seq !== c.control_seq)
+    )
+      fail("malformed", "a closing deal doesn't match the control sequence");
+    // 4. fund_deal takes exactly the price; revise_sale returns it if the price changes.
+    if (d.escrow !== "0" && d.escrow !== d.price)
+      fail("malformed", "the live deal's escrow isn't all or nothing");
+  }
+  for (const o of s.outcomes) {
+    if (o.escrow_returned !== "0" && o.escrow_returned !== o.price)
+      fail("malformed", "an outcome returned part of its escrow");
+    if (o.status === "closed" && o.escrow_returned !== "0")
+      fail("malformed", "a closed sale returned escrow");
+  }
+
+  // 5. Deals end in order (propose_sale needs no live deal) into slot seq % 8: the ring holds
+  //    exactly deals max(1, m-7)..m, m the latest ended (with a live deal, its number - 1).
+  const asc = [...s.outcomes].sort((a, b) => (BigInt(a.seq) < BigInt(b.seq) ? -1 : 1));
+  const last = asc.length ? BigInt((asc[asc.length - 1] as OutcomeV3).seq) : 0n;
+  const m = d ? BigInt(d.seq) - 1n : last;
+  if (last !== m) fail("malformed", "the outcomes don't end at the deal before the live one");
+  const expected = m < 8n ? m : 8n;
+  if (BigInt(asc.length) !== expected) fail("malformed", "the outcome ring has gaps");
+  for (const [i, o] of asc.entries())
+    if (BigInt(o.seq) !== m - expected + 1n + BigInt(i))
+      fail("malformed", "the outcome ring isn't contiguous");
+
+  // 6. Each end is its own control step; generations never go back.
+  let prev: OutcomeV3 | null = null;
+  for (const o of asc) {
+    if (BigInt(o.control_seq) > BigInt(c.control_seq))
+      fail("malformed", "an outcome is newer than control");
+    if (o.generation_after > c.generation)
+      fail("malformed", "an outcome is from a later generation");
+    if (prev && BigInt(o.control_seq) <= BigInt(prev.control_seq))
+      fail("malformed", "outcomes are out of control order");
+    if (prev && o.generation_after < prev.generation_after)
+      fail("malformed", "outcomes go back a generation");
+    prev = o;
+  }
+
+  // 7. finalize makes the buyer the owner at the next generation; a later close would be later in
+  //    the ring, and anything that ended after it ended in the same generation.
+  const closedAt = asc.map((o) => o.status).lastIndexOf("closed");
+  if (closedAt >= 0) {
+    const k = asc[closedAt] as OutcomeV3;
+    if (k.buyer !== c.owner || k.generation_after !== c.generation)
+      fail("malformed", "the latest sale doesn't match the current owner");
+    for (const o of asc.slice(closedAt + 1))
+      if (o.generation_after !== c.generation)
+        fail("malformed", "an outcome after the latest sale is from another generation");
+  }
+
+  // 8. new starts at generation 1 and only finalize raises it, recording a closed outcome: while
+  //    the ring still holds deal 1, every close is visible.
+  if (m <= 8n) {
+    const closes = asc.filter((o) => o.status === "closed").length;
+    if (c.generation !== 1 + closes) fail("malformed", "the generation doesn't match the sales");
+  }
 }

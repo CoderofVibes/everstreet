@@ -9,10 +9,13 @@ import { describe, expect, it } from "vitest";
 import { everstreetApi } from "../src/app.ts";
 import { openDb } from "../src/db.ts";
 import { Store } from "../src/store.ts";
-import type { V3Options } from "../src/v3observe.ts";
+import { V3Observations, type V3Options } from "../src/v3observe.ts";
 import {
   type BlockRef,
+  coherent,
   decodeControl,
+  decodeOutcomes,
+  decodePending,
   decodeTreasury,
   readSnapshot,
   type V3Binding,
@@ -90,6 +93,7 @@ function world(
     transport?: Transport | null;
     account?: string;
     retention?: number;
+    now?: () => number;
   } = {},
 ) {
   const store = new Store(openDb(opts.dbPath ?? ":memory:"));
@@ -122,6 +126,7 @@ function world(
     bindings: [{ business_id: bid, network: "testnet", account: opts.account ?? BINDING_ACCOUNT }],
     retention: opts.retention,
     timeoutMs: 50,
+    now: opts.now,
   };
   const app = everstreetApi(store, { localPreview: true, environment: "test", v3 });
   const as =
@@ -422,10 +427,18 @@ describe("003h the owner-only API and durable ordering", () => {
     w.transport.views = CLOSED;
     expect((await refresh()).body.outcome).toBe("accepted");
     w.transport.at = block(1001);
-    w.transport.views = edit(CLOSED, "get_outcomes", (os) => {
-      os[0].status = "cancelled";
-      os[0].generation_after = 1;
-    });
+    // Synthetic, otherwise coherent (003h1): a later control step, and deal 1's record now has
+    // another time and digest. The contract never rewrites an outcome, so this is a conflict.
+    w.transport.views = edit(
+      edit(CLOSED, "get_outcomes", (os) => {
+        os[0].at_ms = "1793577999999";
+        os[0].digest = "b".repeat(64);
+      }),
+      "get_control",
+      (c) => {
+        c.control_seq = "8";
+      },
+    );
     expect((await refresh()).body.outcome).toBe("conflict");
     const v = (await w.m(`/api/businesses/${w.bid}/v3`)).body;
     expect(v.flag).toMatchObject({ code: "conflict" });
@@ -439,18 +452,23 @@ describe("003h the owner-only API and durable ordering", () => {
   it("an outcome ring that wrapped before it was seen reports incomplete history, inventing nothing", async () => {
     const w = world();
     const one = JSON.parse(CLOSED.get_outcomes as string)[0];
+    // Synthetic, coherent: ten earlier deals ended without a sale, each in its own control step.
     const ring = [10, 9, 8, 7, 6, 5, 4, 3].map((n) => ({
       ...one,
       seq: String(n),
       status: n % 2 ? "cancelled" : "expired",
       generation_after: 1,
+      control_seq: String(3 * n),
       price: "1",
     }));
     w.transport.views = { ...ACCEPTING, get_outcomes: JSON.stringify(ring) };
     w.transport.views = edit(w.transport.views, "get_control", (c) => {
       c.live_deal.seq = "11";
+      c.control_seq = "40";
     });
-    await w.m(`/api/businesses/${w.bid}/v3/refresh`, "POST");
+    expect((await w.m(`/api/businesses/${w.bid}/v3/refresh`, "POST")).body.outcome).toBe(
+      "accepted",
+    );
     const v = (await w.m(`/api/businesses/${w.bid}/v3`)).body;
     expect(v.history).toMatchObject({
       complete: false,
@@ -650,5 +668,481 @@ describe("003h access, isolation and trust", () => {
     } finally {
       for (const s of ["", "-wal", "-shm"]) rmSync(`${path}${s}`, { force: true });
     }
+  });
+});
+
+// ---------- 003h1: Astra's two reproductions, exactly ----------
+
+describe("003h1 reproductions (independent review of e47e289)", () => {
+  it("a period read added at an already-recorded block is not a conflict", async () => {
+    const w = world();
+    const refresh = (body?: unknown) => w.m(`/api/businesses/${w.bid}/v3/refresh`, "POST", body);
+    expect((await refresh()).body.outcome).toBe("accepted");
+    const r = await refresh({ period: 202611 });
+    expect(r.body.outcome).toBe("duplicate");
+    expect((await w.m(`/api/businesses/${w.bid}/v3`)).body.flag).toBeNull();
+  });
+
+  it("an owner change with the same control sequence is contradictory and never projected", async () => {
+    const w = world();
+    const refresh = () => w.m(`/api/businesses/${w.bid}/v3/refresh`, "POST");
+    expect((await refresh()).body.outcome).toBe("accepted");
+    w.transport.at = block(1001);
+    // Synthetic mutation of the real fixture: only the owner changes (seq 6, generation 1 kept).
+    w.transport.views = edit(ACCEPTING, "get_control", (c) => {
+      c.owner = "impostor.near";
+    });
+    const r = await refresh();
+    expect(r.body.outcome).not.toBe("accepted");
+    expect((await w.m(`/api/businesses/${w.bid}/v3`)).body.control.owner).toBe("founder.near");
+  });
+});
+
+// ---------- 003h1 acceptance ----------
+
+/** Synthetic (labelled): the real 202611 answer, renumbered to another month. */
+const monthText = (m: number) =>
+  (ACCEPTING["get_period:202611"] as string).replaceAll("202611", String(m));
+const withMonths = (views: Record<string, string>, ...months: number[]) => ({
+  ...views,
+  ...Object.fromEntries(months.map((m) => [`get_period:${m}`, monthText(m)])),
+});
+
+/**
+ * Synthetic (labelled), coherent by every §4a rule: no live deal, and a wrapped ring of ten deals
+ * that ended without a sale, so generation and owner aren't pinned by visible closes.
+ */
+function wrapped(o: {
+  gen: number;
+  seq: number;
+  owner?: string;
+  manifestSeq?: string;
+  manifest?: string;
+  gated?: boolean;
+  asset?: string;
+  top?: number;
+}): Record<string, string> {
+  const one = JSON.parse(CLOSED.get_outcomes as string)[0];
+  const top = o.top ?? 10;
+  const ring = Array.from({ length: 8 }, (_, i) => top - i).map((n) => ({
+    ...one,
+    seq: String(n),
+    status: n % 2 ? "cancelled" : "expired",
+    generation_after: 2,
+    control_seq: String(3 * n),
+    price: "1",
+    escrow_returned: "0",
+  }));
+  const control = {
+    ...JSON.parse(CLOSED.get_control as string),
+    owner: o.owner ?? "buyer.near",
+    generation: o.gen,
+    control_seq: String(o.seq),
+    operators: [],
+    manifest_seq: o.manifestSeq ?? "0",
+    service_manifest: o.manifest ?? "0".repeat(64),
+    close_mode: o.gated ? "gated" : "direct",
+    closer: o.gated ? "closer.near" : null,
+  };
+  const treasury = { ...JSON.parse(CLOSED.get_treasury as string), asset: o.asset ?? "tusd.near" };
+  return {
+    ...CLOSED,
+    get_control: JSON.stringify(control),
+    get_outcomes: JSON.stringify(ring),
+    get_treasury: JSON.stringify(treasury),
+  };
+}
+
+const refresher = (w: ReturnType<typeof world>) => (body?: unknown) =>
+  w.m(`/api/businesses/${w.bid}/v3/refresh`, "POST", body);
+
+describe("003h1 period coverage is separate evidence", () => {
+  it("no month, a month, another month and a repeat at one block all coexist without a flag", async () => {
+    const w = world();
+    const refresh = refresher(w);
+    w.transport.views = withMonths(ACCEPTING, 202610);
+    expect((await refresh()).body).toMatchObject({ outcome: "accepted", period: null });
+    expect((await refresh({ period: 202611 })).body).toMatchObject({
+      outcome: "duplicate",
+      period: { yyyymm: 202611, outcome: "accepted" },
+    });
+    expect((await refresh({ period: 202610 })).body.period.outcome).toBe("accepted");
+    expect((await refresh({ period: 202611 })).body.period.outcome).toBe("duplicate");
+    const v = (await w.m(`/api/businesses/${w.bid}/v3`)).body;
+    expect(v.flag).toBeNull();
+    expect(v.periods.map((p: Json) => [p.yyyymm, p.block.height, p.at_core_block])).toEqual([
+      [202611, "1000", true],
+      [202610, "1000", true],
+    ]);
+    expect(v.periods[0].period.escrow_in).toEqual({ amount: "300000000000000000000", exact: true });
+    expect(w.count("v3_observations")).toBe(1);
+  });
+
+  it("the same month at the same block answering differently is a real conflict", async () => {
+    const w = world();
+    const refresh = refresher(w);
+    await refresh({ period: 202611 });
+    // Synthetic: get_period(202611) at block 1000 now gives other bytes.
+    w.transport.views = edit(ACCEPTING, "get_period:202611", (p) => {
+      p.period.earned.amount = "1";
+    });
+    const r = (await refresh({ period: 202611 })).body;
+    expect(r).toMatchObject({ outcome: "duplicate", period: { outcome: "conflict" } });
+    const v = (await w.m(`/api/businesses/${w.bid}/v3`)).body;
+    expect(v.flag).toMatchObject({ code: "conflict", detail: "period 202611 at block 1000" });
+    expect(v.periods[0].period.earned.amount).toBe("10000000000000000000"); // the first stands
+  });
+
+  it("concurrent reads: two months at one block both land; an older block's month never overwrites a newer one", async () => {
+    const w = world();
+    const refresh = refresher(w);
+    w.transport.views = withMonths(ACCEPTING, 202610);
+    const held = gate();
+    w.transport.held = held.opened;
+    const a = refresh({ period: 202611 });
+    await w.transport.entered.opened;
+    const b = refresh({ period: 202610 });
+    held.open();
+    const [ra, rb] = [(await a).body, (await b).body];
+    expect([ra.outcome, rb.outcome].sort()).toEqual(["accepted", "duplicate"]);
+    expect([ra.period.outcome, rb.period.outcome]).toEqual(["accepted", "accepted"]);
+    // Reversed completion for one month: 1003 is read first, 1005 finishes first.
+    w.transport.held = null;
+    w.transport.at = block(1003);
+    const late = gate();
+    w.transport.held = late.opened;
+    w.transport.entered = gate();
+    const older = refresh({ period: 202611 });
+    await w.transport.entered.opened;
+    w.transport.held = null;
+    w.transport.at = block(1005);
+    expect((await refresh({ period: 202611 })).body.period.outcome).toBe("accepted");
+    late.open();
+    expect((await older).body).toMatchObject({ outcome: "stale", period: { outcome: "stale" } });
+    const v = (await w.m(`/api/businesses/${w.bid}/v3`)).body;
+    expect(v.periods.find((p: Json) => p.yyyymm === 202611).block.height).toBe("1005");
+    expect(v.periods.find((p: Json) => p.yyyymm === 202610).block.height).toBe("1000");
+    expect(v.flag).toBeNull();
+  });
+
+  it("a later read without a month keeps the month, labelled with its own block and age", async () => {
+    let t = Date.parse("2026-11-03T10:00:00Z");
+    const w = world({ now: () => t });
+    const refresh = refresher(w);
+    await refresh({ period: 202611 });
+    t += 20 * 60_000;
+    w.transport.at = block(1001);
+    expect((await refresh()).body).toMatchObject({ outcome: "accepted", period: null });
+    const v = (await w.m(`/api/businesses/${w.bid}/v3`)).body;
+    expect(v.block.height).toBe("1001");
+    expect(v.freshness).toBe("fresh");
+    expect(v.periods).toEqual([
+      expect.objectContaining({
+        yyyymm: 202611,
+        block: block(1000),
+        at_core_block: false,
+        observed_at: "2026-11-03T10:00:00.000Z",
+        age_ms: 20 * 60_000,
+        freshness: "stale",
+      }),
+    ]);
+    expect(v.periods_note).toMatch(/absent, not zero/);
+  });
+
+  it("a refused core block contributes no month", async () => {
+    const w = world();
+    const refresh = refresher(w);
+    await refresh();
+    w.transport.at = block(1001);
+    w.transport.views = edit(ACCEPTING, "get_control", (c) => {
+      c.control_seq = "5";
+    });
+    expect((await refresh({ period: 202611 })).body).toMatchObject({
+      outcome: "contradictory",
+      period: { outcome: "not_recorded" },
+    });
+    expect(w.count("v3_periods")).toBe(0);
+  });
+
+  it("at most 24 months are kept, dropping the oldest evidence; months survive a restart", async () => {
+    const path = join(here, `v3-months-${process.pid}-${Date.now()}.db`);
+    try {
+      const w = world({ dbPath: path });
+      const refresh = refresher(w);
+      const months = Array.from(
+        { length: 25 },
+        (_, i) => (2024 + Math.floor(i / 12)) * 100 + (i % 12) + 1,
+      );
+      for (const [i, m] of months.entries()) {
+        w.transport.at = block(1000 + i);
+        w.transport.views = withMonths(ACCEPTING, m);
+        expect((await refresh({ period: m })).body.period.outcome).toBe("accepted");
+      }
+      expect(w.count("v3_periods")).toBe(24);
+      const kept = (await w.m(`/api/businesses/${w.bid}/v3`)).body.periods.map(
+        (p: Json) => p.yyyymm,
+      );
+      expect(kept).not.toContain(202401); // read at the lowest block
+      expect(kept).toContain(202501);
+      w.store.db.close();
+      const store = new Store(openDb(path));
+      const app = everstreetApi(store, {
+        localPreview: true,
+        environment: "test",
+        v3: {
+          transport: new Transport(),
+          bindings: [{ business_id: w.bid, network: "testnet", account: BINDING_ACCOUNT }],
+        },
+      });
+      const res = await app.request(`/api/businesses/${w.bid}/v3`, {
+        headers: { cookie: `es_session=${w.mara.token}` },
+      });
+      expect(((await res.json()) as Json).periods).toHaveLength(24);
+      store.db.close();
+    } finally {
+      for (const s of ["", "-wal", "-shm"]) rmSync(`${path}${s}`, { force: true });
+    }
+  });
+});
+
+describe("003h1 control changes only the ways the contract changes it", () => {
+  /** Records `first` at block 1000 and `next` at 1001; returns the second outcome. */
+  async function step(first: Record<string, string>, next: Record<string, string>) {
+    const w = world();
+    const refresh = refresher(w);
+    w.transport.views = first;
+    expect((await refresh()).body.outcome).toBe("accepted");
+    w.transport.at = block(1001);
+    w.transport.views = next;
+    const r = (await refresh()).body;
+    return { w, r, v: (await w.m(`/api/businesses/${w.bid}/v3`)).body };
+  }
+
+  const sameSeq: [string, (c: Json) => void][] = [
+    ["operators", (c) => (c.operators = [["meter.near", 3, 1]])],
+    [
+      "manifest",
+      (c) => {
+        c.service_manifest = "ab".repeat(32);
+        c.manifest_seq = "1";
+      },
+    ],
+    ["live deal", (c) => (c.live_deal.available_floor = "1")],
+    [
+      "owner",
+      (c) => {
+        c.owner = "impostor.near";
+        c.live_deal.seller = "impostor.near";
+      },
+    ],
+  ];
+  for (const [what, change] of sameSeq)
+    it(`a ${what} change without a control step is contradictory and never projected`, async () => {
+      const { r, v } = await step(ACCEPTING, edit(ACCEPTING, "get_control", change));
+      expect(r.outcome).toBe("contradictory");
+      expect(v.block.height).toBe("1000");
+      expect(v.flag).toMatchObject({ code: "contradictory" });
+      expect(v.flag.detail).toMatch(/without a control step/);
+    });
+
+  const later: [string, Record<string, string>, Record<string, string>, RegExp][] = [
+    [
+      "generation going back",
+      wrapped({ gen: 3, seq: 50 }),
+      wrapped({ gen: 2, seq: 51 }),
+      /went back/,
+    ],
+    [
+      "generation rising faster than control",
+      wrapped({ gen: 2, seq: 50 }),
+      wrapped({ gen: 5, seq: 51 }),
+      /too fast/,
+    ],
+    [
+      "owner changing within a generation",
+      wrapped({ gen: 2, seq: 50 }),
+      wrapped({ gen: 2, seq: 60, owner: "impostor.near" }),
+      /owner/,
+    ],
+    [
+      "close mode changing",
+      wrapped({ gen: 2, seq: 50 }),
+      wrapped({ gen: 2, seq: 51, gated: true }),
+      /close mode/,
+    ],
+    [
+      "asset changing",
+      wrapped({ gen: 2, seq: 50 }),
+      wrapped({ gen: 2, seq: 51, asset: "other.near" }),
+      /asset/,
+    ],
+    [
+      "manifest changing without its sequence",
+      wrapped({ gen: 2, seq: 50, manifestSeq: "3", manifest: "aa".repeat(32) }),
+      wrapped({ gen: 2, seq: 51, manifestSeq: "3", manifest: "bb".repeat(32) }),
+      /manifest/,
+    ],
+    [
+      "the latest deal number going back",
+      wrapped({ gen: 2, seq: 50, top: 12 }),
+      wrapped({ gen: 2, seq: 51, top: 10 }),
+      /deal number/,
+    ],
+  ];
+  for (const [what, first, next, why] of later)
+    it(`at a higher control step: ${what} is contradictory`, async () => {
+      const { r, v } = await step(first, next);
+      expect(r.outcome).toBe("contradictory");
+      expect(v.flag.detail).toMatch(why);
+      expect(v.block.height).toBe("1000");
+    });
+
+  it("legitimate changes are accepted: customer activity, manifest, operators, sales, skipped steps", async () => {
+    // Same control step, money moves (customer activity).
+    const money = edit(ACCEPTING, "get_treasury", (t) => {
+      t.held = "401000000000000000000";
+      t.ent_free_value = "91000000000000000000";
+    });
+    expect((await step(ACCEPTING, money)).r.outcome).toBe("accepted");
+    // After a direct sale: set_manifest, then appoint and revoke operators, each one control step.
+    const manifest = edit(CLOSED, "get_control", (c) => {
+      c.control_seq = "8";
+      c.manifest_seq = "1";
+      c.service_manifest = "ab".repeat(32);
+    });
+    expect((await step(CLOSED, manifest)).r.outcome).toBe("accepted");
+    const operators = edit(CLOSED, "get_control", (c) => {
+      c.control_seq = "9";
+      c.operators = [
+        ["meter2.near", 1, 2],
+        ["support.near", 2, 2],
+      ];
+    });
+    expect((await step(CLOSED, operators)).r.outcome).toBe("accepted");
+    // The real direct sale (fixtures), and one seen only after many skipped steps.
+    expect((await step(ACCEPTING, CLOSED)).r.outcome).toBe("accepted");
+    const far = edit(
+      edit(CLOSED, "get_control", (c) => (c.control_seq = "40")),
+      "get_outcomes",
+      (os) => (os[0].control_seq = "38"),
+    );
+    expect((await step(ACCEPTING, far)).r.outcome).toBe("accepted");
+    // A gated close finalized by its closer (synthetic from the closed fixture).
+    const gatedClosed = edit(
+      edit(CLOSED, "get_control", (c) => {
+        c.close_mode = "gated";
+        c.closer = "closer.near";
+        c.control_seq = "8";
+      }),
+      "get_outcomes",
+      (os) => (os[0].control_seq = "8"),
+    );
+    const g = await step(CLOSING, gatedClosed);
+    expect(g.r.outcome).toBe("accepted");
+    expect(g.v.control).toMatchObject({
+      owner: "buyer.near",
+      generation: 2,
+      closer: "closer.near",
+    });
+    expect(g.w.ownerOf()).toBe(g.w.mara.id); // never app ownership
+  });
+});
+
+describe("003h1 one snapshot must be coherent with itself", () => {
+  const parts = (v: Record<string, string>) => ({
+    control: decodeControl(JSON.parse(v.get_control as string)),
+    outcomes: decodeOutcomes(JSON.parse(v.get_outcomes as string)),
+    treasury: decodeTreasury(JSON.parse(v.get_treasury as string)),
+    pending: decodePending(JSON.parse(v.get_pending as string)),
+  });
+
+  it("the real fixtures and the synthetic wrapped ring are coherent", () => {
+    for (const v of [ACCEPTING, CLOSED, CLOSING, wrapped({ gen: 2, seq: 50 })])
+      expect(() => coherent(parts(v))).not.toThrow();
+  });
+
+  const bad: [string, Record<string, string>][] = [
+    [
+      "an operator from another generation",
+      edit(ACCEPTING, "get_control", (c) => (c.operators = [["meter.near", 1, 2]])),
+    ],
+    [
+      "a live deal whose seller isn't the owner",
+      edit(ACCEPTING, "get_control", (c) => (c.owner = "impostor.near")),
+    ],
+    [
+      "a live deal from another generation",
+      edit(ACCEPTING, "get_control", (c) => (c.live_deal.expected_generation = 2)),
+    ],
+    [
+      "a direct deal sitting closing",
+      edit(ACCEPTING, "get_control", (c) => (c.live_deal.state = "closing")),
+    ],
+    [
+      "a closing deal off the control sequence",
+      edit(CLOSING, "get_control", (c) => (c.live_deal.closing_control_seq = "6")),
+    ],
+    ["a gap in the outcome ring", edit(CLOSED, "get_outcomes", (os) => (os[0].seq = "2"))],
+    [
+      "a live deal not following the ring",
+      edit(ACCEPTING, "get_control", (c) => (c.live_deal.seq = "3")),
+    ],
+    [
+      "the latest sale's buyer not owning",
+      edit(CLOSED, "get_control", (c) => (c.owner = "impostor.near")),
+    ],
+    [
+      "a generation the sales don't explain",
+      edit(CLOSED, "get_control", (c) => {
+        c.generation = 3;
+        c.operators = [];
+      }),
+    ],
+    [
+      "an outcome newer than control",
+      edit(CLOSED, "get_outcomes", (os) => (os[0].control_seq = "9")),
+    ],
+  ];
+  for (const [what, v] of bad)
+    it(`refuses ${what}`, () => {
+      let code = "";
+      try {
+        coherent(parts(v));
+      } catch (e) {
+        code = e instanceof V3ReadError ? e.code : String(e);
+      }
+      expect(code).toBe("malformed");
+    });
+});
+
+describe("003h1 trusted setup is validated at construction", () => {
+  it("refuses unsound retention, timing and bindings with a clear error", () => {
+    const store = new Store(openDb(":memory:"));
+    const ok = { business_id: "b1", network: "testnet", account: "studio.biz.near" };
+    const cases: Partial<V3Options>[] = [
+      { retention: 0 },
+      { retention: -1 },
+      { retention: 1.5 },
+      { retention: Number.NaN },
+      { staleAfterMs: 0 },
+      { timeoutMs: -5 },
+      { bindings: [{ ...ok, account: "Not An Account" }] },
+      { bindings: [{ ...ok, network: "Test Net" }] },
+      { bindings: [ok, { ...ok, account: "other.near" }] },
+    ];
+    for (const c of cases)
+      expect(
+        () => new V3Observations(store.db, store, { transport: null, bindings: [], ...c }),
+      ).toThrow(/^v3 options: /);
+    expect(() =>
+      everstreetApi(store, {
+        localPreview: true,
+        environment: "test",
+        v3: { transport: null, bindings: [], retention: 0 },
+      }),
+    ).toThrow(/retention/);
+    expect(
+      () => new V3Observations(store.db, store, { transport: null, bindings: [ok], retention: 1 }),
+    ).not.toThrow();
   });
 });

@@ -7,12 +7,57 @@ import { createHash } from "node:crypto";
 import type { Db } from "./db.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import {
+  type BlockRef,
+  isAccountId,
+  type PeriodV3,
   readSnapshot,
+  transitionProblem,
   type V3Binding,
   V3ReadError,
   type V3Snapshot,
   type ViewTransport,
 } from "./v3read.ts";
+
+/** Months of period evidence kept per business: the contract's own PERIOD_RING. */
+export const PERIOD_MONTHS = 24;
+
+/** The four views every refresh reads at one block, without any optional period. */
+export type CoreSnapshot = Omit<V3Snapshot, "period">;
+
+export type PeriodOutcome = "accepted" | "duplicate" | "stale" | "conflict" | "not_recorded";
+
+export interface RecordResult {
+  outcome: RecordOutcome;
+  period: { yyyymm: number; outcome: PeriodOutcome } | null;
+}
+
+const NETWORK = /^[a-z][a-z0-9-]{0,31}$/;
+
+/** Trusted setup must be sound; a bad option fails at construction, not at the first read. */
+function validateOptions(o: V3Options) {
+  const bad = (m: string): never => {
+    throw new Error(`v3 options: ${m}`);
+  };
+  const r = o.retention ?? 50;
+  if (!Number.isInteger(r) || r < 1 || r > 10_000)
+    bad("retention must be a whole number from 1 to 10000");
+  for (const [k, v] of [
+    ["staleAfterMs", o.staleAfterMs],
+    ["timeoutMs", o.timeoutMs],
+  ] as const)
+    if (v !== undefined && (!Number.isSafeInteger(v) || v < 1))
+      bad(`${k} must be a positive whole number`);
+  const seen = new Set<string>();
+  for (const b of o.bindings) {
+    if (typeof b.business_id !== "string" || !b.business_id) bad("a binding has no business");
+    if (typeof b.network !== "string" || !NETWORK.test(b.network))
+      bad("a binding has an invalid network");
+    if (typeof b.account !== "string" || !isAccountId(b.account))
+      bad("a binding has an invalid account");
+    if (seen.has(b.business_id)) bad("two bindings name one business");
+    seen.add(b.business_id);
+  }
+}
 
 export interface V3Options {
   /** The read-only transport; null means v3 reads are unavailable here (the default). */
@@ -42,7 +87,7 @@ const MESSAGES: Record<string, string> = {
   conflict:
     "Two different answers for the same block or height. Nothing was applied; this needs checking.",
   contradictory:
-    "A newer block with an older control sequence. Nothing was applied; this needs checking.",
+    "A newer block whose control state can't follow what was recorded (for example an older control sequence, or an owner change without a control step). Nothing was applied; this needs checking.",
   source_changed:
     "The configured contract differs from the one already recorded. Nothing was applied.",
   unavailable: "Reading NEAR isn't available here.",
@@ -69,9 +114,14 @@ interface ProjectionRow {
 
 const now = () => new Date().toISOString();
 
-/** The stored, normalized snapshot's digest (decoded values only; never raw transport text). */
-export const snapshotDigest = (s: V3Snapshot) =>
-  createHash("sha256").update(JSON.stringify(s)).digest("hex");
+/**
+ * The core snapshot's digest (decoded values only; never raw transport text). A period read
+ * alongside it never changes it (§4a).
+ */
+export const coreDigest = (s: V3Snapshot | CoreSnapshot) => {
+  const { period: _ignored, ...core } = s as V3Snapshot;
+  return createHash("sha256").update(JSON.stringify(core)).digest("hex");
+};
 
 export class V3Observations {
   private readonly bindings: Map<string, V3Binding>;
@@ -81,6 +131,7 @@ export class V3Observations {
     private readonly store: Store,
     private readonly opts: V3Options = { transport: null, bindings: [] },
   ) {
+    validateOptions(opts);
     this.bindings = new Map(opts.bindings.map((b) => [b.business_id, b]));
   }
 
@@ -109,12 +160,32 @@ export class V3Observations {
   }
 
   /**
-   * Records one snapshot for a business, in the caller's transaction. Exact duplicates are
-   * idempotent; stale, conflicting, contradictory or differently-sourced snapshots change no
-   * observation or projection data (conflicts and contradictions flag the projection).
+   * Records one snapshot for a business, in the caller's transaction: its core first, then (only
+   * if that core block wasn't refused) the month it covered. See the note's §4 and §4a.
    */
-  record(businessId: string, s: V3Snapshot, observedAtMs = this.clock()): RecordOutcome {
-    const digest = snapshotDigest(s);
+  record(businessId: string, s: V3Snapshot, observedAtMs = this.clock()): RecordResult {
+    const { period, ...core } = s;
+    const outcome = this.recordCore(businessId, core, observedAtMs);
+    if (!period) return { outcome, period: null };
+    const usable = outcome === "accepted" || outcome === "duplicate" || outcome === "stale";
+    return {
+      outcome,
+      period: {
+        yyyymm: period.yyyymm,
+        outcome: usable
+          ? this.recordPeriod(businessId, s.block, period, observedAtMs)
+          : "not_recorded",
+      },
+    };
+  }
+
+  /**
+   * The core snapshot. Exact duplicates are idempotent; stale, conflicting, contradictory or
+   * differently-sourced snapshots change no observation or projection data (conflicts and
+   * contradictions flag the projection).
+   */
+  private recordCore(businessId: string, s: CoreSnapshot, observedAtMs: number): RecordOutcome {
+    const digest = coreDigest(s);
     const proj = this.projection(businessId);
     if (
       proj &&
@@ -138,9 +209,23 @@ export class V3Observations {
         this.flag(businessId, "conflict", `height ${s.block.height}`);
         return "conflict";
       }
-      if (h < hw) return "stale";
-      if (BigInt(s.control.control_seq) < BigInt(proj.high_control_seq)) {
-        this.flag(businessId, "contradictory", `block ${s.block.height}`);
+      if (h < hw) {
+        // A retained observation at this height has another hash (same hash was handled above).
+        const other = this.db
+          .prepare("SELECT 1 FROM v3_observations WHERE business_id = ? AND block_height = ?")
+          .get(businessId, s.block.height);
+        if (other) {
+          this.flag(businessId, "conflict", `height ${s.block.height}`);
+          return "conflict";
+        }
+        return "stale";
+      }
+      const high = this.db
+        .prepare("SELECT snapshot FROM v3_observations WHERE id = ?")
+        .get(proj.observation_id) as { snapshot: string };
+      const problem = transitionProblem(JSON.parse(high.snapshot) as CoreSnapshot, s);
+      if (problem) {
+        this.flag(businessId, "contradictory", `block ${s.block.height}: ${problem}`);
         return "contradictory";
       }
     }
@@ -209,6 +294,73 @@ export class V3Observations {
     return "accepted";
   }
 
+  /**
+   * One month's evidence, kept as the newest per month with its own block (§4a). The same method,
+   * arguments and block answering differently is a conflict; an older block is stale for the
+   * month; a read without a month never reaches here, so nothing is erased by not asking.
+   */
+  private recordPeriod(
+    businessId: string,
+    block: BlockRef,
+    p: PeriodV3,
+    observedAtMs: number,
+  ): PeriodOutcome {
+    const digest = createHash("sha256").update(JSON.stringify(p)).digest("hex");
+    const row = this.db
+      .prepare(
+        "SELECT block_height, block_hash, digest FROM v3_periods WHERE business_id = ? AND yyyymm = ?",
+      )
+      .get(businessId, p.yyyymm) as
+      | { block_height: string; block_hash: string; digest: string }
+      | undefined;
+    if (row) {
+      if (row.block_hash === block.hash) {
+        if (row.digest === digest) return "duplicate";
+        this.flag(businessId, "conflict", `period ${p.yyyymm} at block ${block.height}`);
+        return "conflict";
+      }
+      const h = BigInt(block.height);
+      const r = BigInt(row.block_height);
+      if (h === r) {
+        this.flag(businessId, "conflict", `period ${p.yyyymm} at height ${block.height}`);
+        return "conflict";
+      }
+      if (h < r) return "stale";
+    }
+    this.db
+      .prepare(
+        `INSERT INTO v3_periods (business_id, yyyymm, block_height, block_hash, period, digest, observed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(business_id, yyyymm) DO UPDATE SET block_height = excluded.block_height,
+           block_hash = excluded.block_hash, period = excluded.period, digest = excluded.digest,
+           observed_at = excluded.observed_at`,
+      )
+      .run(
+        businessId,
+        p.yyyymm,
+        block.height,
+        block.hash,
+        JSON.stringify(p),
+        digest,
+        new Date(observedAtMs).toISOString(),
+      );
+    // At most PERIOD_MONTHS months: drop the month with the oldest evidence (never this one).
+    const months = (
+      this.db
+        .prepare("SELECT COUNT(*) AS n FROM v3_periods WHERE business_id = ?")
+        .get(businessId) as { n: number }
+    ).n;
+    if (months > PERIOD_MONTHS)
+      this.db
+        .prepare(
+          `DELETE FROM v3_periods WHERE business_id = ? AND yyyymm = (
+             SELECT yyyymm FROM v3_periods WHERE business_id = ? AND yyyymm != ?
+             ORDER BY length(block_height), block_height, observed_at LIMIT 1)`,
+        )
+        .run(businessId, businessId, p.yyyymm);
+    return "accepted";
+  }
+
   /** The owner's view of what has been observed. */
   view(viewer: Person, businessId: string) {
     const business = this.store.ownedBusiness(viewer, businessId);
@@ -268,10 +420,38 @@ export class V3Observations {
       treasury: s.treasury,
       claims_note: "Claims are owed; only the period counters show what was actually paid.",
       pending: s.pending,
-      period: s.period,
+      periods: this.periods(businessId, s.block, staleAfter),
+      periods_note:
+        "Each month shows the block it was read at. A month never read here is absent, not zero.",
       outcomes: this.outcomes(businessId),
       history: this.history(businessId, s),
     };
+  }
+
+  /** Period evidence, newest month first, each with its own block and observation time. */
+  private periods(businessId: string, core: BlockRef, staleAfter: number) {
+    const rows = this.db
+      .prepare(
+        "SELECT yyyymm, block_height, block_hash, period, observed_at FROM v3_periods WHERE business_id = ? ORDER BY yyyymm DESC",
+      )
+      .all(businessId) as {
+      yyyymm: number;
+      block_height: string;
+      block_hash: string;
+      period: string;
+      observed_at: string;
+    }[];
+    return rows.map((r) => {
+      const age = this.clock() - Date.parse(r.observed_at);
+      return {
+        ...(JSON.parse(r.period) as PeriodV3),
+        block: { height: r.block_height, hash: r.block_hash },
+        at_core_block: r.block_hash === core.hash,
+        observed_at: r.observed_at,
+        age_ms: age,
+        freshness: age > staleAfter ? ("stale" as const) : ("fresh" as const),
+      };
+    });
   }
 
   private bindingView(b: V3Binding) {
@@ -348,16 +528,22 @@ export class V3Observations {
     }
     // Control may have changed while reading.
     this.store.stillControls(viewer, epoch);
-    const outcome = this.store.tx(() => {
+    const r = this.store.tx(() => {
       this.store.stillControls(viewer, epoch);
-      const r = this.record(businessId, snapshot);
+      const result = this.record(businessId, snapshot);
       this.event("v3.observed", businessId, viewer.id, {
-        outcome: r,
+        outcome: result.outcome,
         block_height: snapshot.block.height,
-        digest: snapshotDigest(snapshot),
+        digest: coreDigest(snapshot),
+        period: result.period,
       });
-      return r;
+      return result;
     });
-    return { outcome, message: MESSAGES[outcome], view: this.view(viewer, businessId) };
+    return {
+      outcome: r.outcome,
+      message: MESSAGES[r.outcome],
+      period: r.period,
+      view: this.view(viewer, businessId),
+    };
   }
 }

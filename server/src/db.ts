@@ -471,6 +471,13 @@ CREATE TABLE IF NOT EXISTS v3_projection (
   observation_id INTEGER NOT NULL, high_block_height TEXT NOT NULL, high_block_hash TEXT NOT NULL,
   high_control_seq TEXT NOT NULL, flag TEXT, flag_detail TEXT, updated_at TEXT NOT NULL
 ) STRICT;
+-- Job 003h1: period evidence kept apart from the core snapshot: the newest per month, each with
+-- its own block and observation time; at most 24 months per business.
+CREATE TABLE IF NOT EXISTS v3_periods (
+  business_id TEXT NOT NULL REFERENCES businesses(id), yyyymm INTEGER NOT NULL,
+  block_height TEXT NOT NULL, block_hash TEXT NOT NULL, period TEXT NOT NULL, digest TEXT NOT NULL,
+  observed_at TEXT NOT NULL, PRIMARY KEY (business_id, yyyymm)
+) STRICT;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_update BEFORE UPDATE ON build_usage
 BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_delete BEFORE DELETE ON build_usage
