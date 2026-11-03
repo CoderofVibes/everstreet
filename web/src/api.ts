@@ -329,6 +329,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The server's stable reason, when it gives one. */
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -341,8 +343,9 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
+  const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  if (!res.ok)
+    throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`, data.code);
   return data as T;
 }
 

@@ -625,6 +625,11 @@ function SourcePanel({ source }: { source: ProjectSource }) {
         {s.constraints.max_price_cents !== undefined &&
           ` · stated price limit up to $${(s.constraints.max_price_cents / 100).toFixed(2)}`}
       </p>
+      {(s.constraints_unreadable ?? []).length > 0 && (
+        <p className="muted" style={{ margin: "0 0 6px" }}>
+          Some stated details couldn't be read when this was captured, so none of them is assumed.
+        </p>
+      )}
       <ul className="missing-list" style={{ margin: "6px 0" }}>
         {source.notes.map((n) => (
           <li key={n}>{n}</li>

@@ -17,6 +17,8 @@ export interface Opportunity {
   id: string;
   text: string;
   constraints: Constraints;
+  /** Stated constraints that couldn't be read (job 005a1); none of them is assumed. */
+  constraints_unreadable: string[];
   allow_replies: boolean;
   expires_at: string;
   created_at: string;
@@ -38,6 +40,7 @@ export interface ProjectSource {
   snapshot: {
     text: string;
     constraints: Constraints;
+    constraints_unreadable: string[];
     posted_at: string;
     open_until: string;
     replies_allowed: boolean;
@@ -63,8 +66,10 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
+  const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+  // The stable code is carried so the review step never has to read the message (job 005a1).
+  if (!res.ok)
+    throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`, data.code);
   return data as T;
 }
 
