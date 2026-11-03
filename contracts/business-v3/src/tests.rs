@@ -3109,3 +3109,74 @@ fn w_terms_stub() -> DealTermsInput {
         terms_hash: "11".repeat(32),
     }
 }
+
+// =====================================================================================
+// 003h: the views' actual JSON, committed as server fixtures. The server's v3 decoder is
+// tested against exactly these bytes. Synthetic only: this changes no contract behaviour.
+// Regenerate with UPDATE_V3_FIXTURES=1; otherwise the committed files must match.
+// =====================================================================================
+
+/// One token unit at 18 decimals: amounts here are far above 2^53.
+const E18: u128 = 1_000_000_000_000_000_000;
+
+/// A business with a plan at 1e18 a unit: 100 units bought, 10 used and earned.
+fn fixture_world(make: fn() -> W) -> W {
+    let mut w = make();
+    w.measured(FOUNDER, NEAR, |b| b.create_plan(plan_input(E18)));
+    w.measured(CARA, NEAR, |b| b.sponsor_shell(id(CARA), 2));
+    let k = key(1);
+    assert_eq!(w.ft(CARA, 100 * E18, buy_msg(2, 100, 1, Some((0, &k, 30)))), 0);
+    let reg = w.b.get_entitlement(id(CARA), 2).unwrap().reg_id.0;
+    let (a, s) = auth_on(2, CARA, &k, reg, 1, 10, w.now + 20 * MIN, 0, 1);
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 2, a, s)), "opened");
+    let uses: Vec<UseInput> = (0..10).map(|i| use_on(2, CARA, &k, reg, 0, 1, 1, i, fp(1, i, 0))).collect();
+    all(&w.call(METER, 0, |b| b.settle_hold(id(CARA), 2, 1, uses, true)), "charged", 10);
+    // An owner payout in flight, so the pending list isn't empty.
+    w.withdraw(FOUNDER, E18);
+    w
+}
+
+/// Each view's JSON exactly as the contract returns it (serde_json of the view value).
+fn views_json(w: &W) -> String {
+    let raw = |v: String| serde_json::Value::String(v);
+    let out = serde_json::json!({
+        "get_control": raw(serde_json::to_string(&w.b.get_control()).unwrap()),
+        "get_outcomes": raw(serde_json::to_string(&w.b.get_outcomes()).unwrap()),
+        "get_treasury": raw(serde_json::to_string(&w.b.get_treasury()).unwrap()),
+        "get_pending": raw(serde_json::to_string(&w.b.get_pending()).unwrap()),
+        "get_period:202611": raw(serde_json::to_string(&w.b.get_period(202611)).unwrap()),
+    });
+    serde_json::to_string_pretty(&out).unwrap() + "\n"
+}
+
+fn fixture(name: &str, committed: &str, actual: String) {
+    if std::env::var("UPDATE_V3_FIXTURES").is_ok() {
+        let path = format!("{}/../../server/test/fixtures/v3/{name}.json", env!("CARGO_MANIFEST_DIR"));
+        std::fs::write(&path, &actual).unwrap();
+        return;
+    }
+    assert_eq!(committed.replace("\r\n", "\n"), actual, "{name}: the committed server fixture is out of date");
+}
+
+#[test]
+fn serialized_views_match_server_fixtures() {
+    // Direct, the seller has accepted and the buyer has funded (not yet accepted).
+    let mut w = fixture_world(W::new);
+    let mut t = w.terms(BUYER, 300 * E18, &[(METER2, METERING)]);
+    t.available_floor = U128(2 * E18);
+    w.propose(FOUNDER, t);
+    assert_eq!(w.fund(BUYER), 0);
+    assert_eq!(w.accept(FOUNDER), "accepted");
+    fixture("direct-accepting", include_str!("../../../server/test/fixtures/v3/direct-accepting.json"), views_json(&w));
+    // The buyer accepts: closed in the same call.
+    assert_eq!(w.accept(BUYER), "closed");
+    fixture("direct-closed", include_str!("../../../server/test/fixtures/v3/direct-closed.json"), views_json(&w));
+    // Gated: both accepted, closing until the closer finalizes.
+    let mut g = fixture_world(W::gated);
+    let t = g.terms(BUYER, 300 * E18, &[(METER2, METERING)]);
+    g.propose(FOUNDER, t);
+    assert_eq!(g.fund(BUYER), 0);
+    assert_eq!(g.accept(BUYER), "accepted");
+    assert_eq!(g.accept(FOUNDER), "closing");
+    fixture("gated-closing", include_str!("../../../server/test/fixtures/v3/gated-closing.json"), views_json(&g));
+}
