@@ -1,10 +1,46 @@
-// Bring an existing product (job 004a). A private import workspace for one product: what its
-// supplied package.json declares, an inventory of what it depends on, and a readiness report
+// Bring an existing product (jobs 004a, 004a1). A private import workspace for one product: what
+// its supplied package.json declares, an inventory of what it depends on, and a readiness report
 // for handing it over. Nothing is fetched, installed or run, and nothing here is "verified":
 // verifying accounts needs connections that come in a later step.
+//
+// 004a1: every unsaved draft (product details, the manifest being prepared, each dependency
+// statement) and every request's identity live in the workspace, not in a tab, so switching tabs
+// loses nothing. They are dropped when the person, the workspace or control of the business
+// changes, and never written to browser storage. Answers are reconciled by what they contain
+// (importDraft.ts), so an answer finishing late never replaces a newer one or hides a success.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../api.ts";
+import { ApiError, api } from "../api.ts";
+import {
+  cleared,
+  type DepDraft,
+  type DetailsDraft,
+  depAfter,
+  depAfterOwnSave,
+  depShown,
+  detailsAfter,
+  detailsAfterOwnSave,
+  detailsShown,
+  editDep,
+  editDetails,
+  emptyManifest,
+  fileChosen,
+  fileRead,
+  type InspectAttempt,
+  inspectFinished,
+  type ManifestDraft,
+  type Outcome,
+  pasted,
+  type RowStatus,
+  reconcile,
+  recoverInspect,
+  rowStatus,
+  type Snapshot,
+  select,
+  snapshotLoaded,
+  startInspect,
+  type Uses,
+} from "../importDraft.ts";
 import {
   byteLength,
   type Category,
@@ -15,7 +51,6 @@ import {
   type ItemStatus,
   importsApi,
   MAX_MANIFEST_BYTES,
-  type Manifest,
   PRODUCT_KIND_LABEL,
   type ProductKind,
   type Report,
@@ -25,6 +60,7 @@ import { ago } from "../productsApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { newKey } from "./Builds.tsx";
+import { Scroll } from "./FinanceChart.tsx";
 
 const SCOPE_SHORT =
   "We read the package.json you supply: its package details and the packages it declares. Your code isn't fetched, installed or run, scripts are ignored, and nothing that looks like a key or password is accepted.";
@@ -35,6 +71,25 @@ const STATUS_PILL: Record<ItemStatus, string> = {
   declared: "pill",
   unknown: "pill caution",
 };
+
+/** State read synchronously by event handlers and async completions, and rendered. */
+function useLive<T>(initial: T) {
+  const ref = useRef(initial);
+  const [value, setValue] = useState(initial);
+  const update = useCallback((fn: (t: T) => T) => {
+    ref.current = fn(ref.current);
+    setValue(ref.current);
+    return ref.current;
+  }, []);
+  return [value, ref, update] as const;
+}
+
+/** What a failed call means: a status for refusals, 0 when no answer arrived at all. */
+const outcomeOf = (e: unknown): Extract<Outcome, { ok: false }> => ({
+  ok: false,
+  status: e instanceof ApiError ? e.status : 0,
+  message: (e as Error).message,
+});
 
 function SignIn({ reason }: { reason: string }) {
   const { requireSignIn } = useSession();
@@ -48,41 +103,55 @@ function SignIn({ reason }: { reason: string }) {
   );
 }
 
-/** A package.json, chosen as a file or pasted. Checked here for size; the server decides. */
+/**
+ * The package.json being prepared, chosen as a file or pasted. A file read applies only if
+ * nothing was chosen, pasted or cleared since it started. Checked here for size; the server
+ * decides.
+ */
 function ManifestInput({
-  value,
-  onChange,
+  draft,
+  update,
   id,
 }: {
-  value: Manifest | null;
-  onChange: (m: Manifest | null) => void;
+  draft: ManifestDraft;
+  update: (fn: (d: ManifestDraft) => ManifestDraft) => ManifestDraft;
   id: string;
 }) {
-  const [error, setError] = useState<string | null>(null);
-  const [paste, setPaste] = useState(value && value.file_name === null ? value.content : "");
+  const pastedText = draft.value && draft.value.file_name === null ? draft.value.content : "";
+  const fileInput = useRef<HTMLInputElement>(null);
+  const holdsFile = draft.reading || draft.value?.file_name !== null;
+  // When the draft no longer holds a chosen file (cleared, pasted over, refused or inspected),
+  // the browser's file box is emptied too, so it never shows a file that isn't the draft.
+  useEffect(() => {
+    if (fileInput.current && (!holdsFile || !draft.value) && !draft.reading)
+      fileInput.current.value = "";
+  }, [holdsFile, draft.value, draft.reading]);
   return (
     <div>
       <label className="field" htmlFor={`${id}-file`}>
         <span>package.json file</span>
         <input
+          ref={fileInput}
           id={`${id}-file`}
           type="file"
           accept=".json,application/json"
           className="input"
-          onChange={async (e) => {
+          onChange={(e) => {
             const f = e.target.files?.[0];
-            setError(null);
-            if (!f) return onChange(null);
-            if (f.size > MAX_MANIFEST_BYTES) {
-              setError("That file is larger than 64 KiB. Only the package.json file is needed.");
-              return onChange(null);
-            }
-            if (f.name !== "package.json") {
-              setError("Choose the file named package.json; other files aren't read.");
-              return onChange(null);
-            }
-            setPaste("");
-            onChange({ file_name: f.name, content: await f.text() });
+            if (!f) return void update(cleared);
+            const rev = update(fileChosen).rev;
+            const error =
+              f.size > MAX_MANIFEST_BYTES
+                ? "That file is larger than 64 KiB. Only the package.json file is needed."
+                : f.name !== "package.json"
+                  ? "Choose the file named package.json; other files aren't read."
+                  : null;
+            if (error) return void update((d) => fileRead(d, rev, { error }));
+            f.text().then(
+              (content) =>
+                update((d) => fileRead(d, rev, { manifest: { file_name: f.name, content } })),
+              () => update((d) => fileRead(d, rev, { error: "That file couldn't be read." })),
+            );
           }}
         />
         <small>Or paste its text below.</small>
@@ -93,27 +162,31 @@ function ManifestInput({
           id={`${id}-paste`}
           className="input mono"
           rows={6}
-          value={paste}
+          value={pastedText}
           spellCheck={false}
           onChange={(e) => {
             const t = e.target.value;
-            setPaste(t);
-            setError(
-              byteLength(t) > MAX_MANIFEST_BYTES ? "That text is larger than 64 KiB." : null,
-            );
-            onChange(t.trim() ? { file_name: null, content: t } : null);
+            update((d) => pasted(d, t, byteLength(t) > MAX_MANIFEST_BYTES));
           }}
         />
       </label>
-      {value && !error && (
-        <p className="muted" style={{ fontSize: 13, marginTop: -8 }}>
-          {value.file_name ? `Chosen: ${value.file_name}` : "Pasted text"} ·{" "}
-          {byteLength(value.content).toLocaleString()} bytes
-        </p>
-      )}
-      {error && (
+      <div className="row" style={{ gap: 8, marginTop: -8, marginBottom: 12 }}>
+        <span className="muted" style={{ fontSize: 13 }} role="status">
+          {draft.reading
+            ? "Reading the file…"
+            : draft.value
+              ? `${draft.value.file_name ? `Chosen: ${draft.value.file_name}` : "Pasted text"} · ${byteLength(draft.value.content).toLocaleString()} bytes, not inspected yet`
+              : "Nothing chosen"}
+        </span>
+        {(draft.value || draft.error) && (
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => update(cleared)}>
+            Clear
+          </button>
+        )}
+      </div>
+      {draft.error && (
         <p className="error-text" role="alert">
-          {error}
+          {draft.error}
         </p>
       )}
     </div>
@@ -160,6 +233,30 @@ function Counts({ counts }: { counts: Record<ItemStatus, number> }) {
   );
 }
 
+function StatusLine({ status, unsaved }: { status: RowStatus | null; unsaved: boolean }) {
+  const text =
+    status?.state === "saving"
+      ? "Saving…"
+      : status?.state === "conflict" || status?.state === "refused" || status?.state === "unknown"
+        ? status.message
+        : unsaved
+          ? "Unsaved changes"
+          : status?.state === "saved"
+            ? "Saved"
+            : "";
+  if (!text) return null;
+  const bad = status && ["conflict", "refused", "unknown"].includes(status.state);
+  return (
+    <p
+      className={bad ? "error-text" : "muted"}
+      role={bad ? "alert" : "status"}
+      style={{ fontSize: 13 }}
+    >
+      {text}
+    </p>
+  );
+}
+
 // ---------- /import ----------
 
 export function ImportHome() {
@@ -172,7 +269,7 @@ export function ImportHome() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [kind, setKind] = useState<ProductKind>("saas");
-  const [manifest, setManifest] = useState<Manifest | null>(null);
+  const [manifest, , updateManifest] = useLive<ManifestDraft>(emptyManifest());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // One key per intended request: a retry after a lost answer reuses it, so nothing is
@@ -202,13 +299,14 @@ export function ImportHome() {
   if (!person) return <SignIn reason="Sign in to bring a product you already run." />;
 
   const submit = async () => {
+    if (busy) return;
     setError(null);
     const fields = {
       ...(target === "new" ? { new_business_name: businessName.trim() } : { business_id: target }),
       name: name.trim(),
       description: description.trim(),
       product_kind: kind,
-      ...(manifest ? { manifest } : {}),
+      ...(manifest.value ? { manifest: manifest.value } : {}),
     };
     const sig = JSON.stringify(fields);
     if (!attempt.current || attempt.current.sig !== sig)
@@ -219,13 +317,22 @@ export function ImportHome() {
       attempt.current = null;
       go(`/import/${v.workspace.id}`);
     } catch (e) {
-      setError((e as Error).message);
+      const o = outcomeOf(e);
+      setError(
+        o.ok || o.status !== 0
+          ? (e as Error).message
+          : "No answer arrived. Your entries are still here; creating again won't make a second copy.",
+      );
     } finally {
       setBusy(false);
     }
   };
 
-  const ready = name.trim() && (target !== "new" || businessName.trim());
+  const ready =
+    name.trim() &&
+    (target !== "new" || businessName.trim()) &&
+    !manifest.reading &&
+    !manifest.error;
   return (
     <div className="page">
       <div className="eyebrow">Bring a product</div>
@@ -244,8 +351,8 @@ export function ImportHome() {
           <div className="biz-list">
             {mine.map((i) => (
               <Link key={i.id} to={`/import/${i.id}`} className="card link biz-row">
-                <div>
-                  <h3 style={{ fontSize: 18, margin: 0 }}>{i.name}</h3>
+                <div style={{ minWidth: 0 }}>
+                  <h3 style={{ fontSize: 18, margin: 0, overflowWrap: "anywhere" }}>{i.name}</h3>
                   <span className="muted" style={{ fontSize: 14 }}>
                     {i.business_name} · {PRODUCT_KIND_LABEL[i.product_kind]} ·{" "}
                     {i.inspections
@@ -316,7 +423,7 @@ export function ImportHome() {
           />
         </label>
         <KindSelect id="imp-kind" value={kind} onChange={setKind} />
-        <ManifestInput id="imp-manifest" value={manifest} onChange={setManifest} />
+        <ManifestInput id="imp-manifest" draft={manifest} update={updateManifest} />
         {error && (
           <p className="error-text" role="alert">
             {error}
@@ -329,7 +436,7 @@ export function ImportHome() {
             disabled={!ready || busy}
             onClick={submit}
           >
-            {busy ? "Saving…" : manifest ? "Create and inspect" : "Create"}
+            {busy ? "Saving…" : manifest.value ? "Create and inspect" : "Create"}
           </button>
           <span className="muted" style={{ fontSize: 13 }}>
             You can add or update the manifest later.
@@ -344,55 +451,186 @@ export function ImportHome() {
 
 type Tab = "overview" | "dependencies" | "readiness";
 
+/** Everything private and unsaved on this page, scoped to one workspace and control epoch. */
+interface Drafts {
+  details: DetailsDraft | null;
+  detailsStatus: RowStatus | null;
+  deps: Partial<Record<Category, DepDraft>>;
+  depStatus: Partial<Record<Category, RowStatus>>;
+}
+
+const noDrafts = (): Drafts => ({ details: null, detailsStatus: null, deps: {}, depStatus: {} });
+
 export function ImportWorkspace({ id }: { id: string }) {
   const { person } = useSession();
-  const [view, setView] = useState<ImportView | null>(null);
+  const [view, viewRef, updateView] = useLive<ImportView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
-  // Only the newest answer is shown: an older one finishing late can't restore stale data.
-  const seq = useRef(0);
-  const epoch = useRef<string | null>(null);
-  const [resetToken, setResetToken] = useState(0);
+  const [drafts, draftsRef, updateDrafts] = useLive<Drafts>(noDrafts());
+  const [manifest, manifestRef, updateManifest] = useLive<ManifestDraft>(emptyManifest());
+  const [attempt, attemptRef, updateAttempt] = useLive<InspectAttempt | null>(null);
+  const [snapshot, , updateSnapshot] = useLive<Snapshot>(select(null));
+  const alive = useRef(true);
 
-  const accept = useCallback((v: ImportView) => {
-    // A change of control resets every unsaved draft on this page.
-    if (epoch.current !== null && epoch.current !== v.workspace.owner_epoch)
-      setResetToken((n) => n + 1);
-    epoch.current = v.workspace.owner_epoch;
-    setView(v);
-  }, []);
+  /** Shows a server answer if it is the newest; a change of control drops every draft. */
+  const accept = useCallback(
+    (incoming: ImportView, reload: () => void) => {
+      if (!alive.current) return;
+      const r = reconcile(viewRef.current, incoming);
+      if (r === "ignore") return;
+      if (r === "reload") return reload();
+      if (r === "reset") {
+        updateDrafts(noDrafts);
+        updateManifest(() => emptyManifest());
+        updateAttempt(() => null);
+        updateSnapshot(() => select(null));
+      }
+      updateView(() => incoming);
+    },
+    [viewRef, updateView, updateDrafts, updateManifest, updateAttempt, updateSnapshot],
+  );
 
-  const load = useCallback(() => {
-    const n = ++seq.current;
-    importsApi
-      .get(id)
-      .then((v) => n === seq.current && accept(v))
-      .catch((e) => {
-        if (n !== seq.current) return;
-        setView(null);
-        setError((e as Error).message);
-      });
-  }, [id, accept]);
+  const load = useCallback((): Promise<ImportView | null> => {
+    return importsApi.get(id).then(
+      (v) => {
+        accept(v, () => {
+          if (alive.current) updateView(() => v);
+        });
+        return v;
+      },
+      (e) => {
+        if (alive.current && !viewRef.current) setError((e as Error).message);
+        else if (alive.current && e instanceof ApiError && e.status === 404) {
+          // Access ended (control moved): nothing private stays on screen.
+          updateView(() => null);
+          updateDrafts(noDrafts);
+          updateManifest(() => emptyManifest());
+          updateAttempt(() => null);
+          setError((e as Error).message);
+        }
+        return null;
+      },
+    );
+  }, [id, accept, viewRef, updateView, updateDrafts, updateManifest, updateAttempt]);
 
   useEffect(() => {
+    alive.current = true;
     if (person) load();
     return () => {
-      seq.current++;
+      alive.current = false;
     };
   }, [person, load]);
 
-  /** Applies a write's answer unless a newer load has started since. */
-  const apply = useCallback(
-    async (write: () => Promise<ImportView>) => {
-      const n = ++seq.current;
-      const v = await write();
-      if (n === seq.current) accept(v);
-    },
-    [accept],
-  );
+  const reload = useCallback(() => void load(), [load]);
+
+  // ---- product details ----
+  const saveDetails = async () => {
+    const v = viewRef.current;
+    const d = draftsRef.current.details;
+    if (!v || !d || draftsRef.current.detailsStatus?.state === "saving") return;
+    updateDrafts((s) => ({ ...s, detailsStatus: { state: "saving" } }));
+    try {
+      const nv = await importsApi.update(v.workspace.id, {
+        version: d.base,
+        name: d.name.trim(),
+        description: d.description.trim(),
+        product_kind: d.product_kind,
+      });
+      accept(nv, reload);
+      updateDrafts((s) => ({
+        ...s,
+        details: detailsAfterOwnSave(nv, d, s.details),
+        detailsStatus: { state: "saved" },
+      }));
+    } catch (e) {
+      const o = outcomeOf(e);
+      // On a conflict or a lost answer, ask the server what it holds now.
+      const now = !o.ok && (o.status === 409 || o.status === 0) ? await load() : null;
+      updateDrafts((s) => {
+        const left = now && s.details ? detailsAfter(now, s.details) : s.details;
+        return { ...s, details: left, detailsStatus: rowStatus(o, Boolean(now) && left === null) };
+      });
+    }
+  };
+
+  // ---- dependency statements ----
+  const saveDep = async (c: Category) => {
+    const v = viewRef.current;
+    const d = draftsRef.current.deps[c];
+    if (!v || !d || draftsRef.current.depStatus[c]?.state === "saving") return;
+    updateDrafts((s) => ({ ...s, depStatus: { ...s.depStatus, [c]: { state: "saving" } } }));
+    try {
+      const nv = await importsApi.declare(v.workspace.id, c, {
+        version: d.base,
+        uses: d.uses === "unsaid" ? null : d.uses === "yes",
+        note: d.uses === "unsaid" ? "" : d.note.trim(),
+      });
+      accept(nv, reload);
+      updateDrafts((s) => {
+        const left = depAfterOwnSave(nv, c, d, s.deps[c] ?? null);
+        const deps = { ...s.deps };
+        if (left) deps[c] = left;
+        else delete deps[c];
+        return { ...s, deps, depStatus: { ...s.depStatus, [c]: { state: "saved" } } };
+      });
+    } catch (e) {
+      const o = outcomeOf(e);
+      const now = o.status === 409 || o.status === 0 ? await load() : null;
+      updateDrafts((s) => {
+        const cur = s.deps[c];
+        const left = now && cur ? depAfter(now, c, cur) : (cur ?? null);
+        const deps = { ...s.deps };
+        if (left) deps[c] = left;
+        else delete deps[c];
+        return {
+          ...s,
+          deps,
+          depStatus: { ...s.depStatus, [c]: rowStatus(o, Boolean(now) && left === null) },
+        };
+      });
+    }
+  };
+
+  // ---- inspections ----
+  const inspect = async (recover: boolean) => {
+    const v = viewRef.current;
+    if (!v) return;
+    const a = recover
+      ? recoverInspect(attemptRef.current)
+      : startInspect(manifestRef.current, attemptRef.current, () => newKey("inspect"));
+    if (!a) return;
+    updateAttempt(() => a);
+    let outcome: Outcome;
+    try {
+      const nv = await importsApi.inspect(v.workspace.id, {
+        idempotency_key: a.key,
+        ...a.manifest,
+      });
+      accept(nv, reload);
+      outcome = { ok: true };
+    } catch (e) {
+      outcome = outcomeOf(e);
+    }
+    if (!alive.current) return;
+    const done = inspectFinished(manifestRef.current, a, outcome);
+    updateManifest(() => done.draft);
+    updateAttempt(() => done.attempt);
+  };
+
+  // ---- saved reports ----
+  const chooseReport = (n: number | null) => {
+    updateSnapshot(() => select(n));
+    if (n === null || !viewRef.current) return;
+    importsApi.report(viewRef.current.workspace.id, n).then(
+      (r) => alive.current && updateSnapshot((s) => snapshotLoaded(s, n, r)),
+      (e) =>
+        alive.current &&
+        updateSnapshot((s) => snapshotLoaded(s, n, { error: (e as Error).message })),
+    );
+  };
 
   if (!person) return <SignIn reason="Sign in to open this import." />;
-  if (error)
+  if (error && !view)
     return (
       <div className="page empty">
         <h2>{error}</h2>
@@ -401,9 +639,18 @@ export function ImportWorkspace({ id }: { id: string }) {
     );
   if (!view) return <div className="page muted">Loading…</div>;
   const w = view.workspace;
-  const tabs: { id: Tab; label: string; badge?: number }[] = [
-    { id: "overview", label: "Overview" },
-    { id: "dependencies", label: "Dependencies", badge: view.report.live.counts.unknown },
+  const unsavedDeps = Object.keys(drafts.deps).length;
+  const tabs: { id: Tab; label: string; note?: string }[] = [
+    {
+      id: "overview",
+      label: "Overview",
+      note: drafts.details || manifest.value ? "unsaved" : undefined,
+    },
+    {
+      id: "dependencies",
+      label: "Dependencies",
+      note: unsavedDeps ? `${unsavedDeps} unsaved` : `${view.report.live.counts.unknown} unknown`,
+    },
     { id: "readiness", label: "Readiness" },
   ];
 
@@ -420,7 +667,7 @@ export function ImportWorkspace({ id }: { id: string }) {
           {w.business.name}
         </Link>
       </div>
-      <h1 className="display" style={{ fontSize: 36, margin: "6px 0" }}>
+      <h1 className="display" style={{ fontSize: 36, margin: "6px 0", overflowWrap: "anywhere" }}>
         {w.name}
       </h1>
       <p className="notice" style={{ maxWidth: 900 }}>
@@ -442,7 +689,16 @@ export function ImportWorkspace({ id }: { id: string }) {
             onClick={() => setTab(t.id)}
             onKeyDown={(e) => {
               const i = tabs.findIndex((x) => x.id === tab);
-              const next = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : null;
+              const next =
+                e.key === "ArrowRight"
+                  ? i + 1
+                  : e.key === "ArrowLeft"
+                    ? i - 1
+                    : e.key === "Home"
+                      ? 0
+                      : e.key === "End"
+                        ? tabs.length - 1
+                        : null;
               if (next === null) return;
               e.preventDefault();
               const t2 = tabs[(next + tabs.length) % tabs.length];
@@ -453,37 +709,110 @@ export function ImportWorkspace({ id }: { id: string }) {
             }}
           >
             {t.label}
-            {t.badge ? <span className="badge">{t.badge} unknown</span> : null}
+            {t.note ? <span className="badge">{t.note}</span> : null}
           </button>
         ))}
       </div>
+      {/* Only the chosen panel is in the page (and so in keyboard and screen-reader order);
+          its drafts live above, so leaving a tab loses nothing. */}
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
-        {tab === "overview" && <Overview key={`o${resetToken}`} view={view} apply={apply} />}
-        {tab === "dependencies" && (
-          <Dependencies key={`d${resetToken}`} view={view} apply={apply} />
+        {tab === "overview" && (
+          <Overview
+            view={view}
+            drafts={drafts}
+            onDetails={(d) =>
+              updateDrafts((s) => ({ ...s, details: editDetails(view, d), detailsStatus: null }))
+            }
+            onDiscardDetails={() =>
+              updateDrafts((s) => ({ ...s, details: null, detailsStatus: null }))
+            }
+            onRebaseDetails={() =>
+              updateDrafts((s) => ({
+                ...s,
+                details: s.details ? { ...s.details, base: view.workspace.version } : null,
+                detailsStatus: null,
+              }))
+            }
+            onSaveDetails={saveDetails}
+            manifest={manifest}
+            updateManifest={updateManifest}
+            attempt={attempt}
+            onInspect={inspect}
+          />
         )}
-        {tab === "readiness" && <Readiness view={view} />}
+        {tab === "dependencies" && (
+          <Dependencies
+            view={view}
+            drafts={drafts}
+            onEdit={(c, d) =>
+              updateDrafts((s) => {
+                const left = editDep(view, c, d);
+                const deps = { ...s.deps };
+                if (left) deps[c] = left;
+                else delete deps[c];
+                const depStatus = { ...s.depStatus };
+                delete depStatus[c];
+                return { ...s, deps, depStatus };
+              })
+            }
+            onRebase={(c) =>
+              updateDrafts((s) => {
+                const cur = s.deps[c];
+                if (!cur) return s;
+                const version = view.inventory.find((i) => i.category === c)?.version ?? 0;
+                const depStatus = { ...s.depStatus };
+                delete depStatus[c];
+                return { ...s, deps: { ...s.deps, [c]: { ...cur, base: version } }, depStatus };
+              })
+            }
+            onDiscard={(c) =>
+              updateDrafts((s) => {
+                const deps = { ...s.deps };
+                delete deps[c];
+                const depStatus = { ...s.depStatus };
+                delete depStatus[c];
+                return { ...s, deps, depStatus };
+              })
+            }
+            onSave={saveDep}
+          />
+        )}
+        {tab === "readiness" && (
+          <Readiness view={view} snapshot={snapshot} onChoose={chooseReport} />
+        )}
       </div>
     </div>
   );
 }
 
-type Apply = (write: () => Promise<ImportView>) => Promise<void>;
-
-function Overview({ view, apply }: { view: ImportView; apply: Apply }) {
+function Overview({
+  view,
+  drafts,
+  onDetails,
+  onDiscardDetails,
+  onRebaseDetails,
+  onSaveDetails,
+  manifest,
+  updateManifest,
+  attempt,
+  onInspect,
+}: {
+  view: ImportView;
+  drafts: Drafts;
+  onDetails: (d: DetailsDraft) => void;
+  onDiscardDetails: () => void;
+  onRebaseDetails: () => void;
+  onSaveDetails: () => void;
+  manifest: ManifestDraft;
+  updateManifest: (fn: (d: ManifestDraft) => ManifestDraft) => ManifestDraft;
+  attempt: InspectAttempt | null;
+  onInspect: (recover: boolean) => void;
+}) {
   const w = view.workspace;
-  const [name, setName] = useState(w.name);
-  const [description, setDescription] = useState(w.description);
-  const [kind, setKind] = useState<ProductKind>(w.product_kind);
-  const [base, setBase] = useState(w.version);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [manifest, setManifest] = useState<Manifest | null>(null);
-  const [inspecting, setInspecting] = useState(false);
-  const [inspectError, setInspectError] = useState<string | null>(null);
-  const attempt = useRef<{ key: string; digest: string } | null>(null);
-  const dirty = name !== w.name || description !== w.description || kind !== w.product_kind;
+  const d = detailsShown(view, drafts.details);
+  const status = drafts.detailsStatus;
   const latest = view.source.latest;
-
+  const sending = attempt?.state === "sending";
   return (
     <div className="desk">
       <div>
@@ -502,51 +831,50 @@ function Overview({ view, apply }: { view: ImportView; apply: Apply }) {
           <p className="muted" style={{ fontSize: 14 }}>
             {view.scope}
           </p>
-          <ManifestInput
-            key={view.source.history.length}
-            id="ws-manifest"
-            value={manifest}
-            onChange={setManifest}
-          />
-          {inspectError && (
-            <p className="error-text" role="alert">
-              {inspectError}
-            </p>
+          <ManifestInput id="ws-manifest" draft={manifest} update={updateManifest} />
+          {attempt && attempt.state !== "sending" && (
+            <div
+              className={attempt.state === "unknown" ? "notice" : "notice error"}
+              role="alert"
+              style={{ fontSize: 13.5 }}
+            >
+              <strong>
+                {attempt.state === "unknown"
+                  ? "An inspection got no answer."
+                  : "That file wasn't inspected."}
+              </strong>{" "}
+              {attempt.message}
+              {attempt.state === "unknown" && (
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onInspect(true)}
+                  >
+                    Check on that inspection (sends the same request)
+                  </button>{" "}
+                  <span className="muted">
+                    It was {attempt.manifest.file_name ?? "pasted text"},{" "}
+                    {byteLength(attempt.manifest.content).toLocaleString()} bytes.
+                  </span>
+                </div>
+              )}
+            </div>
           )}
           <button
             type="button"
             className="btn btn-primary"
-            disabled={!manifest || inspecting}
-            onClick={async () => {
-              if (!manifest) return;
-              setInspectError(null);
-              if (!attempt.current || attempt.current.digest !== manifest.content)
-                attempt.current = { key: newKey("inspect"), digest: manifest.content };
-              setInspecting(true);
-              try {
-                await apply(() =>
-                  importsApi.inspect(w.id, {
-                    idempotency_key: attempt.current?.key ?? newKey("inspect"),
-                    ...manifest,
-                  }),
-                );
-                attempt.current = null;
-                setManifest(null);
-              } catch (e) {
-                setInspectError((e as Error).message);
-              } finally {
-                setInspecting(false);
-              }
-            }}
+            disabled={!manifest.value || manifest.reading || Boolean(manifest.error) || sending}
+            onClick={() => onInspect(false)}
           >
-            {inspecting ? "Inspecting…" : "Inspect"}
+            {sending ? "Inspecting…" : "Inspect"}
           </button>
           {view.source.history.length > 0 && (
             <details style={{ marginTop: 16 }}>
               <summary className="muted">Inspection history ({view.source.history.length})</summary>
               <ul className="missing-list" style={{ marginTop: 8 }}>
                 {view.source.history.map((h) => (
-                  <li key={h.number}>
+                  <li key={h.number} style={{ overflowWrap: "anywhere" }}>
                     Inspection {h.number}: {h.dependency_count} packages,{" "}
                     {h.input_bytes.toLocaleString()} bytes, by {h.by},{" "}
                     {new Date(h.created_at).toLocaleString()} ·{" "}
@@ -568,8 +896,8 @@ function Overview({ view, apply }: { view: ImportView; apply: Apply }) {
               id="ws-name"
               className="input"
               maxLength={80}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              value={d.name}
+              onChange={(e) => onDetails({ ...d, name: e.target.value })}
             />
           </label>
           <label className="field" htmlFor="ws-desc">
@@ -579,41 +907,41 @@ function Overview({ view, apply }: { view: ImportView; apply: Apply }) {
               className="input"
               rows={4}
               maxLength={1000}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={d.description}
+              onChange={(e) => onDetails({ ...d, description: e.target.value })}
             />
           </label>
-          <KindSelect id="ws-kind" value={kind} onChange={setKind} />
-          {msg && (
-            <p className={msg.ok ? "muted" : "error-text"} role={msg.ok ? "status" : "alert"}>
-              {msg.text}
-            </p>
-          )}
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={!dirty || !name.trim()}
-            onClick={async () => {
-              setMsg(null);
-              try {
-                await apply(async () => {
-                  const v = await importsApi.update(w.id, {
-                    version: base,
-                    name,
-                    description,
-                    product_kind: kind,
-                  });
-                  setBase(v.workspace.version);
-                  return v;
-                });
-                setMsg({ ok: true, text: "Saved." });
-              } catch (e) {
-                setMsg({ ok: false, text: (e as Error).message });
-              }
-            }}
-          >
-            Save details
-          </button>
+          <KindSelect
+            id="ws-kind"
+            value={d.product_kind}
+            onChange={(k) => onDetails({ ...d, product_kind: k })}
+          />
+          <StatusLine status={status} unsaved={Boolean(drafts.details)} />
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={!drafts.details || !d.name.trim() || status?.state === "saving"}
+              onClick={onSaveDetails}
+            >
+              {status?.state === "saving" ? "Saving…" : "Save details"}
+            </button>
+            {drafts.details && status?.state === "conflict" && (
+              <>
+                <button type="button" className="btn btn-quiet btn-sm" onClick={onRebaseDetails}>
+                  Keep my text (then save over theirs)
+                </button>
+                <button type="button" className="btn btn-quiet btn-sm" onClick={onDiscardDetails}>
+                  Use the saved version
+                </button>
+              </>
+            )}
+            {drafts.details && status?.state !== "conflict" && status?.state !== "saving" && (
+              <button type="button" className="btn btn-quiet btn-sm" onClick={onDiscardDetails}>
+                Discard changes
+              </button>
+            )}
+          </div>
         </section>
         <section className="card">
           <h2>Where it belongs</h2>
@@ -648,11 +976,13 @@ function FactsView({ facts, number, at }: { facts: Facts; number: number; at: st
         From inspection {number}, {new Date(at).toLocaleString()}. Everything below is what the file
         declares, not proof of how the product is built or who owns it.
       </p>
-      <dl className="facts" style={{ gridTemplateColumns: "130px 1fr" }}>
+      <dl className="facts" style={{ gridTemplateColumns: "130px minmax(0, 1fr)" }}>
         {rows.map(([k, v]) => (
           <div key={k} style={{ display: "contents" }}>
             <dt>{k}</dt>
-            <dd>{v ?? <span className="muted">Not declared</span>}</dd>
+            <dd style={{ overflowWrap: "anywhere" }}>
+              {v ?? <span className="muted">Not declared</span>}
+            </dd>
           </div>
         ))}
         <dt>Packages</dt>
@@ -701,7 +1031,21 @@ function FactsView({ facts, number, at }: { facts: Facts; number: number; at: st
   );
 }
 
-function Dependencies({ view, apply }: { view: ImportView; apply: Apply }) {
+function Dependencies({
+  view,
+  drafts,
+  onEdit,
+  onRebase,
+  onDiscard,
+  onSave,
+}: {
+  view: ImportView;
+  drafts: Drafts;
+  onEdit: (c: Category, d: DepDraft) => void;
+  onRebase: (c: Category) => void;
+  onDiscard: (c: Category) => void;
+  onSave: (c: Category) => void;
+}) {
   const detected = (c: Category) =>
     (view.source.latest?.facts.detections ?? []).filter((d) => d.category === c);
   return (
@@ -716,11 +1060,16 @@ function Dependencies({ view, apply }: { view: ImportView; apply: Apply }) {
         return (
           <DependencyRow
             key={i.category}
-            id={view.workspace.id}
             entry={i}
             status={item?.status ?? "unknown"}
             detected={detected(i.category)}
-            apply={apply}
+            draft={depShown(view, i.category, drafts.deps[i.category])}
+            unsaved={Boolean(drafts.deps[i.category])}
+            rowStatus={drafts.depStatus[i.category] ?? null}
+            onEdit={(d) => onEdit(i.category, d)}
+            onRebase={() => onRebase(i.category)}
+            onDiscard={() => onDiscard(i.category)}
+            onSave={() => onSave(i.category)}
           />
         );
       })}
@@ -729,24 +1078,31 @@ function Dependencies({ view, apply }: { view: ImportView; apply: Apply }) {
 }
 
 function DependencyRow({
-  id,
   entry,
   status,
   detected,
-  apply,
+  draft,
+  unsaved,
+  rowStatus: rs,
+  onEdit,
+  onRebase,
+  onDiscard,
+  onSave,
 }: {
-  id: string;
   entry: ImportView["inventory"][number];
   status: ItemStatus;
   detected: Detection[];
-  apply: Apply;
+  draft: DepDraft;
+  unsaved: boolean;
+  rowStatus: RowStatus | null;
+  onEdit: (d: DepDraft) => void;
+  onRebase: () => void;
+  onDiscard: () => void;
+  onSave: () => void;
 }) {
   const a = entry.assertion;
-  const [uses, setUses] = useState<"yes" | "no" | "unsaid">(a ? (a.uses ? "yes" : "no") : "unsaid");
-  const [note, setNote] = useState(a?.note ?? "");
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const changed = uses !== (a ? (a.uses ? "yes" : "no") : "unsaid") || note !== (a?.note ?? "");
   const base = `dep-${entry.category}`;
+  const saving = rs?.state === "saving";
   return (
     <section className="card" aria-labelledby={`${base}-h`}>
       <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
@@ -754,6 +1110,7 @@ function DependencyRow({
           {entry.label}
         </h3>
         <span className={STATUS_PILL[status]}>{STATUS_LABEL[status]}</span>
+        {unsaved && <span className="pill caution">Unsaved</span>}
       </div>
       {detected.length > 0 && (
         <ul className="missing-list" style={{ margin: "8px 0" }}>
@@ -766,8 +1123,9 @@ function DependencyRow({
         </ul>
       )}
       {a && (
-        <p className="muted" style={{ fontSize: 13, margin: "6px 0" }}>
-          Recorded by {a.by}, {new Date(a.at).toLocaleString()}
+        <p className="muted" style={{ fontSize: 13, margin: "6px 0", overflowWrap: "anywhere" }}>
+          Saved: {a.uses ? `used: ${a.note}` : `not used${a.note ? `: ${a.note}` : ""}`} (by {a.by},{" "}
+          {new Date(a.at).toLocaleString()})
         </p>
       )}
       <fieldset className="seg wrap" style={{ marginTop: 8 }}>
@@ -777,17 +1135,22 @@ function DependencyRow({
             ["yes", "Used"],
             ["no", "Not used"],
             ["unsaid", "Not said"],
-          ] as const
+          ] as [Uses, string][]
         ).map(([v, label]) => (
-          <button key={v} type="button" aria-pressed={uses === v} onClick={() => setUses(v)}>
+          <button
+            key={v}
+            type="button"
+            aria-pressed={draft.uses === v}
+            onClick={() => onEdit({ ...draft, uses: v })}
+          >
             {label}
           </button>
         ))}
       </fieldset>
-      {uses !== "unsaid" && (
+      {draft.uses !== "unsaid" && (
         <label className="field" htmlFor={`${base}-note`} style={{ marginTop: 10 }}>
           <span>
-            {uses === "yes"
+            {draft.uses === "yes"
               ? "What is used, and who controls the account"
               : "Anything to add (optional)"}
           </span>
@@ -795,126 +1158,89 @@ function DependencyRow({
             id={`${base}-note`}
             className="input"
             maxLength={300}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
+            value={draft.note}
+            onChange={(e) => onEdit({ ...draft, note: e.target.value })}
           />
         </label>
       )}
-      {msg && (
-        <p className={msg.ok ? "muted" : "error-text"} role={msg.ok ? "status" : "alert"}>
-          {msg.text}
-        </p>
-      )}
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        style={{ marginTop: 8 }}
-        disabled={!changed || (uses === "yes" && !note.trim())}
-        onClick={async () => {
-          setMsg(null);
-          try {
-            await apply(() =>
-              importsApi.declare(id, entry.category, {
-                version: entry.version,
-                uses: uses === "unsaid" ? null : uses === "yes",
-                note: uses === "unsaid" ? "" : note,
-              }),
-            );
-            setMsg({ ok: true, text: "Recorded." });
-          } catch (e) {
-            setMsg({ ok: false, text: (e as Error).message });
-          }
-        }}
-      >
-        Save
-      </button>
+      <StatusLine status={rs} unsaved={unsaved} />
+      <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={!unsaved || saving || (draft.uses === "yes" && !draft.note.trim())}
+          onClick={onSave}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+        {unsaved && rs?.state === "conflict" && (
+          <button type="button" className="btn btn-quiet btn-sm" onClick={onRebase}>
+            Keep my answer (then save over the newer one)
+          </button>
+        )}
+        {unsaved && !saving && (
+          <button type="button" className="btn btn-quiet btn-sm" onClick={onDiscard}>
+            Discard
+          </button>
+        )}
+      </div>
     </section>
   );
 }
 
-function Readiness({ view }: { view: ImportView }) {
-  const [chosen, setChosen] = useState<number | null>(null);
-  const [old, setOld] = useState<{ number: number; created_at: string; report: Report } | null>(
-    null,
-  );
-  const [error, setError] = useState<string | null>(null);
-  const id = view.workspace.id;
-  useEffect(() => {
-    if (chosen === null) {
-      setOld(null);
-      return;
-    }
-    let live = true;
-    setError(null);
-    importsApi
-      .report(id, chosen)
-      .then((r) => live && setOld(r))
-      .catch((e) => live && setError((e as Error).message));
-    return () => {
-      live = false;
-    };
-  }, [id, chosen]);
-  const report = old?.report ?? view.report.live;
+function Readiness({
+  view,
+  snapshot,
+  onChoose,
+}: {
+  view: ImportView;
+  snapshot: Snapshot;
+  onChoose: (n: number | null) => void;
+}) {
+  const shown: { title: string; report: Report } | null =
+    snapshot.selected === null
+      ? { title: "Readiness now", report: view.report.live }
+      : snapshot.state === "loaded"
+        ? {
+            title: `Saved report ${snapshot.selected} (from ${new Date(snapshot.created_at).toLocaleString()}, unchanged since)`,
+            report: snapshot.report,
+          }
+        : null;
   return (
     <div className="desk">
       <div>
-        <section className="card">
-          <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
-            <h2 style={{ margin: 0 }}>
-              {old
-                ? `Report ${old.number} (saved ${new Date(old.created_at).toLocaleString()})`
-                : "Readiness now"}
-            </h2>
-            <span className="spacer" />
-            <Counts counts={report.counts} />
-          </div>
-          <p className="muted" style={{ fontSize: 13 }}>
-            {report.basis}
-          </p>
-          {error && <p className="error-text">{error}</p>}
-          <div className="fin-table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th scope="col">Item</th>
-                  <th scope="col">Evidence</th>
-                  <th scope="col">How it moves</th>
-                  <th scope="col">Next step</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.items.map((i) => (
-                  <tr key={i.category}>
-                    <td style={{ minWidth: 150 }}>
-                      <strong>{i.label}</strong>
-                      <div style={{ marginTop: 4 }}>
-                        <span className={STATUS_PILL[i.status]}>{STATUS_LABEL[i.status]}</span>
-                      </div>
-                    </td>
-                    <td style={{ minWidth: 180 }}>
-                      {i.evidence.length ? (
-                        i.evidence.map((e) => (
-                          <div key={e.text} style={{ fontSize: 13.5 }}>
-                            {e.text}
-                          </div>
-                        ))
-                      ) : (
-                        <span className="muted">None yet</span>
-                      )}
-                    </td>
-                    <td style={{ minWidth: 220, fontSize: 13.5 }}>
-                      {i.mechanism}
-                      <div className="muted" style={{ marginTop: 4 }}>
-                        {i.risk === "high" ? "High risk" : "Medium risk"}: {i.risk_text} Who acts:{" "}
-                        {i.who}.
-                      </div>
-                    </td>
-                    <td style={{ minWidth: 160, fontSize: 13.5 }}>{i.next_step}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <section
+          className="card"
+          aria-busy={
+            snapshot.selected !== null && "state" in snapshot && snapshot.state === "loading"
+          }
+        >
+          {shown ? (
+            <>
+              <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+                <h2 style={{ margin: 0 }}>{shown.title}</h2>
+                <span className="spacer" />
+                <Counts counts={shown.report.counts} />
+              </div>
+              {snapshot.selected !== null && (
+                <p className="notice info" style={{ marginTop: 10 }}>
+                  This is a saved report, kept as it was. Today's guidance is under "Now".
+                </p>
+              )}
+              <p className="muted" style={{ fontSize: 13 }}>
+                {shown.report.basis}
+              </p>
+              <ReportTable report={shown.report} />
+            </>
+          ) : snapshot.selected !== null && snapshot.state === "error" ? (
+            <p className="error-text" role="alert">
+              Report {snapshot.selected} couldn't be loaded: {snapshot.message}
+            </p>
+          ) : (
+            <p className="muted" role="status">
+              Loading report {snapshot.selected}…
+            </p>
+          )}
         </section>
       </div>
       <aside className="studio-side">
@@ -932,8 +1258,8 @@ function Readiness({ view }: { view: ImportView }) {
             <button
               type="button"
               className="btn btn-sm btn-secondary"
-              aria-pressed={chosen === null}
-              onClick={() => setChosen(null)}
+              aria-pressed={snapshot.selected === null}
+              onClick={() => onChoose(null)}
             >
               Now
             </button>
@@ -942,8 +1268,8 @@ function Readiness({ view }: { view: ImportView }) {
                 key={h.number}
                 type="button"
                 className="btn btn-sm btn-quiet"
-                aria-pressed={chosen === h.number}
-                onClick={() => setChosen(h.number)}
+                aria-pressed={snapshot.selected === h.number}
+                onClick={() => onChoose(h.number)}
               >
                 Report {h.number}
               </button>
@@ -955,6 +1281,54 @@ function Readiness({ view }: { view: ImportView }) {
         </section>
       </aside>
     </div>
+  );
+}
+
+function ReportTable({ report }: { report: Report }) {
+  return (
+    <Scroll label="Readiness items (scrolls sideways)" className="fin-table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th scope="col">Item</th>
+            <th scope="col">Evidence</th>
+            <th scope="col">How it moves</th>
+            <th scope="col">Next step</th>
+          </tr>
+        </thead>
+        <tbody>
+          {report.items.map((i) => (
+            <tr key={i.category}>
+              <td style={{ minWidth: 150 }}>
+                <strong>{i.label}</strong>
+                <div style={{ marginTop: 4 }}>
+                  <span className={STATUS_PILL[i.status]}>{STATUS_LABEL[i.status]}</span>
+                </div>
+              </td>
+              <td style={{ minWidth: 180, overflowWrap: "anywhere" }}>
+                {i.evidence.length ? (
+                  i.evidence.map((e) => (
+                    <div key={e.text} style={{ fontSize: 13.5 }}>
+                      {e.text}
+                    </div>
+                  ))
+                ) : (
+                  <span className="muted">None yet</span>
+                )}
+              </td>
+              <td style={{ minWidth: 220, fontSize: 13.5 }}>
+                {i.mechanism}
+                <div className="muted" style={{ marginTop: 4 }}>
+                  {i.risk === "high" ? "High risk" : "Medium risk"}: {i.risk_text} Who acts: {i.who}
+                  .
+                </div>
+              </td>
+              <td style={{ minWidth: 160, fontSize: 13.5 }}>{i.next_step}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Scroll>
   );
 }
 
@@ -990,7 +1364,7 @@ export function DeskImports({ businessId }: { businessId: string }) {
       ) : (
         rows.map((r) => (
           <Link key={r.id} to={`/import/${r.id}`} className="deal-row row">
-            <strong>{r.name}</strong>
+            <strong style={{ overflowWrap: "anywhere" }}>{r.name}</strong>
             <span className="pill">{PRODUCT_KIND_LABEL[r.product_kind]}</span>
             <span className="spacer" />
             <span className="muted" style={{ fontSize: 13 }}>

@@ -419,6 +419,53 @@ describe("004a refusing what must not be inspected or stored", () => {
   });
 });
 
+describe("004a1 concurrent writes and their answers", () => {
+  it("writes to different rows all land, and every answer is an ordered snapshot the page can compare", async () => {
+    const { m } = await mara();
+    const v = (
+      await m("/api/imports", "POST", {
+        idempotency_key: key(),
+        new_business_name: "Ledgerline Labs",
+        name: "Ledgerline",
+      })
+    ).body;
+    const id = v.workspace.id;
+    const answers = await Promise.all([
+      m(`/api/imports/${id}/dependencies/hosting`, "PUT", {
+        version: 0,
+        uses: true,
+        note: "Vercel team",
+      }),
+      m(`/api/imports/${id}/dependencies/domain`, "PUT", { version: 0, uses: false }),
+      m(`/api/imports/${id}`, "PATCH", { version: 1, name: "Ledgerline Pro" }),
+      m(`/api/imports/${id}/inspections`, "POST", { idempotency_key: key(), ...manifest(PLAIN) }),
+    ]);
+    expect(answers.map((a) => a.status)).toEqual([200, 200, 200, 201]);
+    const final = (await m(`/api/imports/${id}`)).body;
+    expect(final.workspace).toMatchObject({ name: "Ledgerline Pro", version: 2 });
+    expect(final.source.history).toHaveLength(1);
+    const versions = (x: Json) => [
+      x.workspace.version,
+      ...(x.inventory as Json[]).map((i) => i.version),
+      x.source.history.length,
+      x.report.history.length,
+    ];
+    // Every answer is contained in the final state, and any two answers are ordered
+    // counter by counter (never each newer than the other).
+    for (const a of answers) {
+      const va = versions(a.body);
+      for (const [i, n] of versions(final).entries())
+        expect(n).toBeGreaterThanOrEqual(va[i] as number);
+      for (const b of answers) {
+        const vb = versions(b.body);
+        const up = va.some((n, i) => n > (vb[i] as number));
+        const down = va.some((n, i) => n < (vb[i] as number));
+        expect(up && down).toBe(false);
+      }
+    }
+  });
+});
+
 describe("004a idempotent creation, versions and declarations", () => {
   it("a retried creation returns the same import and one business; a changed replay conflicts", async () => {
     const { w, m } = await mara();
