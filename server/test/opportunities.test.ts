@@ -581,16 +581,14 @@ describe("005a1 stored rows are projected through the same boundary", () => {
     const needId = await post(noah, NEED);
     const v = (await create(mara, needId, input())).body.view;
     // Simulate a row written before this boundary: the raw constraints copied verbatim.
-    w.store.db
-      .prepare("UPDATE project_sources SET constraints = ? WHERE project_id = ?")
-      .run(
-        JSON.stringify({
-          max_price_cents: 5000,
-          contact: FICTIONAL_CONTACT,
-          payload: "y".repeat(5000),
-        }),
-        v.project.id,
-      );
+    w.store.db.prepare("UPDATE project_sources SET constraints = ? WHERE project_id = ?").run(
+      JSON.stringify({
+        max_price_cents: 5000,
+        contact: FICTIONAL_CONTACT,
+        payload: "y".repeat(5000),
+      }),
+      v.project.id,
+    );
     const shown = await mara(`/api/product-projects/${v.project.id}`);
     expect(shown.body.source.snapshot.constraints).toEqual({ max_price_cents: 5000 });
     expect(shown.body.source.snapshot.constraints_unreadable).toEqual(["other"]);
