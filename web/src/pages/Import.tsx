@@ -8,37 +8,28 @@
 // loses nothing. They are dropped when the person, the workspace or control of the business
 // changes, and never written to browser storage. Answers are reconciled by what they contain
 // (importDraft.ts), so an answer finishing late never replaces a newer one or hides a success.
+//
+// 004a2: the workspace's state and requests belong to one controller (importWorkspace.ts) that
+// retires everything in flight and clears every private draft when access is observed to end,
+// whichever request observed it.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ApiError, api } from "../api.ts";
 import {
   cleared,
   type DepDraft,
   type DetailsDraft,
-  depAfter,
-  depAfterOwnSave,
   depShown,
-  detailsAfter,
-  detailsAfterOwnSave,
   detailsShown,
-  editDep,
-  editDetails,
   emptyManifest,
   fileChosen,
   fileRead,
   type InspectAttempt,
-  inspectFinished,
   type ManifestDraft,
   type Outcome,
   pasted,
   type RowStatus,
-  reconcile,
-  recoverInspect,
-  rowStatus,
   type Snapshot,
-  select,
-  snapshotLoaded,
-  startInspect,
   type Uses,
 } from "../importDraft.ts";
 import {
@@ -51,11 +42,13 @@ import {
   type ItemStatus,
   importsApi,
   MAX_MANIFEST_BYTES,
+  type Manifest,
   PRODUCT_KIND_LABEL,
   type ProductKind,
   type Report,
   STATUS_LABEL,
 } from "../importsApi.ts";
+import { type Drafts, WorkspaceController } from "../importWorkspace.ts";
 import { ago } from "../productsApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
@@ -103,18 +96,37 @@ function SignIn({ reason }: { reason: string }) {
   );
 }
 
+/** Reads a chosen file as a manifest, checking size and name here (the server decides). */
+function readManifestFile(f: File): Promise<{ manifest: Manifest } | { error: string }> {
+  if (f.size > MAX_MANIFEST_BYTES)
+    return Promise.resolve({
+      error: "That file is larger than 64 KiB. Only the package.json file is needed.",
+    });
+  if (f.name !== "package.json")
+    return Promise.resolve({
+      error: "Choose the file named package.json; other files aren't read.",
+    });
+  return f.text().then(
+    (content) => ({ manifest: { file_name: f.name, content } }),
+    () => ({ error: "That file couldn't be read." }),
+  );
+}
+
 /**
- * The package.json being prepared, chosen as a file or pasted. A file read applies only if
- * nothing was chosen, pasted or cleared since it started. Checked here for size; the server
- * decides.
+ * The package.json being prepared, chosen as a file or pasted. Whoever owns the draft applies a
+ * file read only if nothing was chosen, pasted or cleared since it started.
  */
 function ManifestInput({
   draft,
-  update,
+  onFile,
+  onPaste,
+  onClear,
   id,
 }: {
   draft: ManifestDraft;
-  update: (fn: (d: ManifestDraft) => ManifestDraft) => ManifestDraft;
+  onFile: (f: File) => void;
+  onPaste: (text: string) => void;
+  onClear: () => void;
   id: string;
 }) {
   const pastedText = draft.value && draft.value.file_name === null ? draft.value.content : "";
@@ -138,20 +150,8 @@ function ManifestInput({
           className="input"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (!f) return void update(cleared);
-            const rev = update(fileChosen).rev;
-            const error =
-              f.size > MAX_MANIFEST_BYTES
-                ? "That file is larger than 64 KiB. Only the package.json file is needed."
-                : f.name !== "package.json"
-                  ? "Choose the file named package.json; other files aren't read."
-                  : null;
-            if (error) return void update((d) => fileRead(d, rev, { error }));
-            f.text().then(
-              (content) =>
-                update((d) => fileRead(d, rev, { manifest: { file_name: f.name, content } })),
-              () => update((d) => fileRead(d, rev, { error: "That file couldn't be read." })),
-            );
+            if (f) onFile(f);
+            else onClear();
           }}
         />
         <small>Or paste its text below.</small>
@@ -164,10 +164,7 @@ function ManifestInput({
           rows={6}
           value={pastedText}
           spellCheck={false}
-          onChange={(e) => {
-            const t = e.target.value;
-            update((d) => pasted(d, t, byteLength(t) > MAX_MANIFEST_BYTES));
-          }}
+          onChange={(e) => onPaste(e.target.value)}
         />
       </label>
       <div className="row" style={{ gap: 8, marginTop: -8, marginBottom: 12 }}>
@@ -179,7 +176,7 @@ function ManifestInput({
               : "Nothing chosen"}
         </span>
         {(draft.value || draft.error) && (
-          <button type="button" className="btn btn-quiet btn-sm" onClick={() => update(cleared)}>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={onClear}>
             Clear
           </button>
         )}
@@ -423,7 +420,16 @@ export function ImportHome() {
           />
         </label>
         <KindSelect id="imp-kind" value={kind} onChange={setKind} />
-        <ManifestInput id="imp-manifest" draft={manifest} update={updateManifest} />
+        <ManifestInput
+          id="imp-manifest"
+          draft={manifest}
+          onFile={(f) => {
+            const rev = updateManifest(fileChosen).rev;
+            readManifestFile(f).then((r) => updateManifest((d) => fileRead(d, rev, r)));
+          }}
+          onPaste={(t) => updateManifest((d) => pasted(d, t, byteLength(t) > MAX_MANIFEST_BYTES))}
+          onClear={() => updateManifest(cleared)}
+        />
         {error && (
           <p className="error-text" role="alert">
             {error}
@@ -451,193 +457,41 @@ export function ImportHome() {
 
 type Tab = "overview" | "dependencies" | "readiness";
 
-/** Everything private and unsaved on this page, scoped to one workspace and control epoch. */
-interface Drafts {
-  details: DetailsDraft | null;
-  detailsStatus: RowStatus | null;
-  deps: Partial<Record<Category, DepDraft>>;
-  depStatus: Partial<Record<Category, RowStatus>>;
-}
-
-const noDrafts = (): Drafts => ({ details: null, detailsStatus: null, deps: {}, depStatus: {} });
-
 export function ImportWorkspace({ id }: { id: string }) {
   const { person } = useSession();
-  const [view, viewRef, updateView] = useLive<ImportView | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // One controller per person and workspace (the route is keyed by both). It owns every private
+  // draft and every request, and retires them all when access ends or the page goes (004a2).
+  const [c] = useState(() => new WorkspaceController(id, importsApi, () => newKey("inspect")));
+  const s = useSyncExternalStore(c.subscribe, c.getState);
   const [tab, setTab] = useState<Tab>("overview");
-  const [drafts, draftsRef, updateDrafts] = useLive<Drafts>(noDrafts());
-  const [manifest, manifestRef, updateManifest] = useLive<ManifestDraft>(emptyManifest());
-  const [attempt, attemptRef, updateAttempt] = useLive<InspectAttempt | null>(null);
-  const [snapshot, , updateSnapshot] = useLive<Snapshot>(select(null));
-  const alive = useRef(true);
-
-  /** Shows a server answer if it is the newest; a change of control drops every draft. */
-  const accept = useCallback(
-    (incoming: ImportView, reload: () => void) => {
-      if (!alive.current) return;
-      const r = reconcile(viewRef.current, incoming);
-      if (r === "ignore") return;
-      if (r === "reload") return reload();
-      if (r === "reset") {
-        updateDrafts(noDrafts);
-        updateManifest(() => emptyManifest());
-        updateAttempt(() => null);
-        updateSnapshot(() => select(null));
-      }
-      updateView(() => incoming);
-    },
-    [viewRef, updateView, updateDrafts, updateManifest, updateAttempt, updateSnapshot],
-  );
-
-  const load = useCallback((): Promise<ImportView | null> => {
-    return importsApi.get(id).then(
-      (v) => {
-        accept(v, () => {
-          if (alive.current) updateView(() => v);
-        });
-        return v;
-      },
-      (e) => {
-        if (alive.current && !viewRef.current) setError((e as Error).message);
-        else if (alive.current && e instanceof ApiError && e.status === 404) {
-          // Access ended (control moved): nothing private stays on screen.
-          updateView(() => null);
-          updateDrafts(noDrafts);
-          updateManifest(() => emptyManifest());
-          updateAttempt(() => null);
-          setError((e as Error).message);
-        }
-        return null;
-      },
-    );
-  }, [id, accept, viewRef, updateView, updateDrafts, updateManifest, updateAttempt]);
-
   useEffect(() => {
-    alive.current = true;
-    if (person) load();
-    return () => {
-      alive.current = false;
-    };
-  }, [person, load]);
-
-  const reload = useCallback(() => void load(), [load]);
-
-  // ---- product details ----
-  const saveDetails = async () => {
-    const v = viewRef.current;
-    const d = draftsRef.current.details;
-    if (!v || !d || draftsRef.current.detailsStatus?.state === "saving") return;
-    updateDrafts((s) => ({ ...s, detailsStatus: { state: "saving" } }));
-    try {
-      const nv = await importsApi.update(v.workspace.id, {
-        version: d.base,
-        name: d.name.trim(),
-        description: d.description.trim(),
-        product_kind: d.product_kind,
-      });
-      accept(nv, reload);
-      updateDrafts((s) => ({
-        ...s,
-        details: detailsAfterOwnSave(nv, d, s.details),
-        detailsStatus: { state: "saved" },
-      }));
-    } catch (e) {
-      const o = outcomeOf(e);
-      // On a conflict or a lost answer, ask the server what it holds now.
-      const now = !o.ok && (o.status === 409 || o.status === 0) ? await load() : null;
-      updateDrafts((s) => {
-        const left = now && s.details ? detailsAfter(now, s.details) : s.details;
-        return { ...s, details: left, detailsStatus: rowStatus(o, Boolean(now) && left === null) };
-      });
-    }
-  };
-
-  // ---- dependency statements ----
-  const saveDep = async (c: Category) => {
-    const v = viewRef.current;
-    const d = draftsRef.current.deps[c];
-    if (!v || !d || draftsRef.current.depStatus[c]?.state === "saving") return;
-    updateDrafts((s) => ({ ...s, depStatus: { ...s.depStatus, [c]: { state: "saving" } } }));
-    try {
-      const nv = await importsApi.declare(v.workspace.id, c, {
-        version: d.base,
-        uses: d.uses === "unsaid" ? null : d.uses === "yes",
-        note: d.uses === "unsaid" ? "" : d.note.trim(),
-      });
-      accept(nv, reload);
-      updateDrafts((s) => {
-        const left = depAfterOwnSave(nv, c, d, s.deps[c] ?? null);
-        const deps = { ...s.deps };
-        if (left) deps[c] = left;
-        else delete deps[c];
-        return { ...s, deps, depStatus: { ...s.depStatus, [c]: { state: "saved" } } };
-      });
-    } catch (e) {
-      const o = outcomeOf(e);
-      const now = o.status === 409 || o.status === 0 ? await load() : null;
-      updateDrafts((s) => {
-        const cur = s.deps[c];
-        const left = now && cur ? depAfter(now, c, cur) : (cur ?? null);
-        const deps = { ...s.deps };
-        if (left) deps[c] = left;
-        else delete deps[c];
-        return {
-          ...s,
-          deps,
-          depStatus: { ...s.depStatus, [c]: rowStatus(o, Boolean(now) && left === null) },
-        };
-      });
-    }
-  };
-
-  // ---- inspections ----
-  const inspect = async (recover: boolean) => {
-    const v = viewRef.current;
-    if (!v) return;
-    const a = recover
-      ? recoverInspect(attemptRef.current)
-      : startInspect(manifestRef.current, attemptRef.current, () => newKey("inspect"));
-    if (!a) return;
-    updateAttempt(() => a);
-    let outcome: Outcome;
-    try {
-      const nv = await importsApi.inspect(v.workspace.id, {
-        idempotency_key: a.key,
-        ...a.manifest,
-      });
-      accept(nv, reload);
-      outcome = { ok: true };
-    } catch (e) {
-      outcome = outcomeOf(e);
-    }
-    if (!alive.current) return;
-    const done = inspectFinished(manifestRef.current, a, outcome);
-    updateManifest(() => done.draft);
-    updateAttempt(() => done.attempt);
-  };
-
-  // ---- saved reports ----
-  const chooseReport = (n: number | null) => {
-    updateSnapshot(() => select(n));
-    if (n === null || !viewRef.current) return;
-    importsApi.report(viewRef.current.workspace.id, n).then(
-      (r) => alive.current && updateSnapshot((s) => snapshotLoaded(s, n, r)),
-      (e) =>
-        alive.current &&
-        updateSnapshot((s) => snapshotLoaded(s, n, { error: (e as Error).message })),
-    );
-  };
+    if (person) void c.load();
+    return () => c.dispose();
+  }, [person, c]);
 
   if (!person) return <SignIn reason="Sign in to open this import." />;
-  if (error && !view)
+  if (s.status === "unavailable")
     return (
-      <div className="page empty">
-        <h2>{error}</h2>
+      <div className="page empty" role="status">
+        <h2>This import is no longer available</h2>
+        <p>{s.message}</p>
         <Link to="/import">Your imported products</Link>
       </div>
     );
-  if (!view) return <div className="page muted">Loading…</div>;
+  if (!s.view)
+    return s.status === "error" ? (
+      <div className="page empty">
+        <h2>{s.message}</h2>
+        <button type="button" className="btn btn-secondary" onClick={() => void c.load()}>
+          Try again
+        </button>{" "}
+        <Link to="/import">Your imported products</Link>
+      </div>
+    ) : (
+      <div className="page muted">Loading…</div>
+    );
+  const view = s.view;
+  const { drafts, manifest, attempt, snapshot } = s;
   const w = view.workspace;
   const unsavedDeps = Object.keys(drafts.deps).length;
   const tabs: { id: Tab; label: string; note?: string }[] = [
@@ -714,71 +568,36 @@ export function ImportWorkspace({ id }: { id: string }) {
         ))}
       </div>
       {/* Only the chosen panel is in the page (and so in keyboard and screen-reader order);
-          its drafts live above, so leaving a tab loses nothing. */}
+          its drafts live in the controller, so leaving a tab loses nothing. */}
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
         {tab === "overview" && (
           <Overview
             view={view}
             drafts={drafts}
-            onDetails={(d) =>
-              updateDrafts((s) => ({ ...s, details: editDetails(view, d), detailsStatus: null }))
-            }
-            onDiscardDetails={() =>
-              updateDrafts((s) => ({ ...s, details: null, detailsStatus: null }))
-            }
-            onRebaseDetails={() =>
-              updateDrafts((s) => ({
-                ...s,
-                details: s.details ? { ...s.details, base: view.workspace.version } : null,
-                detailsStatus: null,
-              }))
-            }
-            onSaveDetails={saveDetails}
+            onDetails={c.editDetails}
+            onDiscardDetails={c.discardDetails}
+            onRebaseDetails={c.rebaseDetails}
+            onSaveDetails={() => void c.saveDetails()}
             manifest={manifest}
-            updateManifest={updateManifest}
+            onFile={(f) => c.chooseFile(() => readManifestFile(f))}
+            onPaste={(t) => c.paste(t, byteLength(t) > MAX_MANIFEST_BYTES)}
+            onClear={c.clearManifest}
             attempt={attempt}
-            onInspect={inspect}
+            onInspect={(recover) => void c.inspect(recover)}
           />
         )}
         {tab === "dependencies" && (
           <Dependencies
             view={view}
             drafts={drafts}
-            onEdit={(c, d) =>
-              updateDrafts((s) => {
-                const left = editDep(view, c, d);
-                const deps = { ...s.deps };
-                if (left) deps[c] = left;
-                else delete deps[c];
-                const depStatus = { ...s.depStatus };
-                delete depStatus[c];
-                return { ...s, deps, depStatus };
-              })
-            }
-            onRebase={(c) =>
-              updateDrafts((s) => {
-                const cur = s.deps[c];
-                if (!cur) return s;
-                const version = view.inventory.find((i) => i.category === c)?.version ?? 0;
-                const depStatus = { ...s.depStatus };
-                delete depStatus[c];
-                return { ...s, deps: { ...s.deps, [c]: { ...cur, base: version } }, depStatus };
-              })
-            }
-            onDiscard={(c) =>
-              updateDrafts((s) => {
-                const deps = { ...s.deps };
-                delete deps[c];
-                const depStatus = { ...s.depStatus };
-                delete depStatus[c];
-                return { ...s, deps, depStatus };
-              })
-            }
-            onSave={saveDep}
+            onEdit={c.editDep}
+            onRebase={c.rebaseDep}
+            onDiscard={c.discardDep}
+            onSave={(cat) => void c.saveDep(cat)}
           />
         )}
         {tab === "readiness" && (
-          <Readiness view={view} snapshot={snapshot} onChoose={chooseReport} />
+          <Readiness view={view} snapshot={snapshot} onChoose={(n) => void c.chooseReport(n)} />
         )}
       </div>
     </div>
@@ -793,7 +612,9 @@ function Overview({
   onRebaseDetails,
   onSaveDetails,
   manifest,
-  updateManifest,
+  onFile,
+  onPaste,
+  onClear,
   attempt,
   onInspect,
 }: {
@@ -804,7 +625,9 @@ function Overview({
   onRebaseDetails: () => void;
   onSaveDetails: () => void;
   manifest: ManifestDraft;
-  updateManifest: (fn: (d: ManifestDraft) => ManifestDraft) => ManifestDraft;
+  onFile: (f: File) => void;
+  onPaste: (text: string) => void;
+  onClear: () => void;
   attempt: InspectAttempt | null;
   onInspect: (recover: boolean) => void;
 }) {
@@ -831,7 +654,13 @@ function Overview({
           <p className="muted" style={{ fontSize: 14 }}>
             {view.scope}
           </p>
-          <ManifestInput id="ws-manifest" draft={manifest} update={updateManifest} />
+          <ManifestInput
+            id="ws-manifest"
+            draft={manifest}
+            onFile={onFile}
+            onPaste={onPaste}
+            onClear={onClear}
+          />
           {attempt && attempt.state !== "sending" && (
             <div
               className={attempt.state === "unknown" ? "notice" : "notice error"}
