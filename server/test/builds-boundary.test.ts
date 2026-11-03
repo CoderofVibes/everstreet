@@ -42,6 +42,9 @@ class Scripted implements BuildProvider {
 
 const never = () => new Promise<void>(() => {});
 
+/** For tests of the deadline itself: each budget second lasts 1 ms. */
+const SHORT_DEADLINE: WorkerOptions = { msPerSecond: 1 };
+
 function resolvers() {
   let resolve: () => void = () => {};
   const promise = new Promise<void>((r) => {
@@ -128,12 +131,15 @@ async function world(provider: Scripted, maxProgressEvents = 200) {
         budget: BUDGET,
       })
     ).body;
+  // Job 002a2: workers keep the production time scale (a 60-second budget is 60 real seconds,
+  // cleared when the attempt ends), so under load the build deadline can't fire before the
+  // guard a test is about (stream cap, cancel, heartbeat). Only deadline tests pass SHORT_DEADLINE.
   const worker = (
     id: string,
     options: WorkerOptions = {},
     using: Builds = builds,
     with_ = provider,
-  ) => new BuildWorker(using, with_, { id, msPerSecond: 1, ...options });
+  ) => new BuildWorker(using, with_, { id, ...options });
   const row = (id: string) =>
     store.db.prepare("SELECT * FROM build_jobs WHERE id = ?").get(id) as Record<string, unknown>;
   const types = (id: string) =>
@@ -205,7 +211,7 @@ describe("002a1 #1: partial usage is not a complete bill", () => {
     });
     const b = await world(slow);
     const jb = (await b.request()).job;
-    await b.worker("w1").runNext(); // 60 budget seconds at 1 ms each
+    await b.worker("w1", SHORT_DEADLINE).runNext(); // 60 budget seconds at 1 ms each
     expect(b.row(jb.id)).toMatchObject({
       state: "failed",
       failure_code: "timeout",

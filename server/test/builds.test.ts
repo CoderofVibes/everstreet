@@ -122,8 +122,10 @@ function world(provider: BuildProvider | null = new Scripted(), maxProgressEvent
     const me = (await res.json()) as { person: { id: string } };
     return Object.assign(as(cookie), { id: me.person.id });
   };
+  // Job 002a2: the production time scale, so the build deadline never races the guard a test is
+  // about; the time-limit test passes { msPerSecond: 1 } itself.
   const worker = (id: string, options: WorkerOptions = {}) =>
-    new BuildWorker(builds, provider as BuildProvider, { id, msPerSecond: 1, ...options });
+    new BuildWorker(builds, provider as BuildProvider, { id, ...options });
   return { store, builds, clock, join, anon: as(""), worker };
 }
 
@@ -524,7 +526,7 @@ describe("build worker", () => {
     const j = (
       await request(ava, p.id, "build-key-0001", { budget: { ...BUDGET, max_seconds: 10 } })
     ).body.job;
-    await w.worker("w1").runNext(); // 10 budget seconds at 1 ms each
+    await w.worker("w1", { msPerSecond: 1 }).runNext(); // 10 budget seconds at 1 ms each
     const done = (await ava(`/api/builds/${j.id}`)).body.job;
     expect(done).toMatchObject({ state: "failed", usage_state: "unknown", reserved_cents: 6 });
     expect(done.failure.code).toBe("timeout");

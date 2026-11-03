@@ -212,7 +212,8 @@ export function runtimeWorld(
         max_cost_cents: 10,
       },
     });
-    await new BuildWorker(builds, builder, { id: `w${n}`, msPerSecond: 1 }).runNext();
+    // Production time scale (job 002a2): the deadline must not race a fast scripted build.
+    await new BuildWorker(builds, builder, { id: `w${n}` }).runNext();
     const job = builds.row(r.body.job.id) as { state: string; id: string };
     if (job.state !== "succeeded") throw new Error(`build ${job.state}`);
     return job.id;

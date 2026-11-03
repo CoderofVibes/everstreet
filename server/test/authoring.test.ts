@@ -125,8 +125,8 @@ async function world(
   const say = (text: string, key: string, who = ava) =>
     who(`/api/product-projects/${id}/conversation`, "POST", { text, idempotency_key: key });
   const log = (who = ava) => who(`/api/product-projects/${id}/conversation`);
-  const worker = (wid = "w1") =>
-    new BuildWorker(builds, provider as BuildProvider, { id: wid, msPerSecond: 1 });
+  // Production time scale (job 002a2): no test here is about the build deadline.
+  const worker = (wid = "w1") => new BuildWorker(builds, provider as BuildProvider, { id: wid });
   const count = (sql: string, ...args: string[]) =>
     (store.db.prepare(sql).get(...args) as { n: number }).n;
   return { store, clock, builds, ava, join, id, business, budget, say, log, worker, count };
