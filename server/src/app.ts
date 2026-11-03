@@ -15,6 +15,7 @@ import { Deals } from "./deals.ts";
 import { Evaluations } from "./evaluations.ts";
 import { type ImportInspector, Imports } from "./imports.ts";
 import { ManagedRuntime } from "./invocations.ts";
+import { Opportunities } from "./opportunities.ts";
 import { Payments } from "./payments.ts";
 import { Products } from "./products.ts";
 import { Releases } from "./releases.ts";
@@ -68,6 +69,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     proposalBudget(builds.provider),
   );
   const imports = new Imports(store.db, store, options.importInspectors);
+  const opportunities = new Opportunities(store.db, store, community, products);
   const v3 = new V3Observations(store.db, store, options.v3);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const evaluations = new Evaluations(store.db, store, runtime);
@@ -860,6 +862,17 @@ export function everstreetApi(store: Store, options: AppOptions) {
   });
 
   app.get("/api/public/needs", (c) => c.json({ needs: community.openNeeds() }));
+
+  // ---------- opportunities: requests into private product projects (job 005a) ----------
+
+  app.get("/api/opportunities", (c) => c.json(opportunities.list(c.get("person"))));
+  app.get("/api/opportunities/:id", (c) =>
+    c.json(opportunities.one(c.get("person"), c.req.param("id"))),
+  );
+  app.post("/api/opportunities/:id/projects", async (c) => {
+    const r = opportunities.createProject(me(c), c.req.param("id"), await body(c));
+    return c.json(r, r.created ? 201 : 200);
+  });
   app.post("/api/needs", async (c) =>
     c.json({ needs: community.postNeed(me(c), await body(c)) }, 201),
   );

@@ -18,7 +18,33 @@ const FAMILY_WORDS: Record<NonNullable<Constraints["family"]>, string[]> = {
   class: ["class", "workshop", "lesson", "course", "session", "learn", "teach", "beginner"],
   service: ["fix", "repair", "help", "service", "clean", "design", "photograph", "bookkeeping"],
   product: ["buy", "kit", "candle", "gift", "handmade", "made"],
-  software: ["app", "tool", "api", "software", "plugin", "automate"],
+  // Job 005a: the digital vocabulary (AI tools, SaaS, agents, APIs, websites, NEAR apps, online
+  // services). Words are compared after `terms` (so plurals fold and two-letter words drop out;
+  // "AI" is matched separately below).
+  software: [
+    "app",
+    "tool",
+    "api",
+    "software",
+    "plugin",
+    "automate",
+    "automation",
+    "saas",
+    "agent",
+    "chatbot",
+    "bot",
+    "website",
+    "site",
+    "dashboard",
+    "integration",
+    "webhook",
+    "near",
+    "web3",
+    "dapp",
+    "wallet",
+    "llm",
+    "gpt",
+  ],
 };
 
 /** Reads plain words into editable constraints. Everything it guesses is shown and removable. */
@@ -45,6 +71,7 @@ export function interpret(query: string): { words: string[]; constraints: Constr
       break;
     }
   }
+  if (!constraints.family && /\ba\.?i\b/.test(q)) constraints.family = "software";
   return { words: words.filter((w) => !["online", "remote", "virtual"].includes(w)), constraints };
 }
 

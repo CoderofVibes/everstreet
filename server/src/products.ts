@@ -7,6 +7,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { type BuildAvailability, type BuildProvider, buildAvailability } from "./build.ts";
 import type { Db } from "./db.ts";
+import { projectSource } from "./projectSource.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 
 export const FOUNDATIONS = ["ai_api", "saas_workflow", "agent_service", "client_portal"] as const;
@@ -618,36 +619,53 @@ export class Products {
     const foundation = input.foundation as Foundation;
     if (!FOUNDATIONS.includes(foundation)) bad("Choose what kind of product to build");
     const name = text(input.name, LIMITS.name, "The product name");
-    const def = FOUNDATION_DEFS[foundation];
-    const brief = parseBrief({ name, problem: idea.slice(0, LIMITS.text), features: def.features });
-    const prototype = parsePrototype(def.prototype);
     const existing =
       input.business_id === undefined || input.business_id === null || input.business_id === ""
         ? null
         : this.store.ownedBusiness(viewer, String(input.business_id));
-    const id = randomUUID();
-    this.store.tx(() => {
+    const id = this.store.tx(() => {
       const businessId =
         existing?.id ??
         this.store.insertBusiness(viewer, "idea", name || undefined, "software").businessId;
-      const t = now();
-      this.db
-        .prepare(
-          "INSERT INTO product_projects (id, business_id, foundation, idea, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .run(id, businessId, foundation, idea, viewer.id, t, t);
-      this.insertRevision(
-        id,
-        1,
-        brief,
-        prototype,
-        viewer,
-        `Starting brief from ${def.label}`,
-        null,
-      );
-      this.event("product_project_created", businessId, viewer.id, { project: id, foundation });
+      return this.insertProject(viewer, businessId, idea, foundation, name, "");
     });
     return this.view(viewer, id);
+  }
+
+  /**
+   * A new project with its starting brief (revision 1), inside the caller's transaction, for a
+   * business the caller has already checked. Shared by the studio composer and the request
+   * bridge (job 005a). `noteSuffix` is appended to the first revision's note.
+   */
+  insertProject(
+    viewer: Person,
+    businessId: string,
+    idea: string,
+    foundation: Foundation,
+    name: string,
+    noteSuffix: string,
+  ): string {
+    const def = FOUNDATION_DEFS[foundation];
+    const brief = parseBrief({ name, problem: idea.slice(0, LIMITS.text), features: def.features });
+    const prototype = parsePrototype(def.prototype);
+    const id = randomUUID();
+    const t = now();
+    this.db
+      .prepare(
+        "INSERT INTO product_projects (id, business_id, foundation, idea, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(id, businessId, foundation, idea, viewer.id, t, t);
+    this.insertRevision(
+      id,
+      1,
+      brief,
+      prototype,
+      viewer,
+      `Starting brief from ${def.label}${noteSuffix}`,
+      null,
+    );
+    this.event("product_project_created", businessId, viewer.id, { project: id, foundation });
+    return id;
   }
 
   private insertRevision(
@@ -746,6 +764,8 @@ export class Products {
       checks: checks(current.brief, current.prototype, build),
       continuity: this.continuity(viewer, business.id, business.name, def, current.brief),
       build,
+      // Job 005a: where the idea came from, if it came from a publicly shared request.
+      source: projectSource(this.db, p.id),
     };
   }
 

@@ -471,6 +471,18 @@ CREATE TABLE IF NOT EXISTS v3_projection (
   observation_id INTEGER NOT NULL, high_block_height TEXT NOT NULL, high_block_hash TEXT NOT NULL,
   high_control_seq TEXT NOT NULL, flag TEXT, flag_detail TEXT, updated_at TEXT NOT NULL
 ) STRICT;
+-- Job 005a: a project inspired by a publicly shared request keeps a bounded snapshot of it (never
+-- its author, contact, replies or searches). Keyed by project, so it follows business control.
+CREATE TABLE IF NOT EXISTS project_sources (
+  project_id TEXT PRIMARY KEY REFERENCES product_projects(id), need_id TEXT NOT NULL,
+  need_text TEXT NOT NULL, constraints TEXT NOT NULL, allow_replies INTEGER NOT NULL,
+  need_created_at TEXT NOT NULL, need_expires_at TEXT NOT NULL, captured_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS need_project_requests (
+  person_id TEXT NOT NULL REFERENCES people(id), idempotency_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  created_at TEXT NOT NULL, PRIMARY KEY (person_id, idempotency_key)
+) STRICT;
 -- Job 003h1: period evidence kept apart from the core snapshot: the newest per month, each with
 -- its own block and observation time; at most 24 months per business.
 CREATE TABLE IF NOT EXISTS v3_periods (
