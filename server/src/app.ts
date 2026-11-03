@@ -19,6 +19,7 @@ import { Payments } from "./payments.ts";
 import { Products } from "./products.ts";
 import { Releases } from "./releases.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import { V3Observations, type V3Options } from "./v3observe.ts";
 import { type Overrides, Valuation } from "./value.ts";
 
 const COOKIE = "es_session";
@@ -41,6 +42,11 @@ export interface AppOptions {
   runtime?: ManagedRuntime;
   /** Import inspectors (job 004a); the local package.json inspector if not given. */
   importInspectors?: ImportInspector[];
+  /**
+   * Read-only business-v3 observations (job 003h): an injected view transport and the
+   * operator's bindings. Unset: v3 reads are unavailable and no business is bound.
+   */
+  v3?: V3Options;
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -62,6 +68,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     proposalBudget(builds.provider),
   );
   const imports = new Imports(store.db, store, options.importInspectors);
+  const v3 = new V3Observations(store.db, store, options.v3);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const evaluations = new Evaluations(store.db, store, runtime);
   const releases = new Releases(store.db, store, runtime, evaluations);
@@ -210,6 +217,13 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.get("/api/businesses/:id/imports", (c) =>
     c.json({ imports: imports.list(me(c), c.req.param("id")) }),
+  );
+
+  // ---------- read-only business-v3 observations (job 003h): owner only ----------
+
+  app.get("/api/businesses/:id/v3", (c) => c.json(v3.view(me(c), c.req.param("id"))));
+  app.post("/api/businesses/:id/v3/refresh", async (c) =>
+    c.json(await v3.refresh(me(c), c.req.param("id"), await body(c))),
   );
 
   // ---------- product studio: digital product projects and their revisions ----------

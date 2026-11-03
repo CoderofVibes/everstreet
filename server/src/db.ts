@@ -449,6 +449,28 @@ CREATE TABLE IF NOT EXISTS import_dependencies (
   asserted_by TEXT REFERENCES people(id), asserted_at TEXT, version INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (workspace_id, category)
 ) STRICT;
+-- Job 003h: read-only observations of business-v3 contracts. Decoded snapshots only (never raw
+-- transport text); the projection and its high-water mark are never pruned, so ordering
+-- survives restarts and retention.
+CREATE TABLE IF NOT EXISTS v3_observations (
+  id INTEGER PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  network TEXT NOT NULL, account TEXT NOT NULL, schema TEXT NOT NULL,
+  block_height TEXT NOT NULL, block_hash TEXT NOT NULL, control_seq TEXT NOT NULL,
+  generation INTEGER NOT NULL, owner TEXT NOT NULL, snapshot TEXT NOT NULL, digest TEXT NOT NULL,
+  observed_at TEXT NOT NULL, UNIQUE (business_id, block_hash)
+) STRICT;
+CREATE TABLE IF NOT EXISTS v3_outcomes (
+  business_id TEXT NOT NULL REFERENCES businesses(id), seq TEXT NOT NULL, status TEXT NOT NULL,
+  outcome TEXT NOT NULL, first_block_height TEXT NOT NULL, PRIMARY KEY (business_id, seq)
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS v3_outcomes_no_update BEFORE UPDATE ON v3_outcomes
+BEGIN SELECT RAISE(ABORT, 'observed outcomes are immutable'); END;
+CREATE TABLE IF NOT EXISTS v3_projection (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id),
+  network TEXT NOT NULL, account TEXT NOT NULL, schema TEXT NOT NULL,
+  observation_id INTEGER NOT NULL, high_block_height TEXT NOT NULL, high_block_hash TEXT NOT NULL,
+  high_control_seq TEXT NOT NULL, flag TEXT, flag_detail TEXT, updated_at TEXT NOT NULL
+) STRICT;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_update BEFORE UPDATE ON build_usage
 BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_delete BEFORE DELETE ON build_usage
