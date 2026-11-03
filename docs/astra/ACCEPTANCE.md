@@ -121,6 +121,11 @@ use, plus373 app tests. Pins/categories/floor/close-order source reviewed. This 
 evidence for M3, not a live or end-to-end close.003h advances read-only observations next;
 signing, runtime closer, physical FT/gas/receipt and live customer gates remain open.
 
+November3 observation review at e47e289: independent401-test app check and web build passed.
+003h source/API reproductions show a false conflict when adding a period read at the same block
+and acceptance of changed owner with equal control_seq;003h1 corrects both before reconciliation.
+No live transport or ownership integration acceptance is implied by the existing fixture tests.
+
 ## M4: bring an existing product
 
 Connect authorized source and deployment metadata; identify framework, services, ownership
@@ -138,6 +143,10 @@ focus/keyboard scroll and page containment pass. An ownership change during insp
 the correct server404 but retains cached private browser data;004a2 blocks full local intake
 acceptance. Remote connectors, execution and full M4 remain pending.
 
+November3:004a2 browser repeat now clears private import state after ownership loss on inspection,
+details save, dependency save and report read. Missing report with valid access preserves drafts.
+004a3 remains for a failed access recheck leaving progress indefinitely. Full M4 stays open.
+
 ## M5: a useful marketplace and operating network
 
 - Clients post needs with budget/constraints and control contact; founders can respond.
@@ -151,6 +160,9 @@ acceptance. Remote connectors, execution and full M4 remain pending.
 
 Status: pending. Existing need board, profiles and acquisition modules are starting points,
 not proof that the redesigned integrated experience meets these gates.
+
+005a is opened for digital discovery and a consent-preserving request-to-studio bridge, with
+private editable projects, provenance and exact retry. This is planned work, not a passed gate.
 
 ## M6: expanded capability and continuity
 

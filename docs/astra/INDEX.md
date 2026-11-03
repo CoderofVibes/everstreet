@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-03 | [Observation and demand](2026-11-03_ObservationAndDemand.md) | Import access-loss browser repeat passes; reproduced recheck and v3 observation failures;004a3/003h1 then demand-to-studio005a | Active; see local checkpoint |
 | 2026-11-03 | [Continuity review](2026-11-03_ContinuityReview.md) | Independent373-test app and63-test contract passes; import recovery passes, access-loss correction; v3 read-only observations next | Active; see local checkpoint |
 | 2026-11-03 | [Import and sale review](2026-11-03_ImportAndSaleReview.md) | Independent361-test check,38-test v3 run, import browser review;004a1 corrections and003g sale core | Active; see local checkpoint |
 | 2026-11-03 | [Resume development](2026-11-03_Resume.md) | Tony resumes; explicit Opus 5.5/high builder, finish003e1 then004a | Active; see local checkpoint |
