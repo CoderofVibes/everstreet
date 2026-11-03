@@ -6,8 +6,10 @@
 //! and P4. Every refusal made through `W::refuse` checks the error code and that nothing changed
 //! before the panic. `catch_unwind` here only observes that the method validated before it
 //! mutated; it is not a model of on-chain rollback (a real panic reverts the whole receipt).
-//! Signatures are synthetic: ed25519 keys from fixed test seeds. Ownership changes are injected
-//! with the test-only `test_set_owner`; that is not a sale.
+//! Signatures are synthetic: ed25519 keys from fixed test seeds. 003g: every change of owner goes
+//! through the contract's own sale methods (propose, fund, accept, and close_sale in Gated mode);
+//! the injected `test_set_owner` is gone. Direct state edits remain only where a fault is
+//! injected on purpose, and each says so.
 
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
@@ -27,8 +29,23 @@ const SPONSOR: &str = "sponsor.near";
 const BUYER: &str = "buyer.near";
 const STRANGER: &str = "stranger.near";
 const MORE: [&str; 4] = ["ines.near", "joon.near", "kofi.near", "lena.near"];
-const ACCOUNTS: &[&str] =
-    &[FOUNDER, METER, METER2, CARA, DEV, SPONSOR, BUYER, STRANGER, MORE[0], MORE[1], MORE[2], MORE[3]];
+const CLOSER: &str = "closer.near";
+
+/// A valid 64-character account: the longest an account id can be.
+fn long(c: char) -> String {
+    format!("{}.near", c.to_string().repeat(59))
+}
+
+/// Every account the invariants and snapshots look at, including 64-character ones.
+fn accounts() -> Vec<String> {
+    let mut v: Vec<String> = [FOUNDER, METER, METER2, CARA, DEV, SPONSOR, BUYER, STRANGER, CLOSER]
+        .iter()
+        .chain(MORE.iter())
+        .map(|s| s.to_string())
+        .collect();
+    v.extend(['b', 'o', 's', 'm', 'c'].map(long));
+    v
+}
 /// The unit price in base units of the token (addendum §8).
 const P: u128 = 50_000;
 const NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -135,11 +152,21 @@ struct W {
 }
 
 impl W {
+    /// A Direct-mode business: the second matching acceptance closes a sale.
     fn new() -> W {
+        W::with_closer(None)
+    }
+
+    /// A Gated-mode business: only `CLOSER` finalizes a sale both parties accepted.
+    fn gated() -> W {
+        W::with_closer(Some(CLOSER))
+    }
+
+    fn with_closer(closer: Option<&str>) -> W {
         // Start from empty storage, even if an earlier world ran on this thread.
         near_sdk::mock::with_mocked_blockchain(|b| drop(b.take_storage()));
         testing_env!(ctx(FOUNDER, 0, T0).build());
-        let b = Business::new("studio".into(), id(FOUNDER), id(TOKEN), rules());
+        let b = Business::new("studio".into(), id(FOUNDER), id(TOKEN), rules(), closer.map(id));
         let mut w = W { b, now: T0, corrupt: false };
         w.env(FOUNDER, 0);
         let (_, pre) = w.measure(|_| ());
@@ -147,9 +174,9 @@ impl W {
         let (plan, grew) = w.measured(FOUNDER, NEAR, |b| b.create_plan(plan_input(P)));
         assert_eq!(plan, 1);
         assert!(grew > 0, "W1: a plan is new storage");
-        let (_, grew) = w.measured(FOUNDER, NEAR, |b| b.appoint_operator(id(METER), METERING));
-        let expected = borsh::to_vec(&(id(METER), OperatorGrant { caps: METERING, generation: 1 })).unwrap().len() as i64;
-        assert_eq!(grew, expected, "W1: an operator grows the root by its encoded size");
+        let (_, grew) = w.measured(FOUNDER, 1, |b| b.appoint_operator(id(METER), METERING));
+        assert_eq!(grew, 0, "W2 (003g): operator slots are pre-allocated");
+        assert_eq!(w.b.control_seq, 2, "a plan and an appointment: two control changes");
         w.invariants();
         w
     }
@@ -177,6 +204,8 @@ impl W {
         self.b.party.flush();
         self.b.slots.flush();
         self.b.periods.flush();
+        self.b.deal.flush();
+        self.b.outcomes.flush();
         env::state_write(&self.b);
     }
 
@@ -214,24 +243,60 @@ impl W {
 
     fn snap(&self) -> String {
         let b = &self.b;
-        let ents: Vec<_> = ACCOUNTS
+        let all = accounts();
+        let ents: Vec<_> = all
             .iter()
-            .flat_map(|a| (1..=b.plan_count).map(move |p| (*a, p)))
-            .map(|(a, p)| b.entitlements.get(&(id(a), p)).copied())
+            .flat_map(|a| (1..=b.plan_count).map(move |p| (a.clone(), p)))
+            .map(|(a, p)| b.entitlements.get(&(id(&a), p)).copied())
             .collect();
-        let parties: Vec<_> = ACCOUNTS.iter().map(|a| b.party.get(&id(a)).copied()).collect();
+        let parties: Vec<_> = all.iter().map(|a| b.party.get(&id(a)).copied()).collect();
         let slots: Vec<_> = (0..PAYOUT_SLOTS).map(|i| b.slots.get(&i).copied()).collect();
         let periods: Vec<_> = (0..PERIOD_RING).map(|i| b.periods.get(&i).copied()).collect();
+        let outcomes: Vec<_> = (0..OUTCOME_RING).map(|i| b.outcomes.get(&i).copied()).collect();
         format!(
             "{:?}",
-            (b.get_treasury(), ents, parties, slots, periods, &b.operators, &b.owner, b.generation, b.reg_seq, b.payout_seq, b.plan_count)
+            (
+                (b.get_treasury(), ents, parties, slots, periods, &b.operators, &b.owner, b.generation, b.reg_seq, b.payout_seq, b.plan_count),
+                (b.control_seq, b.deal.get(&0).copied(), outcomes, b.service_manifest, b.manifest_seq, b.deal_seq, b.escrow_total),
+            )
         )
     }
 
-    /// I1, P4 always; U1, U2, P1 and the per-record bucket sums unless state was corrupted.
+    /// I1′, P4 and the sale invariants always; U1, U2, P1 and the per-record sums unless state
+    /// was corrupted on purpose.
     fn invariants(&self) {
         let b = &self.b;
-        assert_eq!(b.held, b.ent_free_value + b.ent_held_value + b.available + b.pending_total + b.claims_total, "I1");
+        assert_eq!(
+            b.held,
+            b.ent_free_value + b.ent_held_value + b.available + b.pending_total + b.claims_total + b.escrow_total,
+            "I1′"
+        );
+        // D1: escrow belongs to the live deal and is 0 or its price, funded by its buyer.
+        let d = *b.deal.get(&0).expect("pre-allocated deal slot");
+        assert_eq!(b.escrow_total, if d.live { d.escrow } else { 0 }, "D1 escrow total");
+        if d.live {
+            assert!(d.escrow == 0 || d.escrow == d.price, "D1 escrow is 0 or the price");
+            if d.escrow > 0 {
+                assert_eq!(d.escrow_owner, d.buyer, "D1 the buyer funded it");
+            }
+            // D4 / generation: a live deal is always against the current generation and seller.
+            assert_eq!(d.expected_generation, b.generation, "D4 generation");
+            assert_eq!(d.seller, b.owner, "D4 seller is the owner");
+            assert_eq!((d.plan_count, d.manifest, d.manifest_seq), (b.plan_count, b.service_manifest, b.manifest_seq), "D4");
+            // D5: from the seller's acceptance, and while closing, the floor holds.
+            if d.seller_accepted || d.state == DEAL_CLOSING {
+                assert!(b.available >= d.available_floor, "D5 floor");
+            }
+            if d.state == DEAL_CLOSING {
+                assert_eq!(d.closing_control_seq, b.control_seq, "nothing changes control while closing");
+            }
+        } else {
+            assert_eq!(d, DealSlot::empty(), "an ended deal leaves the slot cleared");
+        }
+        if !self.corrupt && d.live {
+            // D2: the live deal's seller and buyer have records (they are pinned).
+            assert!(b.party.contains_key(&d.seller.account()) && b.party.contains_key(&d.buyer.account()), "D2");
+        }
         let slots: Vec<PayoutSlot> = (0..PAYOUT_SLOTS).map(|i| *b.slots.get(&i).expect("pre-allocated slot")).collect();
         let pending: u128 = slots.iter().filter(|s| s.state != SLOT_FREE).map(|s| s.amount).sum();
         assert_eq!(pending, b.pending_total, "P4");
@@ -248,7 +313,8 @@ impl W {
             return;
         }
         let (mut free_v, mut held_v, mut claims) = (0u128, 0u128, 0u128);
-        for a in ACCOUNTS {
+        for a in &accounts() {
+            let a = a.as_str();
             for plan_id in 1..=b.plan_count {
                 let Some(e) = b.entitlements.get(&(id(a), plan_id)) else { continue };
                 let plan = b.plans.get(&plan_id).unwrap();
@@ -275,7 +341,7 @@ impl W {
             if let Some(r) = b.party.get(&id(a)) {
                 let in_flight = slots.iter().filter(|s| s.state == SLOT_IN_FLIGHT && s.reg_id == 0 && s.to.is(&id(a))).count();
                 assert_eq!(r.pending_refs as usize, in_flight, "P1 for party {a}");
-                claims += r.claim;
+                claims += r.owed();
             }
         }
         assert_eq!(free_v, b.ent_free_value, "free units times price");
@@ -386,11 +452,95 @@ impl W {
         self.last_payout()
     }
 
-    fn inject_owner(&mut self, owner: &str, generation: u32, grants: &[(&str, u8)]) {
-        self.env(owner, 0);
-        self.b.test_set_owner(id(owner), generation, grants.iter().map(|(a, c)| (id(a), *c)).collect());
-        self.invariants();
+    // ---------- 003g sale helpers: the contract's own methods, never an injected owner ----------
+
+    /// Terms to `buyer` at `price`, open a day, floor 0, the right close window for the mode.
+    fn terms(&self, buyer: &str, price: u128, grants: &[(&str, u8)]) -> DealTermsInput {
+        DealTermsInput {
+            buyer: id(buyer),
+            price: U128(price),
+            expires_at_ms: U64(self.now + DAY),
+            close_window_ms: U64(if self.b.close_mode == MODE_GATED { 30 * MIN } else { 0 }),
+            available_floor: U128(0),
+            grants: grants.iter().map(|(a, c)| (id(a), *c)).collect(),
+            terms_hash: "11".repeat(32),
+        }
     }
+
+    /// Proposes (W1 only if the buyer has no record yet); returns the deal number.
+    fn propose(&mut self, seller: &str, t: DealTermsInput) -> u64 {
+        let had = self.b.party.contains_key(&t.buyer);
+        let (seq, d) = self.measured(seller, NEAR, |b| b.propose_sale(t));
+        if had {
+            assert_eq!(d, 0, "proposing to a buyer with a record allocates nothing");
+        } else {
+            assert!(d > 0, "a new buyer record is measured growth");
+        }
+        self.invariants();
+        seq.0
+    }
+
+    fn deal(&self) -> DealView {
+        self.b.get_control().live_deal.expect("a live deal")
+    }
+
+    /// Exactly a storage-neutral call: every deal transition rewrites pre-allocated state.
+    fn neutral<R>(&mut self, who: &str, yocto: u128, f: impl FnOnce(&mut Business) -> R) -> R {
+        let (r, d) = self.measured(who, yocto, f);
+        assert_eq!(d, 0, "a deal transition must not change storage size");
+        self.invariants();
+        r
+    }
+
+    fn fund(&mut self, buyer: &str) -> u128 {
+        let d = self.deal();
+        self.ft(buyer, d.price.0, fund_msg(d.seq.0, d.version, d.price.0))
+    }
+
+    fn accept(&mut self, who: &str) -> String {
+        let d = self.deal();
+        self.neutral(who, 1, |b| b.accept_sale(d.seq, d.version, d.digest.clone()))
+    }
+
+    /// The close order the closer would issue now for the live deal.
+    fn order(&self) -> CloseOrder {
+        let c = self.b.get_control();
+        let d = c.live_deal.expect("a live deal");
+        CloseOrder {
+            deal_seq: d.seq,
+            version: d.version,
+            digest: d.digest,
+            expected_generation: d.expected_generation,
+            closing_control_seq: d.closing_control_seq,
+            manifest: c.service_manifest,
+            manifest_seq: c.manifest_seq,
+            issued_at_ms: U64(self.now),
+        }
+    }
+
+    /// A complete sale through the contract: propose, fund, both accept (and the closer closes
+    /// in Gated mode). Checks the result exactly.
+    fn sell(&mut self, seller: &str, buyer: &str, price: u128, grants: &[(&str, u8)]) {
+        let generation = self.b.generation;
+        let t = self.terms(buyer, price, grants);
+        self.propose(seller, t);
+        assert_eq!(self.fund(buyer), 0);
+        assert_eq!(self.accept(buyer), "accepted");
+        if self.b.close_mode == MODE_GATED {
+            assert_eq!(self.accept(seller), "closing");
+            let o = self.order();
+            self.neutral(CLOSER, 0, |b| b.close_sale(o));
+        } else {
+            assert_eq!(self.accept(seller), "closed");
+        }
+        let c = self.b.get_control();
+        assert_eq!((c.owner, c.generation, c.live_deal), (id(buyer), generation + 1, None));
+    }
+}
+
+fn fund_msg(seq: u64, version: u32, price: u128) -> String {
+    serde_json::json!({ "fund_deal": { "deal_seq": seq.to_string(), "version": version, "price": price.to_string() } })
+        .to_string()
 }
 
 /// A HoldAuth for any plan and key slot, signed by `k`.
@@ -429,7 +579,11 @@ fn all(r: &[String], s: &str, n: usize) {
 /// Scenario 1, the 100/20/80 path: a self-paid shell, 100 units bought with a key installed,
 /// two holds of 10 each fully used and closed.
 fn happy() -> (W, SigningKey) {
-    let mut w = W::new();
+    happy_in(W::new())
+}
+
+/// Scenario 1 in a given business (Direct or Gated).
+fn happy_in(mut w: W) -> (W, SigningKey) {
     let k = key(1);
     assert_eq!(w.shell(CARA, CARA), 1);
     assert_eq!(w.buy(CARA, 100, 1, Some((0, &k))), 0);
@@ -735,18 +889,20 @@ fn s05c_a_missing_callback_stays_pending_and_visible() {
 // ---------- scenario 6 ----------
 
 #[test]
-fn s06_ownership_change_mid_hold_injected() {
+fn s06_ownership_change_mid_hold_through_a_sale() {
     let (mut w, k) = happy();
     w.open(CARA, &k, 3, 10);
-    w.inject_owner(BUYER, 2, &[(METER2, METERING)]);
-    assert_eq!(w.b.get_control(), (id(BUYER), 2));
-    assert!(w.b.get_party(id(BUYER)).is_some(), "the successor gets a party record");
+    w.sell(FOUNDER, BUYER, 400 * P, &[(METER2, METERING)]);
+    assert_eq!(w.b.get_control().operators, vec![(id(METER2), METERING, 2)]);
+    assert!(w.b.get_party(id(BUYER)).is_some(), "the buyer's record was created at the proposal");
+    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().sale_proceeds_claim.0, 400 * P);
     let u = w.uses(CARA, &k, 3, 0..4);
     w.refuse(METER, 0, "E_NOT_OPERATOR", |b| b.settle_hold(id(CARA), 1, 3, u.clone(), false));
-    // A grant left over from generation 1 does not count in generation 2.
-    w.b.operators.push((id(METER), OperatorGrant { caps: METERING, generation: 1 }));
+    // Fault injected on purpose: a grant left over from generation 1 still doesn't count.
+    let spare = w.b.operators[7];
+    w.b.operators[7] = OperatorSlot { account: FixedAccount::of(&id(METER)), caps: METERING, generation: 1 };
     w.refuse(METER, 0, "E_NOT_OPERATOR", |b| b.settle_hold(id(CARA), 1, 3, u.clone(), false));
-    w.b.operators.pop();
+    w.b.operators[7] = spare;
     all(&w.call(METER2, 0, |b| b.settle_hold(id(CARA), 1, 3, u, true)), "charged", 4);
     let e = w.ent(CARA);
     assert_eq!((e.consumed.0, e.free.0), (24, 76));
@@ -769,20 +925,33 @@ fn s07_the_party_slot_schedule() {
     assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().pending_refs, 1);
     let available = w.t().available.0;
     assert_eq!(available, 10 * P);
-    w.inject_owner(BUYER, 2, &[]);
+    w.sell(FOUNDER, BUYER, 400 * P, &[]);
     w.refuse(FOUNDER, 1, "E_PENDING_REFS", |b| b.release_party_slot());
     assert!(!w.callback(slot, pid, false));
-    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().claim.0, 10 * P);
+    let r = w.b.get_party(id(FOUNDER)).unwrap();
+    assert_eq!((r.profit_claim.0, r.sale_proceeds_claim.0, r.escrow_return_claim.0), (10 * P, 400 * P, 0));
     assert_eq!(w.t().available.0, available, "the failed withdrawal is the founder's claim, not the buyer's profit");
     assert_eq!(w.t().withdrawable.0, 5 * P);
     w.refuse(FOUNDER, 1, "E_CLAIM", |b| b.release_party_slot());
-    w.refuse(STRANGER, 1, "E_NO_RECORD", |b| b.claim_party());
-    w.call(FOUNDER, 1, |b| drop(b.claim_party()));
+    w.refuse(STRANGER, 1, "E_NO_RECORD", |b| b.claim_party(CLAIM_PROFIT));
+    w.refuse(FOUNDER, 1, "E_FUNDS", |b| b.claim_party(CLAIM_ESCROW_RETURN));
+    w.refuse(FOUNDER, 1, "E_ARGS", |b| b.claim_party(3));
+    w.call(FOUNDER, 1, |b| drop(b.claim_party(CLAIM_PROFIT)));
     let (slot, pid) = w.last_payout();
     assert_eq!(w.t().available.0, available);
     assert!(w.callback(slot, pid, true));
     assert_eq!(w.t().available.0, available);
-    assert_eq!(w.t().held.0, 90 * P);
+    // The proceeds are still owed, so the record stays until they are collected too.
+    w.refuse(FOUNDER, 1, "E_CLAIM", |b| b.release_party_slot());
+    w.call(FOUNDER, 1, |b| drop(b.claim_party(CLAIM_SALE_PROCEEDS)));
+    let (slot, pid) = w.last_payout();
+    assert!(w.callback(slot, pid, true));
+    assert_eq!(w.t().held.0, 90 * P, "100P customer money less the 10P withdrawal; escrow in and out");
+    let m = rec(&w, 202611);
+    assert_eq!(
+        (n(&m.owner_withdrawals), n(&m.sale_proceeds_paid), n(&m.escrow_in), n(&m.escrow_returned)),
+        (10 * P, 400 * P, 400 * P, 0)
+    );
     w.call(FOUNDER, 1, |b| b.release_party_slot());
     assert!(w.b.get_party(id(FOUNDER)).is_none());
     w.refuse(BUYER, 1, "E_OWNER", |b| b.release_party_slot());
@@ -980,15 +1149,17 @@ fn s13_bounded_payouts() {
     w.refuse(FOUNDER, 1, "E_PARTY_CAP: 2 of your", |b| b.withdraw_profit(U128(1)));
     // A failed withdrawal becomes a claim; claiming it counts toward the same cap.
     assert!(!w.callback(fs, fp1, false));
-    w.call(FOUNDER, 1, |b| drop(b.claim_party()));
+    w.call(FOUNDER, 1, |b| drop(b.claim_party(CLAIM_PROFIT)));
     w.refuse(FOUNDER, 1, "E_PARTY_CAP: 2 of your", |b| b.withdraw_profit(U128(1)));
-    // Injected owner changes: each owner gets its own 2, and 4 across all parties.
-    w.inject_owner(BUYER, 2, &[]);
+    // Actual sales: each owner gets its own 2, and 4 across all parties.
+    w.sell(FOUNDER, BUYER, 50 * P, &[]);
     w.withdraw(BUYER, 1);
     w.withdraw(BUYER, 1);
     assert_eq!(party_slots(&w), 4);
-    w.inject_owner(STRANGER, 3, &[]);
+    w.sell(BUYER, STRANGER, 60 * P, &[]);
     w.refuse(STRANGER, 1, "E_PARTY_CAP: 4 owner payouts", |b| b.withdraw_profit(U128(1)));
+    // Collecting sale proceeds is a party payout too: the cap holds for it.
+    w.refuse(FOUNDER, 1, "E_PARTY_CAP", |b| b.claim_party(CLAIM_SALE_PROCEEDS));
     // Customers still have the other 12 slots: CARA's 2 plus five more customers' 2 each.
     let k = key(1);
     for c in [DEV, MORE[0], MORE[1], MORE[2], MORE[3]] {
@@ -1060,12 +1231,15 @@ fn s14_record_sizes_are_fixed() {
     // key + value + 40 bytes per record, plus the root).
     testing_env!(ctx(FOUNDER, 0, T0).build());
     let before = env::storage_usage();
-    let mut b = Business::new("studio".into(), id(FOUNDER), id(TOKEN), rules());
+    let mut b = Business::new("studio".into(), id(FOUNDER), id(TOKEN), rules(), None);
     b.slots.flush();
     b.periods.flush();
     b.party.flush();
+    b.deal.flush();
+    b.outcomes.flush();
     env::state_write(&b);
     let total = env::storage_usage() - before;
+    let root = borsh::to_vec(&b).unwrap().len();
     drop(b);
     let (w, _) = happy();
     let shell = Entitlement::shell(1, &id("a.near"));
@@ -1076,18 +1250,21 @@ fn s14_record_sizes_are_fixed() {
     full.storage_payer = FixedAccount::of(&id(&format!("{}.near", "x".repeat(59))));
     assert_eq!(borsh::to_vec(&full).unwrap().len(), ent);
     let slot = borsh::to_vec(&PayoutSlot::free()).unwrap().len();
-    let party = borsh::to_vec(&PartyRecord { claim: 0, pending_refs: 0, payer: FixedAccount::none(), deposit: 0 }).unwrap().len();
+    let party = borsh::to_vec(&PartyRecord::new(&id("a.near"), 0)).unwrap().len();
     let period = borsh::to_vec(&Period::default()).unwrap().len();
     let plan = borsh::to_vec(&w.b.get_plan(1).unwrap()).unwrap().len();
+    let deal = borsh::to_vec(&DealSlot::empty()).unwrap().len();
+    let outcome = borsh::to_vec(&DealOutcome::empty()).unwrap().len();
     println!(
-        "UNIT-VM BORSH SIZES (not on-chain measurements): Entitlement {ent} B, PayoutSlot {slot} B, PartyRecord {party} B, Period {period} B, Plan {plan} B; new() pre-allocates {total} B including the root"
+        "UNIT-VM BORSH SIZES (not on-chain measurements): Entitlement {ent} B, PayoutSlot {slot} B, PartyRecord {party} B, Period {period} B, Plan {plan} B, DealSlot {deal} B, DealOutcome {outcome} B, root {root} B; new() pre-allocates {total} B including the root"
     );
-    assert_eq!((ent, slot, party, period), (EXPECTED_SIZES.0, EXPECTED_SIZES.1, EXPECTED_SIZES.2, EXPECTED_SIZES.3));
+    assert_eq!((ent, slot, party, period, deal, outcome), EXPECTED_SIZES);
 }
 
-/// Entitlement, PayoutSlot, PartyRecord, Period (borsh bytes), pinned so a change is visible.
-/// 003e1: PayoutSlot +1 (`detached`), Period +1 (`saturated` flags; counters re-categorized).
-const EXPECTED_SIZES: (usize, usize, usize, usize) = (762, 112, 99, 85);
+/// Entitlement, PayoutSlot, PartyRecord, Period, DealSlot, DealOutcome (borsh bytes), pinned so a
+/// change is visible. 003e1: PayoutSlot +1 (`detached`), Period +1 (`saturated`). 003g: PartyRecord
+/// +32 (three claim categories), Period +48 (escrow in/returned, proceeds paid); deal records new.
+const EXPECTED_SIZES: (usize, usize, usize, usize, usize, usize) = (762, 112, 131, 133, 675, 227);
 
 // W1 methods charge the growth they measure, so an underfunded call panics after its write.
 // The runtime reverts the whole receipt; the unit VM does not model that, so these only check
@@ -1120,7 +1297,7 @@ fn administration_is_owner_only_and_operators_are_bounded() {
     w.refuse(FOUNDER, NEAR, "E_ARGS", |b| b.create_plan(PlanInput { hold_ttl_ms: U64(61 * MIN), ..plan_input(P) }));
     w.refuse(FOUNDER, NEAR, "E_ARGS", |b| b.create_plan(PlanInput { max_units_outstanding: 99, ..plan_input(P) }));
     w.refuse(FOUNDER, 0, "E_DEPOSIT", |b| b.appoint_operator(id(STRANGER), SUPPORT));
-    w.refuse(FOUNDER, 1, "E_STORAGE", |b| b.appoint_operator(id(STRANGER), SUPPORT));
+    // 003g: operator slots are pre-allocated, so even a new operator is a same-size rewrite.
     // A re-grant changes no storage but still needs an intentional deposit.
     w.refuse(FOUNDER, 0, "E_DEPOSIT", |b| b.appoint_operator(id(METER), METERING | SUPPORT));
     let (_, d) = w.measured(FOUNDER, 1, |b| b.appoint_operator(id(METER), METERING | SUPPORT));
@@ -1142,12 +1319,20 @@ fn administration_is_owner_only_and_operators_are_bounded() {
     let (_, d) = w.measured(FOUNDER, NEAR, |b| b.appoint_operator(id(STRANGER), METERING | SUPPORT));
     assert_eq!(d, 0);
     assert_eq!(w.call(STRANGER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
-    // At most 8 operators.
-    for i in 0..7 {
-        w.measured(FOUNDER, NEAR, |b| b.appoint_operator(id(&format!("op{i}.near")), METERING));
+    // At most 8 operators, each a same-size rewrite, including a 64-character account.
+    for i in 0..6 {
+        let (_, d) = w.measured(FOUNDER, NEAR, |b| b.appoint_operator(id(&format!("op{i}.near")), METERING));
+        assert_eq!(d, 0);
     }
-    assert_eq!(w.b.operators.len(), 8);
+    let (_, d) = w.measured(FOUNDER, 1, |b| b.appoint_operator(id(&long('o')), METERING));
+    assert_eq!(d, 0);
+    assert_eq!(w.b.get_control().operators.len(), 8);
     w.refuse(FOUNDER, NEAR, "E_LIMIT", |b| b.appoint_operator(id("op9.near"), METERING));
+    // Revoking frees a slot for another, still with no storage change.
+    let (_, d) = w.measured(FOUNDER, 1, |b| b.revoke_operator(id(&long('o'))));
+    assert_eq!(d, 0);
+    let (_, d) = w.measured(FOUNDER, 1, |b| b.appoint_operator(id("op9.near"), SUPPORT));
+    assert_eq!(d, 0);
     // Plans are immutable: the price a customer bought at is the price refunded.
     assert_eq!(w.b.get_plan(1).unwrap().unit_price.0, P);
     assert_eq!(w.b.get_plan(1).unwrap().created_generation, 1);
@@ -1171,7 +1356,7 @@ fn withdrawals_respect_the_reserve_and_never_touch_customer_money() {
     // The withdrawal fails: back to the founder's claim, not to available.
     assert!(!w.callback(ws, wp, false));
     assert_eq!(w.t().available.0, 5 * P);
-    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().claim.0, 15 * P);
+    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().profit_claim.0, 15 * P);
     // Using the open hold earns more; only that is newly withdrawable.
     let u = w.uses(CARA, &k, 3, 0..2);
     w.settle(CARA, 3, u, true);
@@ -1342,7 +1527,7 @@ fn random_sequences_keep_every_invariant() {
                     let amount = 1 + r.below(8) as u128 * P;
                     w.attempt(FOUNDER, 1, None, |b| b.withdraw_profit(U128(amount)))
                 }
-                10 => w.attempt(FOUNDER, 1, None, |b| b.claim_party()),
+                10 => w.attempt(FOUNDER, 1, None, |b| b.claim_party(CLAIM_PROFIT)),
                 _ => {
                     w.now += [MIN, 7 * MIN, 31 * MIN, DAY][r.below(4) as usize];
                     true
@@ -1531,7 +1716,7 @@ fn deadline_ceilings_are_checked_at_new_and_at_every_plan() {
     testing_env!(ctx(FOUNDER, 0, T0).build());
     let make = |ttl: u64, grace: u64| {
         let rules = Rules { max_hold_ttl_ms: U64(ttl), max_settle_grace_ms: U64(grace), ..rules() };
-        Business::new("studio".into(), id(FOUNDER), id(TOKEN), rules)
+        Business::new("studio".into(), id(FOUNDER), id(TOKEN), rules, None)
     };
     for (ttl, grace) in [(MIN - 1, 0), (MAX_HOLD_TTL_MS + 1, 0), (u64::MAX, 0), (MIN, MAX_SETTLE_GRACE_MS + 1), (MIN, u64::MAX), (0, 0)] {
         let msg = panic_message(|| make(ttl, grace));
@@ -1687,7 +1872,7 @@ fn payouts_keep_their_category_through_failures_claims_and_duplicates() {
     // An owner withdrawal fails and is paid through the owner's claim.
     let (s, p) = w.withdraw(FOUNDER, 5 * P);
     assert!(!w.callback(s, p, false));
-    w.call(FOUNDER, 1, |b| drop(b.claim_party()));
+    w.call(FOUNDER, 1, |b| drop(b.claim_party(CLAIM_PROFIT)));
     let (s, p) = w.last_payout();
     assert!(w.callback(s, p, true));
     let m = rec(&w, 202611);
@@ -1704,31 +1889,35 @@ fn payouts_keep_their_category_through_failures_claims_and_duplicates() {
 #[test]
 fn a_resent_stranded_payout_never_touches_a_recreated_record() {
     let (mut w, _) = happy();
-    let (s, p) = w.withdraw(FOUNDER, 5 * P);
-    // Corrupt on purpose: the founder's record vanishes while the payout is in flight.
+    w.sell(FOUNDER, BUYER, 40 * P, &[]);
+    w.call(FOUNDER, 1, |b| drop(b.claim_party(CLAIM_SALE_PROCEEDS)));
+    let (s, p) = w.last_payout();
+    // Corrupt on purpose: the founder's record vanishes while the proceeds are in flight.
     w.corrupt = true;
     w.b.party.remove(&id(FOUNDER));
     assert!(!w.callback(s, p, false));
     assert_eq!(w.b.get_pending()[0].state, "stranded");
-    // The founder becomes owner again (injected twice) and so has a fresh record.
-    w.inject_owner(BUYER, 2, &[]);
-    w.inject_owner(FOUNDER, 3, &[]);
-    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().pending_refs, 0);
+    // The founder buys the business back: the proposal creates a fresh record, paid by the buyer.
+    w.sell(BUYER, FOUNDER, 30 * P, &[]);
+    let r = w.b.get_party(id(FOUNDER)).unwrap();
+    assert_eq!((r.pending_refs, r.payer.clone()), (0, id(BUYER)));
     w.call(FOUNDER, 1, |b| drop(b.claim_stranded(s)));
     let (s2, p2) = w.last_payout();
     assert_eq!(s2, s);
-    // It fails again: still stranded, and the new record gains no claim.
+    // It fails again: still stranded, and the new record gains no claim of any kind.
     assert!(!w.callback(s2, p2, false));
     assert_eq!(w.b.get_pending()[0].state, "stranded");
-    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().claim.0, 0);
+    let r = w.b.get_party(id(FOUNDER)).unwrap();
+    assert_eq!((r.profit_claim.0, r.escrow_return_claim.0, r.sale_proceeds_claim.0), (0, 0, 0));
     w.call(FOUNDER, 1, |b| drop(b.claim_stranded(s)));
     let (s3, p3) = w.last_payout();
     assert!(w.callback(s3, p3, true));
     assert!(near_sdk::test_utils::get_logs().iter().all(|l| !l.contains("pending_refs_underflow")));
     let r = w.b.get_party(id(FOUNDER)).unwrap();
-    assert_eq!((r.pending_refs, r.claim.0), (0, 0), "the recreated record was never touched");
+    assert_eq!((r.pending_refs, r.sale_proceeds_claim.0), (0, 0), "the recreated record was never touched");
+    // Paid on the stranded retry, and still booked as sale proceeds, never as profit.
     let m = rec(&w, 202611);
-    assert_eq!((n(&m.owner_withdrawals), n(&m.paid_on_retry)), (5 * P, 5 * P));
+    assert_eq!((n(&m.sale_proceeds_paid), n(&m.paid_on_retry), n(&m.owner_withdrawals)), (40 * P, 40 * P, 0));
     assert_eq!(w.t().pending_total.0, 0);
 }
 
@@ -1775,7 +1964,7 @@ fn random_sequences_across_prices_key_rotation_and_owners() {
         let mut seeds = 10u8;
         // (customer, plan, key slot, epoch) → the signing key installed there.
         let mut keys: std::collections::HashMap<(usize, u32, u8, u32), SigningKey> = Default::default();
-        let (mut owner, mut generation) = (FOUNDER, 1u32);
+        let mut owner = FOUNDER;
         for (ci, c) in customers.iter().enumerate() {
             for (plan, price) in plans {
                 w.measured(c, NEAR, |b| b.sponsor_shell(id(c), plan));
@@ -1848,14 +2037,22 @@ fn random_sequences_across_prices_key_rotation_and_owners() {
                 }
                 10 => {
                     // Usually a party that has a claim; sometimes any party (mostly refused).
-                    let owed: Vec<&str> =
-                        parties.iter().copied().filter(|p| w.b.get_party(id(p)).is_some_and(|v| v.claim.0 > 0)).collect();
-                    let who = if !owed.is_empty() && r.below(4) != 0 {
+                    let owes = |v: &PartyView| [v.profit_claim.0, v.escrow_return_claim.0, v.sale_proceeds_claim.0];
+                    let owed: Vec<(&str, u8)> = parties
+                        .iter()
+                        .copied()
+                        .filter_map(|p| {
+                            let v = w.b.get_party(id(p))?;
+                            let c = owes(&v).iter().position(|x| *x > 0)?;
+                            Some((p, c as u8))
+                        })
+                        .collect();
+                    let (who, cat) = if !owed.is_empty() && r.below(4) != 0 {
                         owed[r.below(owed.len() as u64) as usize]
                     } else {
-                        parties[r.below(3) as usize]
+                        (parties[r.below(3) as usize], r.below(3) as u8)
                     };
-                    w.attempt(who, 1, None, |b| b.claim_party())
+                    w.attempt(who, 1, None, |b| b.claim_party(cat))
                 }
                 11 => {
                     // Key rotation (rarer): revoke the active key, install a fresh one elsewhere.
@@ -1876,22 +2073,21 @@ fn random_sequences_across_prices_key_rotation_and_owners() {
                     revoked && installed
                 }
                 12 => {
-                    // Injected owner change (rarer); the operator is re-granted only sometimes.
+                    // An actual sale (rarer); the operator is a successor grant only sometimes.
                     if r.below(5) != 0 {
                         continue;
                     }
                     let at = parties.iter().position(|p| *p == owner).unwrap();
                     let next = parties[(at + 1 + r.below(2) as usize) % 3];
-                    generation += 1;
                     let grants: &[(&str, u8)] = if r.below(3) == 0 { &[] } else { &[(METER, METERING)] };
-                    w.inject_owner(next, generation, grants);
+                    w.sell(owner, next, (1 + r.below(50) as u128) * P, grants);
                     owner = next;
                     true
                 }
                 13 => {
-                    // The current owner (re-)appoints the operator: a W1 call, charged as measured.
-                    let (_, d) = w.measured(owner, NEAR, |b| b.appoint_operator(id(METER), METERING));
-                    assert!(d >= 0);
+                    // The current owner (re-)appoints the operator: a same-size rewrite (003g).
+                    let (_, d) = w.measured(owner, 1, |b| b.appoint_operator(id(METER), METERING));
+                    assert_eq!(d, 0);
                     w.invariants();
                     true
                 }
@@ -1909,5 +2105,1007 @@ fn random_sequences_across_prices_key_rotation_and_owners() {
     println!("random (prices, keys, owners) successes by operation: {totals:?}");
     for (op, n) in totals.iter().enumerate() {
         assert!(*n >= 3, "operation {op} succeeded only {n} times: {totals:?}");
+    }
+}
+
+// =====================================================================================
+// 003g: the sale, through the contract's own methods (BUSINESS_V3_SALE.md). "Both" tests run
+// in a Direct business and in a Gated one, where CLOSER acts by hand: that models who may
+// close, not any runtime closer.
+// =====================================================================================
+
+const MODES: [fn() -> W; 2] = [W::new, W::gated];
+
+fn is_gated(w: &W) -> bool {
+    w.b.close_mode == MODE_GATED
+}
+
+/// Propose and fund, with the buyer's acceptance; the seller's acceptance is left to the test.
+fn funded_and_buyer_accepted(w: &mut W, t: DealTermsInput) {
+    let buyer = t.buyer.to_string();
+    w.propose(FOUNDER, t);
+    assert_eq!(w.fund(&buyer), 0);
+    assert_eq!(w.accept(&buyer), "accepted");
+}
+
+/// The seller's acceptance completes the sale (and the closer closes in Gated mode).
+fn seller_completes(w: &mut W) {
+    if is_gated(w) {
+        assert_eq!(w.accept(FOUNDER), "closing");
+        let o = w.order();
+        w.neutral(CLOSER, 0, |b| b.close_sale(o));
+    } else {
+        assert_eq!(w.accept(FOUNDER), "closed");
+    }
+}
+
+#[test]
+fn g01_the_100_20_80_journey_across_an_actual_close() {
+    for make in MODES {
+        let (mut w, k) = happy_in(make());
+        assert_100_20_80(&w);
+        let mut t = w.terms(BUYER, 400 * P, &[(METER2, METERING)]);
+        t.available_floor = U128(10 * P);
+        funded_and_buyer_accepted(&mut w, t);
+        let held_before = w.t().held.0;
+        seller_completes(&mut w);
+        // At the close: customers unchanged, control moved, the price is the seller's claim.
+        assert_100_20_80_customer(&w);
+        let c = w.b.get_control();
+        assert_eq!((c.owner, c.generation, c.operators), (id(BUYER), 2, vec![(id(METER2), METERING, 2)]));
+        let f = w.b.get_party(id(FOUNDER)).unwrap();
+        assert_eq!((f.sale_proceeds_claim.0, f.profit_claim.0, f.escrow_return_claim.0), (400 * P, 0, 0));
+        let t = w.t();
+        assert_eq!((t.escrow_total.0, t.held.0, t.available.0, t.claims_total.0), (0, held_before, 20 * P, 400 * P));
+        let o = &w.b.get_outcomes()[0];
+        assert_eq!((o.status.as_str(), o.generation_after, o.price.0), ("closed", 2, 400 * P));
+        // After: the successor operator serves the same customer with the customer's own key.
+        let (a, s) = w.std_auth(CARA, &k, 3, 10);
+        assert_eq!(w.call(METER2, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+        let u = w.uses(CARA, &k, 3, 0..4);
+        w.refuse(METER, 0, "E_NOT_OPERATOR", |b| b.settle_hold(id(CARA), 1, 3, u.clone(), true));
+        all(&w.call(METER2, 0, |b| b.settle_hold(id(CARA), 1, 3, u, true)), "charged", 4);
+        let e = w.ent(CARA);
+        assert_eq!((e.consumed.0, e.free.0, e.purchased.0), (24, 76, 100));
+        // The former owner has no owner authority left.
+        w.refuse(FOUNDER, 1, "E_NOT_OWNER", |b| b.withdraw_profit(U128(1)));
+        w.refuse(FOUNDER, NEAR, "E_NOT_OWNER", |b| b.create_plan(plan_input(P)));
+        w.refuse(FOUNDER, 1, "E_NOT_OWNER", |b| b.set_manifest("22".repeat(32), U64(0)));
+        w.refuse(FOUNDER, 1, "E_NOT_OWNER", |b| b.appoint_operator(id(METER), METERING));
+        let back = w.terms(FOUNDER, P, &[(METER, METERING)]);
+        w.refuse(FOUNDER, NEAR, "E_NOT_OWNER", |b| b.propose_sale(back));
+    }
+}
+
+fn assert_100_20_80_customer(w: &W) {
+    let e = w.ent(CARA);
+    assert_eq!((e.free.0, e.consumed.0, e.purchased.0, e.units_retired_to_refund.0), (80, 20, 100, 0));
+    assert_eq!((e.last_hold_seq, e.last_hold_used, e.last_hold_charged, e.key_epochs[0]), (2, 0x3FF, 10, 1));
+}
+
+#[test]
+fn g02_a_hold_open_across_the_close() {
+    for make in MODES {
+        // With a successor METERING grant: it settles the old hold; the old operator can't.
+        let (mut w, k) = happy_in(make());
+        w.open(CARA, &k, 3, 10);
+        w.sell(FOUNDER, BUYER, 100 * P, &[(METER2, METERING)]);
+        let u = w.uses(CARA, &k, 3, 0..2);
+        w.refuse(METER, 0, "E_NOT_OPERATOR", |b| b.settle_hold(id(CARA), 1, 3, u.clone(), true));
+        all(&w.call(METER2, 0, |b| b.settle_hold(id(CARA), 1, 3, u, true)), "charged", 2);
+        assert_eq!(w.ent(CARA).free.0, 78);
+        // With no successor METERING grant (possible in Direct mode only: a Gated close refuses
+        // terms without one), after its deadline anyone releases it; the units come back.
+        let (mut w, k) = happy_in(make());
+        if is_gated(&w) {
+            let t = w.terms(BUYER, 100 * P, &[]);
+            w.refuse(FOUNDER, NEAR, "successor METERING", |b| b.propose_sale(t));
+            continue;
+        }
+        w.open(CARA, &k, 3, 10);
+        let settle_until = w.ent(CARA).settle_until_ms.0;
+        w.sell(FOUNDER, BUYER, 100 * P, &[]);
+        w.refuse(STRANGER, 0, "E_NOT_OPERATOR", |b| b.release_hold(id(CARA), 1, 3));
+        w.now = settle_until + 1;
+        w.call(STRANGER, 0, |b| b.release_hold(id(CARA), 1, 3));
+        assert_eq!(w.ent(CARA).free.0, 80);
+    }
+}
+
+#[test]
+fn g03_g04_seller_payouts_failing_or_unanswered_across_the_close() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        let (fs, fp1) = w.withdraw(FOUNDER, 3 * P);
+        let (_ms, _mp) = w.withdraw(FOUNDER, 2 * P);
+        w.sell(FOUNDER, BUYER, 100 * P, &[(METER2, METERING)]);
+        let available = w.t().available.0;
+        assert_eq!(available, 15 * P);
+        // The failed one becomes the seller's profit claim; the buyer's money is unaffected.
+        assert!(!w.callback(fs, fp1, false));
+        let f = w.b.get_party(id(FOUNDER)).unwrap();
+        assert_eq!((f.profit_claim.0, f.sale_proceeds_claim.0), (3 * P, 100 * P));
+        assert_eq!(w.t().available.0, available);
+        // The other never answers: it stays pending and listed; nothing guesses.
+        w.now += 40 * DAY;
+        w.invariants();
+        let p = w.b.get_pending();
+        assert_eq!((p.len(), p[0].state.as_str(), p[0].amount.0, p[0].kind.as_str()), (1, "in_flight", 2 * P, "profit"));
+        assert_eq!(w.t().withdrawable.0, 10 * P, "the buyer's withdrawable ignores the seller's payouts");
+        w.refuse(FOUNDER, 1, "E_PENDING_REFS", |b| b.release_party_slot());
+    }
+}
+
+#[test]
+fn g05_unfunding_refunding_and_refunding_twice() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        funded_and_buyer_accepted(&mut w, t);
+        let seq = w.deal().seq;
+        // A second funding while funded comes back whole.
+        let d = w.deal();
+        w.returned(BUYER, 100 * P, fund_msg(d.seq.0, d.version, 100 * P));
+        // The buyer takes it back: an escrow-return claim; their acceptance is cleared.
+        w.refuse(STRANGER, 1, "E_NOT_BUYER", |b| b.unfund_deal(seq));
+        w.neutral(BUYER, 1, |b| b.unfund_deal(seq));
+        let d = w.deal();
+        assert_eq!((d.state.as_str(), d.buyer_accepted, d.escrow.0), ("proposed", false, 0));
+        assert_eq!(w.b.get_party(id(BUYER)).unwrap().escrow_return_claim.0, 100 * P);
+        w.refuse(BUYER, 1, "E_FUNDS", |b| b.unfund_deal(seq));
+        w.refuse(BUYER, 1, "E_UNFUNDED", |b| b.accept_sale(d.seq, d.version, d.digest.clone()));
+        // Collected: booked as escrow returned, never as profit or a customer refund.
+        w.call(BUYER, 1, |b| drop(b.claim_party(CLAIM_ESCROW_RETURN)));
+        let (s, p) = w.last_payout();
+        assert!(w.callback(s, p, true));
+        let m = rec(&w, 202611);
+        assert_eq!(
+            (n(&m.escrow_in), n(&m.escrow_returned), n(&m.owner_withdrawals), n(&m.customer_returns), n(&m.purchases_in)),
+            (100 * P, 100 * P, 0, 0, 100 * P)
+        );
+        // Funded again, accepted, and (Gated) closing: escrow stays put.
+        assert_eq!(w.fund(BUYER), 0);
+        assert_eq!(w.accept(BUYER), "accepted");
+        if is_gated(&w) {
+            assert_eq!(w.accept(FOUNDER), "closing");
+            w.refuse(BUYER, 1, "E_CLOSING", |b| b.unfund_deal(seq));
+            w.refuse(BUYER, 1, "E_CLOSING", |b| b.cancel_sale(seq));
+            w.refuse(FOUNDER, 1, "E_CLOSING", |b| b.cancel_sale(seq));
+            let o = w.order();
+            w.neutral(CLOSER, 0, |b| b.close_sale(o));
+        } else {
+            assert_eq!(w.accept(FOUNDER), "closed");
+        }
+        assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().sale_proceeds_claim.0, 100 * P);
+    }
+}
+
+#[test]
+fn g06_funding_that_isnt_exactly_right_comes_back_whole() {
+    let (mut w, _) = happy();
+    // No live deal at all.
+    w.returned(BUYER, P, fund_msg(1, 1, P));
+    let t = w.terms(BUYER, 100 * P, &[]);
+    w.propose(FOUNDER, t);
+    let d = w.deal();
+    let (seq, v) = (d.seq.0, d.version);
+    w.returned(BUYER, 100 * P - 1, fund_msg(seq, v, 100 * P)); // amount below the price
+    w.returned(BUYER, 100 * P, fund_msg(seq, v, 100 * P + 1)); // stated price wrong
+    w.returned(BUYER, 100 * P, fund_msg(seq, v + 1, 100 * P)); // wrong version
+    w.returned(BUYER, 100 * P, fund_msg(seq + 1, v, 100 * P)); // wrong deal
+    w.returned(STRANGER, 100 * P, fund_msg(seq, v, 100 * P)); // not the buyer
+    w.returned(FOUNDER, 100 * P, fund_msg(seq, v, 100 * P)); // the seller
+    w.returned(BUYER, 100 * P, r#"{"fund_deal":{"deal_seq":"1"}}"#.into()); // malformed
+    w.now = d.expires_at_ms.0; // at expiry: too late
+    w.returned(BUYER, 100 * P, fund_msg(seq, v, 100 * P));
+    assert_eq!(w.t().escrow_total.0, 0);
+}
+
+#[test]
+fn g07_a_revision_invalidates_acceptances_and_returns_mismatched_escrow() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        funded_and_buyer_accepted(&mut w, t);
+        let v1 = w.deal();
+        // Same price, new document: version 2, acceptances cleared, escrow kept.
+        let mut t2 = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        t2.terms_hash = "22".repeat(32);
+        let seq = v1.seq;
+        w.neutral(FOUNDER, 1, |b| b.revise_sale(seq, t2));
+        let v2 = w.deal();
+        assert_eq!((v2.version, v2.buyer_accepted, v2.seller_accepted, v2.escrow.0), (2, false, false, 100 * P));
+        assert_ne!(v2.digest, v1.digest);
+        // The old acceptance can't be replayed, nor the new version with the old digest.
+        w.refuse(BUYER, 1, "E_VERSION", |b| b.accept_sale(seq, 1, v1.digest.clone()));
+        w.refuse(BUYER, 1, "E_TERMS", |b| b.accept_sale(seq, 2, v1.digest.clone()));
+        w.refuse(FOUNDER, 1, "E_TERMS", |b| b.accept_sale(seq, 2, "00".repeat(32)));
+        // The buyer can't change while funded.
+        let t3 = w.terms(STRANGER, 100 * P, &[(METER2, METERING)]);
+        w.refuse(FOUNDER, NEAR, "E_FUNDED_BUYER", |b| b.revise_sale(seq, t3));
+        // A new price returns the escrow at once, to the buyer, as an escrow-return claim.
+        let t4 = w.terms(BUYER, 120 * P, &[(METER2, METERING)]);
+        w.neutral(FOUNDER, 1, |b| b.revise_sale(seq, t4));
+        let v3 = w.deal();
+        assert_eq!((v3.version, v3.escrow.0, v3.price.0), (3, 0, 120 * P));
+        assert_eq!(w.b.get_party(id(BUYER)).unwrap().escrow_return_claim.0, 100 * P);
+        assert_eq!(w.t().escrow_total.0, 0);
+        // Re-funded at the new price; the sale completes; both kinds of claim stay apart.
+        assert_eq!(w.fund(BUYER), 0);
+        assert_eq!(w.accept(BUYER), "accepted");
+        seller_completes(&mut w);
+        let b = w.b.get_party(id(BUYER)).unwrap();
+        let f = w.b.get_party(id(FOUNDER)).unwrap();
+        assert_eq!((b.escrow_return_claim.0, f.sale_proceeds_claim.0), (100 * P, 120 * P));
+        w.refuse(STRANGER, 1, "E_NOT_OWNER", |b| b.revise_sale(seq, w_terms_stub()));
+    }
+}
+
+#[test]
+fn g08_only_the_closer_closes_and_only_with_the_exact_order() {
+    let (mut w, _) = happy_in(W::gated());
+    let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+    funded_and_buyer_accepted(&mut w, t);
+    assert_eq!(w.accept(FOUNDER), "closing");
+    let started = w.now;
+    let good = w.order();
+    let with = |f: &dyn Fn(&mut CloseOrder)| {
+        let mut o = good.clone();
+        f(&mut o);
+        o
+    };
+    w.refuse(STRANGER, 0, "E_NOT_CLOSER", |b| b.close_sale(good.clone()));
+    w.refuse(FOUNDER, 0, "E_NOT_CLOSER", |b| b.close_sale(good.clone()));
+    w.refuse(CLOSER, 0, "E_NO_DEAL", |b| b.close_sale(with(&|o| o.deal_seq = U64(9))));
+    w.refuse(CLOSER, 0, "E_VERSION", |b| b.close_sale(with(&|o| o.version = 2)));
+    w.refuse(CLOSER, 0, "E_GENERATION", |b| b.close_sale(with(&|o| o.expected_generation = 2)));
+    w.refuse(CLOSER, 0, "E_CLOSE_SEQ", |b| b.close_sale(with(&|o| o.closing_control_seq = U64(o.closing_control_seq.0 - 1))));
+    w.refuse(CLOSER, 0, "E_TERMS", |b| b.close_sale(with(&|o| o.digest = "00".repeat(32))));
+    w.refuse(CLOSER, 0, "E_MANIFEST", |b| b.close_sale(with(&|o| o.manifest = "33".repeat(32))));
+    w.refuse(CLOSER, 0, "E_MANIFEST", |b| b.close_sale(with(&|o| o.manifest_seq = U64(1))));
+    w.refuse(CLOSER, 0, "E_ISSUED_FUTURE", |b| b.close_sale(with(&|o| o.issued_at_ms = U64(started + 1))));
+    w.now = started + MIN;
+    w.refuse(CLOSER, 0, "E_ISSUED_BEFORE", |b| b.close_sale(with(&|o| o.issued_at_ms = U64(started - 1))));
+    w.now = started + 25 * MIN;
+    w.refuse(CLOSER, 0, "E_ISSUE_AGE", |b| b.close_sale(with(&|o| o.issued_at_ms = U64(started + 5 * MIN - 1))));
+    // Exactly at the age limit is fine; the close lands.
+    let fine = with(&|o| o.issued_at_ms = U64(started + 5 * MIN));
+    w.neutral(CLOSER, 0, |b| b.close_sale(fine));
+    assert_eq!(w.b.get_control().owner, id(BUYER));
+    // Replayed: nothing left to close.
+    w.refuse(CLOSER, 0, "E_NO_DEAL", |b| b.close_sale(good.clone()));
+    // A Direct business has no closer at all.
+    let (mut d, _) = happy();
+    let mut o = good.clone();
+    o.deal_seq = U64(1);
+    d.refuse(CLOSER, 0, "E_MODE", |b| b.close_sale(o));
+}
+
+#[test]
+fn g08b_the_close_deadline_is_exact() {
+    let (mut w, _) = happy_in(W::gated());
+    let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+    funded_and_buyer_accepted(&mut w, t);
+    assert_eq!(w.accept(FOUNDER), "closing");
+    let d = w.deal();
+    assert_eq!(d.deadline_ms.0, w.now + 30 * MIN);
+    w.now = d.deadline_ms.0;
+    let o = w.order();
+    w.refuse(CLOSER, 0, "E_DEADLINE", |b| b.close_sale(o));
+    w.now = d.deadline_ms.0 - 1;
+    let o = w.order();
+    w.neutral(CLOSER, 0, |b| b.close_sale(o));
+}
+
+#[test]
+fn g09_an_unclosed_gated_sale_is_aborted_and_the_escrow_goes_back_to_the_buyer() {
+    let (mut w, _) = happy_in(W::gated());
+    let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+    funded_and_buyer_accepted(&mut w, t);
+    assert_eq!(w.accept(FOUNDER), "closing");
+    let d = w.deal();
+    w.refuse(STRANGER, 0, "E_NOT_EXPIRED", |b| b.abort_close(d.seq));
+    w.refuse(STRANGER, 0, "E_CLOSING", |b| b.expire_sale(d.seq));
+    w.now = d.deadline_ms.0;
+    let late = w.order();
+    w.neutral(STRANGER, 0, |b| b.abort_close(d.seq));
+    let o = &w.b.get_outcomes()[0];
+    assert_eq!((o.status.as_str(), o.escrow_returned.0, o.generation_after), ("aborted", 100 * P, 1));
+    assert_eq!(w.b.get_party(id(BUYER)).unwrap().escrow_return_claim.0, 100 * P);
+    assert_eq!(w.b.get_control().owner, id(FOUNDER));
+    w.refuse(CLOSER, 0, "E_NO_DEAL", |b| b.close_sale(late));
+    // The seller's administration is open again.
+    w.measured(FOUNDER, NEAR, |b| b.create_plan(plan_input(2 * P)));
+}
+
+#[test]
+fn g10_away_and_back_through_two_actual_sales() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        let first = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        funded_and_buyer_accepted(&mut w, first);
+        let deal1 = w.deal();
+        seller_completes(&mut w);
+        // The buyer sells it back to the founder.
+        let t = w.terms(FOUNDER, 90 * P, &[(METER, METERING)]);
+        w.propose(BUYER, t);
+        assert_eq!(w.fund(FOUNDER), 0);
+        assert_eq!(w.accept(FOUNDER), "accepted");
+        if is_gated(&w) {
+            assert_eq!(w.accept(BUYER), "closing");
+            let o = w.order();
+            w.neutral(CLOSER, 0, |b| b.close_sale(o));
+        } else {
+            assert_eq!(w.accept(BUYER), "closed");
+        }
+        let c = w.b.get_control();
+        assert_eq!((c.owner, c.generation, c.operators), (id(FOUNDER), 3, vec![(id(METER), METERING, 3)]));
+        // Deal 1's acceptance can't be replayed; METER2 (generation 2) no longer meters.
+        w.refuse(BUYER, 1, "E_NO_DEAL", |b| b.accept_sale(deal1.seq, deal1.version, deal1.digest.clone()));
+        let k = key(1);
+        let (a, s) = w.std_auth(CARA, &k, 3, 1);
+        w.refuse(METER2, 0, "E_NOT_OPERATOR", |b| b.open_hold(id(CARA), 1, a.clone(), s.clone()));
+        assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+        // Both outcomes recorded; each claim stays with its own beneficiary.
+        let out = w.b.get_outcomes();
+        assert_eq!(out.iter().map(|o| (o.seq.0, o.generation_after)).collect::<Vec<_>>(), vec![(2, 3), (1, 2)]);
+        assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().sale_proceeds_claim.0, 100 * P);
+        assert_eq!(w.b.get_party(id(BUYER)).unwrap().sale_proceeds_claim.0, 90 * P);
+    }
+}
+
+#[test]
+fn g11_customers_carry_on_during_a_deal_and_never_lower_available() {
+    for make in MODES {
+        let (mut w, k) = happy_in(make());
+        let mut t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        t.available_floor = U128(20 * P);
+        w.propose(FOUNDER, t);
+        assert_eq!(w.accept(FOUNDER), "accepted");
+        let digest = w.deal().digest;
+        let control = w.b.control_seq;
+        let mut available = w.t().available.0;
+        let mut seen = |w: &W| {
+            let a = w.t().available.0;
+            assert!(a >= available, "available fell from {available} to {a}");
+            available = a;
+        };
+        assert_eq!(w.buy(CARA, 10, 2, None), 0);
+        seen(&w);
+        let (s, p) = w.refund(CARA, 10);
+        assert!(w.callback(s, p, true));
+        seen(&w);
+        w.open(CARA, &k, 3, 10);
+        let u = w.uses(CARA, &k, 3, 0..3);
+        w.settle(CARA, 3, u, false);
+        seen(&w);
+        w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 3));
+        seen(&w);
+        // A customer re-registers mid-deal (all refunded first): the deal is unaffected.
+        let free = w.ent(CARA).free.0;
+        let (s, p) = w.refund(CARA, free);
+        assert!(w.callback(s, p, true));
+        w.call(CARA, 1, |b| b.unregister(id(CARA), 1));
+        w.shell(CARA, CARA);
+        assert_eq!(w.buy(CARA, 5, 1, Some((0, &k))), 0);
+        seen(&w);
+        assert_eq!(w.b.control_seq, control, "customer activity never changes control");
+        assert_eq!(w.deal().digest, digest, "customers aren't part of the terms");
+        assert_eq!(w.fund(BUYER), 0);
+        if is_gated(&w) {
+            assert_eq!(w.accept(BUYER), "closing");
+            let o = w.order();
+            w.neutral(CLOSER, 0, |b| b.close_sale(o));
+        } else {
+            assert_eq!(w.accept(BUYER), "closed");
+        }
+        assert_eq!(w.b.get_control().owner, id(BUYER));
+    }
+}
+
+#[test]
+fn g12_g13_the_floor_binds_the_seller_from_their_acceptance() {
+    for make in MODES {
+        // Draining first: neither party can accept below the floor.
+        let (mut w, _) = happy_in(make());
+        let mut t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        t.available_floor = U128(18 * P);
+        w.propose(FOUNDER, t.clone());
+        w.withdraw(FOUNDER, 3 * P); // only min_reserve applies before the seller accepts
+        let d = w.deal();
+        w.refuse(FOUNDER, 1, "E_FLOOR", |b| b.accept_sale(d.seq, d.version, d.digest.clone()));
+        assert_eq!(w.fund(BUYER), 0);
+        w.refuse(BUYER, 1, "E_FLOOR", |b| b.accept_sale(d.seq, d.version, d.digest.clone()));
+
+        // Accepting first: withdrawals keep available at the floor, exactly.
+        let (mut w, _) = happy_in(make());
+        t.available_floor = U128(12 * P);
+        t.expires_at_ms = U64(w.now + DAY);
+        w.propose(FOUNDER, t.clone());
+        assert_eq!(w.accept(FOUNDER), "accepted");
+        w.refuse(FOUNDER, 1, "E_FLOOR", |b| b.withdraw_profit(U128(8 * P + 1)));
+        w.withdraw(FOUNDER, 8 * P);
+        assert_eq!(w.t().available.0, 12 * P);
+        w.refuse(FOUNDER, 1, "E_FLOOR", |b| b.withdraw_profit(U128(1)));
+        assert_eq!(w.fund(BUYER), 0);
+        if is_gated(&w) {
+            assert_eq!(w.accept(BUYER), "closing");
+            w.refuse(FOUNDER, 1, "E_CLOSING", |b| b.withdraw_profit(U128(1)));
+        }
+
+        // The buyer accepting first commits the seller to nothing: only the reserve applies,
+        // and the floor is checked again at the seller's acceptance.
+        let (mut w, _) = happy_in(make());
+        t.available_floor = U128(18 * P);
+        t.expires_at_ms = U64(w.now + DAY);
+        funded_and_buyer_accepted(&mut w, t.clone());
+        w.withdraw(FOUNDER, 15 * P);
+        let d = w.deal();
+        w.refuse(FOUNDER, 1, "E_FLOOR", |b| b.accept_sale(d.seq, d.version, d.digest.clone()));
+        assert_eq!(w.b.get_control().owner, id(FOUNDER));
+    }
+}
+
+#[test]
+fn g14_g15_no_administration_while_live_and_the_manifest_is_bound() {
+    let (mut w, _) = happy_in(W::gated());
+    // The manifest pointer: owner only, stale sequence refused.
+    w.refuse(STRANGER, 1, "E_NOT_OWNER", |b| b.set_manifest("aa".repeat(32), U64(0)));
+    w.refuse(FOUNDER, 1, "E_MANIFEST_SEQ", |b| b.set_manifest("aa".repeat(32), U64(1)));
+    w.refuse(FOUNDER, 1, "E_ARGS", |b| b.set_manifest("zz".into(), U64(0)));
+    w.neutral(FOUNDER, 1, |b| b.set_manifest("aa".repeat(32), U64(0)));
+    let c = w.b.get_control();
+    assert_eq!((c.service_manifest, c.manifest_seq.0), ("aa".repeat(32), 1));
+    let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+    w.propose(FOUNDER, t);
+    let digest = w.deal().digest;
+    // While live: no plans, operators, manifest changes or second deal.
+    w.refuse(FOUNDER, NEAR, "E_DEAL_PENDING", |b| b.create_plan(plan_input(2 * P)));
+    w.refuse(FOUNDER, 1, "E_DEAL_PENDING", |b| b.appoint_operator(id(METER2), METERING));
+    w.refuse(FOUNDER, 1, "E_DEAL_PENDING", |b| b.revoke_operator(id(METER)));
+    w.refuse(FOUNDER, 1, "E_DEAL_PENDING", |b| b.set_manifest("bb".repeat(32), U64(1)));
+    let other = w.terms(STRANGER, P, &[(METER2, METERING)]);
+    w.refuse(FOUNDER, NEAR, "E_DEAL_PENDING", |b| b.propose_sale(other));
+    assert_eq!(w.deal().digest, digest);
+    // The digest binds the manifest: the same deal against another pointer is another digest.
+    let mut slot = *w.b.deal.get(&0).unwrap();
+    let mine = w.b.digest_of(&slot);
+    slot.manifest = [0xbb; 32];
+    assert_ne!(w.b.digest_of(&slot), mine);
+    // Fault injected on purpose: the pointer changes behind the deal; the closer can't close.
+    assert_eq!(w.fund(BUYER), 0);
+    assert_eq!(w.accept(BUYER), "accepted");
+    assert_eq!(w.accept(FOUNDER), "closing");
+    let o = w.order();
+    w.b.service_manifest = [0xbb; 32];
+    w.refuse(CLOSER, 0, "E_MANIFEST", |b| b.close_sale(o.clone()));
+    w.b.service_manifest = [0xaa; 32];
+    w.neutral(CLOSER, 0, |b| b.close_sale(o));
+}
+
+#[test]
+fn g17_storage_only_grows_for_a_missing_buyer_record() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        // A new buyer: measured growth, charged to the proposer, recorded as the payer.
+        let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        let (_, grew) = w.measured(FOUNDER, NEAR, |b| b.propose_sale(t));
+        assert!(grew > 0);
+        let r = w.b.get_party(id(BUYER)).unwrap();
+        assert_eq!((r.payer.clone(), r.deposit.0), (id(FOUNDER), grew as u128 * env::storage_byte_cost().as_yoctonear()));
+        assert!(r.pinned);
+        // Every transition after that is a same-size rewrite, including the close.
+        let seq = w.deal().seq;
+        w.neutral(FOUNDER, 1, |b| b.cancel_sale(seq));
+        // A buyer that already has a record: only the intentional yoctoNEAR, no growth.
+        w.refuse(FOUNDER, 0, "E_DEPOSIT", |b| b.propose_sale(w_terms_stub()));
+        let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        w.neutral(FOUNDER, 1, |b| b.propose_sale(t));
+        assert_eq!(w.fund(BUYER), 0);
+        assert_eq!(w.accept(BUYER), "accepted");
+        seller_completes(&mut w);
+    }
+}
+
+#[test]
+#[should_panic(expected = "E_STORAGE")]
+fn g17b_an_underfunded_new_buyer_record_is_refused() {
+    let (mut w, _) = happy();
+    let t = w.terms(BUYER, 100 * P, &[]);
+    w.env(FOUNDER, 1);
+    w.b.propose_sale(t);
+}
+
+#[test]
+fn g17c_64_character_accounts_and_operator_replacement_change_no_storage() {
+    let closer = long('c');
+    let (mut w, _) = happy_in(W::with_closer(Some(&closer)));
+    let (buyer, seller2, op) = (long('b'), long('s'), long('m'));
+    // Founder → a 64-character buyer, with a 64-character operator grant.
+    let t = w.terms(&buyer, 100 * P, &[(op.as_str(), METERING), (METER2, SUPPORT)]);
+    w.propose(FOUNDER, t);
+    assert_eq!(w.fund(&buyer), 0);
+    assert_eq!(w.accept(&buyer), "accepted");
+    assert_eq!(w.accept(FOUNDER), "closing");
+    let o = w.order();
+    w.neutral(&closer, 0, |b| b.close_sale(o));
+    assert_eq!(w.b.get_control().operators, vec![(id(&op), METERING, 2), (id(METER2), SUPPORT, 2)]);
+    // That buyer → another 64-character account, replacing both operators with one short one.
+    let t = w.terms(&seller2, 50 * P, &[(METER, METERING)]);
+    w.propose(&buyer, t);
+    assert_eq!(w.fund(&seller2), 0);
+    assert_eq!(w.accept(&seller2), "accepted");
+    assert_eq!(w.accept(&buyer), "closing");
+    let o = w.order();
+    w.neutral(&closer, 0, |b| b.close_sale(o));
+    let c = w.b.get_control();
+    assert_eq!((c.owner, c.generation, c.operators), (id(&seller2), 3, vec![(id(METER), METERING, 3)]));
+    // The root record is the same size at every owner.
+    w.flush();
+    assert_eq!(borsh::to_vec(&w.b).unwrap().len(), 974);
+}
+
+#[test]
+fn g18_the_outcome_ring_wraps_in_place() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        let mut owner = FOUNDER.to_string();
+        for i in 0..9u64 {
+            let buyer = if owner == FOUNDER { BUYER } else { FOUNDER };
+            let t = w.terms(buyer, (10 + i as u128) * P, &[(METER, METERING)]);
+            w.propose(&owner, t);
+            let seq = w.deal().seq;
+            match i % 3 {
+                0 => w.neutral(&owner, 1, |b| b.cancel_sale(seq)),
+                1 => {
+                    w.now += DAY;
+                    w.neutral(STRANGER, 0, |b| b.expire_sale(seq));
+                }
+                _ => {
+                    assert_eq!(w.fund(buyer), 0);
+                    assert_eq!(w.accept(buyer), "accepted");
+                    if is_gated(&w) {
+                        assert_eq!(w.accept(&owner), "closing");
+                        let o = w.order();
+                        w.neutral(CLOSER, 0, |b| b.close_sale(o));
+                    } else {
+                        assert_eq!(w.accept(&owner), "closed");
+                    }
+                    owner = buyer.to_string();
+                }
+            }
+        }
+        let out = w.b.get_outcomes();
+        assert_eq!(out.len(), 8);
+        assert_eq!(out.iter().map(|o| o.seq.0).collect::<Vec<_>>(), (2..=9).rev().collect::<Vec<_>>());
+        assert_eq!(out[0].status, "closed");
+        assert_eq!(out[1].status, "expired");
+    }
+}
+
+#[test]
+fn g19_a_direct_close_is_one_atomic_call() {
+    let (mut w, _) = happy();
+    let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+    w.propose(FOUNDER, t);
+    assert_eq!(w.accept(FOUNDER), "accepted"); // the seller first this time
+    assert_eq!(w.fund(BUYER), 0);
+    let before = (w.b.get_control(), w.t(), w.b.get_party(id(FOUNDER)).unwrap());
+    assert_eq!((before.0.owner.clone(), before.0.generation, before.1.escrow_total.0), (id(FOUNDER), 1, 100 * P));
+    assert_eq!(w.accept(BUYER), "closed");
+    let c = w.b.get_control();
+    assert_eq!((c.owner, c.generation, c.operators, c.live_deal), (id(BUYER), 2, vec![(id(METER2), METERING, 2)], None));
+    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().sale_proceeds_claim.0, 100 * P);
+    assert_eq!(w.t().escrow_total.0, 0);
+}
+
+#[test]
+fn g20_expiry_and_generation() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        w.propose(FOUNDER, t);
+        assert_eq!(w.fund(BUYER), 0);
+        let d = w.deal();
+        w.refuse(STRANGER, 0, "E_NOT_EXPIRED", |b| b.expire_sale(d.seq));
+        w.now = d.expires_at_ms.0;
+        w.refuse(BUYER, 1, "E_EXPIRED", |b| b.accept_sale(d.seq, d.version, d.digest.clone()));
+        w.neutral(STRANGER, 0, |b| b.expire_sale(d.seq));
+        let o = &w.b.get_outcomes()[0];
+        assert_eq!((o.status.as_str(), o.escrow_returned.0), ("expired", 100 * P));
+        assert_eq!(w.b.get_party(id(BUYER)).unwrap().escrow_return_claim.0, 100 * P);
+        // Fault injected on purpose: a generation that moved under a live deal is refused.
+        let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        w.propose(FOUNDER, t);
+        let d = w.deal();
+        w.b.generation += 1;
+        w.corrupt = true;
+        let before = w.snap();
+        w.env(FOUNDER, 1);
+        let msg = panic_message(|| w.b.accept_sale(d.seq, d.version, d.digest.clone()));
+        assert!(msg.contains("E_GENERATION"), "{msg}");
+        assert_eq!(w.snap(), before);
+    }
+}
+
+#[test]
+fn g21_live_deals_pin_their_records_and_deposits_go_back_to_who_paid() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        w.propose(FOUNDER, t);
+        let seq = w.deal().seq;
+        // Pinned while proposed, accepted, funded and (Gated) closing.
+        w.refuse(BUYER, 1, "E_DEAL_PINNED", |b| b.release_party_slot());
+        assert_eq!(w.accept(FOUNDER), "accepted");
+        w.refuse(BUYER, 1, "E_DEAL_PINNED", |b| b.release_party_slot());
+        // The buyer changes before any funding: the old buyer is unpinned, the new one pinned
+        // (its record created at the seller's expense).
+        let t2 = w.terms(STRANGER, 100 * P, &[(METER2, METERING)]);
+        let (_, grew) = w.measured(FOUNDER, NEAR, |b| b.revise_sale(seq, t2));
+        assert!(grew > 0);
+        w.invariants();
+        assert!(!w.b.get_party(id(BUYER)).unwrap().pinned);
+        assert!(w.b.get_party(id(STRANGER)).unwrap().pinned);
+        assert_eq!(w.b.get_party(id(STRANGER)).unwrap().payer, id(FOUNDER));
+        // The old buyer releases its record; the deposit goes to whoever paid it (the founder).
+        let deposit = w.b.get_party(id(BUYER)).unwrap().deposit.0;
+        let (_, freed) = w.measured(BUYER, 1, |b| b.release_party_slot());
+        assert!(freed < 0);
+        w.invariants();
+        assert!(w.b.get_party(id(BUYER)).is_none());
+        let refund = near_sdk::test_utils::get_created_receipts();
+        assert!(
+            refund.iter().any(|r| r.receiver_id == id(FOUNDER)
+                && r.actions.iter().any(|a| matches!(a, near_sdk::mock::MockAction::Transfer { deposit: d, .. } if d.as_yoctonear() == deposit))),
+            "the deposit goes back to its payer"
+        );
+        assert_eq!(w.fund(STRANGER), 0);
+        w.refuse(STRANGER, 1, "E_DEAL_PINNED", |b| b.release_party_slot());
+        assert_eq!(w.accept(STRANGER), "accepted");
+        if is_gated(&w) {
+            // The revision cleared the seller's acceptance; accepting again starts the close.
+            assert_eq!(w.accept(FOUNDER), "closing");
+            w.refuse(STRANGER, 1, "E_DEAL_PINNED", |b| b.release_party_slot());
+            let o = w.order();
+            w.neutral(CLOSER, 0, |b| b.close_sale(o));
+        } else {
+            assert_eq!(w.accept(FOUNDER), "closed");
+        }
+        // After the close nothing is pinned: the former owner holds a claim, the new owner keeps
+        // its record as owner.
+        w.refuse(FOUNDER, 1, "E_CLAIM", |b| b.release_party_slot());
+        w.refuse(STRANGER, 1, "E_OWNER", |b| b.release_party_slot());
+    }
+}
+
+#[test]
+fn control_sequence_rises_exactly_once_per_control_change() {
+    for make in MODES {
+        let (mut w, k) = happy_in(make());
+        let mut last = w.b.control_seq;
+        let mut step = |w: &W, by: u64, what: &str| {
+            assert_eq!(w.b.control_seq, last + by, "{what}");
+            last = w.b.control_seq;
+        };
+        step(&w, 0, "customers don't change control");
+        let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        w.propose(FOUNDER, t);
+        step(&w, 1, "propose");
+        let d = w.deal();
+        w.returned(BUYER, 1, fund_msg(d.seq.0, d.version, 1));
+        step(&w, 0, "returned funding");
+        assert_eq!(w.fund(BUYER), 0);
+        step(&w, 1, "fund");
+        w.neutral(BUYER, 1, |b| b.unfund_deal(d.seq));
+        step(&w, 1, "unfund");
+        assert_eq!(w.fund(BUYER), 0);
+        step(&w, 1, "fund again");
+        let mut t2 = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        t2.terms_hash = "33".repeat(32);
+        w.neutral(FOUNDER, 1, |b| b.revise_sale(d.seq, t2));
+        step(&w, 1, "revise");
+        assert_eq!(w.accept(BUYER), "accepted");
+        step(&w, 1, "accept");
+        let digest = w_digest(&w);
+        w.refuse(BUYER, 1, "E_ALREADY_ACCEPTED", |b| b.accept_sale(d.seq, 2, digest));
+        step(&w, 0, "a refused call");
+        w.open(CARA, &k, 3, 1);
+        let (s, p) = w.refund(CARA, 1);
+        assert!(w.callback(s, p, true));
+        step(&w, 0, "customer activity and callbacks during a deal");
+        if is_gated(&w) {
+            assert_eq!(w.accept(FOUNDER), "closing");
+            step(&w, 1, "the second acceptance, entering closing");
+            assert_eq!(w.deal().closing_control_seq.0, w.b.control_seq, "closing binds the value after its rise");
+            let o = w.order();
+            w.neutral(CLOSER, 0, |b| b.close_sale(o));
+            step(&w, 1, "close");
+        } else {
+            assert_eq!(w.accept(FOUNDER), "closed");
+            step(&w, 1, "the second acceptance, closing directly");
+        }
+        assert_eq!(w.b.get_outcomes()[0].control_seq.0, w.b.control_seq);
+        w.measured(BUYER, NEAR, |b| b.create_plan(plan_input(3 * P)));
+        step(&w, 1, "create_plan");
+        w.neutral(BUYER, 1, |b| b.appoint_operator(id(METER), METERING));
+        step(&w, 1, "appoint");
+        w.neutral(BUYER, 1, |b| b.revoke_operator(id(METER)));
+        step(&w, 1, "revoke");
+        w.neutral(BUYER, 1, |b| b.set_manifest("44".repeat(32), U64(0)));
+        step(&w, 1, "set_manifest");
+    }
+}
+
+fn w_digest(w: &W) -> String {
+    w.deal().digest
+}
+
+#[test]
+fn counters_and_deadlines_refuse_before_they_overflow() {
+    let (mut w, _) = happy();
+    let t = w.terms(BUYER, 100 * P, &[]);
+    w.b.deal_seq = u64::MAX;
+    w.refuse(FOUNDER, NEAR, "E_OVERFLOW: deal sequence", |b| b.propose_sale(t.clone()));
+    w.b.deal_seq = 0;
+    w.b.control_seq = u64::MAX;
+    w.refuse(FOUNDER, NEAR, "E_OVERFLOW: control sequence", |b| b.propose_sale(t.clone()));
+    w.refuse(FOUNDER, 1, "E_OVERFLOW: control sequence", |b| b.appoint_operator(id(METER2), METERING));
+    w.b.control_seq = 2;
+    w.b.manifest_seq = u64::MAX;
+    w.refuse(FOUNDER, 1, "E_OVERFLOW: manifest sequence", |b| b.set_manifest("55".repeat(32), U64(u64::MAX)));
+    w.b.manifest_seq = 0;
+    w.propose(FOUNDER, t.clone());
+    // Fault injected on purpose: a version at its limit can't be revised.
+    let mut slot = *w.b.deal.get(&0).unwrap();
+    slot.version = u32::MAX;
+    w.b.deal.insert(0, slot);
+    w.refuse(FOUNDER, NEAR, "E_OVERFLOW: deal version", |b| b.revise_sale(U64(1), t.clone()));
+    slot.version = 1;
+    w.b.deal.insert(0, slot);
+    // A generation at its limit can't close: refused before anything changes.
+    w.b.generation = u32::MAX;
+    slot.expected_generation = u32::MAX;
+    w.b.deal.insert(0, slot);
+    assert_eq!(w.fund(BUYER), 0);
+    assert_eq!(w.accept(BUYER), "accepted");
+    let d = w.deal();
+    w.refuse(FOUNDER, 1, "E_OVERFLOW: generation", |b| b.accept_sale(d.seq, d.version, d.digest.clone()));
+}
+
+#[test]
+fn terms_are_validated_before_anything_changes() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        let gated = is_gated(&w);
+        let ok = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        let cases: Vec<(DealTermsInput, &str)> = vec![
+            (DealTermsInput { buyer: id(FOUNDER), ..ok.clone() }, "E_ARGS: the buyer"),
+            (DealTermsInput { buyer: id(BIZ), ..ok.clone() }, "E_ARGS: the buyer"),
+            (DealTermsInput { buyer: id(TOKEN), ..ok.clone() }, "E_ARGS: the buyer"),
+            (DealTermsInput { price: U128(0), ..ok.clone() }, "E_ARGS: the price"),
+            (DealTermsInput { expires_at_ms: U64(w.now + MIN - 1), ..ok.clone() }, "E_ARGS: the offer"),
+            (DealTermsInput { expires_at_ms: U64(w.now + 30 * DAY + 1), ..ok.clone() }, "E_ARGS: the offer"),
+            (DealTermsInput { expires_at_ms: U64(u64::MAX), ..ok.clone() }, "E_ARGS: the offer"),
+            (DealTermsInput { close_window_ms: U64(if gated { 0 } else { 30 * MIN }), ..ok.clone() }, "window"),
+            (DealTermsInput { grants: vec![(id(METER2), 4)], ..ok.clone() }, "E_ARGS: capabilities"),
+            (DealTermsInput { grants: vec![(id(METER2), 1), (id(METER2), 2)], ..ok.clone() }, "different account"),
+            (
+                DealTermsInput {
+                    grants: vec![(id(METER), 1), (id(METER2), 1), (id(MORE[0]), 1), (id(MORE[1]), 1), (id(MORE[2]), 1)],
+                    ..ok.clone()
+                },
+                "at most 4",
+            ),
+            (DealTermsInput { terms_hash: "abc".into(), ..ok.clone() }, "terms hash"),
+        ];
+        for (t, code) in cases {
+            w.refuse(FOUNDER, NEAR, code, |b| b.propose_sale(t));
+        }
+        if gated {
+            w.refuse(FOUNDER, NEAR, "E_ARGS: the buyer", |b| b.propose_sale(DealTermsInput { buyer: id(CLOSER), ..ok.clone() }));
+            w.refuse(FOUNDER, NEAR, "successor METERING", |b| {
+                b.propose_sale(DealTermsInput { grants: vec![(id(METER2), SUPPORT)], ..ok.clone() })
+            });
+            w.refuse(FOUNDER, NEAR, "window", |b| b.propose_sale(DealTermsInput { close_window_ms: U64(DAY + 1), ..ok.clone() }));
+        }
+        w.propose(FOUNDER, ok);
+    }
+}
+
+#[test]
+fn escrow_returns_keep_their_category_through_failure_and_stranded_retry() {
+    for make in MODES {
+        let (mut w, _) = happy_in(make());
+        let t = w.terms(BUYER, 100 * P, &[(METER2, METERING)]);
+        w.propose(FOUNDER, t);
+        assert_eq!(w.fund(BUYER), 0);
+        let seq = w.deal().seq;
+        w.neutral(BUYER, 1, |b| b.cancel_sale(seq));
+        assert_eq!(w.b.get_outcomes()[0].status, "cancelled");
+        // Collect: the payout is an escrow return; it fails and comes back to that same claim.
+        w.call(BUYER, 1, |b| drop(b.claim_party(CLAIM_ESCROW_RETURN)));
+        let p = w.b.get_pending();
+        assert_eq!(p[0].kind, "escrow_return");
+        let (s, pid) = w.last_payout();
+        assert!(!w.callback(s, pid, false));
+        let r = w.b.get_party(id(BUYER)).unwrap();
+        assert_eq!((r.escrow_return_claim.0, r.profit_claim.0), (100 * P, 0));
+        // Fault injected on purpose: the record vanishes while the retry is in flight; it
+        // strands, is re-sent detached, and is still booked as an escrow return.
+        w.call(BUYER, 1, |b| drop(b.claim_party(CLAIM_ESCROW_RETURN)));
+        let (s, pid) = w.last_payout();
+        w.corrupt = true;
+        w.b.party.remove(&id(BUYER));
+        assert!(!w.callback(s, pid, false));
+        w.call(BUYER, 1, |b| drop(b.claim_stranded(s)));
+        let (s, pid) = w.last_payout();
+        assert!(w.callback(s, pid, true));
+        let m = rec(&w, 202611);
+        assert_eq!(
+            (n(&m.escrow_returned), n(&m.paid_on_retry), n(&m.owner_withdrawals), n(&m.sale_proceeds_paid)),
+            (100 * P, 100 * P, 0, 0)
+        );
+        assert_eq!(w.t().claims_total.0, 0);
+    }
+}
+
+#[test]
+fn g22_random_sequences_interleave_deals_with_customers_and_payouts() {
+    let parties = [FOUNDER, BUYER, STRANGER];
+    let mut totals = [0usize; 16];
+    let mut closes = 0usize;
+    for make in MODES {
+        for seed in [0xA076_1D64_78BD_642Fu64, 0xE703_7ED1_A0B4_28DB, 0x8EBC_6AF0_9C88_C6E3] {
+            let (mut w, _) = happy_in(make());
+            // Every party gets a record first (a proposal, then cancelled), so later proposals
+            // allocate nothing and run through the same no-growth check as everything else.
+            for p in [BUYER, STRANGER] {
+                let t = w.terms(p, P, &[(METER, METERING)]);
+                w.propose(FOUNDER, t);
+                let s = w.deal().seq;
+                w.neutral(FOUNDER, 1, |b| b.cancel_sale(s));
+            }
+            let mut r = Rng(seed);
+            for _ in 0..400 {
+                let c = w.b.get_control();
+                let owner = c.owner.to_string();
+                let live = c.live_deal;
+                let generation = c.generation;
+                let op = r.below(16) as usize;
+                let done = match op {
+                    0 => {
+                        let others: Vec<&str> = parties.iter().copied().filter(|p| *p != owner).collect();
+                        let buyer = others[r.below(others.len() as u64) as usize];
+                        let mut t = w.terms(buyer, (1 + r.below(30) as u128) * P, &[(METER, METERING)]);
+                        t.available_floor = U128(r.below(2) as u128 * 5 * P);
+                        t.expires_at_ms = U64(w.now + (30 + r.below(600)) * MIN);
+                        w.attempt(&owner, 1, None, |b| b.propose_sale(t))
+                    }
+                    1 => {
+                        let Some(d) = live else { continue };
+                        let off = u128::from(r.below(5) == 0);
+                        let before = w.snap();
+                        let back = w.ft(d.buyer.as_ref(), d.price.0 + off, fund_msg(d.seq.0, d.version, d.price.0));
+                        assert!(back == 0 || (back == d.price.0 + off && w.snap() == before));
+                        back == 0
+                    }
+                    2 => {
+                        let Some(d) = live else { continue };
+                        w.attempt(d.buyer.as_ref(), 1, None, |b| b.unfund_deal(d.seq))
+                    }
+                    3 | 4 => {
+                        let Some(d) = live else { continue };
+                        // Mostly the party that hasn't accepted yet; sometimes either (refused).
+                        let pick_buyer = match (d.seller_accepted, d.buyer_accepted) {
+                            (true, false) => r.below(4) != 0,
+                            (false, true) => r.below(4) == 0,
+                            _ => r.below(2) != 0,
+                        };
+                        let who = if pick_buyer { d.buyer.to_string() } else { d.seller.to_string() };
+                        let version = if r.below(8) == 0 { d.version + 1 } else { d.version };
+                        w.attempt(&who, 1, None, |b| b.accept_sale(d.seq, version, d.digest.clone()))
+                    }
+                    5 => {
+                        let Some(d) = live else { continue };
+                        if r.below(3) != 0 {
+                            continue;
+                        }
+                        let price = if r.below(2) == 0 { d.price.0 } else { (1 + r.below(30) as u128) * P };
+                        let mut t = w.terms(d.buyer.as_ref(), price, &[(METER, METERING)]);
+                        t.expires_at_ms = d.expires_at_ms;
+                        if t.expires_at_ms.0 < w.now + MIN {
+                            t.expires_at_ms = U64(w.now + 10 * MIN);
+                        }
+                        w.attempt(&owner, 1, None, |b| b.revise_sale(d.seq, t))
+                    }
+                    6 => {
+                        let Some(d) = live else { continue };
+                        if r.below(3) != 0 {
+                            continue;
+                        }
+                        let who = parties[r.below(3) as usize];
+                        w.attempt(who, 1, None, |b| b.cancel_sale(d.seq))
+                    }
+                    7 => {
+                        let Some(d) = live else { continue };
+                        w.attempt(STRANGER, 0, None, |b| b.expire_sale(d.seq))
+                    }
+                    8 => {
+                        if live.is_none() || !is_gated(&w) {
+                            continue;
+                        }
+                        let mut o = w.order();
+                        if r.below(6) == 0 {
+                            o.issued_at_ms = U64(w.now + 1);
+                        }
+                        let ok = w.attempt(CLOSER, 0, None, |b| b.close_sale(o));
+                        if ok {
+                            assert_eq!(w.b.generation, generation + 1);
+                        }
+                        ok
+                    }
+                    9 => {
+                        let Some(d) = live else { continue };
+                        w.attempt(STRANGER, 0, None, |b| b.abort_close(d.seq))
+                    }
+                    10 => {
+                        let who = parties[r.below(3) as usize];
+                        let cat = r.below(3) as u8;
+                        w.attempt(who, 1, None, |b| b.claim_party(cat))
+                    }
+                    11 => {
+                        let amount = 1 + r.below(4) as u128 * P;
+                        w.attempt(&owner, 1, None, |b| b.withdraw_profit(U128(amount)))
+                    }
+                    12 => {
+                        let e = *w.b.entitlements.get(&(id(CARA), 1)).unwrap();
+                        let units = 1 + r.below(5) as u32;
+                        w.ft(CARA, units as u128 * P, buy_msg(1, units, e.purchase_seq + 1, None)) == 0
+                    }
+                    13 => {
+                        let units = 1 + r.below(5);
+                        w.attempt(CARA, 1, None, |b| b.refund_units(1, U64(units)))
+                    }
+                    14 => {
+                        let p = w.b.get_pending();
+                        if p.is_empty() {
+                            continue;
+                        }
+                        let pick = &p[r.below(p.len() as u64) as usize];
+                        let (slot, pid, ok) = (pick.slot, pick.payout_id.0, r.below(3) != 0);
+                        w.attempt(BIZ, 0, Some(ok), |b| b.on_payout(slot, U64(pid)))
+                    }
+                    _ => {
+                        w.now += [MIN, 5 * MIN, 31 * MIN, 3 * 60 * MIN][r.below(4) as usize];
+                        true
+                    }
+                };
+                if done {
+                    totals[op] += 1;
+                    if w.b.generation > generation {
+                        closes += 1;
+                    }
+                }
+            }
+        }
+    }
+    println!("deal random successes by operation: {totals:?}; closes {closes}");
+    for op in [0, 1, 2, 3, 6, 7, 10, 11, 12, 13, 14] {
+        assert!(totals[op] >= 3, "operation {op} succeeded only {} times: {totals:?}", totals[op]);
+    }
+    assert!(totals[3] + totals[4] >= 10 && totals[8] >= 2 && totals[9] >= 1 && closes >= 6, "{totals:?}; closes {closes}");
+}
+
+/// Valid-looking terms for refusal tests that never get as far as validating them.
+fn w_terms_stub() -> DealTermsInput {
+    DealTermsInput {
+        buyer: id(STRANGER),
+        price: U128(P),
+        expires_at_ms: U64(T0 + DAY),
+        close_window_ms: U64(0),
+        available_floor: U128(0),
+        grants: vec![],
+        terms_hash: "11".repeat(32),
     }
 }
