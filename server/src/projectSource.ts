@@ -9,13 +9,7 @@
 // once the request is gone, its id is no longer given out.
 
 import type { Db } from "./db.ts";
-
-export interface Constraints {
-  family?: "class" | "service" | "product" | "software";
-  max_price_cents?: number;
-  online?: boolean;
-  confirmed_only?: boolean;
-}
+import { projectNeedConstraints } from "./needConstraints.ts";
 
 export type SourceState = "open" | "closed" | "expired" | "unavailable";
 
@@ -29,9 +23,21 @@ export function projectSource(db: Db, projectId: string) {
         need_created_at: string;
         need_expires_at: string;
         captured_at: string;
+        constraints_unreadable: string;
       }
     | undefined;
   if (!s) return null;
+  // Job 005a1: projected again on every read, so a snapshot captured before the boundary existed
+  // (which may hold extra fields) shows only the allowed ones.
+  const c = projectNeedConstraints(s.constraints);
+  let earlier: string[] = [];
+  try {
+    const u = JSON.parse(s.constraints_unreadable) as unknown;
+    if (Array.isArray(u)) earlier = u.filter((x): x is string => typeof x === "string").slice(0, 5);
+  } catch {
+    earlier = ["other"];
+  }
+  const unreadable = [...new Set([...earlier, ...c.unreadable])];
   const now = db
     .prepare("SELECT status, expires_at, allow_replies FROM needs WHERE id = ?")
     .get(s.need_id) as { status: string; expires_at: string; allow_replies: number } | undefined;
@@ -48,8 +54,10 @@ export function projectSource(db: Db, projectId: string) {
     label: "Inspiration from a publicly shared request",
     captured_at: s.captured_at,
     snapshot: {
-      text: s.need_text,
-      constraints: JSON.parse(s.constraints) as Constraints,
+      text: s.need_text.slice(0, 600),
+      constraints: c.constraints,
+      /** Stated constraints that couldn't be read; never treated as met. */
+      constraints_unreadable: unreadable,
       posted_at: s.need_created_at,
       open_until: s.need_expires_at,
       replies_allowed: s.allow_replies === 1,

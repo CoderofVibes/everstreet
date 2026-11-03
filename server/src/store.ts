@@ -19,6 +19,8 @@ export class HttpError extends Error {
   constructor(
     readonly status: 400 | 401 | 403 | 404 | 409 | 413,
     message: string,
+    /** A stable reason for clients to act on, so nothing parses the human message. */
+    readonly code?: string,
   ) {
     super(message);
   }

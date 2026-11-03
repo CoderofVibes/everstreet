@@ -413,3 +413,224 @@ describe("005a digital search vocabulary, with legacy behaviour kept", () => {
     expect(r.matches.map((b: Json) => b.name)).toEqual(["Ledgerline Labs"]);
   });
 });
+
+// ---------- 005a1: a strict constraint boundary and structured refusals ----------
+
+const FICTIONAL_CONTACT = "fictional@example.invalid";
+
+/** A row as an older version could have stored it (synthetic, fictional). */
+function legacyNeed(w: ReturnType<typeof world>, personId: string, constraints: string) {
+  const id = `legacy-${Math.random().toString(36).slice(2, 10)}`;
+  w.store.db
+    .prepare(
+      "INSERT INTO needs (id, person_id, text, constraints, allow_replies, status, expires_at, created_at) VALUES (?, ?, ?, ?, 1, 'open', ?, ?)",
+    )
+    .run(
+      id,
+      personId,
+      "An API that turns timesheets into invoices",
+      constraints,
+      new Date(Date.now() + 7 * 864e5).toISOString(),
+      new Date().toISOString(),
+    );
+  return id;
+}
+
+describe("005a1 new requests accept only well-formed, allowed constraints", () => {
+  it("refuses wrong shapes, unknown keys and unsafe amounts with a useful 400, storing nothing", async () => {
+    const w = world();
+    const noah = await w.join("Noah Fenn");
+    const bad: [unknown, RegExp][] = [
+      [5, /must be an object/],
+      ["software", /must be an object/],
+      [["software"], /must be an object/],
+      [{ family: { nested: "software" } }, /family must be one of/],
+      [{ family: "consulting" }, /family must be one of/],
+      [{ family: "s".repeat(10_000) }, /family must be one of/],
+      [{ contact: FICTIONAL_CONTACT }, /Unknown constraint "contact"/],
+      [{ ["k".repeat(10_000)]: 1 }, /Unknown constraint/],
+      [{ max_price_cents: -1 }, /whole number of cents/],
+      [{ max_price_cents: 12.5 }, /whole number of cents/],
+      [{ max_price_cents: 2 ** 53 }, /whole number of cents/],
+      [{ max_price_cents: 1e12 }, /whole number of cents/],
+      [{ max_price_cents: "5000" }, /whole number of cents/],
+      [{ online: "yes" }, /online must be true or false/],
+      [{ confirmed_only: 1 }, /confirmed_only must be true or false/],
+    ];
+    for (const [constraints, why] of bad) {
+      const r = await noah("/api/needs", "POST", { text: NEED, constraints, days: 14 });
+      expect(r.status, JSON.stringify(constraints).slice(0, 60)).toBe(400);
+      expect(r.body).toMatchObject({ code: "invalid_constraints" });
+      expect(r.body.error).toMatch(why);
+      expect(r.body.error.length).toBeLessThan(200); // a huge key isn't echoed back
+    }
+    expect(w.count("needs")).toBe(0);
+  });
+
+  it("stores a zero limit, a normal limit and the flags exactly; no constraints is fine too", async () => {
+    const w = world();
+    const noah = await w.join("Noah Fenn");
+    const zero = await post(noah, "Free help wanted with a website for my reading group", {
+      constraints: { max_price_cents: 0 },
+    });
+    const full = await post(noah, NEED, {
+      constraints: {
+        family: "software",
+        max_price_cents: 5000,
+        online: true,
+        confirmed_only: true,
+      },
+    });
+    const none = await post(noah, "Anything that sends my newsletter automatically", {
+      constraints: {},
+    });
+    const off = await post(noah, "A dashboard for my client renewals, any format", {
+      constraints: { online: false },
+    });
+    const stored = (id: string) =>
+      (
+        w.store.db.prepare("SELECT constraints FROM needs WHERE id = ?").get(id) as {
+          constraints: string;
+        }
+      ).constraints;
+    expect(JSON.parse(stored(zero))).toEqual({ max_price_cents: 0 });
+    expect(JSON.parse(stored(full))).toEqual({
+      family: "software",
+      max_price_cents: 5000,
+      online: true,
+      confirmed_only: true,
+    });
+    expect(JSON.parse(stored(none))).toEqual({});
+    expect(JSON.parse(stored(off))).toEqual({});
+    const board = (await w.anon("/api/opportunities")).body.opportunities;
+    expect(board.find((o: Json) => o.id === zero)).toMatchObject({
+      constraints: { max_price_cents: 0 },
+      constraints_unreadable: [],
+    });
+  });
+});
+
+describe("005a1 stored rows are projected through the same boundary", () => {
+  it("an older malformed row shows only allowed fields, names what can't be read, and never leaks extras", async () => {
+    const w = world();
+    const noah = await w.join("Noah Fenn");
+    const mara = await w.join("Mara Solis");
+    const payload = "x".repeat(10_000);
+    const id = legacyNeed(
+      w,
+      noah.id,
+      JSON.stringify({
+        family: "software",
+        max_price_cents: -500,
+        online: "yes",
+        contact: FICTIONAL_CONTACT,
+        payload,
+      }),
+    );
+    const board = await w.anon("/api/opportunities");
+    expect(board.status).toBe(200);
+    const o = board.body.opportunities.find((x: Json) => x.id === id);
+    expect(o.constraints).toEqual({ family: "software" });
+    expect(o.constraints_unreadable).toEqual(["max_price_cents", "online", "other"]);
+    expect(board.text).not.toContain(FICTIONAL_CONTACT);
+    expect(board.text).not.toContain(payload.slice(0, 100));
+    const review = await mara(`/api/opportunities/${id}`);
+    expect(review.body.constraints).toEqual({ family: "software" });
+    expect(review.text).not.toContain(FICTIONAL_CONTACT);
+    // A project from it keeps only the allowed fields, and says which couldn't be read.
+    const made = await create(mara, id, input());
+    expect(made.status).toBe(201);
+    expect(made.body.view.source.snapshot).toMatchObject({
+      constraints: { family: "software" },
+      constraints_unreadable: ["max_price_cents", "online", "other"],
+    });
+    expect(made.body.view.source.snapshot.constraints.max_price_cents).toBeUndefined(); // not met, not zero
+    const row = w.store.db
+      .prepare("SELECT constraints FROM project_sources WHERE project_id = ?")
+      .get(made.body.view.project.id) as { constraints: string };
+    expect(row.constraints).toBe('{"family":"software"}');
+    expect(JSON.stringify(made.body)).not.toContain(FICTIONAL_CONTACT);
+    // The poster's own view of it works too.
+    const activity = await noah("/api/activity");
+    expect(activity.status).toBe(200);
+    expect(activity.text).not.toContain(payload.slice(0, 100));
+  });
+
+  it("an unparseable row, or a non-object, doesn't crash the board, the review or the poster's view", async () => {
+    const w = world();
+    const noah = await w.join("Noah Fenn");
+    const mara = await w.join("Mara Solis");
+    const broken = legacyNeed(w, noah.id, "{not json");
+    const list = legacyNeed(w, noah.id, '["software"]');
+    const board = await w.anon("/api/opportunities");
+    expect(board.status).toBe(200);
+    for (const id of [broken, list])
+      expect(board.body.opportunities.find((x: Json) => x.id === id)).toMatchObject({
+        constraints: {},
+        constraints_unreadable: ["other"],
+      });
+    expect((await mara(`/api/opportunities/${broken}`)).status).toBe(200);
+    expect((await noah("/api/activity")).status).toBe(200);
+    expect((await create(mara, broken, input())).status).toBe(201);
+  });
+
+  it("a project snapshot captured by 005a with extra fields is cleaned when shown", async () => {
+    const w = world();
+    const noah = await w.join("Noah Fenn");
+    const mara = await w.join("Mara Solis");
+    const needId = await post(noah, NEED);
+    const v = (await create(mara, needId, input())).body.view;
+    // Simulate a row written before this boundary: the raw constraints copied verbatim.
+    w.store.db
+      .prepare("UPDATE project_sources SET constraints = ? WHERE project_id = ?")
+      .run(
+        JSON.stringify({
+          max_price_cents: 5000,
+          contact: FICTIONAL_CONTACT,
+          payload: "y".repeat(5000),
+        }),
+        v.project.id,
+      );
+    const shown = await mara(`/api/product-projects/${v.project.id}`);
+    expect(shown.body.source.snapshot.constraints).toEqual({ max_price_cents: 5000 });
+    expect(shown.body.source.snapshot.constraints_unreadable).toEqual(["other"]);
+    expect(shown.text).not.toContain(FICTIONAL_CONTACT);
+  });
+});
+
+describe("005a1 refusals carry a stable code", () => {
+  it("closed, expired, removed and a reused key each say why by code; a committed retry still works after closure", async () => {
+    const w = world();
+    const noah = await w.join("Noah Fenn");
+    const mara = await w.join("Mara Solis");
+    const a = await post(noah, NEED);
+    const b = await post(noah, "A SaaS dashboard for tracking client renewals");
+    const gone = await post(noah, "An API that converts timesheets to invoices");
+    const first = await create(mara, a, input());
+    expect(first.status).toBe(201);
+    await noah(`/api/needs/${a}/close`, "POST");
+    // The server already made this one: the same key and input still return it.
+    const retry = await create(mara, a, input());
+    expect([retry.status, retry.body.created]).toEqual([200, false]);
+    expect(retry.body.view.project.id).toBe(first.body.view.project.id);
+    expect((await create(mara, a, input({ idempotency_key: "need-project-0010" }))).body.code).toBe(
+      "request_closed",
+    );
+    w.store.db
+      .prepare("UPDATE needs SET expires_at = ? WHERE id = ?")
+      .run(new Date(Date.now() - 1000).toISOString(), b);
+    expect((await create(mara, b, input({ idempotency_key: "need-project-0011" }))).body.code).toBe(
+      "request_expired",
+    );
+    w.store.db.prepare("DELETE FROM needs WHERE id = ?").run(gone);
+    expect(
+      (await create(mara, gone, input({ idempotency_key: "need-project-0012" }))).body.code,
+    ).toBe("request_removed");
+    expect((await create(mara, a, input({ idea: "Different idea now" }))).body.code).toBe(
+      "key_reused",
+    );
+    expect((await mara(`/api/opportunities/${a}`)).body.code).toBe("request_unavailable");
+    expect(w.count("product_projects")).toBe(1);
+    expect(w.count("need_responses")).toBe(0);
+  });
+});

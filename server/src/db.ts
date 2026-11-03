@@ -476,7 +476,8 @@ CREATE TABLE IF NOT EXISTS v3_projection (
 CREATE TABLE IF NOT EXISTS project_sources (
   project_id TEXT PRIMARY KEY REFERENCES product_projects(id), need_id TEXT NOT NULL,
   need_text TEXT NOT NULL, constraints TEXT NOT NULL, allow_replies INTEGER NOT NULL,
-  need_created_at TEXT NOT NULL, need_expires_at TEXT NOT NULL, captured_at TEXT NOT NULL
+  need_created_at TEXT NOT NULL, need_expires_at TEXT NOT NULL, captured_at TEXT NOT NULL,
+  constraints_unreadable TEXT NOT NULL DEFAULT '[]'
 ) STRICT;
 CREATE TABLE IF NOT EXISTS need_project_requests (
   person_id TEXT NOT NULL REFERENCES people(id), idempotency_key TEXT NOT NULL,
@@ -542,6 +543,11 @@ export function openDb(path: string) {
     db.exec("ALTER TABLE runtime_releases ADD COLUMN policy TEXT NOT NULL DEFAULT ''");
   if (!columns("listings").has("disclose_version"))
     db.exec("ALTER TABLE listings ADD COLUMN disclose_version INTEGER NOT NULL DEFAULT 1");
+  // Job 005a1: which stated constraints couldn't be read when a project captured its request.
+  if (!columns("project_sources").has("constraints_unreadable"))
+    db.exec(
+      "ALTER TABLE project_sources ADD COLUMN constraints_unreadable TEXT NOT NULL DEFAULT '[]'",
+    );
   // Job 003b: one ownership entry per closed deal, as a backstop to the reconciler. Installed
   // only when existing data allows it; earlier duplicates are reported, never deleted.
   if (ownershipConflicts(db).length === 0)

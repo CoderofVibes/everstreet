@@ -93,7 +93,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
   };
 
   app.onError((error, c) => {
-    if (error instanceof HttpError) return c.json({ error: error.message }, error.status);
+    if (error instanceof HttpError)
+      return c.json(
+        error.code ? { error: error.message, code: error.code } : { error: error.message },
+        error.status,
+      );
     console.error(error);
     return c.json({ error: "Something went wrong on our side" }, 500);
   });

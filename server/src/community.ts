@@ -5,14 +5,14 @@
 import { randomUUID } from "node:crypto";
 import { cleanSource, firstName } from "./bookings.ts";
 import type { Db } from "./db.ts";
+import {
+  type Constraints,
+  parseNeedConstraints,
+  projectNeedConstraints,
+} from "./needConstraints.ts";
 import { HttpError, type Person, type Store, terms } from "./store.ts";
 
-export interface Constraints {
-  family?: "class" | "service" | "product" | "software";
-  max_price_cents?: number;
-  online?: boolean;
-  confirmed_only?: boolean;
-}
+export type { Constraints };
 
 const FAMILY_WORDS: Record<NonNullable<Constraints["family"]>, string[]> = {
   class: ["class", "workshop", "lesson", "course", "session", "learn", "teach", "beginner"],
@@ -178,6 +178,8 @@ export class Community {
   ) {
     const text = String(input.text ?? "").trim();
     if (text.length < 8) throw new HttpError(400, "Describe what you need in a sentence");
+    // Job 005a1: only the allowed constraint fields, each well formed, are ever stored.
+    const constraints = parseNeedConstraints(input.constraints);
     const days = [7, 14, 30].includes(Number(input.days)) ? Number(input.days) : 14;
     const id = randomUUID();
     this.db
@@ -188,7 +190,7 @@ export class Community {
         id,
         person.id,
         text.slice(0, 600),
-        JSON.stringify(input.constraints ?? {}),
+        JSON.stringify(constraints),
         input.allow_replies === false ? 0 : 1,
         new Date(Date.now() + days * DAY).toISOString(),
         new Date().toISOString(),
@@ -211,19 +213,26 @@ export class Community {
         expires_at: string;
         created_at: string;
       }[]
-    ).map((n) => ({
-      id: n.id,
-      text: n.text,
-      constraints: JSON.parse(n.constraints) as Constraints,
-      allow_replies: n.allow_replies === 1,
-      expires_at: n.expires_at,
-      created_at: n.created_at,
-      responses: (
-        this.db.prepare("SELECT COUNT(*) AS n FROM need_responses WHERE need_id = ?").get(n.id) as {
-          n: number;
-        }
-      ).n,
-    }));
+    ).map((n) => {
+      // Stored rows (older ones included) are projected: only allowed, valid fields leave here.
+      const c = projectNeedConstraints(n.constraints);
+      return {
+        id: n.id,
+        text: n.text,
+        constraints: c.constraints,
+        constraints_unreadable: c.unreadable,
+        allow_replies: n.allow_replies === 1,
+        expires_at: n.expires_at,
+        created_at: n.created_at,
+        responses: (
+          this.db
+            .prepare("SELECT COUNT(*) AS n FROM need_responses WHERE need_id = ?")
+            .get(n.id) as {
+            n: number;
+          }
+        ).n,
+      };
+    });
   }
 
   myNeeds(person: Person) {
@@ -240,7 +249,9 @@ export class Community {
     }[];
     return rows.map((n) => ({
       ...n,
-      constraints: JSON.parse(n.constraints) as Constraints,
+      // The poster's own view uses the same projection: a malformed old row can't crash it.
+      constraints: projectNeedConstraints(n.constraints).constraints,
+      constraints_unreadable: projectNeedConstraints(n.constraints).unreadable,
       expired: n.expires_at < new Date().toISOString(),
       responses: this.db
         .prepare(

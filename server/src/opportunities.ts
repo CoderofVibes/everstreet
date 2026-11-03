@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 import type { Community } from "./community.ts";
 import type { Db } from "./db.ts";
+import { projectNeedConstraints } from "./needConstraints.ts";
 import { FOUNDATIONS, type Foundation, LIMITS, type Products } from "./products.ts";
 import { HttpError, type Person, type Store, terms } from "./store.ts";
 
@@ -96,9 +97,12 @@ export function classifyNeed(text: string) {
 
 const KEY = /^[A-Za-z0-9_-]{8,80}$/;
 
-function bad(message: string, status: 400 | 404 | 409 = 400): never {
-  throw new HttpError(status, message);
+function bad(message: string, status: 400 | 404 | 409 = 400, code?: RefusalCode): never {
+  throw new HttpError(status, message, code);
 }
+
+/** Stable reasons the review step acts on (job 005a1); messages are for people only. */
+export type RefusalCode = "request_removed" | "request_closed" | "request_expired" | "key_reused";
 
 function field(value: unknown, max: number, what: string, multiline = false): string {
   if (value === undefined || value === null) return "";
@@ -186,7 +190,7 @@ export class Opportunities {
   /** One open request, for the review step. Closed, expired and removed requests aren't served. */
   one(viewer: Person | null, needId: string) {
     const n = this.community.openNeeds().find((x) => x.id === needId);
-    if (!n) throw new HttpError(404, "This request is no longer open");
+    if (!n) throw new HttpError(404, "This request is no longer open", "request_unavailable");
     return this.decorate(n, this.businessWords(viewer));
   }
 
@@ -216,7 +220,11 @@ export class Opportunities {
         .get(viewer.id, key) as { request_hash: string; project_id: string } | undefined;
       if (!r) return null;
       if (r.request_hash !== requestHash)
-        bad("This request key was already used for a different project. Nothing was created.", 409);
+        bad(
+          "This request key was already used for a different project. Nothing was created.",
+          409,
+          "key_reused",
+        );
       return r.project_id;
     };
     // A replay answers with the project only while the viewer controls its business: after a
@@ -234,11 +242,22 @@ export class Opportunities {
       const need = this.db.prepare("SELECT * FROM needs WHERE id = ?").get(needId) as
         | NeedRow
         | undefined;
-      if (!need) bad("This request is no longer available. Nothing was created.", 404);
+      if (!need)
+        bad("This request is no longer available. Nothing was created.", 404, "request_removed");
       if (need.status !== "open")
-        bad("The person who posted this request has closed it. Nothing was created.", 409);
+        bad(
+          "The person who posted this request has closed it. Nothing was created.",
+          409,
+          "request_closed",
+        );
       if (need.expires_at <= new Date().toISOString())
-        bad("This request expired before the project was created. Nothing was created.", 409);
+        bad(
+          "This request expired before the project was created. Nothing was created.",
+          409,
+          "request_expired",
+        );
+      // Only the allowed, well-formed constraints are kept (job 005a1), whatever the row holds.
+      const c = projectNeedConstraints(need.constraints);
       const bid =
         businessId ??
         this.store.insertBusiness(viewer, "idea", name || undefined, "software").businessId;
@@ -253,14 +272,15 @@ export class Opportunities {
       const t = new Date().toISOString();
       this.db
         .prepare(
-          "INSERT INTO project_sources (project_id, need_id, need_text, constraints, allow_replies, need_created_at, need_expires_at, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO project_sources (project_id, need_id, need_text, constraints, constraints_unreadable, allow_replies, need_created_at, need_expires_at, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .run(
           id,
           need.id,
-          need.text,
-          need.constraints,
-          need.allow_replies,
+          need.text.slice(0, 600),
+          JSON.stringify(c.constraints),
+          JSON.stringify(c.unreadable),
+          need.allow_replies === 1 ? 1 : 0,
           need.created_at,
           need.expires_at,
           t,
