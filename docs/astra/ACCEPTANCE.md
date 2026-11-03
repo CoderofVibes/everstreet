@@ -126,6 +126,10 @@ November3 observation review at e47e289: independent401-test app check and web b
 and acceptance of changed owner with equal control_seq;003h1 corrects both before reconciliation.
 No live transport or ownership integration acceptance is implied by the existing fixture tests.
 
+November3 at ed36b95:003h1's48 observation tests pass in an independent full run; source review
+supports003i adapter work, not live acceptance. Optional period evidence is now separate with
+its own provenance. Existing003h rows still need the requested format migration.
+
 ## M4: bring an existing product
 
 Connect authorized source and deployment metadata; identify framework, services, ownership
@@ -147,6 +151,10 @@ November3:004a2 browser repeat now clears private import state after ownership l
 details save, dependency save and report read. Missing report with valid access preserves drafts.
 004a3 remains for a failed access recheck leaving progress indefinitely. Full M4 stays open.
 
+November3:004a3 browser details404/recheck503 now settles with access-unconfirmed notice, keeps
+new typing and disables mutations until explicit successful access check. Other action paths
+are controller-tested; full browser matrix remains partial.
+
 ## M5: a useful marketplace and operating network
 
 - Clients post needs with budget/constraints and control contact; founders can respond.
@@ -163,6 +171,12 @@ not proof that the redesigned integrated experience meets these gates.
 
 005a is opened for digital discovery and a consent-preserving request-to-studio bridge, with
 private editable projects, provenance and exact retry. This is planned work, not a passed gate.
+
+November3 at ed36b95:005a browser happy path creates/reopens a private studio project with source
+context; committed-but-lost reply recovers once (2 projects total for2 intended creations,
+0 responses).1440/1280/390 review page containment passes.005a1 must preserve recovery after
+typing and strictly bound request constraints; API reproduction copied arbitrary extra fields.
+Independent full check467/468 with intermittent flood-test timeout;002a2 required. NoM5 claim.
 
 ## M6: expanded capability and continuity
 
