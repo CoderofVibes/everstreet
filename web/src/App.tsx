@@ -16,6 +16,7 @@ import { Explore } from "./pages/Explore.tsx";
 import { Find } from "./pages/Find.tsx";
 import { Helping } from "./pages/Helping.tsx";
 import { Home } from "./pages/Home.tsx";
+import { ImportHome, ImportWorkspace } from "./pages/Import.tsx";
 import { Inbox } from "./pages/Inbox.tsx";
 import { Person } from "./pages/Person.tsx";
 import { ProductStudio } from "./pages/ProductStudio.tsx";
@@ -161,6 +162,13 @@ function Routes() {
   if (path === "/") return <Home />;
   if (path === "/start") return <Start />;
   if (path === "/build") return <BuildHome />;
+  if (path === "/import") return <ImportHome key={person?.id ?? "anon"} />;
+  const imported = match("/import/:id", path);
+  // Keyed by who is acting, like the studio: switching people clears the private workspace.
+  if (imported)
+    return (
+      <ImportWorkspace key={`${person?.id ?? "anon"}:${imported.id}`} id={imported.id as string} />
+    );
   const product = match("/build/:id", path);
   // Keyed by who is acting: switching people unmounts the studio at once, clearing its private
   // state, and any response still in flight for the previous person lands nowhere.

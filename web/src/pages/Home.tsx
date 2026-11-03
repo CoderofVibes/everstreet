@@ -140,8 +140,8 @@ export function Home() {
     {
       icon: "upload",
       title: "Bring a product",
-      text: "Give something you already run a page and an offer. Connecting its code comes later.",
-      to: "/start",
+      text: "Inspect its package.json and see what handing it over would take. Connecting accounts comes later.",
+      to: "/import",
     },
     {
       icon: "handshake",

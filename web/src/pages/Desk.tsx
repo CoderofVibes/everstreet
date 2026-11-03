@@ -11,6 +11,7 @@ import { FAMILY_LABEL, OfferCard, STAGE_LABEL } from "../ui.tsx";
 import { DealsList } from "./Deal.tsx";
 import { DeskGrowth, DeskShare, DeskTeamIfPaid } from "./DeskGrowth.tsx";
 import { DeskSelling } from "./DeskSale.tsx";
+import { DeskImports } from "./Import.tsx";
 
 function SignInFirst({ reason }: { reason: string }) {
   const { requireSignIn } = useSession();
@@ -321,6 +322,7 @@ export function DeskPage({ id }: { id: string }) {
             )}
           </section>
           <DeskProducts businessId={b.id} />
+          <DeskImports businessId={b.id} />
           <DeskGrowth key={b.id + String(b.published_at)} desk={desk} />
         </div>
         <aside className="studio-side">
