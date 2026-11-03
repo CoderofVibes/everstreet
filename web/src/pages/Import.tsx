@@ -48,7 +48,7 @@ import {
   type Report,
   STATUS_LABEL,
 } from "../importsApi.ts";
-import { type Drafts, WorkspaceController } from "../importWorkspace.ts";
+import { ACCESS_UNCONFIRMED, type Drafts, WorkspaceController } from "../importWorkspace.ts";
 import { ago } from "../productsApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
@@ -492,6 +492,8 @@ export function ImportWorkspace({ id }: { id: string }) {
     );
   const view = s.view;
   const { drafts, manifest, attempt, snapshot } = s;
+  // While access is unconfirmed (004a3) input stays editable but nothing can be sent.
+  const locked = s.access !== "current";
   const w = view.workspace;
   const unsavedDeps = Object.keys(drafts.deps).length;
   const tabs: { id: Tab; label: string; note?: string }[] = [
@@ -529,6 +531,21 @@ export function ImportWorkspace({ id }: { id: string }) {
         <br />
         Next: {view.report.live.next_action.text}
       </p>
+      {s.access !== "current" && (
+        <div className="notice error" role="alert" style={{ maxWidth: 900 }}>
+          <strong>Access not confirmed.</strong> {ACCESS_UNCONFIRMED}
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={s.access === "checking"}
+              onClick={() => void c.checkAccess()}
+            >
+              {s.access === "checking" ? "Checking access…" : "Check access"}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="tabs" role="tablist" aria-label="Import sections">
         {tabs.map((t) => (
           <button
@@ -584,12 +601,14 @@ export function ImportWorkspace({ id }: { id: string }) {
             onClear={c.clearManifest}
             attempt={attempt}
             onInspect={(recover) => void c.inspect(recover)}
+            locked={locked}
           />
         )}
         {tab === "dependencies" && (
           <Dependencies
             view={view}
             drafts={drafts}
+            locked={locked}
             onEdit={c.editDep}
             onRebase={c.rebaseDep}
             onDiscard={c.discardDep}
@@ -597,7 +616,12 @@ export function ImportWorkspace({ id }: { id: string }) {
           />
         )}
         {tab === "readiness" && (
-          <Readiness view={view} snapshot={snapshot} onChoose={(n) => void c.chooseReport(n)} />
+          <Readiness
+            view={view}
+            snapshot={snapshot}
+            onChoose={(n) => void c.chooseReport(n)}
+            locked={locked}
+          />
         )}
       </div>
     </div>
@@ -617,7 +641,9 @@ function Overview({
   onClear,
   attempt,
   onInspect,
+  locked,
 }: {
+  locked: boolean;
   view: ImportView;
   drafts: Drafts;
   onDetails: (d: DetailsDraft) => void;
@@ -669,7 +695,7 @@ function Overview({
             >
               <strong>
                 {attempt.state === "unknown"
-                  ? "An inspection got no answer."
+                  ? "That inspection isn't confirmed."
                   : "That file wasn't inspected."}
               </strong>{" "}
               {attempt.message}
@@ -678,6 +704,7 @@ function Overview({
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm"
+                    disabled={locked}
                     onClick={() => onInspect(true)}
                   >
                     Check on that inspection (sends the same request)
@@ -693,7 +720,9 @@ function Overview({
           <button
             type="button"
             className="btn btn-primary"
-            disabled={!manifest.value || manifest.reading || Boolean(manifest.error) || sending}
+            disabled={
+              !manifest.value || manifest.reading || Boolean(manifest.error) || sending || locked
+            }
             onClick={() => onInspect(false)}
           >
             {sending ? "Inspecting…" : "Inspect"}
@@ -750,7 +779,7 @@ function Overview({
             <button
               type="button"
               className="btn btn-secondary"
-              disabled={!drafts.details || !d.name.trim() || status?.state === "saving"}
+              disabled={!drafts.details || !d.name.trim() || status?.state === "saving" || locked}
               onClick={onSaveDetails}
             >
               {status?.state === "saving" ? "Saving…" : "Save details"}
@@ -867,7 +896,9 @@ function Dependencies({
   onRebase,
   onDiscard,
   onSave,
+  locked,
 }: {
+  locked: boolean;
   view: ImportView;
   drafts: Drafts;
   onEdit: (c: Category, d: DepDraft) => void;
@@ -895,6 +926,7 @@ function Dependencies({
             draft={depShown(view, i.category, drafts.deps[i.category])}
             unsaved={Boolean(drafts.deps[i.category])}
             rowStatus={drafts.depStatus[i.category] ?? null}
+            locked={locked}
             onEdit={(d) => onEdit(i.category, d)}
             onRebase={() => onRebase(i.category)}
             onDiscard={() => onDiscard(i.category)}
@@ -913,11 +945,13 @@ function DependencyRow({
   draft,
   unsaved,
   rowStatus: rs,
+  locked,
   onEdit,
   onRebase,
   onDiscard,
   onSave,
 }: {
+  locked: boolean;
   entry: ImportView["inventory"][number];
   status: ItemStatus;
   detected: Detection[];
@@ -997,7 +1031,7 @@ function DependencyRow({
         <button
           type="button"
           className="btn btn-secondary btn-sm"
-          disabled={!unsaved || saving || (draft.uses === "yes" && !draft.note.trim())}
+          disabled={!unsaved || saving || locked || (draft.uses === "yes" && !draft.note.trim())}
           onClick={onSave}
         >
           {saving ? "Saving…" : "Save"}
@@ -1021,10 +1055,12 @@ function Readiness({
   view,
   snapshot,
   onChoose,
+  locked,
 }: {
   view: ImportView;
   snapshot: Snapshot;
   onChoose: (n: number | null) => void;
+  locked: boolean;
 }) {
   const shown: { title: string; report: Report } | null =
     snapshot.selected === null
@@ -1098,6 +1134,7 @@ function Readiness({
                 type="button"
                 className="btn btn-sm btn-quiet"
                 aria-pressed={snapshot.selected === h.number}
+                disabled={locked}
                 onClick={() => onChoose(h.number)}
               >
                 Report {h.number}

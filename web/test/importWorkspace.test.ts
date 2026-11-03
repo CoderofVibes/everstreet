@@ -364,7 +364,7 @@ describe("004a2 while access stays valid, 004a1's behavior holds", () => {
     expect(s.drafts.depStatus.hosting).toEqual({ state: "refused", message: "No such item" });
   });
 
-  it("leaving the page retires everything in flight", async () => {
+  it("leaving the page retires everything in flight (004a2)", async () => {
     const { api, c } = await opened();
     draftEverything(c);
     const saving = c.saveDetails();
@@ -373,5 +373,177 @@ describe("004a2 while access stays valid, 004a1's behavior holds", () => {
     await saving;
     expect(c.getState().drafts.detailsStatus).toEqual({ state: "saving" });
     expect(c.getState().view?.workspace.version).toBe(1);
+  });
+});
+
+// ---------- 004a3: the access recheck itself fails ----------
+
+const outage = () => new ApiError(503, "Service unavailable");
+const offline = () => new TypeError("Failed to fetch");
+
+type Action = "details" | "dep" | "inspect" | "report";
+const SENDS: Record<Action, string> = {
+  details: "update",
+  dep: "declare",
+  inspect: "inspect",
+  report: "report",
+};
+
+/** Starts one action with everything drafted, refuses it with 404 and fails its recheck. */
+async function refusedThenUnchecked(action: Action, recheck: () => unknown) {
+  const { api, c } = await opened();
+  draftEverything(c);
+  const run =
+    action === "details"
+      ? c.saveDetails()
+      : action === "dep"
+        ? c.saveDep("source_ownership")
+        : action === "inspect"
+          ? c.inspect(false)
+          : c.chooseReport(1);
+  const sent = api.take(SENDS[action]);
+  sent.fail(new ApiError(404, "No such import"));
+  await settle();
+  api.take("get").fail(recheck());
+  await run;
+  return { api, c, sent };
+}
+
+/** Nothing shows as still in progress once every request has settled. */
+function expectSettled(c: WorkspaceController) {
+  const s = c.getState();
+  expect(s.drafts.detailsStatus?.state).not.toBe("saving");
+  for (const st of Object.values(s.drafts.depStatus)) expect(st?.state).not.toBe("saving");
+  expect(s.attempt?.state).not.toBe("sending");
+  expect(s.snapshot).not.toMatchObject({ state: "loading" });
+}
+
+/** The page keeps its view and input, says access is unconfirmed, and claims neither outcome. */
+function expectUnconfirmed(c: WorkspaceController) {
+  const s = c.getState();
+  expect(s.status).toBe("ready");
+  expect(s.access).toBe("unconfirmed");
+  expect(s.message).not.toBe(ACCESS_ENDED);
+  expect(s.view).not.toBeNull();
+  expect(s.drafts.details?.name).toBe("Ledgerline draft");
+  expect(s.drafts.deps.source_ownership?.note).toBe("Mara owns the source organization");
+  expect(s.manifest.value?.content).toBe('{"name":"typed"}');
+  expect(s.drafts.detailsStatus?.state).not.toBe("saved");
+  expect(s.drafts.depStatus.source_ownership?.state ?? null).not.toBe("saved");
+}
+
+describe("004a3 a refused action whose access recheck can't finish", () => {
+  for (const action of ["details", "dep", "inspect", "report"] as const)
+    for (const [label, recheck] of [
+      ["503", outage],
+      ["network failure", offline],
+    ] as const)
+      it(`${action}: 404, then the recheck fails (${label}): settled, input kept, access unconfirmed`, async () => {
+        const { api, c } = await refusedThenUnchecked(action, recheck);
+        expectSettled(c);
+        expectUnconfirmed(c);
+        const s = c.getState();
+        if (action === "details")
+          expect(s.drafts.detailsStatus).toMatchObject({ state: "refused" });
+        if (action === "dep")
+          expect(s.drafts.depStatus.source_ownership).toMatchObject({ state: "refused" });
+        if (action === "inspect") expect(s.attempt?.state).toBe("unknown");
+        if (action === "report") expect(s.snapshot).toMatchObject({ selected: 1, state: "error" });
+        // Nothing can race the unresolved check: no write, inspection or report goes out.
+        await c.saveDetails();
+        await c.saveDep("source_ownership");
+        await c.inspect(false);
+        await c.inspect(true);
+        await c.chooseReport(2);
+        expect(api.pending).toEqual([]);
+      });
+
+  it("an explicit check that succeeds restores actions; the inspection is resent with its original key", async () => {
+    const { api, c, sent } = await refusedThenUnchecked("inspect", outage);
+    const checking = c.checkAccess();
+    expect(c.getState().access).toBe("checking");
+    await c.checkAccess(); // a second click while checking sends nothing more
+    expect(api.count("get")).toBe(1);
+    api.take("get").ok(view({}));
+    await checking;
+    expect(c.getState().access).toBe("current");
+    expect(c.getState().drafts.details?.name).toBe("Ledgerline draft");
+    const again = c.inspect(true);
+    const resent = api.take("inspect");
+    expect((resent.args[1] as { idempotency_key: string }).idempotency_key).toBe(
+      (sent.args[1] as { idempotency_key: string }).idempotency_key,
+    );
+    resent.ok(view({ inspections: 1 }));
+    await again;
+    expect(c.getState().attempt).toBeNull();
+    const saving = c.saveDetails();
+    expect(api.count("update")).toBe(1);
+    api.take("update").ok(view({ version: 2, name: "Ledgerline draft", inspections: 1 }));
+    await saving;
+    expect(c.getState().drafts.detailsStatus).toEqual({ state: "saved" });
+  });
+
+  it("an explicit check that fails again leaves a usable check button, not a spinner", async () => {
+    const { api, c } = await refusedThenUnchecked("details", outage);
+    const checking = c.checkAccess();
+    api.take("get").fail(offline());
+    await checking;
+    expectUnconfirmed(c);
+    const second = c.checkAccess();
+    expect(api.count("get")).toBe(1);
+    api.take("get").fail(gone()); // now access really has ended
+    await second;
+    expectNothingPrivate(c);
+  });
+
+  it("a check that finds a new control epoch drops drafts and retires older requests", async () => {
+    const { api, c } = await refusedThenUnchecked("dep", outage);
+    const late = c.load(); // a read issued before the check
+    const checking = c.checkAccess();
+    const [lateCall, checkCall] = [api.take("get"), api.take("get")];
+    checkCall.ok(view({ epoch: "noah:1", name: "Noah's name" }));
+    await checking;
+    const s = c.getState();
+    expect(s.access).toBe("current");
+    expect(s.view?.workspace.owner_epoch).toBe("noah:1");
+    expect(s.drafts).toEqual({ details: null, detailsStatus: null, deps: {}, depStatus: {} });
+    expect(s.manifest.value).toBeNull();
+    lateCall.ok(view({ epoch: "mara:0", name: "Old owner's data" }));
+    await late;
+    expect(c.getState().view?.workspace.name).toBe("Noah's name");
+  });
+
+  it("answers that started before the doubt, or name an older epoch, never confirm access", async () => {
+    const { api, c } = await opened();
+    draftEverything(c);
+    const before = c.load(); // in flight before the refusal
+    const saving = c.saveDetails();
+    api.take("update").fail(new ApiError(404, "No such import"));
+    await settle();
+    const [beforeCall, recheckCall] = [api.take("get"), api.take("get")];
+    recheckCall.fail(outage());
+    await saving;
+    expect(c.getState().access).toBe("unconfirmed");
+    beforeCall.ok(view({}));
+    await before;
+    expect(c.getState().access).toBe("unconfirmed"); // it was asked before the doubt arose
+    // A fresh read that moves to a newer epoch confirms access to it.
+    const loading = c.load();
+    api.take("get").ok(view({ epoch: "mara:2" }));
+    await loading;
+    expect(c.getState().access).toBe("current");
+    c.editDetails({ name: "Typed after", description: "", product_kind: "saas", base: 1 });
+    const save2 = c.saveDetails();
+    api.take("update").fail(new ApiError(404, "No such import"));
+    await settle();
+    api.take("get").fail(outage());
+    await save2;
+    // The check answers with an older generation (a stale replica): still unconfirmed, no spinner.
+    const stale = c.checkAccess();
+    api.take("get").ok(view({ epoch: "mara:0", name: "Old owner's data" }));
+    await stale;
+    expect(c.getState().access).toBe("unconfirmed");
+    expect(c.getState().view?.workspace.owner_epoch).toBe("mara:2");
+    expect(c.getState().drafts.details?.name).toBe("Typed after");
   });
 });

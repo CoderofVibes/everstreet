@@ -15,6 +15,13 @@
 // epoch is accepted only from an explicit, current read, never from an answer that was already
 // in flight. An older generation never replaces a newer one. A newer one, even with the same
 // person owning again (away and back), drops every draft.
+//
+// Unconfirmed access (job 004a3). If that guarded read itself fails (an outage, no network),
+// neither "still yours" nor "access ended" is known. The action that asked settles at once with a
+// plain "not saved / not loaded" status; nothing is shown as still in progress. The page keeps
+// the view and every draft, marks access as unconfirmed, and refuses new requests until the
+// person checks access explicitly (no automatic retry). Only a read issued after the doubt arose
+// can confirm access; a read already in flight, or one naming an older generation, can't.
 
 import { ApiError } from "./api.ts";
 import {
@@ -59,10 +66,17 @@ export interface Drafts {
   depStatus: Partial<Record<Category, RowStatus>>;
 }
 
+/**
+ * Whether the view shown is known to still be this person's. "unconfirmed": a recheck couldn't
+ * finish; "checking": the person asked to check again and the answer hasn't arrived.
+ */
+export type Access = "current" | "unconfirmed" | "checking";
+
 export interface WorkspaceState {
   /** "ready" with a view; "unavailable" once access is observed to have ended. */
   status: "loading" | "ready" | "unavailable" | "error";
   message: string | null;
+  access: Access;
   view: ImportView | null;
   drafts: Drafts;
   manifest: ManifestDraft;
@@ -75,6 +89,7 @@ const noDrafts = (): Drafts => ({ details: null, detailsStatus: null, deps: {}, 
 const blank = (status: WorkspaceState["status"], message: string | null): WorkspaceState => ({
   status,
   message,
+  access: "current",
   view: null,
   drafts: noDrafts(),
   manifest: emptyManifest(),
@@ -97,6 +112,19 @@ const failure = (e: unknown): Extract<Outcome, { ok: false }> => ({
 export const ACCESS_ENDED =
   "This import is no longer available to you. If the business changed hands, it now belongs to its new owner. Nothing private from it is kept on this page.";
 
+export const ACCESS_UNCONFIRMED =
+  "We couldn't check whether this import is still yours. What's shown may be out of date, and nothing can be saved, inspected or opened until access is checked. Your unsaved text is still here.";
+
+/** The settled status of a save refused with 404 whose access recheck couldn't finish. */
+export const NOT_SAVED_UNCONFIRMED =
+  "Not saved. The server didn't find this import for you, and checking your access didn't finish. Your text is still here.";
+
+const INSPECT_UNCONFIRMED =
+  "The server didn't find this import for you, and checking your access didn't finish. Once access is checked, checking on the inspection sends this same request with the same file; it is never inspected twice.";
+
+/** What the guarded read after a 404 found. */
+type Recheck = "current" | "ended" | "retired" | "unavailable";
+
 export class WorkspaceController {
   private state: WorkspaceState = blank("loading", null);
   private listeners = new Set<() => void>();
@@ -104,6 +132,10 @@ export class WorkspaceController {
   private scope = 0;
   /** The control generation of the view shown (−1 before the first). */
   private generation = -1;
+  /** Workspace reads issued so far; each read takes the next number. */
+  private reads = 0;
+  /** While access is unconfirmed: the reads issued before the doubt, which can't clear it. */
+  private doubtAfter: number | null = null;
 
   constructor(
     private readonly id: string,
@@ -141,7 +173,26 @@ export class WorkspaceController {
     if (!this.live(scope)) return;
     this.scope++;
     this.generation = -1;
+    this.doubtAfter = null;
     this.set(() => blank("unavailable", ACCESS_ENDED));
+  }
+
+  /** A recheck couldn't finish: access is unconfirmed until a later read confirms it. */
+  private doubt() {
+    this.doubtAfter = this.reads;
+    this.set((s) => ({ ...s, access: "unconfirmed" }));
+  }
+
+  /** A successful, applied read: it confirms access if it was issued after the doubt arose. */
+  private confirm(read: number) {
+    if (this.doubtAfter === null || read <= this.doubtAfter) return;
+    this.doubtAfter = null;
+    this.set((s) => ({ ...s, access: "current" }));
+  }
+
+  /** No new request may go out while access is unconfirmed or being checked. */
+  private get blocked() {
+    return this.state.access !== "current";
   }
 
   /** A new control epoch: retire what was in flight and drop drafts, keep nothing older. */
@@ -162,10 +213,11 @@ export class WorkspaceController {
    */
   load = async (): Promise<ImportView | null | undefined> => {
     const scope = this.scope;
+    const read = ++this.reads;
     try {
       const v = await this.api.get(this.id);
       if (!this.live(scope)) return undefined;
-      this.applyRead(v);
+      if (this.applyRead(v)) this.confirm(read);
       return v;
     } catch (e) {
       if (!this.live(scope)) return undefined;
@@ -182,19 +234,25 @@ export class WorkspaceController {
     }
   };
 
-  private applyRead(v: ImportView) {
-    if (v.workspace.id !== this.id) return;
+  /**
+   * Applies an authoritative read. False if it was for another workspace or named an older
+   * generation than the one shown: such an answer is no evidence about current access.
+   */
+  private applyRead(v: ImportView): boolean {
+    if (v.workspace.id !== this.id) return false;
     const g = epochGeneration(v.workspace.owner_epoch);
-    if (this.generation >= 0 && g < this.generation) return; // an older epoch never wins
+    if (this.generation >= 0 && g < this.generation) return false; // an older epoch never wins
     if (this.generation >= 0 && g > this.generation) this.resetForEpoch();
     const changedEpoch =
       this.state.view && this.state.view.workspace.owner_epoch !== v.workspace.owner_epoch;
     this.generation = g;
     const current = changedEpoch ? null : this.state.view;
     // Within one epoch an authoritative read older than what is shown (it started before a write
-    // and finished after it) is ignored; otherwise it is the current state.
-    if (reconcile(current, v) === "ignore") return;
+    // and finished after it) is ignored; otherwise it is the current state. Either way the
+    // workspace was readable at this epoch.
+    if (reconcile(current, v) === "ignore") return true;
     this.set((s) => ({ ...s, status: "ready", message: null, view: v }));
+    return true;
   }
 
   /** A write's answer: shown only within the same epoch; anything else asks for a fresh read. */
@@ -211,22 +269,50 @@ export class WorkspaceController {
 
   /**
    * After a 404 from a write or a saved-report read: is the workspace still ours? Asks with a
-   * guarded read. True if it is (the 404 was about something else), false if access ended or the
-   * scope was retired meanwhile.
+   * guarded read.
+   * - "current": it is (the 404 was about something else); the caller reports its refusal.
+   * - "ended": access ended; everything private is already cleared.
+   * - "retired": the caller's scope was retired meanwhile (leaving, or a new control epoch, which
+   *   already dropped its drafts and statuses); the caller does nothing more.
+   * - "unavailable": the read failed otherwise; access is now unconfirmed and the caller settles
+   *   its own status as not done.
    */
-  private async stillMine(scope: number): Promise<boolean> {
+  private async recheck(scope: number): Promise<Recheck> {
+    const read = ++this.reads;
     try {
       const v = await this.api.get(this.id);
-      if (!this.live(scope)) return false;
-      this.applyRead(v);
+      if (!this.live(scope)) return "retired";
+      if (!this.applyRead(v)) {
+        this.doubt();
+        return "unavailable";
+      }
+      this.confirm(read);
       // Still ours, unless that read moved to another control epoch (which retires this scope).
-      return this.live(scope);
+      return this.live(scope) ? "current" : "retired";
     } catch (e) {
-      if (!this.live(scope)) return false;
-      if (e instanceof ApiError && e.status === 404) this.lost(scope);
-      return false;
+      if (!this.live(scope)) return "retired";
+      if (e instanceof ApiError && e.status === 404) {
+        this.lost(scope);
+        return "ended";
+      }
+      this.doubt();
+      return "unavailable";
     }
   }
+
+  /**
+   * The person's explicit "Check access": one guarded read. Confirms access (or moves to a new
+   * epoch, dropping drafts), clears everything on 404, or leaves access unconfirmed.
+   */
+  checkAccess = async () => {
+    if (this.state.access !== "unconfirmed" || !this.state.view) return;
+    const scope = this.scope;
+    this.set((s) => ({ ...s, access: "checking" }));
+    await this.recheck(scope);
+    // A failed or unconvincing answer leaves the check button usable, never a spinner.
+    const after: Access = this.getState().access; // read again: the await changed it
+    if (after === "checking") this.set((s) => ({ ...s, access: "unconfirmed" }));
+  };
 
   // ---------- product details ----------
 
@@ -258,7 +344,7 @@ export class WorkspaceController {
   saveDetails = async () => {
     const { view, drafts } = this.state;
     const d = drafts.details;
-    if (!view || !d || drafts.detailsStatus?.state === "saving") return;
+    if (!view || !d || drafts.detailsStatus?.state === "saving" || this.blocked) return;
     const scope = this.scope;
     this.set((s) => ({ ...s, drafts: { ...s.drafts, detailsStatus: { state: "saving" } } }));
     try {
@@ -282,7 +368,18 @@ export class WorkspaceController {
     } catch (e) {
       if (!this.live(scope)) return;
       const o = failure(e);
-      if (o.status === 404 && !(await this.stillMine(scope))) return;
+      const access = o.status === 404 ? await this.recheck(scope) : "current";
+      if (access === "ended" || access === "retired") return;
+      if (access === "unavailable") {
+        this.set((s) => ({
+          ...s,
+          drafts: {
+            ...s.drafts,
+            detailsStatus: { state: "refused", message: NOT_SAVED_UNCONFIRMED },
+          },
+        }));
+        return;
+      }
       const now = o.status === 409 || o.status === 0 ? await this.load() : null;
       if (!this.live(scope)) return;
       this.set((s) => {
@@ -336,7 +433,7 @@ export class WorkspaceController {
   saveDep = async (c: Category) => {
     const { view, drafts } = this.state;
     const d = drafts.deps[c];
-    if (!view || !d || drafts.depStatus[c]?.state === "saving") return;
+    if (!view || !d || drafts.depStatus[c]?.state === "saving" || this.blocked) return;
     const scope = this.scope;
     this.set((s) => this.putDep(s, c, s.drafts.deps[c] ?? null, { state: "saving" }));
     try {
@@ -354,7 +451,17 @@ export class WorkspaceController {
     } catch (e) {
       if (!this.live(scope)) return;
       const o = failure(e);
-      if (o.status === 404 && !(await this.stillMine(scope))) return;
+      const access = o.status === 404 ? await this.recheck(scope) : "current";
+      if (access === "ended" || access === "retired") return;
+      if (access === "unavailable") {
+        this.set((s) =>
+          this.putDep(s, c, s.drafts.deps[c] ?? null, {
+            state: "refused",
+            message: NOT_SAVED_UNCONFIRMED,
+          }),
+        );
+        return;
+      }
       const now = o.status === 409 || o.status === 0 ? await this.load() : null;
       if (!this.live(scope)) return;
       this.set((s) => {
@@ -397,7 +504,7 @@ export class WorkspaceController {
   // ---------- inspections ----------
 
   inspect = async (recover: boolean) => {
-    if (!this.state.view) return;
+    if (!this.state.view || this.blocked) return;
     const a = recover
       ? recoverInspect(this.state.attempt)
       : startInspect(this.state.manifest, this.state.attempt, this.mint);
@@ -413,7 +520,16 @@ export class WorkspaceController {
     } catch (e) {
       if (!this.live(scope)) return;
       outcome = failure(e);
-      if (outcome.status === 404 && !(await this.stillMine(scope))) return;
+      const access = outcome.status === 404 ? await this.recheck(scope) : "current";
+      if (access === "ended" || access === "retired") return;
+      if (access === "unavailable") {
+        // Kept as an unanswered attempt so recovery resends the same key and file.
+        this.set((s) => ({
+          ...s,
+          attempt: { ...a, state: "unknown", message: INSPECT_UNCONFIRMED },
+        }));
+        return;
+      }
     }
     if (!this.live(scope)) return;
     this.set((s) => {
@@ -425,6 +541,7 @@ export class WorkspaceController {
   // ---------- saved reports ----------
 
   chooseReport = async (n: number | null) => {
+    if (n !== null && this.blocked) return;
     this.set((s) => ({ ...s, snapshot: select(n) }));
     if (n === null || !this.state.view) return;
     const scope = this.scope;
@@ -435,10 +552,15 @@ export class WorkspaceController {
       if (!this.live(scope)) return;
       const o = failure(e);
       // A missing report and an ended access are both 404: the workspace read tells them apart.
-      if (o.status === 404 && !(await this.stillMine(scope))) return;
+      const access = o.status === 404 ? await this.recheck(scope) : "current";
+      if (access === "ended" || access === "retired") return;
       if (!this.live(scope)) return;
       const message =
-        o.status === 404 ? `Report ${n} doesn't exist.` : o.message || "It couldn't be loaded.";
+        access === "unavailable"
+          ? "the server didn't find it for you, and checking your access didn't finish."
+          : o.status === 404
+            ? `Report ${n} doesn't exist.`
+            : o.message || "It couldn't be loaded.";
       this.set((s) => ({ ...s, snapshot: snapshotLoaded(s.snapshot, n, { error: message }) }));
     }
   };
