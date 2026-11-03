@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-03 | [Import and sale review](2026-11-03_ImportAndSaleReview.md) | Independent361-test check,38-test v3 run, import browser review;004a1 corrections and003g sale core | Active; see local checkpoint |
 | 2026-11-03 | [Resume development](2026-11-03_Resume.md) | Tony resumes; explicit Opus 5.5/high builder, finish003e1 then004a | Active; see local checkpoint |
 | 2026-11-02 | [Pause until tomorrow](2026-11-02_Pause.md) | Tony requests a break; builder stopped, hourly schedule paused, unfinished003e1 preserved | Historical; resumed November 3 |
 | 2026-11-02 | [Core review and import path](2026-11-02_CoreReview.md) | Independent financial/recovery repeat, entitlement core review,002c3/003f2/003e1 corrections and004a existing-product intake | Active; see BUILD_STATE.md |
