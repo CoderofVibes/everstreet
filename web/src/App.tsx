@@ -18,6 +18,7 @@ import { Helping } from "./pages/Helping.tsx";
 import { Home } from "./pages/Home.tsx";
 import { ImportHome, ImportWorkspace } from "./pages/Import.tsx";
 import { Inbox } from "./pages/Inbox.tsx";
+import { Opportunities, OpportunityReview } from "./pages/Opportunities.tsx";
 import { Person } from "./pages/Person.tsx";
 import { ProductStudio } from "./pages/ProductStudio.tsx";
 import { Profile } from "./pages/Profile.tsx";
@@ -195,6 +196,13 @@ function Routes() {
   const profile = match("/p/:id", path);
   if (profile) return <Person id={profile.id as string} />;
   if (path === "/find") return <Find />;
+  if (path === "/opportunities") return <Opportunities />;
+  const review = match("/opportunities/:id/build", path);
+  // Keyed by who is acting and which request: another person starts a fresh review.
+  if (review)
+    return (
+      <OpportunityReview key={`${person?.id ?? "anon"}:${review.id}`} id={review.id as string} />
+    );
   const deal = match("/deal/:id", path);
   if (deal) return <DealPage id={deal.id as string} />;
   if (path === "/acquire") return <Acquire />;
@@ -247,6 +255,7 @@ export function App() {
           <Nav to="/activity" label="My activity" icon="activity" />
           <div className="rail-label">Discover</div>
           <Nav to="/explore" label="Explore" icon="compass" />
+          <Nav to="/opportunities" label="Opportunities" icon="spark" />
           <Nav to="/find" label="Find a solution" icon="search" />
           <Nav to="/acquire" label="Acquisitions" icon="handshake" />
           <div className="rail-foot">Build it, run it, hand it over intact.</div>

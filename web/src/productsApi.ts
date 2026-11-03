@@ -2,6 +2,7 @@
 // build availability. Mirrors server/src/products.ts.
 
 import { ApiError } from "./api.ts";
+import type { ProjectSource } from "./opportunitiesApi.ts";
 
 export type Foundation = "ai_api" | "saas_workflow" | "agent_service" | "client_portal";
 export type PriceModel = "per_use" | "monthly" | "one_time" | "free" | "undecided";
@@ -90,6 +91,8 @@ export interface StudioView {
   };
   build: BuildAvailability;
   created?: boolean;
+  /** Job 005a: the publicly shared request that inspired the project, if any. */
+  source?: ProjectSource | null;
 }
 
 export interface FoundationInfo {

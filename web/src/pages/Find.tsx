@@ -9,11 +9,12 @@ import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, money } from "../ui.tsx";
 import { Tile } from "./Explore.tsx";
 
+// Job 005a: digital-first examples. Classes, services and physical products still work the same.
 const EXAMPLES = [
-  "beginner printmaking class under $40",
-  "receipts for my online shop",
-  "someone to fix my bike",
-  "a left-handed carving kit delivered tomorrow",
+  "an API that turns invoices into JSON under $50",
+  "an AI agent to triage my support email",
+  "a SaaS dashboard for client renewals, online",
+  "a NEAR app to sell digital passes",
 ];
 
 const LABEL: Record<string, string> = {
@@ -168,7 +169,7 @@ export function Find() {
           style={{ flex: 1, fontSize: 18, minHeight: 52 }}
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Say it in your own words, with a budget if you have one"
+          placeholder="Describe the tool, app or service you need, with a price limit if you have one"
           aria-label="What do you need?"
         />
         <button className="btn btn-primary btn-lg" type="submit" disabled={busy}>
@@ -230,10 +231,10 @@ export function Find() {
                   }
                 >
                   <option value="">Any</option>
-                  <option value="class">Class or workshop</option>
+                  <option value="software">Software, AI, API or online service</option>
                   <option value="service">Service</option>
+                  <option value="class">Class or workshop</option>
                   <option value="product">Physical product</option>
-                  <option value="software">Software or API</option>
                 </select>
               </label>
               <label className="field" style={{ margin: 0 }}>
@@ -273,8 +274,8 @@ export function Find() {
               </label>
             </div>
             <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-              We read your words into these. Remove or change any of them. Nobody pays to appear
-              higher, and your search stays private.
+              We read your words into these with a simple word match, not AI. Remove or change any
+              of them. Nobody pays to appear higher, and your search stays private.
             </p>
           </div>
 

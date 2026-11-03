@@ -1,7 +1,7 @@
 // Explore: a street of things starting. Starting now (testing interest), Open for customers,
 // What people need (needs someone chose to publish), and Following.
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { api, type Need, type PublicBusiness, type Update } from "../api.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
@@ -48,7 +48,18 @@ export function Tile({
   );
 }
 
-export function NeedCard({ n, onAnswered }: { n: Need; onAnswered?: () => void }) {
+export function NeedCard({
+  n,
+  onAnswered,
+  children,
+  replyLabel = "I can help with this",
+}: {
+  n: Need;
+  onAnswered?: () => void;
+  /** Extra detail shown above the actions (job 005a: classification, matches, Explore building). */
+  children?: ReactNode;
+  replyLabel?: string;
+}) {
   const { person, requireSignIn } = useSession();
   const [mine, setMine] = useState<{ business_id: string; name: string }[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -84,6 +95,7 @@ export function NeedCard({ n, onAnswered }: { n: Need; onAnswered?: () => void }
       {n.matched && n.matched.length > 0 && (
         <p className="why">Mentions what you offer: {n.matched.join(", ")}</p>
       )}
+      {children}
       {msg ? (
         <p className="notice ok" style={{ margin: 0 }}>
           {msg}
@@ -99,7 +111,7 @@ export function NeedCard({ n, onAnswered }: { n: Need; onAnswered?: () => void }
       ) : !open ? (
         <div>
           <button type="button" className="btn btn-secondary" onClick={start}>
-            I can help with this
+            {replyLabel}
           </button>
         </div>
       ) : mine && mine.length === 0 ? (
@@ -254,6 +266,9 @@ export function Explore() {
               Requests people chose to publish. Who posted them stays private; founders can reply
               when allowed. Private searches never appear here.
             </p>
+            <Link to="/opportunities" className="btn btn-primary">
+              Build for these
+            </Link>
             <Link to="/find" className="btn btn-secondary">
               Post a need
             </Link>

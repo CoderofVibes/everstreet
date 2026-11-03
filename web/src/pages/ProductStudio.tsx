@@ -14,6 +14,7 @@ import {
 } from "react";
 import { ApiError } from "../api.ts";
 import { FOUNDATION_ICON, Icon } from "../icons.tsx";
+import type { ProjectSource } from "../opportunitiesApi.ts";
 import {
   ago,
   type Brief,
@@ -595,6 +596,50 @@ function VersionsView({
         )}
       </div>
     </div>
+  );
+}
+
+const SOURCE_STATE: Record<ProjectSource["state"], string> = {
+  open: "Still open",
+  closed: "Closed by the person who posted it",
+  expired: "Expired",
+  unavailable: "No longer available",
+};
+
+/** Job 005a: where the idea came from. A request is inspiration, not a customer or a contract. */
+function SourcePanel({ source }: { source: ProjectSource }) {
+  const s = source.snapshot;
+  return (
+    <details className="card" style={{ marginBottom: 10, fontSize: 13.5 }}>
+      <summary>
+        <strong>{source.label}</strong>{" "}
+        <span className={source.state === "open" ? "pill lime" : "pill"}>
+          {SOURCE_STATE[source.state]}
+        </span>
+      </summary>
+      <p style={{ margin: "8px 0", overflowWrap: "anywhere" }}>“{s.text}”</p>
+      <p className="muted" style={{ margin: "0 0 6px" }}>
+        Captured {new Date(source.captured_at).toLocaleDateString()} · posted{" "}
+        {new Date(s.posted_at).toLocaleDateString()} · open until{" "}
+        {new Date(s.open_until).toLocaleDateString()}
+        {s.constraints.max_price_cents !== undefined &&
+          ` · stated price limit up to $${(s.constraints.max_price_cents / 100).toFixed(2)}`}
+      </p>
+      <ul className="missing-list" style={{ margin: "6px 0" }}>
+        {source.notes.map((n) => (
+          <li key={n}>{n}</li>
+        ))}
+      </ul>
+      {source.can_reply ? (
+        <Link to="/opportunities">Reply with a published business</Link>
+      ) : (
+        <p className="muted" style={{ margin: 0 }}>
+          {source.state !== "open"
+            ? "Replying isn't possible: the request is no longer open."
+            : "The person who posted it asked not to receive replies."}
+        </p>
+      )}
+    </details>
   );
 }
 
@@ -1269,6 +1314,7 @@ export function ProductStudio({ id }: { id: string }) {
 
         <aside className="ps-side" aria-label="Assistant, brief and screens">
           <div className="ps-side-scroll">
+            {view.source && <SourcePanel source={view.source} />}
             <fieldset className="seg">
               <legend className="sr-only">Work with</legend>
               <button
