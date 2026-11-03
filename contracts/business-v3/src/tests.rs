@@ -26,7 +26,9 @@ const DEV: &str = "dev.near";
 const SPONSOR: &str = "sponsor.near";
 const BUYER: &str = "buyer.near";
 const STRANGER: &str = "stranger.near";
-const ACCOUNTS: &[&str] = &[FOUNDER, METER, METER2, CARA, DEV, SPONSOR, BUYER, STRANGER];
+const MORE: [&str; 4] = ["ines.near", "joon.near", "kofi.near", "lena.near"];
+const ACCOUNTS: &[&str] =
+    &[FOUNDER, METER, METER2, CARA, DEV, SPONSOR, BUYER, STRANGER, MORE[0], MORE[1], MORE[2], MORE[3]];
 /// The unit price in base units of the token (addendum §8).
 const P: u128 = 50_000;
 const NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -391,6 +393,34 @@ impl W {
     }
 }
 
+/// A HoldAuth for any plan and key slot, signed by `k`.
+#[allow(clippy::too_many_arguments)]
+fn auth_on(plan: u32, c: &str, k: &SigningKey, reg: u64, seq: u32, units: u8, serve_until: u64, slot: u8, epoch: u32) -> (HoldAuth, String) {
+    let m = hold_message(&id(BIZ), plan, &id(c), reg, slot, epoch, seq, units, serve_until);
+    let a = HoldAuth { hold_seq: seq, units, serve_until_ms: U64(serve_until), key_slot: slot, key_epoch: epoch };
+    (a, hex::encode(k.sign(&m).to_bytes()))
+}
+
+/// A UseAuth for any plan and key slot, signed by `k`.
+#[allow(clippy::too_many_arguments)]
+fn use_on(plan: u32, c: &str, k: &SigningKey, reg: u64, key_slot: u8, epoch: u32, seq: u32, slot: u8, f: [u8; 32]) -> UseInput {
+    let m = use_message(&id(BIZ), plan, &id(c), reg, key_slot, epoch, seq, slot, &f);
+    UseInput { slot, fingerprint: hex::encode(f), sig: hex::encode(k.sign(&m).to_bytes()) }
+}
+
+/// A month the books recorded (panics otherwise).
+fn rec(w: &W, yyyymm: u32) -> PeriodView {
+    let l = w.b.get_period(yyyymm);
+    assert_eq!(l.status, "recorded", "{yyyymm}: {l:?}");
+    l.period.unwrap()
+}
+
+/// An exact counter's amount (panics if it saturated).
+fn n(c: &Counter) -> u128 {
+    assert!(c.exact, "counter saturated: {c:?}");
+    c.amount.0
+}
+
 fn all(r: &[String], s: &str, n: usize) {
     assert_eq!(r.len(), n);
     assert!(r.iter().all(|x| x == s), "expected {n} × {s}, got {r:?}");
@@ -414,7 +444,7 @@ fn happy() -> (W, SigningKey) {
 
 fn assert_100_20_80(w: &W) {
     let e = w.ent(CARA);
-    assert_eq!((e.free.0, e.consumed.0, e.purchased.0, e.refunded.0), (80, 20, 100, 0));
+    assert_eq!((e.free.0, e.consumed.0, e.purchased.0, e.units_retired_to_refund.0), (80, 20, 100, 0));
     let t = w.t();
     assert_eq!((t.available.0, t.ent_free_value.0, t.ent_held_value.0, t.held.0), (20 * P, 80 * P, 0, 100 * P));
     assert_eq!((e.last_hold_seq, e.last_hold_used, e.last_hold_charged), (2, 0x3FF, 10));
@@ -427,8 +457,8 @@ fn assert_100_20_80(w: &W) {
 fn s01_the_100_20_80_path() {
     let (w, _) = happy();
     assert_100_20_80(&w);
-    let p = w.b.get_period(202611).unwrap();
-    assert_eq!((p.purchases_in.0, p.earned.0, p.refunds_paid.0), (100 * P, 20 * P, 0));
+    let p = rec(&w, 202611);
+    assert_eq!((n(&p.purchases_in), n(&p.earned), n(&p.customer_returns)), (100 * P, 20 * P, 0));
     assert_eq!(w.ent(CARA).key_states, vec![1, 0, 0, 0]);
     assert_eq!(w.ent(CARA).key_epochs, vec![1, 0, 0, 0]);
     assert_eq!(w.t().withdrawable.0, 15 * P);
@@ -585,7 +615,7 @@ fn s04b_revoked_keys_and_skipped_sequences_defeat_signed_authorizations() {
     // A second key with its own daily cap.
     let k2 = key(2);
     w.refuse(CARA, 1, "E_KEY", |b| b.install_key(1, 0, pk(&k2), 10, 15));
-    w.refuse(CARA, 1, "E_ARGS", |b| b.install_key(1, 1, "zz".into(), 10, 15));
+    w.refuse(CARA, 1, "E_KEY_INVALID", |b| b.install_key(1, 1, "zz".into(), 10, 15));
     w.refuse(CARA, 1, "E_ARGS", |b| b.install_key(1, 1, pk(&k2), 11, 15));
     w.refuse(CARA, 0, "E_DEPOSIT", |b| b.install_key(1, 1, pk(&k2), 10, 15));
     w.call(CARA, 1, |b| b.install_key(1, 1, pk(&k2), 10, 15));
@@ -637,10 +667,11 @@ fn s05_refund_with_a_hold_open_settles_on_success() {
     assert_eq!(w.ent(CARA).pending_refs, 1);
     assert!(w.callback(slot, pid, true));
     let e = w.ent(CARA);
-    assert_eq!((e.refunded.0, e.free.0, e.pending_refs), (70, 0, 0));
+    assert_eq!((e.units_retired_to_refund.0, e.free.0, e.pending_refs), (70, 0, 0));
     assert_eq!(w.t().held.0, 30 * P);
     assert_eq!(w.t().pending_total.0, 0);
-    assert_eq!(w.b.get_period(202611).unwrap().refunds_paid.0, 70 * P);
+    let p = rec(&w, 202611);
+    assert_eq!((n(&p.customer_returns), n(&p.paid_on_retry), n(&p.owner_withdrawals)), (70 * P, 0, 0));
     // The same callback again changes nothing.
     let before = w.snap();
     assert!(!w.callback(slot, pid, true));
@@ -656,7 +687,9 @@ fn s05b_a_failed_refund_becomes_the_customers_claim_never_profit() {
     let available = w.t().available;
     assert!(!w.callback(slot, pid, false));
     let e = w.ent(CARA);
-    assert_eq!((e.claim.0, e.refunded.0, e.free.0, e.pending_refs), (70 * P, 70, 0, 0));
+    // 70 units are retired into the refund, but the money is still the customer's unpaid claim.
+    assert_eq!((e.claim.0, e.units_retired_to_refund.0, e.free.0, e.pending_refs), (70 * P, 70, 0, 0));
+    assert_eq!(n(&rec(&w, 202611).customer_returns), 0, "nothing has been returned yet");
     let t = w.t();
     assert_eq!((t.claims_total.0, t.held.0, t.available.0), (70 * P, 100 * P, available.0));
     assert_eq!(t.withdrawable.0, 15 * P, "a failed refund never becomes withdrawable");
@@ -672,7 +705,9 @@ fn s05b_a_failed_refund_becomes_the_customers_claim_never_profit() {
     let t = w.t();
     assert_eq!((t.claims_total.0, t.held.0), (0, 30 * P));
     assert_eq!(w.ent(CARA).claim.0, 0);
-    assert_eq!(w.b.get_period(202611).unwrap().claims_paid.0, 70 * P);
+    // The later-paid claim is still a customer return, never an owner withdrawal.
+    let p = rec(&w, 202611);
+    assert_eq!((n(&p.customer_returns), n(&p.paid_on_retry), n(&p.owner_withdrawals)), (70 * P, 70 * P, 0));
     w.refuse(CARA, 1, "E_FUNDS", |b| b.claim_customer(1));
 }
 
@@ -722,7 +757,7 @@ fn s06_ownership_change_mid_hold_injected() {
     let (slot, pid) = w.withdraw(BUYER, 19 * P);
     assert!(w.callback(slot, pid, true));
     assert_eq!(w.t().available.0, 5 * P);
-    assert_eq!(w.b.get_period(202611).unwrap().owner_withdrawals.0, 19 * P);
+    assert_eq!(n(&rec(&w, 202611).owner_withdrawals), 19 * P);
 }
 
 // ---------- scenario 7 ----------
@@ -934,20 +969,54 @@ fn s12_an_expired_hold_can_be_released_by_anyone() {
 #[test]
 fn s13_bounded_payouts() {
     let (mut w, _) = happy();
+    let party_slots = |w: &W| w.b.get_pending().iter().filter(|p| p.kind == "profit" || p.kind == "party_claim").count();
+    // A customer: at most 2 payouts in flight.
     w.refund(CARA, 1);
     w.refund(CARA, 1);
     w.refuse(CARA, 1, "E_PENDING_REFS", |b| b.refund_units(1, U64(1)));
-    for _ in 0..14 {
-        w.withdraw(FOUNDER, 1);
+    // A party: at most 2 in flight, however small.
+    let (fs, fp1) = w.withdraw(FOUNDER, 1);
+    w.withdraw(FOUNDER, 1);
+    w.refuse(FOUNDER, 1, "E_PARTY_CAP: 2 of your", |b| b.withdraw_profit(U128(1)));
+    // A failed withdrawal becomes a claim; claiming it counts toward the same cap.
+    assert!(!w.callback(fs, fp1, false));
+    w.call(FOUNDER, 1, |b| drop(b.claim_party()));
+    w.refuse(FOUNDER, 1, "E_PARTY_CAP: 2 of your", |b| b.withdraw_profit(U128(1)));
+    // Injected owner changes: each owner gets its own 2, and 4 across all parties.
+    w.inject_owner(BUYER, 2, &[]);
+    w.withdraw(BUYER, 1);
+    w.withdraw(BUYER, 1);
+    assert_eq!(party_slots(&w), 4);
+    w.inject_owner(STRANGER, 3, &[]);
+    w.refuse(STRANGER, 1, "E_PARTY_CAP: 4 owner payouts", |b| b.withdraw_profit(U128(1)));
+    // Customers still have the other 12 slots: CARA's 2 plus five more customers' 2 each.
+    let k = key(1);
+    for c in [DEV, MORE[0], MORE[1], MORE[2], MORE[3]] {
+        w.shell(c, c);
+        w.buy(c, 10, 1, Some((0, &k)));
+        w.refund(c, 1);
+        w.refund(c, 1);
     }
     assert_eq!(w.b.get_pending().len(), 16);
-    w.refuse(FOUNDER, 1, "E_BUSY", |b| b.withdraw_profit(U128(1)));
-    // One settles; its slot is free again for the next payout.
-    let (slot, pid) = w.last_payout();
+    assert_eq!(party_slots(&w), 4);
+    // Every slot is now taken by legitimate payouts: only then does anyone see E_BUSY.
+    w.shell(SPONSOR, SPONSOR);
+    w.buy(SPONSOR, 10, 1, None);
+    w.refuse(SPONSOR, 1, "E_BUSY", |b| b.refund_units(1, U64(1)));
+    // A customer payout settles; its slot goes to the next customer, with a higher id.
+    let p = w.b.get_pending();
+    let c = p.iter().find(|p| p.kind == "refund").unwrap();
+    let (slot, pid) = (c.slot, c.payout_id.0);
     assert!(w.callback(slot, pid, true));
-    let (again, pid2) = w.withdraw(FOUNDER, 1);
+    let (again, pid2) = w.refund(SPONSOR, 1);
     assert_eq!(again, slot);
     assert!(pid2 > pid);
+    // A party payout settles: the freed slot is the only one, and parties are still capped at 4.
+    let q = w.b.get_pending();
+    let o = q.iter().find(|p| p.kind == "profit").unwrap();
+    let (oslot, opid) = (o.slot, o.payout_id.0);
+    assert!(w.callback(oslot, opid, true));
+    assert_eq!(party_slots(&w), 3);
 }
 
 #[test]
@@ -957,21 +1026,27 @@ fn s13b_books_across_months_and_the_ring_rewrites_in_place() {
     // The callback lands next month and is booked there, without growing storage.
     w.now = mid_month(202612);
     assert!(w.callback(slot, pid, true));
-    assert_eq!(w.b.get_period(202612).unwrap().refunds_paid.0, P);
-    assert_eq!(w.b.get_period(202611).unwrap().refunds_paid.0, 0);
+    assert_eq!(n(&rec(&w, 202612).customer_returns), P);
+    assert_eq!(n(&rec(&w, 202611).customer_returns), 0);
     // A purchase every month for 25 months, each booked with no storage change (S1).
     let mut month = 202612;
     for i in 0..25u32 {
         w.now = mid_month(month);
         assert_eq!(w.ft(CARA, P, buy_msg(1, 1, 2 + i, None)), 0);
-        assert_eq!(w.b.get_period(month).unwrap().purchases_in.0, P);
+        assert_eq!(n(&rec(&w, month).purchases_in), P);
         month = next_month(month);
     }
     // 202612 and 202812 share a ring index; the newer month replaced it in place.
     assert_eq!(ring_index(202612), ring_index(202812));
-    assert!(w.b.get_period(202612).is_none());
-    assert!(w.b.get_period(202611).is_none());
-    assert_eq!(w.b.get_period(202812).unwrap().purchases_in.0, P);
+    assert_eq!(w.b.get_period(202612).status, "not_retained");
+    assert_eq!(w.b.get_period(202611).status, "not_retained");
+    assert_eq!(n(&rec(&w, 202812).purchases_in), P);
+    // A month inside the window with nothing booked, and invalid months: defined answers.
+    assert_eq!(w.b.get_period(202901).status, "no_activity");
+    for bad in [0, 202600, 202613, 196912, 1_000_001] {
+        let l = w.b.get_period(bad);
+        assert_eq!((l.status.as_str(), l.period.is_none()), ("invalid", true), "{bad}");
+    }
     let tags: std::collections::BTreeSet<u32> = (0..PERIOD_RING).map(|i| w.b.periods.get(&i).unwrap().yyyymm).collect();
     assert_eq!(tags.len(), 24);
     assert_eq!(*tags.iter().next().unwrap(), 202701);
@@ -1011,7 +1086,8 @@ fn s14_record_sizes_are_fixed() {
 }
 
 /// Entitlement, PayoutSlot, PartyRecord, Period (borsh bytes), pinned so a change is visible.
-const EXPECTED_SIZES: (usize, usize, usize, usize) = (762, 111, 99, 84);
+/// 003e1: PayoutSlot +1 (`detached`), Period +1 (`saturated` flags; counters re-categorized).
+const EXPECTED_SIZES: (usize, usize, usize, usize) = (762, 112, 99, 85);
 
 // W1 methods charge the growth they measure, so an underfunded call panics after its write.
 // The runtime reverts the whole receipt; the unit VM does not model that, so these only check
@@ -1043,7 +1119,12 @@ fn administration_is_owner_only_and_operators_are_bounded() {
     w.refuse(FOUNDER, NEAR, "E_ARGS", |b| b.create_plan(PlanInput { max_hold_units: 11, ..plan_input(P) }));
     w.refuse(FOUNDER, NEAR, "E_ARGS", |b| b.create_plan(PlanInput { hold_ttl_ms: U64(61 * MIN), ..plan_input(P) }));
     w.refuse(FOUNDER, NEAR, "E_ARGS", |b| b.create_plan(PlanInput { max_units_outstanding: 99, ..plan_input(P) }));
-    w.refuse(FOUNDER, 0, "E_STORAGE", |b| b.appoint_operator(id(STRANGER), SUPPORT));
+    w.refuse(FOUNDER, 0, "E_DEPOSIT", |b| b.appoint_operator(id(STRANGER), SUPPORT));
+    w.refuse(FOUNDER, 1, "E_STORAGE", |b| b.appoint_operator(id(STRANGER), SUPPORT));
+    // A re-grant changes no storage but still needs an intentional deposit.
+    w.refuse(FOUNDER, 0, "E_DEPOSIT", |b| b.appoint_operator(id(METER), METERING | SUPPORT));
+    let (_, d) = w.measured(FOUNDER, 1, |b| b.appoint_operator(id(METER), METERING | SUPPORT));
+    assert_eq!(d, 0);
     w.refuse(STRANGER, NEAR, "E_NOT_OWNER", |b| b.appoint_operator(id(STRANGER), METERING));
     w.refuse(FOUNDER, NEAR, "E_ARGS", |b| b.appoint_operator(id(STRANGER), 4));
     w.refuse(FOUNDER, NEAR, "E_ARGS", |b| b.appoint_operator(id(STRANGER), 0));
@@ -1126,7 +1207,11 @@ fn near_overflow_limits_refuse_cleanly() {
     assert_eq!(w.t().held.0, 0);
     // The month's gross purchases now exceed u128: the books saturate, the purchase goes through.
     assert_eq!(w.ft(DEV, P, buy_msg(1, 1, 1, None)), 0);
-    assert_eq!(w.b.get_period(202611).unwrap().purchases_in.0, u128::MAX);
+    // Saturated: reported as a lower bound, never as an exact total.
+    let p = rec(&w, 202611);
+    assert_eq!((p.purchases_in.amount.0, p.purchases_in.exact), (u128::MAX, false));
+    assert!(p.customer_returns.exact && p.earned.exact);
+    assert_eq!(n(&p.customer_returns), u128::MAX);
     assert_eq!(w.t().held.0, P);
 
     // Sequences and epochs at their limits (set directly; this is a test of the guards).
@@ -1289,4 +1374,540 @@ fn period_and_ring_helpers() {
         m = next_month(m);
     }
     assert_eq!(seen.len(), 24);
+}
+
+// ---------- 003e1 step 1: pinned-host weak-key experiment (reports, does not assume) ----------
+
+fn hx(s: &str) -> [u8; 32] {
+    hex::decode(s).unwrap().try_into().unwrap()
+}
+
+/// Canonical encodings of the four points of order dividing 4 (test inputs only).
+fn order4_encodings() -> Vec<[u8; 32]> {
+    vec![
+        hx("0100000000000000000000000000000000000000000000000000000000000000"), // identity
+        hx("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"), // order 2
+        hx("0000000000000000000000000000000000000000000000000000000000000000"), // order 4
+        hx("0000000000000000000000000000000000000000000000000000000000000080"), // order 4
+    ]
+}
+
+/// A signature (R, s = 0) with R of small order that the *host* accepts for `msg` under `pk`.
+fn host_forgery(pk: &[u8; 32], msg: &[u8; 32]) -> Option<[u8; 64]> {
+    order4_encodings().into_iter().find_map(|r| {
+        let mut sig = [0u8; 64];
+        sig[..32].copy_from_slice(&r);
+        env::ed25519_verify(&sig, msg, pk).then_some(sig)
+    })
+}
+
+/// The curve's eight small-order points (curve25519-dalek's own constants), canonically
+/// encoded, plus encodings the decoder also maps to small-order points.
+fn weak_encodings() -> Vec<[u8; 32]> {
+    let mut v: Vec<[u8; 32]> = curve25519_dalek::constants::EIGHT_TORSION.iter().map(|p| p.compress().to_bytes()).collect();
+    // Non-canonical identity: y = p + 1.
+    v.push(hx("eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"));
+    // Identity with the sign bit set.
+    v.push(hx("0100000000000000000000000000000000000000000000000000000000000080"));
+    v
+}
+
+/// The first 32-byte string with y = i that doesn't decode to a curve point.
+fn undecodable() -> [u8; 32] {
+    (2u8..=255)
+        .map(|i| {
+            let mut b = [0u8; 32];
+            b[0] = i;
+            b
+        })
+        .find(|b| ed25519_dalek::VerifyingKey::from_bytes(b).is_err())
+        .expect("some y has no point")
+}
+
+/// Signs everything a weak key could be asked for: a HoldAuth (varying serve_until) and one
+/// use per slot (varying the fingerprint), using only `host_forgery`. Returns how many
+/// candidates were tried.
+#[allow(clippy::type_complexity)]
+fn forge_all(w: &W, pk: &[u8; 32], reg: u64) -> ((HoldAuth, String), Vec<UseInput>, usize) {
+    let mut tries = 0;
+    let hold = (0..64u64)
+        .find_map(|t| {
+            tries += 1;
+            let su = w.now + 20 * MIN + t;
+            let m = hold_message(&id(BIZ), 1, &id(CARA), reg, 0, 1, 1, 10, su);
+            host_forgery(pk, &m).map(|sig| {
+                (HoldAuth { hold_seq: 1, units: 10, serve_until_ms: U64(su), key_slot: 0, key_epoch: 1 }, hex::encode(sig))
+            })
+        })
+        .expect("a forged HoldAuth");
+    let uses = (0..10u8)
+        .map(|slot| {
+            (0..64u8)
+                .find_map(|alt| {
+                    tries += 1;
+                    let f = fp(1, slot, alt);
+                    let m = use_message(&id(BIZ), 1, &id(CARA), reg, 0, 1, 1, slot, &f);
+                    host_forgery(pk, &m).map(|sig| UseInput { slot, fingerprint: hex::encode(f), sig: hex::encode(sig) })
+                })
+                .expect("a forged UseAuth")
+        })
+        .collect();
+    (hold, uses, tries)
+}
+
+/// The pinned unit host (near-sdk 5.29.1 → near-vm-runner 0.37.4, non-strict ed25519-dalek
+/// 2.2.0 `verify`) accepts signatures nobody made, for small-order keys. This pins the host
+/// behaviour the install check defends against; if a future pin verifies strictly, this fails
+/// and the finding should be revisited, not silently kept.
+#[test]
+fn the_pinned_host_accepts_forgeries_under_weak_keys() {
+    let _w = W::new();
+    let msgs: Vec<[u8; 32]> = (0..16u8).map(|i| env::sha256_array([i])).collect();
+    // The identity key: (R = identity, s = 0) verifies for every message.
+    let identity = order4_encodings()[0];
+    assert!(msgs.iter().all(|m| host_forgery(&identity, m).is_some()));
+    // The all-zero key (order 4): k = H(R‖A‖M) depends on R, so each small-order R verifies
+    // with probability 1/4; most messages have a forgery among the four, and varying the
+    // message finds one quickly.
+    let zero = order4_encodings()[2];
+    let forged = msgs.iter().filter(|m| host_forgery(&zero, m).is_some()).count();
+    assert!(forged >= 4, "only {forged} of 16 messages forgeable");
+    // A real key is not forgeable this way.
+    let real = key(1).verifying_key().to_bytes();
+    assert!((0..64u8).all(|i| host_forgery(&real, &env::sha256_array([i])).is_none()));
+}
+
+/// What the install check prevents (reproduced before the fix, 003e1): with a weak key in a
+/// record, an operator opens a hold and charges every unit with no customer signature at all.
+/// The key is written into the record directly because the contract now refuses to install it.
+#[test]
+fn a_weak_key_in_a_record_would_let_an_operator_charge_without_the_customer() {
+    for pk in [order4_encodings()[0], order4_encodings()[2]] {
+        let mut w = W::new();
+        w.shell(CARA, CARA);
+        w.buy(CARA, 10, 1, None);
+        let k = (id(CARA), 1);
+        let mut e = *w.b.entitlements.get(&k).unwrap();
+        e.keys[0] = KeySlot { state: KEY_ACTIVE, epoch: 1, pk, max_hold_units: 10, max_units_per_day: 30, day: 0, held_today: 0 };
+        w.b.entitlements.insert(k, e);
+        let ((a, s), uses, tries) = forge_all(&w, &pk, e.reg_id);
+        assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+        all(&w.settle(CARA, 1, uses, true), "charged", 10);
+        assert_eq!(w.ent(CARA).consumed.0, 10);
+        println!("weak key {}: all 10 units charged by forgeries after {tries} host checks", hex::encode(pk));
+    }
+}
+
+#[test]
+fn weak_and_undecodable_keys_are_refused_on_both_install_paths() {
+    let mut w = W::new();
+    w.shell(CARA, CARA);
+    w.buy(CARA, 10, 1, None);
+    let mut bad = weak_encodings();
+    assert_eq!(bad.len(), 10);
+    bad.push(undecodable());
+    for pk in &bad {
+        let pk = hex::encode(pk);
+        w.refuse(CARA, 1, "E_KEY_INVALID", |b| b.install_key(1, 0, pk.clone(), 10, 30));
+        let msg = format!(
+            r#"{{"buy":{{"plan_id":1,"units":1,"purchase_seq":2,"install":{{"slot":0,"pk":"{pk}","max_hold_units":10,"max_units_per_day":30}}}}}}"#
+        );
+        w.returned(CARA, P, msg);
+    }
+    // Every one of them is something the decoder either rejects or reports as weak.
+    for pk in &bad {
+        assert!(ed25519_dalek::VerifyingKey::from_bytes(pk).map_or(true, |k| k.is_weak()));
+    }
+    // A real key installs on either path.
+    w.call(CARA, 1, |b| b.install_key(1, 0, pk(&key(1)), 10, 30));
+    assert_eq!(w.buy(CARA, 1, 2, Some((1, &key(2)))), 0);
+    assert_eq!(w.ent(CARA).key_states, vec![1, 1, 0, 0]);
+}
+
+// ---------- 003e1: deadlines ----------
+
+#[test]
+fn deadline_ceilings_are_checked_at_new_and_at_every_plan() {
+    testing_env!(ctx(FOUNDER, 0, T0).build());
+    let make = |ttl: u64, grace: u64| {
+        let rules = Rules { max_hold_ttl_ms: U64(ttl), max_settle_grace_ms: U64(grace), ..rules() };
+        Business::new("studio".into(), id(FOUNDER), id(TOKEN), rules)
+    };
+    for (ttl, grace) in [(MIN - 1, 0), (MAX_HOLD_TTL_MS + 1, 0), (u64::MAX, 0), (MIN, MAX_SETTLE_GRACE_MS + 1), (MIN, u64::MAX), (0, 0)] {
+        let msg = panic_message(|| make(ttl, grace));
+        assert!(msg.contains("E_ARGS"), "ttl {ttl} grace {grace}: {msg}");
+    }
+    // The floor and the ceilings themselves are accepted.
+    drop(make(MIN, 0));
+    drop(make(MAX_HOLD_TTL_MS, MAX_SETTLE_GRACE_MS));
+
+    let mut w = W::new();
+    for input in [
+        PlanInput { hold_ttl_ms: U64(MIN - 1), ..plan_input(P) },
+        PlanInput { hold_ttl_ms: U64(MAX_HOLD_TTL_MS + 1), ..plan_input(P) },
+        PlanInput { hold_ttl_ms: U64(u64::MAX), ..plan_input(P) },
+        PlanInput { settle_grace_ms: U64(MAX_SETTLE_GRACE_MS + 1), ..plan_input(P) },
+        PlanInput { settle_grace_ms: U64(u64::MAX), ..plan_input(P) },
+    ] {
+        w.refuse(FOUNDER, NEAR, "E_ARGS", |b| b.create_plan(input.clone()));
+    }
+    let (id2, _) = w.measured(FOUNDER, NEAR, |b| b.create_plan(PlanInput { hold_ttl_ms: U64(MIN), settle_grace_ms: U64(0), ..plan_input(P) }));
+    let (id3, _) = w.measured(FOUNDER, NEAR, |b| {
+        b.create_plan(PlanInput { hold_ttl_ms: U64(MAX_HOLD_TTL_MS), settle_grace_ms: U64(MAX_SETTLE_GRACE_MS), ..plan_input(P) })
+    });
+    assert_eq!((id2, id3), (2, 3));
+    let r = w.b.get_rules();
+    assert_eq!(
+        (r.min_hold_ttl_ms.0, r.max_hold_ttl_ms.0, r.max_settle_grace_ms.0, r.rules.max_hold_ttl_ms.0),
+        (60_000, 3_600_000, 3_600_000, 3_600_000)
+    );
+    assert_eq!((r.payout_slots, r.max_party_pending_total, r.max_party_pending_each, r.max_customer_pending), (16, 4, 2, 2));
+}
+
+#[test]
+fn hold_deadlines_hold_at_their_exact_boundaries() {
+    let (mut w, k) = happy();
+    let reg = w.ent(CARA).reg_id.0;
+    let now = w.now;
+    // Plan 1: TTL 30 min, grace 10 min. Exactly the 60 s floor opens; one ms less doesn't.
+    let (a, s) = w.auth(CARA, &k, reg, 3, 1, now + MIN - 1, 0, 1);
+    w.refuse(METER, 0, "E_EXPIRED", |b| b.open_hold(id(CARA), 1, a, s));
+    let (a, s) = w.auth(CARA, &k, reg, 3, 1, now + MIN, 0, 1);
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+    w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 3));
+    // Exactly the TTL opens; one ms more, or a huge value, is refused without overflow.
+    for su in [now + 30 * MIN + 1, u64::MAX, u64::MAX - 1] {
+        let (a, s) = w.auth(CARA, &k, reg, 4, 1, su, 0, 1);
+        w.refuse(METER, 0, "E_TTL", |b| b.open_hold(id(CARA), 1, a, s));
+    }
+    let (a, s) = w.auth(CARA, &k, reg, 4, 2, now + 30 * MIN, 0, 1);
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+    let e = w.ent(CARA);
+    assert_eq!((e.serve_until_ms.0, e.settle_until_ms.0), (now + 30 * MIN, now + 40 * MIN));
+    // Settling works exactly at the deadline; a stranger can't release until it has passed.
+    w.now = now + 40 * MIN;
+    let u = vec![w.use_(CARA, &k, 4, 0, 0)];
+    all(&w.settle(CARA, 4, u, false), "charged", 1);
+    w.refuse(STRANGER, 0, "E_NOT_OPERATOR", |b| b.release_hold(id(CARA), 1, 4));
+    w.now += 1;
+    let late = vec![w.use_(CARA, &k, 4, 1, 0)];
+    w.refuse(METER, 0, "E_EXPIRED", |b| b.settle_hold(id(CARA), 1, 4, late, false));
+    w.call(STRANGER, 0, |b| b.release_hold(id(CARA), 1, 4));
+    assert_eq!(w.ent(CARA).free.0, 79);
+}
+
+// ---------- 003e1: exact readback ----------
+
+#[test]
+fn readback_identifies_exactly_which_use_was_charged() {
+    let mut w = W::new();
+    let k = key(1);
+    w.shell(CARA, CARA);
+    w.buy(CARA, 100, 1, Some((0, &k)));
+    w.open(CARA, &k, 1, 10);
+    let u = w.uses(CARA, &k, 1, 0..5);
+    w.settle(CARA, 1, u, false);
+    let e = w.ent(CARA);
+    assert_eq!((e.hold_key_slot, e.hold_key_epoch, e.hold_opened_at_ms.0), (0, 1, T0));
+    assert_eq!(e.hold_slots.len(), 10);
+    for s in 0..10u8 {
+        let want = (s < 5).then(|| hex::encode(fp(1, s, 0)));
+        assert_eq!(e.hold_slots[s as usize], want, "slot {s}");
+    }
+    let kv = &e.keys[0];
+    assert_eq!(
+        (kv.state.as_str(), kv.public_key.clone(), kv.max_units_per_day, kv.held_today, kv.day),
+        ("active", pk(&k), 30, 10, (T0 / DAY) as u32)
+    );
+    assert_eq!(e.keys[1].state, "empty");
+    let reg = e.reg_id;
+    let chk = |w: &W, seq: u32, slot: u8, f: &str| w.b.check_use(id(CARA), 1, reg, seq, slot, f.to_string());
+    let hexfp = |s: u8, alt: u8| hex::encode(fp(1, s, alt));
+    assert_eq!(chk(&w, 1, 3, &hexfp(3, 0)).status, "charged");
+    assert_eq!(chk(&w, 1, 3, &hexfp(3, 1)).status, "conflict");
+    assert_eq!(chk(&w, 1, 7, &hexfp(7, 0)).status, "unused");
+    assert_eq!(chk(&w, 1, 12, &hexfp(7, 0)).status, "invalid");
+    assert_eq!(chk(&w, 1, 3, "zz").status, "invalid");
+    assert_eq!(chk(&w, 9, 3, &hexfp(3, 0)).status, "unknown_hold");
+    // Closed: which slots were used, and a root the client recomputes from its own uses.
+    let rest = w.uses(CARA, &k, 1, 5..7);
+    w.settle(CARA, 1, rest, true);
+    let c = chk(&w, 1, 3, &hexfp(3, 0));
+    assert_eq!((c.status.as_str(), c.slot_used), ("closed", Some(true)));
+    assert_eq!(chk(&w, 1, 8, &hexfp(8, 0)).slot_used, Some(false));
+    let mine: Vec<(u8, [u8; 32])> = (0..7).map(|s| (s, fp(1, s, 0))).collect();
+    let root = hex::encode(closed_hold_root(&mine));
+    assert_eq!(c.closed_root.as_deref(), Some(root.as_str()));
+    assert_eq!(w.ent(CARA).last_hold_root, root);
+    let mut wrong = mine.clone();
+    wrong[3].1 = fp(1, 3, 1);
+    assert_ne!(hex::encode(closed_hold_root(&wrong)), root, "a different use gives a different root");
+    // Re-registration: the old registration's uses are reported as such, never as this one's.
+    let (s, p) = w.refund(CARA, 93);
+    assert!(w.callback(s, p, true));
+    w.call(CARA, 1, |b| b.unregister(id(CARA), 1));
+    assert_eq!(chk(&w, 1, 3, &hexfp(3, 0)).status, "no_entitlement");
+    w.shell(CARA, CARA);
+    assert_eq!(chk(&w, 1, 3, &hexfp(3, 0)).status, "other_registration");
+    let fresh = w.ent(CARA).reg_id;
+    assert_eq!(w.b.check_use(id(CARA), 1, fresh, 1, 3, hexfp(3, 0)).status, "unknown_hold");
+    assert_eq!(w.b.check_use(id(CARA), 1, fresh, 0, 3, hexfp(3, 0)).status, "unknown_hold");
+}
+
+#[test]
+fn already_vouches_only_for_a_valid_signature() {
+    let (mut w, k) = happy();
+    let (a, s) = w.std_auth(CARA, &k, 3, 5);
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a.clone(), s.clone())), "opened");
+    let (_, foreign) = w.std_auth(CARA, &key(9), 3, 5);
+    for bad in ["00".repeat(64), foreign, "zz".into(), String::new()] {
+        w.refuse(METER, 0, "E_SIG", |b| b.open_hold(id(CARA), 1, a.clone(), bad.clone()));
+    }
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "already");
+}
+
+// ---------- 003e1: books keep economic categories ----------
+
+#[test]
+fn payouts_keep_their_category_through_failures_claims_and_duplicates() {
+    let (mut w, _) = happy();
+    // A refund fails, its claim fails, the second claim succeeds; then a duplicate callback.
+    let (s, p) = w.refund(CARA, 10);
+    assert!(!w.callback(s, p, false));
+    w.call(CARA, 1, |b| drop(b.claim_customer(1)));
+    let (s, p) = w.last_payout();
+    assert!(!w.callback(s, p, false));
+    assert_eq!(w.ent(CARA).claim.0, 10 * P);
+    w.call(CARA, 1, |b| drop(b.claim_customer(1)));
+    let (s, p) = w.last_payout();
+    assert!(w.callback(s, p, true));
+    let before = w.snap();
+    assert!(!w.callback(s, p, true), "a duplicate callback books nothing");
+    assert_eq!(w.snap(), before);
+    // An owner withdrawal fails and is paid through the owner's claim.
+    let (s, p) = w.withdraw(FOUNDER, 5 * P);
+    assert!(!w.callback(s, p, false));
+    w.call(FOUNDER, 1, |b| drop(b.claim_party()));
+    let (s, p) = w.last_payout();
+    assert!(w.callback(s, p, true));
+    let m = rec(&w, 202611);
+    assert_eq!(
+        (n(&m.customer_returns), n(&m.owner_withdrawals), n(&m.paid_on_retry)),
+        (10 * P, 5 * P, 15 * P)
+    );
+    let e = w.ent(CARA);
+    assert_eq!((e.units_retired_to_refund.0, e.claim.0, e.pending_refs), (10, 0, 0));
+    let t = w.t();
+    assert_eq!((t.held.0, t.claims_total.0, t.pending_total.0), (85 * P, 0, 0));
+}
+
+#[test]
+fn a_resent_stranded_payout_never_touches_a_recreated_record() {
+    let (mut w, _) = happy();
+    let (s, p) = w.withdraw(FOUNDER, 5 * P);
+    // Corrupt on purpose: the founder's record vanishes while the payout is in flight.
+    w.corrupt = true;
+    w.b.party.remove(&id(FOUNDER));
+    assert!(!w.callback(s, p, false));
+    assert_eq!(w.b.get_pending()[0].state, "stranded");
+    // The founder becomes owner again (injected twice) and so has a fresh record.
+    w.inject_owner(BUYER, 2, &[]);
+    w.inject_owner(FOUNDER, 3, &[]);
+    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().pending_refs, 0);
+    w.call(FOUNDER, 1, |b| drop(b.claim_stranded(s)));
+    let (s2, p2) = w.last_payout();
+    assert_eq!(s2, s);
+    // It fails again: still stranded, and the new record gains no claim.
+    assert!(!w.callback(s2, p2, false));
+    assert_eq!(w.b.get_pending()[0].state, "stranded");
+    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().claim.0, 0);
+    w.call(FOUNDER, 1, |b| drop(b.claim_stranded(s)));
+    let (s3, p3) = w.last_payout();
+    assert!(w.callback(s3, p3, true));
+    assert!(near_sdk::test_utils::get_logs().iter().all(|l| !l.contains("pending_refs_underflow")));
+    let r = w.b.get_party(id(FOUNDER)).unwrap();
+    assert_eq!((r.pending_refs, r.claim.0), (0, 0), "the recreated record was never touched");
+    let m = rec(&w, 202611);
+    assert_eq!((n(&m.owner_withdrawals), n(&m.paid_on_retry)), (5 * P, 5 * P));
+    assert_eq!(w.t().pending_total.0, 0);
+}
+
+#[test]
+fn an_impossible_pending_count_is_reported_not_hidden() {
+    let (mut w, _) = happy();
+    let (s, p) = w.refund(CARA, 1);
+    // Corrupt on purpose: the record claims nothing is in flight.
+    w.corrupt = true;
+    let k = (id(CARA), 1);
+    let mut e = *w.b.entitlements.get(&k).unwrap();
+    e.pending_refs = 0;
+    w.b.entitlements.insert(k, e);
+    w.env_callback(true);
+    assert!(w.b.on_payout(s, U64(p)), "the callback still completes");
+    assert!(near_sdk::test_utils::get_logs().iter().any(|l| l.contains("pending_refs_underflow")));
+    assert_eq!(w.ent(CARA).pending_refs, 0);
+    w.invariants();
+}
+
+#[test]
+fn identity_counters_refuse_before_they_overflow() {
+    let (mut w, _) = happy();
+    w.b.payout_seq = u64::MAX;
+    w.refuse(CARA, 1, "E_OVERFLOW: payout ids", |b| b.refund_units(1, U64(1)));
+    w.refuse(FOUNDER, 1, "E_OVERFLOW: payout ids", |b| b.withdraw_profit(U128(1)));
+    w.b.reg_seq = u64::MAX;
+    w.refuse(DEV, NEAR, "E_OVERFLOW: registration ids", |b| b.sponsor_shell(id(DEV), 1));
+}
+
+// ---------- 003e1: random sequences across prices, key rotation and owners ----------
+
+#[test]
+fn random_sequences_across_prices_key_rotation_and_owners() {
+    let customers = [CARA, DEV];
+    let parties = [FOUNDER, BUYER, STRANGER];
+    let mut totals = [0usize; 15];
+    for seed in [0x5851_F42D_4C95_7F2Du64, 0x1405_7B7E_F767_814F, 0x9E37_79B9_7F4A_7C15] {
+        let mut w = W::new();
+        let price2 = 3 * P + 7;
+        let (plan2, _) = w.measured(FOUNDER, NEAR, |b| b.create_plan(plan_input(price2)));
+        let plans = [(1u32, P), (plan2, price2)];
+        let mut r = Rng(seed);
+        let mut seeds = 10u8;
+        // (customer, plan, key slot, epoch) → the signing key installed there.
+        let mut keys: std::collections::HashMap<(usize, u32, u8, u32), SigningKey> = Default::default();
+        let (mut owner, mut generation) = (FOUNDER, 1u32);
+        for (ci, c) in customers.iter().enumerate() {
+            for (plan, price) in plans {
+                w.measured(c, NEAR, |b| b.sponsor_shell(id(c), plan));
+                let k = key(seeds);
+                seeds += 1;
+                assert_eq!(w.ft(c, 20 * price, buy_msg(plan, 20, 1, Some((0, &k, 60)))), 0);
+                keys.insert((ci, plan, 0, 1), k);
+            }
+        }
+        for _ in 0..400 {
+            let ci = r.below(2) as usize;
+            let c = customers[ci];
+            let (plan, price) = plans[r.below(2) as usize];
+            let e = *w.b.entitlements.get(&(id(c), plan)).unwrap();
+            let active = (0..KEY_SLOTS as u8).find(|s| e.keys[*s as usize].state == KEY_ACTIVE);
+            let signer = |slot: u8, epoch: u32| keys.get(&(ci, plan, slot, epoch)).cloned().unwrap_or_else(|| key(99));
+            let op = r.below(15) as usize;
+            let done = match op {
+                0 => {
+                    let units = 1 + r.below(15) as u32;
+                    let seq = e.purchase_seq + if r.below(5) == 0 { 0 } else { 1 };
+                    let amount = units as u128 * price + if r.below(6) == 0 { 1 } else { 0 };
+                    let before = w.snap();
+                    let back = w.ft(c, amount, buy_msg(plan, units, seq, None));
+                    assert!(back == 0 || (back == amount && w.snap() == before));
+                    back == 0
+                }
+                1 => {
+                    let Some(slot) = active else { continue };
+                    let units = 1 + r.below(10) as u8;
+                    let su = w.now + (1 + r.below(29)) * MIN;
+                    let ep = e.keys[slot as usize].epoch;
+                    let (a, s) = auth_on(plan, c, &signer(slot, ep), e.reg_id, e.hold_seq + 1, units, su, slot, ep);
+                    w.attempt(METER, 0, None, |b| b.open_hold(id(c), plan, a, s))
+                }
+                2 | 3 => {
+                    let seq = if e.hold.active { e.hold.seq } else { e.last_hold.seq };
+                    let (ks, ke) = if e.hold.active { (e.hold.key_slot, e.hold.key_epoch) } else { (0, 1) };
+                    let k = signer(ks, ke);
+                    let width = if e.hold.active && r.below(6) != 0 { e.hold.units as u64 } else { 10 };
+                    let uses: Vec<UseInput> = (0..1 + r.below(4))
+                        .map(|_| {
+                            let slot = r.below(width) as u8;
+                            let alt = u8::from(r.below(8) == 0);
+                            use_on(plan, c, &k, e.reg_id, ks, ke, seq, slot, fp(seq, slot, alt))
+                        })
+                        .collect();
+                    let close = r.below(3) == 0;
+                    w.attempt(METER, 0, None, |b| b.settle_hold(id(c), plan, seq, uses, close))
+                }
+                4 => w.attempt(if r.below(2) == 0 { METER } else { STRANGER }, 0, None, |b| b.release_hold(id(c), plan, e.hold.seq)),
+                5 => {
+                    let units = 1 + r.below(12);
+                    w.attempt(c, 1, None, |b| b.refund_units(plan, U64(units)))
+                }
+                6 | 7 => {
+                    let p = w.b.get_pending();
+                    if p.is_empty() {
+                        continue;
+                    }
+                    let pick = &p[r.below(p.len() as u64) as usize];
+                    let stale = r.below(pick.payout_id.0.min(5));
+                    let (slot, pid, ok) = (pick.slot, pick.payout_id.0 - stale, r.below(2) == 0);
+                    w.attempt(BIZ, 0, Some(ok), |b| b.on_payout(slot, U64(pid)))
+                }
+                8 => w.attempt(c, 1, None, |b| b.claim_customer(plan)),
+                9 => {
+                    let amount = 1 + r.below(4) as u128 * (P / 5);
+                    w.attempt(owner, 1, None, |b| b.withdraw_profit(U128(amount)))
+                }
+                10 => {
+                    // Usually a party that has a claim; sometimes any party (mostly refused).
+                    let owed: Vec<&str> =
+                        parties.iter().copied().filter(|p| w.b.get_party(id(p)).is_some_and(|v| v.claim.0 > 0)).collect();
+                    let who = if !owed.is_empty() && r.below(4) != 0 {
+                        owed[r.below(owed.len() as u64) as usize]
+                    } else {
+                        parties[r.below(3) as usize]
+                    };
+                    w.attempt(who, 1, None, |b| b.claim_party())
+                }
+                11 => {
+                    // Key rotation (rarer): revoke the active key, install a fresh one elsewhere.
+                    let Some(slot) = active else { continue };
+                    if r.below(4) != 0 {
+                        continue;
+                    }
+                    let revoked = w.attempt(c, 1, None, |b| b.revoke_key(plan, slot));
+                    let to = (slot + 1 + r.below(3) as u8) % KEY_SLOTS as u8;
+                    let k = key(seeds);
+                    seeds = seeds.wrapping_add(1).max(10);
+                    let pkh = pk(&k);
+                    let next_epoch = w.b.entitlements.get(&(id(c), plan)).unwrap().keys[to as usize].epoch + 1;
+                    let installed = w.attempt(c, 1, None, |b| b.install_key(plan, to, pkh, 10, 60));
+                    if installed {
+                        keys.insert((ci, plan, to, next_epoch), k);
+                    }
+                    revoked && installed
+                }
+                12 => {
+                    // Injected owner change (rarer); the operator is re-granted only sometimes.
+                    if r.below(5) != 0 {
+                        continue;
+                    }
+                    let at = parties.iter().position(|p| *p == owner).unwrap();
+                    let next = parties[(at + 1 + r.below(2) as usize) % 3];
+                    generation += 1;
+                    let grants: &[(&str, u8)] = if r.below(3) == 0 { &[] } else { &[(METER, METERING)] };
+                    w.inject_owner(next, generation, grants);
+                    owner = next;
+                    true
+                }
+                13 => {
+                    // The current owner (re-)appoints the operator: a W1 call, charged as measured.
+                    let (_, d) = w.measured(owner, NEAR, |b| b.appoint_operator(id(METER), METERING));
+                    assert!(d >= 0);
+                    w.invariants();
+                    true
+                }
+                _ => {
+                    // Mostly short steps (holds settle within 40 minutes), sometimes a day.
+                    w.now += [MIN, MIN, MIN, 2 * MIN, 2 * MIN, 5 * MIN, 5 * MIN, 11 * MIN, 31 * MIN, DAY][r.below(10) as usize];
+                    true
+                }
+            };
+            if done {
+                totals[op] += 1;
+            }
+        }
+    }
+    println!("random (prices, keys, owners) successes by operation: {totals:?}");
+    for (op, n) in totals.iter().enumerate() {
+        assert!(*n >= 3, "operation {op} succeeded only {n} times: {totals:?}");
+    }
 }
