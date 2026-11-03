@@ -8,3 +8,9 @@ data/runtime/
 *.db-shm
 docs/astra/*.last-message.txt
 web/dist/
+
+# Local research and coordinator records
+docs/research/
+docs/astra/BUILD_STATE.md
+docs/astra/2026-11-02_ReferenceLibrary.md
+docs/astra/2026-11-02_ReviewWorkflow.md
