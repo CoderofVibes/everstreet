@@ -50,7 +50,7 @@ done
 # Every command any phase uses, and the Ubuntu package that provides it.
 NEEDS="curl:curl sha256sum:coreutils tar:tar xz:xz-utils unsquashfs:squashfs-tools mkfs.ext4:e2fsprogs \
 setfacl:acl getfacl:acl ip:iproute2 sudo:sudo visudo:sudo useradd:passwd userdel:passwd \
-setpriv:util-linux prlimit:util-linux install:coreutils timeout:coreutils truncate:coreutils \
+setpriv:util-linux prlimit:util-linux flock:util-linux install:coreutils timeout:coreutils truncate:coreutils \
 systemctl:systemd dpkg:dpkg"
 
 lock_sha() { # kernel|rootfs -> the reviewer-filled sha256 (empty if not yet)
@@ -69,20 +69,11 @@ record() { echo "$*" >> "$MANIFEST"; }
 
 netns_present() { ip netns list 2>/dev/null | awk '{print $1}' | grep -qx everstreet-none; }
 
-# 002e1: the launcher's lifecycle lock, taken by uninstall with an atomic no-clobber create.
-# A lock whose holder is gone (kill -0 fails) is stale and moved aside first; a live one refuses.
+# 002e1: the launcher's lifecycle lock, the kernel's flock(2) on lifecycle.flock (see `launch`).
+# Uninstall holds it on fd 9 until it exits; the kernel releases it however this shell ends.
 take_lock() {
-  lockf=$MANIFEST_DIR/run.lock
-  if [ -e "$lockf" ]; then
-    holder=$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$lockf")
-    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
-      echo "a lifecycle operation is in progress (pid $holder); try again when it ends" >&2; return 1
-    fi
-    mv "$lockf" "$lockf.stale-$$"; rm -f "$lockf.stale-$$"
-  fi
-  start=$(cut -d' ' -f22 "/proc/$$/stat" 2>/dev/null || echo 0)
-  ( set -C; printf '{"pid":%s,"start":"%s","purpose":"uninstall","id":null}\n' "$$" "$start" > "$lockf" ) 2>/dev/null \
-    || { echo "another lifecycle operation took the lock" >&2; return 1; }
+  exec 9>>"$MANIFEST_DIR/lifecycle.flock"
+  flock -n 9 || { echo "a lifecycle operation is in progress; try again when it ends" >&2; return 1; }
 }
 
 # Confirms a recorded resource is really gone (or no longer enabled/installed).
@@ -209,7 +200,6 @@ UNITFILE
   install -m 0644 "$HERE/host-launch.mjs" "$ROOT/host-launch.mjs"
   install -m 0644 "$HERE/conformance.mjs" "$ROOT/conformance.mjs"
   install -m 0644 "$HERE/conformance-lib.mjs" "$ROOT/conformance-lib.mjs"
-  install -m 0644 "$HERE/lifecycle-lock.mjs" "$ROOT/lifecycle-lock.mjs"
   install -m 0644 "$LOCK" "$ROOT/worker.lock.json"
   install -m 0644 "$HERE/guest/wire.mjs" "$ROOT/guest/wire.mjs"
   install -m 0644 vmlinux "$ROOT/guest/vmlinux"
@@ -241,7 +231,7 @@ uninstall_all() {
   take_lock || exit 1
   for d in "$CGROUP"/es-*; do
     if [ -d "$d" ] && [ -n "$(cat "$d/cgroup.procs" 2>/dev/null)" ]; then
-      rm -f "$MANIFEST_DIR/run.lock"; echo "a job is still running ($d)" >&2; exit 1
+      echo "a job is still running ($d)" >&2; exit 1
     fi
   done
   while [ -s "$MANIFEST" ]; do
@@ -256,19 +246,20 @@ uninstall_all() {
       user) ! id "$what" >/dev/null 2>&1 || userdel "$what" || true ;;
       package) DEBIAN_FRONTEND=noninteractive apt-get remove -y "$what" || true ;;
       dir) [ "$what" = "$MANIFEST_DIR" ] || rm -rf "$what" ;;
-      *) echo "unknown manifest entry: $line" >&2; rm -f "$MANIFEST_DIR/run.lock"; exit 1 ;;
+      *) echo "unknown manifest entry: $line" >&2; exit 1 ;;
     esac
     # 002e1: the record leaves the manifest only once removal is CONFIRMED; otherwise it stays
     # (with everything older) and uninstall fails, to be repeated after the cause is fixed.
     if [ "$kind" != dir ] || [ "$what" != "$MANIFEST_DIR" ]; then
       if ! gone "$kind" "$what" "$who"; then
-        rm -f "$MANIFEST_DIR/run.lock"
         echo "could not confirm removal of: $line (kept in the manifest)" >&2; exit 1
       fi
     fi
     sed -i '$d' "$MANIFEST"
   done
-  rm -f "$MANIFEST" "$MANIFEST_DIR/installed.json" "$MANIFEST_DIR/run.lock"; rmdir "$MANIFEST_DIR"
+  # Everything recorded is gone; release the lock, then remove the bookkeeping itself.
+  exec 9>&-
+  rm -f "$MANIFEST" "$MANIFEST_DIR/installed.json" "$MANIFEST_DIR/lifecycle.flock"; rmdir "$MANIFEST_DIR"
   echo "Removed exactly what the manifest recorded."
 }
 

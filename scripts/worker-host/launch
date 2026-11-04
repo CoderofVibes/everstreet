@@ -2,7 +2,17 @@
 # Job 002e: /opt/everstreet-worker/bin/launch, root-owned 0755, the ONLY command in the sudoers
 # line for everstreet-runner. It passes exactly one fixed verb (and a validated id for cleanup)
 # to the launcher; nothing else from the caller reaches it. The environment is reset.
-set -eu
+#
+# 002e1 (Astra's WorkerImplementationReview: the file-based takeover lock let two contenders win):
+# every lifecycle operation runs under ONE kernel lock, flock(2) via flock(1), on
+# /var/lib/everstreet-worker/lifecycle.flock, also taken by `setup.sh uninstall`.
+#   -n -E 75  never wait: a held lock is an immediate "busy" (exit 75), reported as JSON below;
+#   -o        the lock descriptor is NOT passed to the launcher, so nothing it starts (a
+#             daemonized Firecracker) can inherit it. flock itself holds it exactly as long as
+#             the launcher process lives, and the kernel drops it when that process ends,
+#             however it ends: there is no stale lock and no takeover protocol.
+set -u
+LOCKFILE=/var/lib/everstreet-worker/lifecycle.flock
 case "${1:-}" in
   preflight|run) VERB="$1"; ARG="" ;;
   cleanup)
@@ -12,5 +22,13 @@ case "${1:-}" in
     esac ;;
   *) echo '{"error":"usage"}'; exit 2 ;;
 esac
-exec env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+flock -n -o -E 75 "$LOCKFILE" env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
   /opt/everstreet-worker/node/bin/node /opt/everstreet-worker/host-launch.mjs "$VERB" $ARG
+rc=$?
+if [ "$rc" -eq 75 ]; then
+  case "$VERB" in
+    run) echo '{"error":"unavailable","detail":"another lifecycle operation is in progress"}' ;;
+    *) echo '{"ok":false,"busy":true,"reason":"another lifecycle operation is in progress"}' ;;
+  esac
+fi
+exit "$rc"

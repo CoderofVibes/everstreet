@@ -38,7 +38,9 @@ function launch(verb, stdin, killAfterMs = HARNESS_MS) {
   return new Promise((resolve) => {
     let p;
     try {
-      p = spawn("sudo", ["-n", "/opt/everstreet-worker/bin/launch", verb], { stdio: ["pipe", "pipe", "pipe"] });
+      // Its own process group, so a harness kill reaches sudo, the wrapper, flock and the
+      // launcher together (the kernel then releases the lifecycle lock): a real orphan.
+      p = spawn("sudo", ["-n", "/opt/everstreet-worker/bin/launch", verb], { stdio: ["pipe", "pipe", "pipe"], detached: true });
     } catch (e) {
       return resolve({ harness_error: `spawn: ${e.message}` });
     }
@@ -50,7 +52,13 @@ function launch(verb, stdin, killAfterMs = HARNESS_MS) {
     });
     p.stderr.on("data", () => {}); // drained, never buffered without bound
     p.on("error", (e) => resolve({ harness_error: `spawn: ${e.message}` }));
-    const t = setTimeout(() => p.kill("SIGKILL"), killAfterMs);
+    const t = setTimeout(() => {
+      try {
+        process.kill(-p.pid, "SIGKILL");
+      } catch {
+        p.kill("SIGKILL");
+      }
+    }, killAfterMs);
     p.on("close", (code, signal) => {
       clearTimeout(t);
       if (over) return resolve({ harness_error: "output over bound" });

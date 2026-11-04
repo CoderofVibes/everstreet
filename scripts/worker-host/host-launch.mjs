@@ -4,14 +4,16 @@
 // caller. NEVER RUN in this repository's tests: it needs the reviewed host setup (setup.sh) and
 // is unverified until scripts/worker-host/conformance.mjs passes on that host.
 // Design: docs/design/EXECUTABLE_PRODUCTS.md §5. Revised after Astra's WorkerImplementationReview:
-// - a single-run lock names the live run (pid, start time, jail id): preflight reports `busy`
-//   while it is live and cleans only PROVEN orphans (its process gone);
+// - (002e1) mutual exclusion is a kernel flock(2) held by the `launch` wrapper for this whole
+//   process (and by `setup.sh uninstall`): a contender is told busy at once; the kernel releases
+//   the lock when this process ends, however it ends, so there is no stale lock to take over,
+//   and any es-* leftover a preflight finds belongs to an ended launcher, an orphan;
 // - cleanup confirms the job's cgroup is empty before removing anything; otherwise it keeps the
-//   jail as evidence, keeps the lock and fails (the platform then admits no more work);
+//   jail as evidence and fails (the platform then admits no more work until a preflight cleans);
 // - one validated identity (UUID check id, attempt 1..999999) is shared by run, cleanup and the
 //   platform's adapter; stdin is bounded and deadlined; hashes are streamed; subprocesses bounded;
-// - SIGTERM/SIGINT/SIGHUP during a run clean up before exiting; a SIGKILLed launcher leaves a
-//   stale lock that the next preflight proves orphaned and cleans.
+// - SIGTERM/SIGINT/SIGHUP during a run clean up before exiting; after a SIGKILLed launcher, the
+//   next preflight cleans what it left.
 
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -29,7 +31,6 @@ import {
 import { request } from "node:http";
 import { join } from "node:path";
 import { decodeFrame, encodeFrame } from "./guest/wire.mjs";
-import { lifecycleLock } from "./lifecycle-lock.mjs";
 
 const ROOT = "/opt/everstreet-worker";
 const LOCK = JSON.parse(readFileSync(join(ROOT, "worker.lock.json"), "utf8"));
@@ -39,7 +40,6 @@ const JAILER = join(ROOT, "bin/jailer");
 const KERNEL = join(ROOT, "guest/vmlinux");
 const IMAGE = join(ROOT, "guest/guest.ext4");
 const STATE = "/var/lib/everstreet-worker";
-const RUN_LOCK = join(STATE, "run.lock");
 const JAIL_BASE = "/srv/everstreet-jail";
 const CG_PARENT = "/sys/fs/cgroup/everstreet-worker";
 const NETNS = "/var/run/netns/everstreet-none";
@@ -116,23 +116,10 @@ async function readinessProblems() {
 
 // ---------- the single-run lock ----------
 
-// 002e1 (Astra's WorkerImplementationReview follow-up, item 5): one lifecycle lock held across
-// each critical section of run, preflight, cleanup and (in setup.sh) uninstall.
-const startOf = (pid) => readFileSync(`/proc/${pid}/stat`, "utf8").split(" ")[21];
-const lock = lifecycleLock({
-  path: RUN_LOCK,
-  self: { pid: process.pid, start: startOf(process.pid) },
-  // Same process (start time) and still a lifecycle command: never a recycled pid.
-  alive: (h) => {
-    try {
-      const cmd = readFileSync(`/proc/${h.pid}/cmdline`, "utf8");
-      return startOf(h.pid) === h.start && (cmd.includes("host-launch.mjs") || cmd.includes("setup.sh"));
-    } catch {
-      return false;
-    }
-  },
-});
-const BUSY = (h) => ({ ok: false, busy: true, reason: `${h?.purpose ?? "another lifecycle operation"} is in progress` });
+// 002e1: mutual exclusion is the KERNEL's: the `launch` wrapper runs this whole process under
+// flock(2) on lifecycle.flock (also taken by `setup.sh uninstall`), released by the kernel when
+// this process ends. While this process runs, no other lifecycle operation is live, so every
+// es-* jail or cgroup found by a preflight is an orphan by construction. No file-based takeover.
 
 /**
  * Kills everything in a job's cgroup and confirms it is empty; only then removes the cgroup and
@@ -173,24 +160,15 @@ async function cleanOrphans(liveId) {
 }
 
 async function preflight() {
-  // Held for the whole scan: no run can start between "free" and the orphan cleanup.
-  const got = lock.acquire("preflight");
-  if (!got.ok) return out(got.unreadable ? { ok: false, reason: "the lifecycle lock is unreadable; inspect it before continuing" } : BUSY(got.busy));
-  const removed = [];
+  // Under the kernel lock (see above): anything left is an orphan of a launcher that has ended.
+  let removed = [];
   try {
-    if (got.orphan && ID.test(got.orphan.id ?? "")) {
-      await cleanup(got.orphan.id);
-      removed.push(got.orphan.id);
-    }
-    removed.push(...(await cleanOrphans(null)));
+    removed = await cleanOrphans(null);
   } catch (e) {
-    // Unconfirmed: the lock is released (we are alive and done), the evidence stays on disk,
-    // and preflight is not ok, so the platform admits nothing.
-    lock.release();
+    // Unconfirmed: the evidence stays on disk and preflight is not ok, so nothing is admitted.
     return out({ ok: false, cleanup_failed: true, reason: e.message, removed });
   }
   const problems = await readinessProblems();
-  lock.release();
   return out(problems.length ? { ok: false, reason: problems.join("; "), removed } : { ok: true, engine: await engineIdentity(), removed });
 }
 
@@ -252,18 +230,11 @@ async function run() {
   )
     return out({ error: "invalid_job" });
   const id = jailId(job.check_id, job.attempt);
-  // The lock first, before readiness: nothing else changes worker state while we run.
-  const got = lock.acquire("run", id);
-  if (!got.ok) return out({ error: "unavailable", detail: got.unreadable ? "the lifecycle lock is unreadable" : "another lifecycle operation is in progress" });
-  if (got.orphan) {
-    lock.release();
-    return out({ error: "unavailable", detail: "a previous run wasn't cleaned up; preflight first" });
-  }
+  // Leftovers from an ended launcher must be cleaned by a preflight first; a run never does it.
+  const leftovers = (existsSync(CG_PARENT) ? readdirSync(CG_PARENT) : []).filter((d) => ID.test(d));
+  if (leftovers.length) return out({ error: "unavailable", detail: "a previous run wasn't cleaned up; preflight first" });
   const problems = await readinessProblems();
-  if (problems.length) {
-    lock.release();
-    return out({ error: "unavailable", detail: problems.join("; ") });
-  }
+  if (problems.length) return out({ error: "unavailable", detail: problems.join("; ") });
   const engine = await engineIdentity();
   let finished = false;
   const onSignal = async () => {
@@ -271,9 +242,8 @@ async function run() {
     finished = true;
     try {
       await cleanup(id);
-      lock.release();
     } catch {
-      // the lock stays (its owner is about to exit): the next preflight proves the orphan
+      // unconfirmed: the next preflight (after this process and its lock are gone) retries
     }
     process.exit(130);
   };
@@ -288,7 +258,6 @@ async function run() {
   finished = true;
   try {
     await cleanup(id);
-    lock.release();
   } catch (e) {
     // Unconfirmed cleanup: the lock and jail stay; the platform admits nothing until a
     // preflight proves the orphan and cleans it.
@@ -384,15 +353,11 @@ const main =
       ? run()
       : verb === "cleanup" && ID.test(process.argv[3] ?? "")
         ? (async () => {
-            const got = lock.acquire("cleanup", process.argv[3]);
-            if (!got.ok) return out({ ok: false, reason: got.busy?.id === process.argv[3] ? "that run is still live" : "another lifecycle operation is in progress" });
+            // Under the kernel lock: the job named can't be live (its launcher would hold it).
             try {
               await cleanup(process.argv[3]);
-              if (got.orphan && got.orphan.id !== process.argv[3] && ID.test(got.orphan.id ?? "")) await cleanup(got.orphan.id);
-              lock.release();
               out({ ok: true });
             } catch (e) {
-              lock.release();
               out({ ok: false, cleanup_failed: true, reason: e.message });
               process.exitCode = 1;
             }

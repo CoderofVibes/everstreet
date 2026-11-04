@@ -67,6 +67,9 @@ shim tar "$L
 case \"\$1\" in -xzf) echo \"fake \$4\" ;; -xJf) mkdir -p \"\$4/bin\" ;; esac"
 shim curl "$L
 exit 1"
+# flock(1): the kernel lock, modelled: held by another operation while state/flock_busy exists.
+shim flock "$L
+[ ! -e \"\$ST/flock_busy\" ]"
 # install(1): same creation and copies, the requested mode logged but not applied (this fake root
 # may be on a filesystem that can't hold Linux modes; modes are verified on the real host only).
 shim install "$L
@@ -130,7 +133,7 @@ pass "installs interrupted at useradd, setfacl, systemctl and visudo are removed
 # 4. A full install, with the clean baseline saved BEFORE it (Astra: the old step 5 reset first).
 reset_sys; base=$(snapshot)
 run install "$IN" > "$T/out" 2>&1 || fail "full install failed: $(cat "$T/out")"
-for f in conformance.mjs conformance-lib.mjs lifecycle-lock.mjs host-launch.mjs; do
+for f in conformance.mjs conformance-lib.mjs host-launch.mjs; do
   [ -f "$SYS/opt/everstreet-worker/$f" ] || fail "$f not installed"
 done
 grep -q "conformance.mjs" "$T/out" || fail "install names the wrong conformance command"
@@ -141,16 +144,17 @@ pass "full install placed every file and enabled the unit"
 if FAIL_AT=userdel run uninstall > "$T/out" 2>&1; then fail "uninstall ignored a failed userdel"; fi
 grep -q "^user " "$M/manifest" || fail "the unconfirmed user removal wasn't kept in the manifest"
 grep -q "could not confirm removal" "$T/out" || fail "no unconfirmed-removal message"
-[ ! -e "$M/run.lock" ] || fail "a failed uninstall left its lock"
 pass "an unconfirmed removal keeps its record and fails"
 
-# 6. Uninstall refuses under a live lifecycle lock and takes over a dead one.
-printf '{"pid":%s,"start":"x","purpose":"run","id":null}\n' "$$" > "$M/run.lock"
-if run uninstall > "$T/out" 2>&1; then fail "uninstall ran under a live lock"; fi
+# 6. Uninstall refuses while another lifecycle operation holds the kernel lock, and proceeds
+#    once it is free (the kernel releases it when its holder ends: there is no stale lock).
+: > "$SYS/state/flock_busy"
+if run uninstall > "$T/out" 2>&1; then fail "uninstall ran while the lifecycle lock was held"; fi
 grep -q "in progress" "$T/out" || fail "no busy message"
-printf '{"pid":999999,"start":"x","purpose":"run","id":null}\n' > "$M/run.lock"
-run uninstall > "$T/out" 2>&1 || fail "uninstall didn't take over a dead lock: $(cat "$T/out")"
-pass "uninstall refuses a live lock and takes over a dead one"
+grep -q "^user " "$M/manifest" || fail "a refused uninstall touched the manifest"
+rm "$SYS/state/flock_busy"
+run uninstall > "$T/out" 2>&1 || fail "uninstall failed once the lock was free: $(cat "$T/out")"
+pass "uninstall refuses while the lifecycle lock is held and proceeds once it is free"
 
 # 7. The install from step 4 is gone exactly: the fake root equals its pre-install baseline.
 [ "$base" = "$(snapshot)" ] || { snapshot > "$T/after"; fail "leftovers after uninstall"; }

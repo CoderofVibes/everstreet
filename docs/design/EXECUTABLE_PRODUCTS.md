@@ -239,16 +239,24 @@ WorkerImplementationReview):
 - **Bounds.** Stdin is bounded and deadlined, hashes are streamed, and every subprocess has a
   timeout.
 
-**Lifecycle lock** (002e1, after Astra's follow-up):
-- **Which operations hold it.** The run lock is one lifecycle lock (`lifecycle-lock.mjs`) held
-  across the whole critical section of run (taken before readiness), preflight (across its orphan
-  scan), cleanup and `setup.sh uninstall`. A run can't start between a preflight's "free" and its
-  scan.
-- **Taking over a dead holder.** It moves the stale file aside and checks by inode that it moved
-  the stale lock it judged; having moved a newer live lock, it puts that back and reports busy.
-- **Release.** Only the owner, by pid and process start time, releases.
-- **Tests.** Deterministic interleavings, including two contenders, are in
-  `server/test/lifecycle-lock.test.ts`.
+**Lifecycle exclusion** (002e1, after Astra's follow-ups): **the kernel's flock(2)**.
+- **Why not a file lock.** A file-based takeover lock was tried first and withdrawn. Astra
+  reproduced two contenders both winning in its read-to-stat window, and a displaced owner's
+  later refusal comes too late to protect its critical section.
+- **What holds it.** The `launch` wrapper runs every verb as
+  `flock -n -o -E 75 /var/lib/everstreet-worker/lifecycle.flock … host-launch.mjs`, and
+  `setup.sh uninstall` holds the same lock on fd 9:
+  - `-n -E 75`: a contender gets "busy" at once;
+  - `-o`: the descriptor isn't passed to the launcher, so a daemonized Firecracker can't inherit it.
+- **No stale lock.** The kernel releases the lock when the holding process ends, however it ends,
+  so there is nothing to take over.
+- **Orphans.** While a preflight holds the lock, no other lifecycle operation is live, so every
+  `es-*` leftover belongs to an ended launcher. A run refuses to start over leftovers ("preflight
+  first").
+- **Verified so far:** the uninstall side in the fake-root harness, plus a contract test
+  (`server/test/worker-lock.test.ts`).
+- **Pending on the real host:** exclusion itself, through conformance cases 9 (busy during a run)
+  and 10 (a killed launcher's process group gives an orphan that is cleaned).
 
 **The platform worker side** (after Astra's AppCheckLifecycleReview):
 - the lease is renewed on every poll tick from claim to end;
@@ -388,7 +396,7 @@ The cases:
   - **Confirmed removal.** Uninstall confirms each removal: the item is absent, or no longer
     enabled or installed. Otherwise the record and everything older stays, and uninstall fails.
   - **Conflicts.** Dangling symlinks and annotated `ip netns list` output count as conflicts.
-  - **Locking.** Uninstall takes the lifecycle lock.
+  - **Locking.** Uninstall takes the lifecycle flock.
   - **The harness.** It is stateful (users, ACLs, units, packages, netns). It saves its baseline
     before the install it removes, and covers installs interrupted at each privileged step, a
     retained record on a failed removal, and live and dead locks.
