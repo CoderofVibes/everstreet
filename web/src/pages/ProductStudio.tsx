@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { ApiError } from "../api.ts";
+import { briefComposerShown } from "../appCanvas.ts";
 import {
   BRIEF_SECTIONS,
   type BriefSection,
@@ -1326,29 +1327,52 @@ export function ProductStudio({ id }: { id: string }) {
         editor={
           <div className="ps-side-scroll">
             <div className="companion-head">
-              <span className="ctx-kicker">Companion</span>
+              {/* Job 001k: the two assistant tasks are named apart: this one shapes the brief
+                  (proposals); the Web app view's composer changes the app's code. */}
+              <span className="ctx-kicker">Companion · brief</span>
               <span className="muted">
-                Shape the idea in words; proposals open beside your revision.
+                Shape the business brief in words; proposals open beside your revision. It doesn't
+                change the web app's code.
               </span>
             </div>
             {view.source && <SourcePanel source={view.source} />}
+            {/* Job 001k: on the Web app view the app's own composer ("Change the web app") is the
+                one assistant composer shown, so the brief conversation is set aside here (hidden,
+                still mounted: its unsent text and any pending request are kept). */}
+            {!briefComposerShown(tab) && (
+              <div className="notice info companion-aside">
+                <p>
+                  On the Web app view, the assistant changes the app's code, in “Change the web
+                  app”. The brief conversation is set aside; your unsent text there is kept.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setTab("brief")}
+                >
+                  Shape the brief instead
+                </button>
+              </div>
+            )}
             {/* Job 001g: the conversation is the companion's only content, always mounted, so
                 the unsent thought and an unresolved request survive every view, mode and layout
                 switch. The key starts it clean for another person, project or owner epoch. */}
-            <ConversationPanel
-              key={scope}
-              projectId={view.project.id}
-              businessId={view.business.id}
-              idea={view.project.idea}
-              prefill={prefillFor(prefill, scope)}
-              onReview={reviewProposal}
-              onManual={() => {
-                setTab("brief");
-                setMode("edit");
-                setSelection(null);
-                focusSoon(TOOLS_ID);
-              }}
-            />
+            <div hidden={!briefComposerShown(tab)}>
+              <ConversationPanel
+                key={scope}
+                projectId={view.project.id}
+                businessId={view.business.id}
+                idea={view.project.idea}
+                prefill={prefillFor(prefill, scope)}
+                onReview={reviewProposal}
+                onManual={() => {
+                  setTab("brief");
+                  setMode("edit");
+                  setSelection(null);
+                  focusSoon(TOOLS_ID);
+                }}
+              />
+            </div>
           </div>
         }
         canvas={
@@ -1493,6 +1517,10 @@ export function ProductStudio({ id }: { id: string }) {
                     scope={scope}
                     projectId={view.project.id}
                     headRevision={view.head.number}
+                    onShapeBrief={() => {
+                      setTab("brief");
+                      setEditorOpen(true);
+                    }}
                   />
                 </div>
               )}

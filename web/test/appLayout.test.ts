@@ -16,9 +16,11 @@ const rule = (selector: string) => {
 
 describe("002e1 Web app view width containment", () => {
   it("its grids have a shrinkable column and children that may shrink", () => {
-    expect(rule(".app-view")).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-    expect(rule(".app-view")).toMatch(/min-width:\s*0/);
-    expect(rule(".app-view > *")).toMatch(/min-width:\s*0/);
+    // 001k: the view is now the canvas; its stage column keeps the same containment.
+    expect(rule(".app-canvas")).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+    expect(rule(".app-canvas")).toMatch(/min-width:\s*0/);
+    expect(rule(".app-canvas > *")).toMatch(/min-width:\s*0/);
+    expect(rule(".app-stage-col")).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
     expect(rule(".app-versions")).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
     expect(rule(".app-version, .app-diff, .app-check")).toMatch(/min-width:\s*0/);
   });

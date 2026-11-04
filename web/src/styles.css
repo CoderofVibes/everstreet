@@ -1181,25 +1181,79 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .room-withheld { font-size: 13px; margin: -6px 0 14px; }
 @media (max-width: 760px) { .room-title { font-size: 28px; } .room-tagline { font-size: 16px; } .room-access { grid-template-columns: 1fr; } .room-access .btn { justify-self: start; } }
 
-/* Job 002e: the Studio web app view. */
+/* Job 002e: the Studio web app view. Job 001k: composed as a canvas: the version tools, the stage
+   (the selected version running, or a placeholder with its real next action) beside one named
+   composer, and the history and comparison panels under the stage. */
 /* 002e1 (Astra: 390 px Compare made the document 477 px): the view's grids get a shrinkable
    column and their children may shrink, so long code scrolls inside its own region. */
-.app-view { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
-.app-view > * { min-width: 0; }
-.app-view h2 { margin-top: 0; }
+.app-canvas { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.app-canvas > * { min-width: 0; }
 .app-note { font-size: 13.5px; margin: 6px 0 0; }
-.app-versions { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.app-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+}
+.app-pick { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13.5px; font-weight: 600; }
+.app-pick select { min-width: 0; max-width: 340px; }
+.app-toolbar-pills, .app-toolbar-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.app-roles { font-family: var(--mono); font-size: 12px; margin: 0; overflow-wrap: anywhere; }
+.app-work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: 16px; align-items: start; }
+.app-stage-col { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+/* The local dark surface for the running product (the studio's one dark area, as on Preview). */
+.app-stage { background: var(--ink); color: var(--on-ink); border-radius: var(--radius-xl); padding: 16px; box-shadow: inset 0 0 0 1px var(--ink-line); min-width: 0; }
+.app-stage-empty { min-height: clamp(240px, calc(100vh - 460px), 560px); display: grid; align-content: center; justify-items: start; gap: 10px; padding: 24px; max-width: 64ch; }
+.app-stage-empty p { margin: 0; color: var(--on-ink); }
+.app-stage-title { font-family: var(--display); font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.app-stage .btn.on-ink { color: var(--on-ink); }
+.app-preview { min-width: 0; }
+.app-preview-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.app-preview-state { font-size: 13px; color: var(--on-ink); }
+.app-preview-frame { display: block; width: 100%; height: clamp(300px, calc(100vh - 420px), 760px); border: 0; border-radius: var(--radius-sm); background: #fff; }
+.app-preview-note { font-size: 12.5px; margin: 8px 0 0; color: var(--on-ink); }
+.app-composer {
+  position: sticky; top: var(--studio-clear-top); display: flex; flex-direction: column; min-width: 0;
+  max-height: calc(100vh - var(--studio-clear-top) - 12px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+}
+.app-composer :is(input, select, textarea, button) { scroll-margin-top: var(--studio-clear-top); }
+.app-composer-body { padding: 12px 16px; overflow-y: auto; min-height: 0; flex: 1; }
+.app-composer-checks { border-top: 1px solid var(--line); padding: 12px 16px; overflow-y: auto; max-height: 40%; min-width: 0; }
+.app-composer-checks h4 { margin: 0; font-size: 14px; }
+.app-panel { min-width: 0; }
+.app-panel-title { margin: 0; font-size: 16px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.app-panel-title:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.app-versions { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
 .app-version, .app-diff, .app-check { min-width: 0; }
-.app-version { border-top: 1px solid var(--line); padding-top: 12px; }
+.app-version { border-top: 1px solid var(--line); padding-top: 10px; }
 .app-version:first-child { border-top: 0; padding-top: 0; }
 .app-version-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.app-version-pick {
+  font: inherit; font-weight: 600; text-align: left; color: var(--text); cursor: pointer; min-height: 36px; max-width: 100%; overflow-wrap: anywhere;
+  background: transparent; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 10px;
+}
+.app-version-pick[aria-pressed="true"] { border-color: var(--cobalt); background: var(--cobalt-soft); }
+.app-version-pick:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .app-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.app-preview-frame { width: 100%; height: 480px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fff; margin-top: 10px; }
-.app-diff h3 { font-size: 13.5px; margin: 14px 0 6px; }
+.app-diff h4 { font-size: 13.5px; margin: 14px 0 6px; overflow-wrap: anywhere; }
 .app-diff pre { max-width: 100%; margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px; }
 .app-diff-add { color: var(--success); background: var(--success-soft); }
 .app-diff-del { color: var(--error); background: var(--error-soft); }
-@media (max-width: 760px) { .app-preview-frame { height: 380px; } }
 .app-check { margin-top: 8px; }
 .app-cases { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; overflow-wrap: anywhere; }
+.link-btn { font: inherit; color: var(--cobalt-ink); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+.link-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.companion-aside { display: grid; gap: 8px; justify-items: start; margin-bottom: 12px; }
+.companion-aside p { margin: 0; }
+@container canvas (max-width: 880px) {
+  .app-work { grid-template-columns: minmax(0, 1fr); }
+  .app-composer { position: static; max-height: none; box-shadow: none; }
+  .app-composer-body, .app-composer-checks { overflow: visible; max-height: none; }
+}
+@container canvas (max-width: 480px) {
+  .app-stage { padding: 8px; border-radius: var(--radius-lg); }
+  .app-pick { flex-wrap: wrap; width: 100%; }
+  .app-pick select { width: 100%; max-width: 100%; }
+  .app-stage-empty { padding: 12px; min-height: 200px; }
+  .app-preview-frame { height: 360px; }
+}
 .app-budget input { max-width: 12em; }

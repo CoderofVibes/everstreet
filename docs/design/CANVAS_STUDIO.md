@@ -129,6 +129,87 @@ changes. The Versions view says the released build doesn't change.
   run or a pass.
 - **Zoom:** the tools column becomes a stack under the stage through the same container query.
 
+## Executable canvas: the Web app view (job 001k)
+
+Astra's ExecutableStudioCompositionReview found two problems at 1440 and 1280:
+- the generated app sat below a full-width form and version list;
+- showing the companion put two unexplained AI composers on screen.
+
+The Web app view is now composed like the other canvas views.
+
+```
+┌ version tools: [Version ▾ 3: name (current)] Current · Logic checks passed ··· Run logic checks  Compare with current  Make this the current version  History (3)
+├ roles line (mono): Showing version 2 · current is version 3 · version 2 is running in the preview
+├───────────────────────────────────────────────┬──────────────────────────┐
+│ STAGE (local dark surface)                    │ CHANGE THE WEB APP       │
+│  the shown version's sandboxed frame, or a    │  (Assistant · code)      │
+│  placeholder with its real next action        │  recover · text · budget │
+│                                               │  generate · cancel ·     │
+│ comparison panel (when opened)                │  progress                │
+│ version history panel (when opened)           │  logic checks for the    │
+│                                               │  shown version           │
+└───────────────────────────────────────────────┴──────────────────────────┘
+```
+
+**Three versions that are never confused** (`web/src/appCanvas.ts`, pure and tested):
+
+| Version | What it means | How it changes |
+|---|---|---|
+| **Shown** (selected) | What the stage, its checks and Compare are about. | The version picker or a history row. This only changes the view: it never makes a version current and never marks a check. It follows the current version until the founder picks another one. A finished generation's version is shown as soon as it is listed, even when the server keeps an earlier chosen version current (it is then labelled "Not current"). |
+| **Current** | The server's current version. | Only "Make this the current version". The roles line shows it apart from the shown one. |
+| **In preview** | The version running in the frame. | The frame belongs to the shown version. Selecting another version stops it, with a note. A late preview answer for a version no longer shown opens nothing. A version that disappears is never replaced in the frame. |
+
+**The stage:**
+- **Placeholder.** Before preview, the stage says which version it is and its check state in words,
+  and offers "Preview version N".
+- **The gate stays on the server.** A refusal (`not_checked`) shows, in the stage, the existing
+  warned choice: "Open unchecked preview" or "Not now". Nothing opens unchecked by itself.
+- **The frame keeps its boundary.** It is unchanged: `sandbox="allow-scripts"`, a separate site,
+  no referrer, single page, and Stop. Its title names the version.
+- **No version yet** says to describe the app in the composer. When preview isn't configured, it
+  says so and offers no preview.
+
+**One assistant composer at a time:**
+- **"Change the web app"** (kicker *Assistant · code*) is the only composer on this view. It writes
+  code as a new version and uses the business's AI budget. A change starts from the current version,
+  and when another version is shown the composer says so.
+- **Unchanged in it:**
+  - known and lost generation recovery ("Recover my request" resends the same request);
+  - the typed-ahead draft;
+  - the budget field and its limits;
+  - cancel, "Check progress" and finite polling;
+  - the shown version's detailed check results and cancel-check.
+- **The brief companion** (*Companion · brief*) shapes the business brief and says it doesn't
+  change the app's code. On the Web app view its conversation is **set aside, still mounted**
+  (`briefComposerShown`), so its unsent text and any pending proposal request are kept. In its place
+  is a note and "Shape the brief instead". The app composer links back the same way.
+
+**Comparison and history:**
+- **Comparison.** "Compare with current" opens a panel under the stage and moves focus to its
+  title. "Close comparison" or Escape closes it and returns focus to the Compare button. It also
+  closes, rather than silently retargeting, when the shown or current version changes.
+- **History.** A toggled panel of compact rows: version, name, Current / Shown / In preview,
+  check words, digest and what was asked. Each row selects with a pressed button.
+
+**Layout:**
+- **Wide canvas.** The stage and the composer sit side by side. The composer is sticky below the
+  site header, and its body scrolls inside it. The placeholder and the frame size to the viewport
+  (`clamp`), so the stage and its controls start in the first workspace viewport at 1440 and 1280.
+- **≤ 880 px canvas** (container query, so it also covers zoom): one column. The stage comes
+  first, then the composer as ordinary content, then the panels.
+- **≤ 480 px (390).** The picker takes the full width, the toolbar wraps and the stage padding
+  shrinks. Long code scrolls inside its own region, as in 002e1.
+- **Motion.** No animation implies a run or a pass.
+
+**Unchanged:**
+- route deep links (`?view=app`);
+- the scope fence (keyed by person, project and owner epoch);
+- the Preview and Brief schema canvas with its Try and Edit tools;
+- every server rule.
+
+**Browser review is Astra's.** The tests are interaction-controller and static-render checks, not
+pixel proof.
+
 ## Honest gaps (unchanged by this job)
 
 - No arbitrary generated code. The prototype is a schema render and says so. Building, checks,

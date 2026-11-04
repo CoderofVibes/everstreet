@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AppVersion } from "../src/appApi.ts";
 import { changedFiles, checkWords, lineDiff, previewMessage } from "../src/appView.ts";
-import { AppVersionRow, PreviewFrame } from "../src/pages/AppView.tsx";
+import { AppStage, AppVersionRow, PreviewFrame } from "../src/pages/AppView.tsx";
 
 const version = (latest: AppVersion["latest_check"]): AppVersion => ({
   job_id: "j1",
@@ -29,11 +29,8 @@ const row = (v: AppVersion) =>
   renderToStaticMarkup(
     <AppVersionRow
       v={v}
-      busy={false}
-      onCurrent={() => {}}
-      onCheck={() => {}}
-      onPreview={() => {}}
-      onCompare={() => {}}
+      roles={{ selected: true, current: true, previewing: false }}
+      onSelect={() => {}}
     />,
   );
 
@@ -110,5 +107,72 @@ describe("002e web app view: compare", () => {
       { kind: "same", text: "return x;" },
     ]);
     expect(lineDiff("a\n".repeat(3000), "b\n".repeat(3000), 1000)).toBeNull();
+  });
+});
+
+describe("001k web app canvas: the stage and history rows", () => {
+  const ver = { ...version(null), current: false, number: 3 };
+  const stage = (s: Parameters<typeof AppStage>[0]["stage"], extra = {}) =>
+    renderToStaticMarkup(
+      <AppStage
+        stage={s}
+        busy={false}
+        preview={null}
+        hasDraft={false}
+        onPreview={() => {}}
+        onOpenUnchecked={() => {}}
+        onDecline={() => {}}
+        onStop={() => {}}
+        {...extra}
+      />,
+    );
+
+  it("an unstarted version gets a purposeful placeholder with the real action, never a frame", () => {
+    const html = stage({ kind: "ready", version: ver });
+    expect(html).toContain("Preview version 3");
+    expect(html).toContain("It isn&#x27;t running. Not checked");
+    expect(html).not.toContain("<iframe");
+  });
+
+  it("the unchecked choice is explicit: warned text, an open button and Not now, still no frame", () => {
+    const html = stage({ kind: "unchecked_choice", version: ver });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("haven&#x27;t passed in the isolated worker");
+    expect(html).toContain("Open unchecked preview");
+    expect(html).toContain("Not now");
+    expect(html).not.toContain("<iframe");
+  });
+
+  it("no version, or no preview configured, says so and offers no preview", () => {
+    expect(stage({ kind: "empty" })).toContain("No web app yet");
+    expect(stage({ kind: "empty" }, { hasDraft: true })).toContain("ready in the composer");
+    const off = stage({ kind: "unconfigured", version: ver });
+    expect(off).toContain("Preview isn&#x27;t configured");
+    expect(off).not.toContain("Preview version 3");
+  });
+
+  it("a running preview is that version's sandboxed frame", () => {
+    const html = stage(
+      { kind: "preview", version: ver },
+      { preview: { url: "http://localhost:4999/preview/app/t/index.html", checked: false } },
+    );
+    expect(html).toContain('title="Web app preview, version 3"');
+    expect(html).toMatch(/sandbox="allow-scripts"/);
+    expect(html).toContain("Preview of version 3");
+    expect(html).toContain("Unchecked");
+  });
+
+  it("a history row names its roles and selects by a pressed button", () => {
+    const html = renderToStaticMarkup(
+      <AppVersionRow
+        v={ver}
+        roles={{ selected: false, current: false, previewing: true }}
+        onSelect={() => {}}
+      />,
+    );
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain("In preview");
+    expect(html).not.toContain(">Current<");
+    expect(html).not.toContain(">Shown<");
   });
 });
