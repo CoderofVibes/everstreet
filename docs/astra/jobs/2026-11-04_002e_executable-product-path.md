@@ -85,6 +85,14 @@ November4 read-only inventory: Ubuntu is installed but no WSL distributions were
 PowerShell PATH inventory found neither docker nor podman. No Linux tools, KVM capability or
 dedicated runner were verified. Astra intentionally did not start WSL or inspect unrelated files.
 
+Updated capability evidence (later November4): Astra briefly started the previously stopped
+Ubuntu2 for a read-only probe, then stopped it; no running distributions remain. Kernel
+6.18.54.1-microsoft-standard-WSL2 x86_64; /dev/kvm exists0660 root:kvm but this user cannot read/write
+it. firecracker/jailer/runsc/docker/podman not found on Linux PATH; unshare/timeout available.
+cgroup2fs exists, root not user-writable; delegated subtrees uninspected. No VM boot/ioctl/limits
+verified. See WorkerHostCapabilities pass. Prepare an explicit restricted host setup, do not
+equate device presence with a usable engine or silently widen access. No packages were installed.
+
 Firecracker requires usable /dev/kvm and guest kernel/rootfs; production use is designed around
 its jailer. This is a proposed engine, not a claim it is installed or safe merely by name.
 [Official setup](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md),

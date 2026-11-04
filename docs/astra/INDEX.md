@@ -2,6 +2,9 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Customer composition review](2026-11-04_CustomerCompositionReview.md) |1095 check; actual1440/390, keyboard review and synthetic sale preserves customer result/99free1used |001j1 required: lost execute leaves stale Run/return controls; broader/live gates remain |
+| 2026-11-04 | [Customer step review](2026-11-04_CustomerStepReview.md) | In-progress pure probe: pending return claims returned; reserved protocol persists after settlement | Recheck final001j; narrow UI wording correction, backend distinctions preserved |
+| 2026-11-04 | [Worker host capabilities](2026-11-04_WorkerHostCapabilities.md) | Actual brief WSL probe: KVM device exists but inaccessible; engine tools absent on PATH; cgroup2 present | Ubuntu stopped afterward;002e real-engine/setup gates open;001j sole writer |
 | 2026-11-04 | [Current sale accepted](2026-11-04_CurrentSaleAccepted.md) |1087 tests/build and actual second-sale browser: correct pending progression, old sale History,390 fit |001i1 accepted locally;001j next; broad/live gates remain |
 | 2026-11-04 | [Investor portfolio plan](2026-11-04_PortfolioPlan.md) |005d durable multi-business investor view grounded in current team/receipt boundaries | Queued after core integration/network work;001i1 sole writer |
 | 2026-11-04 | [Acquisition room repeat](2026-11-04_AcquisitionRoomRepeat.md) | Actual Fenn/Ruiz scope grants, digital withholding,390 fit, financial-only DOM and revoked direct URL pass |001i1 sole builder still live; remaining browser/live gates explicit |
