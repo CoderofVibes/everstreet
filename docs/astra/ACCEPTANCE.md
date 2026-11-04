@@ -201,6 +201,13 @@ text remains003j2.003k exact closed Direct fixture/API tests pass, but revised c
 terminalizes old exact-version intent (independent coherent probe).003k1 adds exact terminal
 semantics and missing listing/grant/import/customer/Gated evidence. No live/M3 acceptance.
 
+November3 at e0ba6aa: independent566 app tests/43files/lint/types, web build and65 v3 contract
+unit tests pass.003j2 browser malformed-to-valid recovery now replaces stale blocking notice
+and preserves original evidence time; correction accepted.003k1 exact outcome/effects and003l
+actual customer readback fixtures reviewed, no live evidence.003l1 must correct proposed owner/
+operator authority, accepting freeze, preparation/signing and uncertain root/readback semantics
+before003m durable customer reservation. All six milestones remain open.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.
