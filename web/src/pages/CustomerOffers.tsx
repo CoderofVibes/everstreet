@@ -183,14 +183,26 @@ function OfferRow({
   );
 }
 
+/** Job 001b: whether the offer setup holds something the owner must see before moving on. */
+export function offerNeedsAttention(st: {
+  unanswered: unknown;
+  access: string;
+  confirmRetire: string | null;
+}): boolean {
+  return st.unanswered !== null || st.access === "unconfirmed" || st.confirmRetire !== null;
+}
+
 export function CustomerOffers({
   personId,
   businessId,
   projectId,
+  onAttention,
 }: {
   personId: string;
   businessId: string;
   projectId: string;
+  /** Job 001b: told when something here needs the owner (an unanswered create, unconfirmed access). */
+  onAttention?: (needs: boolean) => void;
 }) {
   const [s] = useState(
     () =>
@@ -206,6 +218,8 @@ export function CustomerOffers({
     void s.start();
     return () => s.retire();
   }, [s]);
+  const needs = offerNeedsAttention(st);
+  useEffect(() => onAttention?.(needs), [needs, onAttention]);
 
   const busy = st.busy !== null;
   // 003r1: while access is unconfirmed, nothing that changes anything can be pressed.
@@ -273,17 +287,31 @@ export function CustomerOffers({
               it working.
             </span>
           </p>
-          <ol className="offer-readiness">
-            {items.map((i) => (
-              <li key={i.key}>
-                <span className={`pill ${EVIDENCE[i.state].tone}`}>{EVIDENCE[i.state].label}</span>
-                <div>
-                  <strong>{i.label}</strong> <span className="muted">{i.detail}</span>
-                  {i.next && <div className="offer-next">Next: {i.next}</div>}
-                </div>
-              </li>
-            ))}
-          </ol>
+          {(() => {
+            const first = items.find((i) => i.next);
+            return first ? (
+              <p className="offer-next" style={{ fontSize: 14 }}>
+                <strong>{first.label}:</strong> {first.next}
+              </p>
+            ) : null;
+          })()}
+          {/* Job 001b: a compact summary; every row stays one click away. */}
+          <details className="advanced offer-readiness-details">
+            <summary>All {items.length} readiness items</summary>
+            <ol className="offer-readiness">
+              {items.map((i) => (
+                <li key={i.key}>
+                  <span className={`pill ${EVIDENCE[i.state].tone}`}>
+                    {EVIDENCE[i.state].label}
+                  </span>
+                  <div>
+                    <strong>{i.label}</strong> <span className="muted">{i.detail}</span>
+                    {i.next && <div className="offer-next">Next: {i.next}</div>}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </details>
 
           <h3 className="offer-sub">Set up an offer</h3>
           {!r.release ? (

@@ -21,15 +21,26 @@ export function Router({ children }: { children: ReactNode }) {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+  // Job 001b: a link may carry a query (e.g. /build/:id?view=service); routes match the path only.
   const go = (to: string) => {
-    if (to !== window.location.pathname) window.history.pushState(null, "", to);
-    setPath(to);
+    if (to !== window.location.pathname + window.location.search)
+      window.history.pushState(null, "", to);
+    setPath(to.split(/[?#]/)[0] || "/");
     window.scrollTo(0, 0);
   };
   return <RouterContext.Provider value={{ path, go }}>{children}</RouterContext.Provider>;
 }
 
 export const useRouter = () => useContext(RouterContext);
+
+/** Job 001b: one query parameter of the current location (read when a page mounts). */
+export function queryParam(name: string): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get(name);
+  } catch {
+    return null;
+  }
+}
 
 /** Matches "/studio/:id" style patterns; returns params or null. */
 export function match(pattern: string, path: string): Record<string, string> | null {

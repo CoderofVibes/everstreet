@@ -141,14 +141,26 @@ function DeskProducts({ businessId }: { businessId: string }) {
         </p>
       ) : (
         projects.map((p) => (
-          <Link key={p.id} to={`/build/${p.id}`} className="deal-row row">
-            <strong>{p.name}</strong>
+          <div key={p.id} className="deal-row row desk-product">
+            <Link to={`/build/${p.id}`}>
+              <strong>{p.name}</strong>
+            </Link>
             <span className="pill">{p.foundation_label}</span>
-            <span className="spacer" />
             <span className="muted" style={{ fontSize: 13 }}>
-              Revision {p.revision} · {ago(p.updated_at)}
+              Brief revision {p.revision} · {ago(p.updated_at)}
             </span>
-          </Link>
+            <span className="spacer" />
+            {/* Job 001b: straight to the operating tasks, without searching the Service page. */}
+            <Link to={`/build/${p.id}?view=service&task=evaluate`} className="btn btn-quiet btn-sm">
+              Releases
+            </Link>
+            <Link
+              to={`/build/${p.id}?view=service&task=customers`}
+              className="btn btn-quiet btn-sm"
+            >
+              Customer access
+            </Link>
+          </div>
         ))
       )}
     </section>

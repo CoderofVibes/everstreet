@@ -14,6 +14,7 @@ import {
 } from "react";
 import { ApiError } from "../api.ts";
 import { FOUNDATION_ICON, Icon } from "../icons.tsx";
+import { offerHttp, parseOwnerOffers } from "../offerSetup.ts";
 import type { ProjectSource } from "../opportunitiesApi.ts";
 import {
   ago,
@@ -29,13 +30,15 @@ import {
   type StudioView,
 } from "../productsApi.ts";
 import { historyReducer, initialHistory, shownRevision } from "../revisionHistory.ts";
-import { Link, useRouter } from "../router.tsx";
+import { Link, queryParam, useRouter } from "../router.tsx";
+import { type Releases, runtimeApi } from "../runtimeApi.ts";
 import { useSession } from "../session.tsx";
 import { type Prefill, prefillFor, studioScope } from "../studioScope.ts";
+import { projectStatus, type Target } from "../studioStatus.ts";
 import { BuildsView } from "./Builds.tsx";
 import { ConversationPanel } from "./Conversation.tsx";
 import { emptySample, PrototypeEditor, PrototypePreview, type SampleState } from "./Prototype.tsx";
-import { ServiceView } from "./Service.tsx";
+import { SERVICE_TASKS, type ServiceTask, ServiceView } from "./Service.tsx";
 
 type Tab =
   | "preview"
@@ -62,6 +65,26 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "service", label: "Service" },
   { id: "continuity", label: "Continuity" },
 ];
+
+/**
+ * Job 001b: the studio has two kinds of task. Shaping (the brief, screens and conversation beside
+ * a working preview) and operating (builds, service, continuity), which get the whole canvas with
+ * the editor one deliberate click away. The editor is only hidden, never unmounted.
+ */
+export const OPERATE_TABS: readonly Tab[] = ["builds", "service", "continuity"];
+export function studioLayout(tab: Tab, editorOpen: boolean) {
+  const operate = OPERATE_TABS.includes(tab);
+  return { operate, editorShown: !operate || editorOpen };
+}
+
+const tabFromQuery = (): Tab => {
+  const v = queryParam("view");
+  return TABS.some((t) => t.id === v) ? (v as Tab) : "preview";
+};
+const taskFromQuery = (): ServiceTask => {
+  const v = queryParam("task");
+  return SERVICE_TASKS.some((t) => t.id === v) ? (v as ServiceTask) : "try";
+};
 
 /** Stable JSON: same content, same string, whatever the key order. */
 function canon(value: unknown): string {
@@ -916,10 +939,18 @@ export function ProductStudio({ id }: { id: string }) {
   const [draft, setDraft] = useState<Content | null>(null);
   const [base, setBase] = useState(0);
   const [note, setNote] = useState("");
-  const [tab, setTab] = useState<Tab>("preview");
+  const [tab, setTab] = useState<Tab>(tabFromQuery);
   /** Service stays mounted once opened (job 002c1); see the Service tab below. */
   const [serviceOpened, setServiceOpened] = useState(false);
   if (tab === "service" && !serviceOpened) setServiceOpened(true);
+  const [serviceTask, setServiceTask] = useState<ServiceTask>(taskFromQuery);
+  /** Job 001b: on operating tabs the editor is shown only on request. */
+  const [editorOpen, setEditorOpen] = useState(false);
+  /** Job 001b: the records the status strip is derived from (never a single boolean). */
+  const [records, setRecords] = useState<{
+    releases: Releases | "unknown";
+    offers: { active: number; retired: number } | "unknown";
+  } | null>(null);
   const [side, setSide] = useState<"assistant" | "brief" | "screens">("assistant");
   const [proposalId, setProposalId] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<Prefill | null>(null);
@@ -968,6 +999,37 @@ export function ProductStudio({ id }: { id: string }) {
   useEffect(() => {
     if (person) load();
   }, [person, load]);
+
+  // Job 001b: re-read the release and offer records when the person moves between views or
+  // saves (one read each, no polling). A failed read is "unknown", never assumed.
+  const projectId = view?.project.id;
+  const businessId = view?.business.id;
+  const headNumber = view?.head.number;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tab and headNumber are triggers
+  useEffect(() => {
+    if (!projectId || !businessId) return;
+    let live = true;
+    Promise.allSettled([runtimeApi.releases(projectId), offerHttp.list(businessId)]).then(
+      ([r, o]) => {
+        if (!live) return;
+        let offers: { active: number; retired: number } | "unknown" = "unknown";
+        if (o.status === "fulfilled")
+          try {
+            const mine = parseOwnerOffers(o.value).filter((x) => x.project_id === projectId);
+            offers = {
+              active: mine.filter((x) => x.state === "active").length,
+              retired: mine.filter((x) => x.state === "retired").length,
+            };
+          } catch {
+            offers = "unknown";
+          }
+        setRecords({ releases: r.status === "fulfilled" ? r.value : "unknown", offers });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [projectId, businessId, tab, headNumber]);
 
   const dirty = Boolean(
     view &&
@@ -1118,6 +1180,28 @@ export function ProductStudio({ id }: { id: string }) {
     input: ["screens-panel", "screens"],
   };
 
+  const status = records
+    ? projectStatus({
+        head: view.head.number,
+        dirty,
+        build: { available: view.build.available, reason: view.build.reason },
+        businessId: view.business.id,
+        releases: records.releases,
+        offers: records.offers,
+      })
+    : null;
+  const goTarget = (t: Target) => {
+    if ("route" in t) return go(t.route);
+    if (t.tab === "service") setServiceTask(t.task);
+    setTab(t.tab);
+  };
+  const layout = studioLayout(tab, editorOpen);
+  const item = (k: string) => status?.items.find((i) => i.key === k);
+  const stepState = (k: string): "done" | "open" | "blocked" => {
+    const t = item(k)?.tone;
+    return t === "done" ? "done" : t === "blocked" ? "blocked" : "open";
+  };
+
   const steps: {
     key: string;
     label: string;
@@ -1148,32 +1232,61 @@ export function ProductStudio({ id }: { id: string }) {
     {
       key: "build",
       label: "Build",
-      detail: view.build.available ? "Ready" : "Not connected",
-      state: "blocked",
+      // Job 001b: from the build records, not from whether building is connected.
+      detail:
+        item("build")?.tone === "done"
+          ? "Built"
+          : view.build.available
+            ? "Not built yet"
+            : "Not connected",
+      state: stepState("build"),
       current: tab === "builds",
       act: () => setTab("builds"),
     },
     {
       key: "test",
       label: "Test",
-      // Brief rules only; nothing is marked tested until a build has been tested.
-      detail: `Brief checks ${view.checks.passed}/${total}`,
-      state: "open",
-      current: tab === "checks",
-      act: () => setTab("checks"),
+      // A build's own release checks; the brief's rules stay on the Checks tab.
+      detail:
+        item("evaluation")?.tone === "done"
+          ? "Release checks passed"
+          : item("evaluation")?.tone === "now"
+            ? "Not checked yet"
+            : item("evaluation")?.tone === "unknown"
+              ? "Unknown"
+              : "Nothing passed yet",
+      state: stepState("evaluation"),
+      current: tab === "service" && serviceTask === "evaluate",
+      act: () => goTarget({ tab: "service", task: "evaluate" }),
+    },
+    {
+      key: "release",
+      label: "Release",
+      detail: item("release")?.tone === "done" ? "Released" : "Not released",
+      state: stepState("release"),
+      current: false,
+      act: () => goTarget({ tab: "service", task: "evaluate" }),
+    },
+    {
+      key: "customers",
+      label: "Customers",
+      detail: item("customers")?.tone === "done" ? "Offer active" : "No active offer",
+      state: stepState("customers"),
+      current: tab === "service" && serviceTask === "customers",
+      act: () => goTarget({ tab: "service", task: "customers" }),
     },
     {
       key: "prepare",
-      label: "Prepare",
-      detail: "Continuity",
+      label: "Continuity",
+      detail: "What transfers",
       state: "open",
       current: tab === "continuity",
       act: () => setTab("continuity"),
     },
     {
       key: "launch",
-      label: "Launch",
-      detail: "Business desk",
+      label: "Business",
+      detail: view.business.published_at ? "Page published" : "Page not published",
       state: view.business.published_at ? "done" : "open",
       current: false,
       act: () => go(`/desk/${view.business.id}`),
@@ -1205,7 +1318,10 @@ export function ProductStudio({ id }: { id: string }) {
           <h1>{brief.name || "Untitled product"}</h1>
         </div>
         <span className="pill">{view.foundation.label}</span>
-        <span className="pill caution">Prototype</span>
+        {/* Job 001b: from the release and build records (was a hardcoded "Prototype"). */}
+        <span className={`pill ${status?.chip.tone ?? ""}`}>
+          {status?.chip.label ?? "Checking status…"}
+        </span>
         <span className="spacer" />
         <span className={`save-state${dirty ? " dirty" : ""}`} aria-live="polite">
           <span className="dot" />
@@ -1228,12 +1344,36 @@ export function ProductStudio({ id }: { id: string }) {
           >
             Next: {todo.detail} <Icon name="arrowRight" size="sm" />
           </button>
+        ) : status?.next ? (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => status.next && goTarget(status.next.target)}
+          >
+            Next: {status.next.label} <Icon name="arrowRight" size="sm" />
+          </button>
         ) : (
           <button type="button" className="btn btn-primary" onClick={() => setTab("continuity")}>
             Next: review continuity <Icon name="arrowRight" size="sm" />
           </button>
         )}
       </header>
+
+      {status && (
+        <nav className="ps-status" aria-label="Where this product stands">
+          <ul>
+            {status.items.map((i) => (
+              <li key={i.key} className={`tone-${i.tone}`}>
+                <button type="button" onClick={() => goTarget(i.target)}>
+                  <span className="ps-status-label">{i.label}</span>
+                  <span className="ps-status-value">{i.value}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {status.releaseNote && <p className="muted ps-status-note">{status.releaseNote}</p>}
+        </nav>
+      )}
 
       {offered && (
         <div className="banner info" role="alert">
@@ -1297,213 +1437,267 @@ export function ProductStudio({ id }: { id: string }) {
         </div>
       )}
 
-      <div className="ps-body">
-        <nav className="ps-steps" aria-label="Project steps">
-          <div className="label">Steps</div>
-          {steps.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              className={`ps-step${s.current ? " current" : ""}`}
-              aria-current={s.current ? "step" : undefined}
-              onClick={s.act}
-            >
-              <span className={`marker ${s.state}`}>
-                {s.state === "done" && <Icon name="check" />}
-              </span>
-              <strong>{s.label}</strong>
-              <small>{s.detail}</small>
-            </button>
-          ))}
-        </nav>
-
-        <aside className="ps-side" aria-label="Assistant, brief and screens">
-          <div className="ps-side-scroll">
-            {view.source && <SourcePanel source={view.source} />}
-            <fieldset className="seg">
-              <legend className="sr-only">Work with</legend>
+      <StudioBody
+        editorShown={layout.editorShown}
+        steps={
+          <nav className="ps-steps" aria-label="Project steps">
+            <div className="label">Steps</div>
+            {steps.map((s) => (
               <button
+                key={s.key}
                 type="button"
-                aria-pressed={side === "assistant"}
-                onClick={() => setSide("assistant")}
+                className={`ps-step${s.current ? " current" : ""}`}
+                aria-current={s.current ? "step" : undefined}
+                onClick={s.act}
               >
-                Assistant
-              </button>
-              <button
-                type="button"
-                aria-pressed={side === "brief"}
-                onClick={() => setSide("brief")}
-              >
-                Brief
-              </button>
-              <button
-                id="screens-panel"
-                type="button"
-                aria-pressed={side === "screens"}
-                onClick={() => setSide("screens")}
-              >
-                Screens · {draft.prototype.screens.length}
-              </button>
-            </fieldset>
-            {/* Kept mounted while hidden, so the unsent thought and an unresolved request
-                survive switching to Brief or Screens. The key starts it clean for another
-                person, project or owner epoch. */}
-            <div hidden={side !== "assistant"}>
-              <ConversationPanel
-                key={scope}
-                projectId={view.project.id}
-                businessId={view.business.id}
-                idea={view.project.idea}
-                prefill={prefillFor(prefill, scope)}
-                onReview={reviewProposal}
-                onManual={() => setSide("brief")}
-              />
-            </div>
-            {side === "assistant" ? null : side === "brief" ? (
-              <BriefEditor
-                brief={brief}
-                starter={starter}
-                onChange={(b) => setDraft({ ...draft, brief: b })}
-              />
-            ) : (
-              <PrototypeEditor
-                prototype={draft.prototype}
-                onChange={(p) => {
-                  setDraft({ ...draft, prototype: p });
-                  setTab("preview");
-                }}
-              />
-            )}
-          </div>
-          <div className="ps-savebar">
-            <input
-              className="input"
-              aria-label="What changed (optional)"
-              placeholder="What changed? (optional)"
-              maxLength={200}
-              value={note}
-              disabled={!dirty}
-              onChange={(e) => setNote(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") save();
-              }}
-            />
-            <div className="row" style={{ gap: 8 }}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!dirty || busy}
-                onClick={save}
-              >
-                {busy ? "Saving…" : "Save revision"}
-              </button>
-              {dirty && (
-                <button
-                  type="button"
-                  className="btn btn-quiet btn-sm"
-                  onClick={() => {
-                    if (window.confirm("Discard your unsaved changes? Saved revisions stay."))
-                      adopt(view);
-                  }}
-                >
-                  Discard changes
-                </button>
-              )}
-              <span className="spacer" />
-              <span className="muted" style={{ fontSize: 12 }}>
-                <kbd>Ctrl</kbd> + <kbd>S</kbd>
-              </span>
-            </div>
-          </div>
-        </aside>
-
-        <section className="ps-canvas" aria-label="Canvas">
-          <div className="tabs" role="tablist" aria-label="Project views">
-            {TABS.map((t, i) => (
-              <button
-                key={t.id}
-                id={`tab-${t.id}`}
-                type="button"
-                role="tab"
-                className="tab"
-                aria-selected={tab === t.id}
-                aria-controls="ps-view"
-                tabIndex={tab === t.id ? 0 : -1}
-                onClick={() => setTab(t.id)}
-                onKeyDown={(e) => onTabKey(e, i)}
-              >
-                {t.label}
-                {t.id === "checks" && (
-                  <span className="badge" title="Brief rules met">
-                    brief {view.checks.passed}/{total}
-                  </span>
-                )}
-                {t.id === "versions" && <span className="badge">{view.revisions.length}</span>}
+                <span className={`marker ${s.state}`}>
+                  {s.state === "done" && <Icon name="check" />}
+                </span>
+                <strong>{s.label}</strong>
+                <small>{s.detail}</small>
               </button>
             ))}
-          </div>
-          <div className="ps-view" id="ps-view" role="tabpanel" aria-labelledby={`tab-${tab}`}>
-            {tab === "preview" && (
-              <>
-                {dirty && (
-                  <p className="notice info">
-                    Showing your unsaved changes. Save to keep them as revision{" "}
-                    {view.head.number + 1}.
-                  </p>
-                )}
-                <PrototypePreview
-                  name={brief.name || "Untitled product"}
-                  prototype={draft.prototype}
-                  sample={sample}
-                  setSample={setSample}
-                />
-              </>
-            )}
-            {tab === "proposal" && (
-              <ProposalView
-                key={proposalId ?? "latest"}
-                view={view}
-                proposalId={proposalId}
-                dirty={dirty}
-                onApplied={(v, message) => {
-                  adopt(v);
-                  setFlash(message);
-                }}
-                onAskAgain={(text) => {
-                  setSide("assistant");
-                  setPrefill((p) => ({ text, n: (p?.n ?? 0) + 1, scope }));
-                }}
-              />
-            )}
-            {tab === "brief" && <BriefDoc view={view} brief={brief} starter={starter} />}
-            {tab === "checks" && <ChecksView view={view} dirty={dirty} />}
-            {tab === "versions" && (
-              <VersionsView view={view} dirty={dirty} busy={busy} onRestore={restore} />
-            )}
-            {tab === "builds" && (
-              <BuildsView
-                projectId={view.project.id}
-                businessId={view.business.id}
-                headRevision={view.head.number}
-                dirty={dirty}
-              />
-            )}
-            {/* Job 002c1: once opened, Service stays mounted (hidden on other tabs) so a pending
-                request, its text and target survive switching tabs. Keyed by person, project
-                and owner epoch, so another scope starts clean. */}
-            {serviceOpened && (
-              <div hidden={tab !== "service"}>
-                <ServiceView
+          </nav>
+        }
+        editor={
+          <>
+            <div className="ps-side-scroll">
+              {view.source && <SourcePanel source={view.source} />}
+              <fieldset className="seg">
+                <legend className="sr-only">Work with</legend>
+                <button
+                  type="button"
+                  aria-pressed={side === "assistant"}
+                  onClick={() => setSide("assistant")}
+                >
+                  Assistant
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={side === "brief"}
+                  onClick={() => setSide("brief")}
+                >
+                  Brief
+                </button>
+                <button
+                  id="screens-panel"
+                  type="button"
+                  aria-pressed={side === "screens"}
+                  onClick={() => setSide("screens")}
+                >
+                  Screens · {draft.prototype.screens.length}
+                </button>
+              </fieldset>
+              {/* Kept mounted while hidden, so the unsent thought and an unresolved request
+                survive switching to Brief or Screens. The key starts it clean for another
+                person, project or owner epoch. */}
+              <div hidden={side !== "assistant"}>
+                <ConversationPanel
                   key={scope}
                   projectId={view.project.id}
                   businessId={view.business.id}
+                  idea={view.project.idea}
+                  prefill={prefillFor(prefill, scope)}
+                  onReview={reviewProposal}
+                  onManual={() => setSide("brief")}
                 />
               </div>
-            )}
-            {tab === "continuity" && <ContinuityView view={view} />}
-          </div>
-        </section>
-      </div>
+              {side === "assistant" ? null : side === "brief" ? (
+                <BriefEditor
+                  brief={brief}
+                  starter={starter}
+                  onChange={(b) => setDraft({ ...draft, brief: b })}
+                />
+              ) : (
+                <PrototypeEditor
+                  prototype={draft.prototype}
+                  onChange={(p) => {
+                    setDraft({ ...draft, prototype: p });
+                    setTab("preview");
+                  }}
+                />
+              )}
+            </div>
+            <div className="ps-savebar">
+              <input
+                className="input"
+                aria-label="What changed (optional)"
+                placeholder="What changed? (optional)"
+                maxLength={200}
+                value={note}
+                disabled={!dirty}
+                onChange={(e) => setNote(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") save();
+                }}
+              />
+              <div className="row" style={{ gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!dirty || busy}
+                  onClick={save}
+                >
+                  {busy ? "Saving…" : "Save revision"}
+                </button>
+                {dirty && (
+                  <button
+                    type="button"
+                    className="btn btn-quiet btn-sm"
+                    onClick={() => {
+                      if (window.confirm("Discard your unsaved changes? Saved revisions stay."))
+                        adopt(view);
+                    }}
+                  >
+                    Discard changes
+                  </button>
+                )}
+                <span className="spacer" />
+                <span className="muted" style={{ fontSize: 12 }}>
+                  <kbd>Ctrl</kbd> + <kbd>S</kbd>
+                </span>
+              </div>
+            </div>
+          </>
+        }
+        canvas={
+          <section className="ps-canvas" aria-label="Canvas">
+            <div className="tabs" role="tablist" aria-label="Project views">
+              {TABS.map((t, i) => (
+                <button
+                  key={t.id}
+                  id={`tab-${t.id}`}
+                  type="button"
+                  role="tab"
+                  className="tab"
+                  aria-selected={tab === t.id}
+                  aria-controls="ps-view"
+                  tabIndex={tab === t.id ? 0 : -1}
+                  onClick={() => setTab(t.id)}
+                  onKeyDown={(e) => onTabKey(e, i)}
+                >
+                  {t.label}
+                  {t.id === "checks" && (
+                    <span className="badge" title="Brief rules met">
+                      brief {view.checks.passed}/{total}
+                    </span>
+                  )}
+                  {t.id === "versions" && <span className="badge">{view.revisions.length}</span>}
+                </button>
+              ))}
+              {layout.operate && (
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm ps-editor-toggle"
+                  aria-expanded={layout.editorShown}
+                  aria-controls="ps-side"
+                  onClick={() => setEditorOpen((o) => !o)}
+                >
+                  {layout.editorShown
+                    ? "Hide the editor"
+                    : dirty
+                      ? "Show the editor (unsaved)"
+                      : "Show the editor"}
+                </button>
+              )}
+            </div>
+            <div className="ps-view" id="ps-view" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+              {tab === "preview" && (
+                <>
+                  {dirty && (
+                    <p className="notice info">
+                      Showing your unsaved changes. Save to keep them as revision{" "}
+                      {view.head.number + 1}.
+                    </p>
+                  )}
+                  <PrototypePreview
+                    name={brief.name || "Untitled product"}
+                    prototype={draft.prototype}
+                    sample={sample}
+                    setSample={setSample}
+                  />
+                </>
+              )}
+              {tab === "proposal" && (
+                <ProposalView
+                  key={proposalId ?? "latest"}
+                  view={view}
+                  proposalId={proposalId}
+                  dirty={dirty}
+                  onApplied={(v, message) => {
+                    adopt(v);
+                    setFlash(message);
+                  }}
+                  onAskAgain={(text) => {
+                    setSide("assistant");
+                    setPrefill((p) => ({ text, n: (p?.n ?? 0) + 1, scope }));
+                  }}
+                />
+              )}
+              {tab === "brief" && <BriefDoc view={view} brief={brief} starter={starter} />}
+              {tab === "checks" && <ChecksView view={view} dirty={dirty} />}
+              {tab === "versions" && (
+                <VersionsView view={view} dirty={dirty} busy={busy} onRestore={restore} />
+              )}
+              {tab === "builds" && (
+                <BuildsView
+                  projectId={view.project.id}
+                  businessId={view.business.id}
+                  headRevision={view.head.number}
+                  dirty={dirty}
+                />
+              )}
+              {/* Job 002c1: once opened, Service stays mounted (hidden on other tabs) so a pending
+                request, its text and target survive switching tabs. Keyed by person, project
+                and owner epoch, so another scope starts clean. */}
+              {serviceOpened && (
+                <div hidden={tab !== "service"}>
+                  <ServiceView
+                    key={scope}
+                    projectId={view.project.id}
+                    businessId={view.business.id}
+                    task={serviceTask}
+                    onTask={setServiceTask}
+                  />
+                </div>
+              )}
+              {tab === "continuity" && <ContinuityView view={view} />}
+            </div>
+          </section>
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * Job 001b: the studio's three regions. The editor (conversation, brief, screens, save bar) is
+ * always rendered; on operating views it is hidden, never unmounted, so its outbox, unsaved brief
+ * and typed text keep their state while the canvas takes the whole width.
+ */
+export function StudioBody({
+  editorShown,
+  steps,
+  editor,
+  canvas,
+}: {
+  editorShown: boolean;
+  steps: ReactNode;
+  editor: ReactNode;
+  canvas: ReactNode;
+}) {
+  return (
+    <div className={`ps-body${editorShown ? "" : " operate"}`}>
+      {steps}
+      <aside
+        className="ps-side"
+        id="ps-side"
+        aria-label="Assistant, brief and screens"
+        hidden={!editorShown}
+      >
+        {editor}
+      </aside>
+      {canvas}
     </div>
   );
 }

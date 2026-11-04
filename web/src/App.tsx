@@ -257,11 +257,40 @@ function Routes() {
   );
 }
 
+/**
+ * Job 001b: the narrow-screen navigation disclosure. Opening moves focus to the first link;
+ * Escape closes and returns focus to the toggle; a route change closes it. On wide screens the
+ * rail is always shown and the toggle is hidden by CSS, so the state has no effect there.
+ */
+function useMenu(path: string) {
+  const [open, setOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const linksRef = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: path is a trigger: close on navigation
+  useEffect(() => setOpen(false), [path]);
+  useEffect(() => {
+    if (open) linksRef.current?.querySelector<HTMLElement>("a")?.focus();
+  }, [open]);
+  return {
+    open,
+    toggleRef,
+    linksRef,
+    toggle: () => setOpen((o) => !o),
+    onKeyDown: (e: { key: string }) => {
+      if (e.key === "Escape" && open) {
+        setOpen(false);
+        toggleRef.current?.focus();
+      }
+    },
+  };
+}
+
 export function App() {
   const { person, environment, ready } = useSession();
   const [preview] = useState(previewLabel);
   const [counts, setCounts] = useState({ inbox: 0 });
   const { path } = useRouter();
+  const menu = useMenu(path);
   // biome-ignore lint/correctness/useExhaustiveDependencies: path is a trigger: recount unanswered messages on every navigation
   useEffect(() => {
     if (!person) return setCounts({ inbox: 0 });
@@ -288,23 +317,47 @@ export function App() {
         </div>
       )}
       <div className="shell">
-        <nav className="rail" aria-label="Main">
-          <Link to="/" className="wordmark">
-            <img src="/favicon.svg" alt="" /> Everstreet
-          </Link>
-          <Nav to="/" label="Home" icon="home" />
-          <div className="rail-label">Build and run</div>
-          <Nav to="/build" label="Product studio" icon="studio" />
-          <Nav to="/start" label="Start a business" icon="rocket" />
-          <Nav to="/desk" label="My businesses" icon="briefcase" />
-          <Nav to="/inbox" label="Inbox" icon="inbox" count={counts.inbox} />
-          <div className="rail-label">As a customer</div>
-          <Nav to="/activity" label="My activity" icon="activity" />
-          <div className="rail-label">Discover</div>
-          <Nav to="/explore" label="Explore" icon="compass" />
-          <Nav to="/opportunities" label="Opportunities" icon="spark" />
-          <Nav to="/find" label="Find a solution" icon="search" />
-          <Nav to="/acquire" label="Acquisitions" icon="handshake" />
+        {/* Job 001b: on narrow screens the rail is a compact bar with a Menu disclosure; the
+            links are not rendered as focusable until it is opened (display: none). */}
+        <nav
+          className={`rail${menu.open ? " open" : ""}`}
+          aria-label="Main"
+          onKeyDown={menu.onKeyDown}
+        >
+          <div className="rail-top">
+            <Link to="/" className="wordmark">
+              <img src="/favicon.svg" alt="" /> Everstreet
+            </Link>
+            <button
+              ref={menu.toggleRef}
+              type="button"
+              className="menu-toggle"
+              aria-expanded={menu.open}
+              aria-controls="rail-links"
+              onClick={menu.toggle}
+            >
+              <Icon name={menu.open ? "x" : "layers"} />
+              <span>{menu.open ? "Close" : "Menu"}</span>
+              {!menu.open && counts.inbox > 0 && <span className="count">{counts.inbox}</span>}
+            </button>
+          </div>
+          <div className="rail-links" id="rail-links" ref={menu.linksRef}>
+            <Nav to="/" label="Home" icon="home" />
+            <div className="rail-label">Build and run</div>
+            <Nav to="/build" label="Product studio" icon="studio" />
+            <Nav to="/start" label="Start a business" icon="rocket" />
+            <Nav to="/desk" label="My businesses" icon="briefcase" />
+            <Nav to="/inbox" label="Inbox" icon="inbox" count={counts.inbox} />
+            <div className="rail-label">As a customer</div>
+            <Nav to="/activity" label="My activity" icon="activity" />
+            <div className="rail-label">Discover</div>
+            <Nav to="/explore" label="Explore" icon="compass" />
+            <Nav to="/opportunities" label="Opportunities" icon="spark" />
+            <Nav to="/find" label="Find a solution" icon="search" />
+            <div className="rail-label">Buy and hand over</div>
+            <Nav to="/acquire" label="Acquisitions" icon="handshake" />
+            <Nav to="/handovers" label="Handovers" icon="history" />
+          </div>
           <div className="rail-foot">Build it, run it, hand it over intact.</div>
         </nav>
         <div className="main">

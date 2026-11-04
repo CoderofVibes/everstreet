@@ -151,8 +151,48 @@ function Result({ i, onSaveCase }: { i: Invocation; onSaveCase?: () => void }) {
   );
 }
 
-export function ServiceView({ projectId, businessId }: { projectId: string; businessId: string }) {
+export type ServiceTask = "try" | "evaluate" | "customers";
+export const SERVICE_TASKS: { id: ServiceTask; label: string }[] = [
+  { id: "try", label: "Try" },
+  { id: "evaluate", label: "Evaluate and release" },
+  { id: "customers", label: "Customer access" },
+];
+
+/**
+ * Job 001b: what each task holds that the owner must not lose sight of. Shown on the task's
+ * button, so moving to another task never hides an unresolved request, a running check or an
+ * offer that needs recovering or an access check.
+ */
+export function serviceAttention(s: {
+  lost: number;
+  running: boolean;
+  checkRunning: boolean;
+  offers: boolean;
+}): Record<ServiceTask, string | null> {
+  return {
+    try: s.lost > 0 ? "needs a check" : s.running ? "running" : null,
+    evaluate: s.checkRunning ? "check running" : null,
+    customers: s.offers ? "needs attention" : null,
+  };
+}
+
+export function ServiceView({
+  projectId,
+  businessId,
+  task: chosen,
+  onTask,
+}: {
+  projectId: string;
+  businessId: string;
+  /** Job 001b: the task shown; the others stay mounted (hidden), so nothing pending is lost. */
+  task?: ServiceTask;
+  onTask?: (t: ServiceTask) => void;
+}) {
   const { person } = useSession();
+  const [ownTask, setOwnTask] = useState<ServiceTask>("try");
+  const task = chosen ?? ownTask;
+  const chooseTask = (t: ServiceTask) => (onTask ? onTask(t) : setOwnTask(t));
+  const [offerAttention, setOfferAttention] = useState(false);
   const [list, setList] = useState<RuntimeList | null>(null);
   const [rel, setRel] = useState<Releases | null>(null);
   const [fix, setFix] = useState<Fixtures | null>(null);
@@ -375,14 +415,59 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
   };
 
   const latestRun = runs[0];
+  // Job 001b: what needs attention per task, so changing task never hides unresolved work.
+  const attention = serviceAttention({
+    lost: lostOnes.length,
+    running: pendingRequest || inFlight(requests) !== null,
+    checkRunning: Boolean(running),
+    offers: offerAttention,
+  });
 
   return (
     <div className="service">
-      <p className="muted" style={{ fontSize: 13.5 }}>
-        Your product reads pasted text and returns the fields its checked version declares. Only you
-        can run it until customers are connected. Running it uses its own budget, separate from the
-        AI that builds it.
-      </p>
+      <dl className="service-summary" aria-label="What decisions here depend on">
+        <div>
+          <dt>Active version</dt>
+          <dd>
+            {rel.active
+              ? `Build ${short(rel.active.artifact_job)} since ${when(rel.active.activated_at)}`
+              : "None released"}
+          </dd>
+        </div>
+        <div>
+          <dt>Running products</dt>
+          <dd>{available ? "Available here" : "Not connected here"}</dd>
+        </div>
+        <div>
+          <dt>Runtime budget</dt>
+          <dd>
+            {list.budget.available_cents !== null
+              ? `${list.budget.available_cents}¢ available`
+              : budgetSet
+                ? "Set"
+                : "Not set"}
+          </dd>
+        </div>
+      </dl>
+      <fieldset className="seg service-tasks">
+        <legend className="sr-only">Service tasks</legend>
+        {SERVICE_TASKS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            aria-pressed={task === t.id}
+            onClick={() => chooseTask(t.id)}
+          >
+            {t.label}
+            {attention[t.id] && (
+              <span className="badge attention">
+                <span className="sr-only">: </span>
+                {attention[t.id]}
+              </span>
+            )}
+          </button>
+        ))}
+      </fieldset>
       {!available && (
         <div className="notice">
           <strong>Running products isn't connected here.</strong> {list.availability.reason}
@@ -390,7 +475,11 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
       )}
       {notice && <p className="notice">{notice}</p>}
 
-      <section className="card">
+      <p className="muted" style={{ fontSize: 13.5 }} hidden={task !== "try"}>
+        Your product reads pasted text and returns the fields its checked version declares. Only you
+        can run it here. Running it uses its own budget, separate from the AI that builds it.
+      </p>
+      <section className="card" hidden={task !== "try"}>
         <h2>Try it</h2>
         {candidates.length === 0 ? (
           <p className="muted">
@@ -552,7 +641,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
         )}
       </section>
 
-      <section className="card">
+      <section className="card" hidden={task !== "evaluate"}>
         <h2>Release checks</h2>
         <p className="muted" style={{ fontSize: 13.5 }}>
           <strong>{fix.required.name}</strong> ({fix.required.policy}). {fix.required.note}
@@ -598,7 +687,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
         )}
       </section>
 
-      <section className="card">
+      <section className="card" hidden={task !== "evaluate"}>
         <h2>Checks and release</h2>
         <p className="muted" style={{ fontSize: 13.5 }}>
           {rel.note}
@@ -698,16 +787,19 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
       </section>
 
       {person && (
-        <CustomerOffers
-          key={`${person.id}:${businessId}:${projectId}:${rel.active?.id ?? "none"}`}
-          personId={person.id}
-          businessId={businessId}
-          projectId={projectId}
-        />
+        <div hidden={task !== "customers"}>
+          <CustomerOffers
+            key={`${person.id}:${businessId}:${projectId}:${rel.active?.id ?? "none"}`}
+            personId={person.id}
+            businessId={businessId}
+            projectId={projectId}
+            onAttention={setOfferAttention}
+          />
+        </div>
       )}
 
       {latestRun && (
-        <section className="card">
+        <section className="card" hidden={task !== "evaluate"}>
           <h2>
             Latest check · build {short(latestRun.artifact_job)} ·{" "}
             {latestRun.state === "running"
@@ -763,7 +855,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
         </section>
       )}
 
-      <section className="card">
+      <section className="card" hidden={task !== "try"}>
         <h2>Runtime budget</h2>
         <p className="muted" style={{ fontSize: 13 }}>
           {list.budget.basis}
@@ -804,7 +896,7 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
       </section>
 
       {list.invocations.length > 0 && (
-        <section className="card">
+        <section className="card" hidden={task !== "try"}>
           <h2>Your requests</h2>
           {list.invocations.map((i) => (
             <details key={i.id} className="advanced">

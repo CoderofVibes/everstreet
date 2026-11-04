@@ -16,6 +16,7 @@ import {
   type ReconcileAnswer,
   type SaleEvidence,
 } from "../handoverApi.ts";
+import { type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 
@@ -547,9 +548,10 @@ function ReceiptCard({
               should show you as owner.
             </li>
             <li>
-              <Link to={`/desk/${bid}`}>Open the business desk</Link>, then its product studio's
-              Service tab: Customer offer shows what is configured, unavailable or unknown,
-              including whether the platform may meter uses after the sale.
+              <Link to={`/desk/${bid}`}>Open the business desk</Link>. Each product's Customer
+              access shows what is configured, unavailable or unknown, including whether the
+              platform may meter uses after the sale:
+              <OwnedProducts businessId={bid} />
             </li>
             <li>
               Customers keep their requests, results and units. New uses wait until metering is
@@ -567,6 +569,30 @@ function ReceiptCard({
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * Job 001b: the products of a business this person now owns, each with a direct link to its
+ * Customer access. Read through the owner's own project list, so nobody else sees anything.
+ */
+function OwnedProducts({ businessId }: { businessId: string }) {
+  const [list, setList] = useState<ProjectSummary[] | null>(null);
+  useEffect(() => {
+    productsApi
+      .list()
+      .then((r) => setList(r.projects.filter((p) => p.business_id === businessId)))
+      .catch(() => setList([]));
+  }, [businessId]);
+  if (!list || list.length === 0) return null;
+  return (
+    <ul style={{ marginTop: 4 }}>
+      {list.map((p) => (
+        <li key={p.id}>
+          {p.name}: <Link to={`/build/${p.id}?view=service&task=customers`}>Customer access</Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
