@@ -18,7 +18,7 @@ import {
 } from "../digitalDesk.ts";
 import { Link, useRouter } from "../router.tsx";
 import { FAMILY_LABEL, OfferCard } from "../ui.tsx";
-import { BooksPanel, useBooks } from "./DeskBooks.tsx";
+import { type BooksHandle, BooksNotice, BooksPanel, useBooks } from "./DeskBooks.tsx";
 import { ProductCards, ProductLines, WorkList } from "./DeskDigital.tsx";
 import { DeskGrowth, DeskShare, DeskTeamIfPaid } from "./DeskGrowth.tsx";
 import { OpsTiles, UsageChart } from "./DeskOperations.tsx";
@@ -174,6 +174,50 @@ export function TakeDown({ desk, load }: { desk: Desk; load: () => void }) {
   );
 }
 
+/**
+ * The overview's figures, from the shared books read. Job 001h1: the same notice as Performance
+ * when the figures aren't the period asked for or a refresh failed; an error is never zero.
+ */
+export function OverviewFigures({ books, businessId }: { books: BooksHandle; businessId: string }) {
+  const ops = books.data?.operations ?? null;
+  if (ops && ops.state === "recorded")
+    return (
+      <div className="card ws-glance">
+        <h2 className="ws-h">Customers and running cost</h2>
+        <BooksNotice books={books} />
+        <OpsTiles ops={ops} />
+        <UsageChart months={ops.months} />
+        <Link to={deskViewHref(businessId, "performance")}>
+          Every chart, cost and table in Performance
+        </Link>
+      </div>
+    );
+  if (!books.data && books.state.status !== "loading")
+    return (
+      <div className="card ws-glance">
+        <h2 className="ws-h">Customers and running cost</h2>
+        <BooksNotice books={books} />
+      </div>
+    );
+  if (!books.data)
+    return (
+      <div className="card ws-glance">
+        <p className="muted">Loading the figures…</p>
+      </div>
+    );
+  return (
+    <div className="card ws-glance">
+      <h2 className="ws-h">Customers and running cost</h2>
+      <BooksNotice books={books} />
+      <p className="muted">
+        No customer product is running yet, so there are no customer uses or runtime costs to show.
+        Build a product in Studio, test a release and offer it to customers; they appear here as
+        they are recorded.
+      </p>
+    </div>
+  );
+}
+
 export function DigitalWorkspace({
   desk,
   digital,
@@ -192,8 +236,6 @@ export function DigitalWorkspace({
   const view = deskViewFromSearch(search);
   const books = useBooks(b.id);
   const next = nextAction(digital, b.id);
-  const ops = books.data?.operations ?? null;
-
   // A link to a section (#desk-inquiries) shows its view first, then brings the section into view.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the view (from search) is the trigger
   useEffect(() => {
@@ -257,37 +299,7 @@ export function DigitalWorkspace({
       <section {...panel("overview")} className="ws-panel">
         <div className="ws-overview">
           <div className="ws-main">
-            {ops && ops.state === "recorded" ? (
-              <div className="card ws-glance">
-                <h2 className="ws-h">Customers and running cost</h2>
-                <OpsTiles ops={ops} />
-                <UsageChart months={ops.months} />
-                <Link to={deskViewHref(b.id, "performance")}>
-                  Every chart, cost and table in Performance
-                </Link>
-              </div>
-            ) : books.loadError && !books.data ? (
-              <div className="card ws-glance" role="alert">
-                <h2 className="ws-h">Customers and running cost</h2>
-                <p className="error-text">The figures couldn't be loaded: {books.loadError}</p>
-                <button type="button" className="btn btn-secondary" onClick={books.load}>
-                  Try again
-                </button>
-              </div>
-            ) : !books.data ? (
-              <div className="card ws-glance">
-                <p className="muted">Loading the figures…</p>
-              </div>
-            ) : (
-              <div className="card ws-glance">
-                <h2 className="ws-h">Customers and running cost</h2>
-                <p className="muted">
-                  No customer product is running yet, so there are no customer uses or runtime costs
-                  to show. Build a product in Studio, test a release and offer it to customers; they
-                  appear here as they are recorded.
-                </p>
-              </div>
-            )}
+            <OverviewFigures books={books} businessId={b.id} />
           </div>
           <aside className="ws-rail">
             <section className="card">

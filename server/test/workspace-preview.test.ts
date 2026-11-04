@@ -52,3 +52,28 @@ describe("001h workspace preview: months, products, identities and the empty sta
     expect(empty).toMatchObject({ kind: "digital", products: { total: 0 } });
   });
 });
+
+describe("001h1 workspace preview: a books read fails once on request", () => {
+  it("the next books read (any period) fails with a labelled 503 or 404, then reads recover", async () => {
+    const p = await workspacePreview();
+    const as = await p.site.fetch(
+      new Request(`http://preview/api/session/as/${p.people.ava}`, { method: "POST" }),
+    );
+    const cookie = (as.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const get = (path: string) =>
+      p.site.fetch(new Request(`http://preview${path}`, { headers: { cookie } }));
+    const books = (n: number) => get(`/api/businesses/${p.businesses.main}/books?months=${n}`);
+    expect((await books(6)).status).toBe(200);
+    p.controls.failBooks(503);
+    const failed = await books(12);
+    expect(failed.status).toBe(503);
+    expect(((await failed.json()) as Json).error).toMatch(/made to fail once \(503\)/);
+    // Other reads are untouched, and the next books read succeeds for the period asked.
+    expect((await get(`/api/businesses/${p.businesses.main}/digital-desk`)).status).toBe(200);
+    const twelve = (await (await books(12)).json()) as Json;
+    expect(twelve.period_months).toBe(12);
+    p.controls.failBooks(404);
+    expect((await books(3)).status).toBe(404);
+    expect(p.controls.summary()).toMatchObject({ books_failed: 2, books_fail_next: null });
+  });
+});

@@ -50,6 +50,12 @@ const control = new Hono();
 control.get("/", (c) => c.json(p.controls.summary()));
 control.post("/maintenance/pass", async (c) => c.json(await p.controls.pass()));
 control.post("/use", async (c) => c.json({ use: await p.controls.use() }));
+// Job 001h1: the next books read fails once (503 unavailable, or 404 as if access were gone).
+control.post("/fail/books/:status", (c) => {
+  const s = Number(c.req.param("status"));
+  if (s !== 503 && s !== 404) return c.json({ error: "503 or 404" }, 400);
+  return c.json(p.controls.failBooks(s));
+});
 serve({ fetch: control.fetch, port: 8851, hostname: HOST });
 
 const d = (view = "") => `http://${HOST}:8850/desk/${p.businesses.main}${view}`;
@@ -60,4 +66,9 @@ console.log(`    Performance:  ${d("?view=performance")}`);
 console.log(`    Products:     ${d("?view=products")}   (released name vs draft brief)`);
 console.log(`    Growth:       ${d("?view=growth")}`);
 console.log(`    Empty desk:   http://${HOST}:8850/desk/${p.businesses.empty}`);
-console.log(`  Controls: http://${HOST}:8851/  GET state; POST /maintenance/pass, /use`);
+console.log(
+  `  Controls: http://${HOST}:8851/  GET state; POST /maintenance/pass, /use, /fail/books/503|404`,
+);
+console.log(
+  "  Books refresh (001h1): Performance, POST /fail/books/503, then choose Last 12 months.",
+);

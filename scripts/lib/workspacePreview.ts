@@ -9,6 +9,7 @@
 //   - a second digital business with no product at all (the empty state).
 // No customer use is backdated. FICTIONAL and SYNTHETIC throughout; nothing leaves this computer.
 
+import { Hono } from "hono";
 import { addMonths, ym } from "../../server/src/books.ts";
 import type { Json } from "../../server/test/customer-world.ts";
 import { FIXTURE_START_MS } from "./acquisitionPreview.ts";
@@ -90,8 +91,52 @@ export async function workspacePreview() {
   ).body.business.id as string;
   ok("empty family", await w.owner(`/api/businesses/${empty}`, "PATCH", { family: "software" }));
 
+  // Job 001h1: the next books read (any period) fails once, with a labelled answer; for Astra's
+  // browser repeat of a failed refresh. Only that one response changes; nothing else is touched.
+  // Bounded: at most `maxRequests` API requests pass, then every further one is refused.
+  const maxRequests = 2_000;
+  let requests = 0;
+  let failNext: 503 | 404 | null = null;
+  let failed = 0;
+  const site = new Hono();
+  site.use("/api/*", async (c, next) => {
+    if (++requests > maxRequests)
+      return c.json({ error: "Preview request ceiling reached; restart the preview" }, 503);
+    if (
+      failNext !== null &&
+      c.req.method === "GET" &&
+      /^\/api\/businesses\/[^/]+\/books$/.test(c.req.path)
+    ) {
+      const status = failNext;
+      failNext = null;
+      failed++;
+      return c.json(
+        { error: `Preview: this books read was made to fail once (${status})` },
+        status,
+      );
+    }
+    await next();
+  });
+  site.route("/", p.site);
+
   return {
     ...p,
+    site,
+    controls: {
+      ...p.controls,
+      /** The next books read fails once (503: unavailable; 404: as if access were gone). */
+      failBooks(status: 503 | 404) {
+        failNext = status;
+        return { fail_next_books: status };
+      },
+      summary: () => ({
+        ...p.controls.summary(),
+        books_fail_next: failNext,
+        books_failed: failed,
+        requests,
+        max_requests: maxRequests,
+      }),
+    },
     projects: { released: w.f.project, briefOnly: second.id },
     businesses: { main: p.businessId, empty },
     earlierMonths: EARLIER.length,

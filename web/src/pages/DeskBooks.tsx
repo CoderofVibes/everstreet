@@ -1,8 +1,8 @@
 // The desk's books (revenue, costs, profit by month with their sources), cost entry, and the
 // team: one helper appointed on the business's contract, revocable there.
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, api, type Desk } from "../api.ts";
+import { useEffect, useReducer, useState } from "react";
+import { api, type Desk } from "../api.ts";
 import {
   api4,
   type Balances,
@@ -11,6 +11,7 @@ import {
   type TeamMember,
   usd,
 } from "../api4.ts";
+import { BooksRead, booksNotice } from "../booksRead.ts";
 import {
   beforeOpening,
   categories,
@@ -87,37 +88,64 @@ function BalanceTiles({ now }: { now: Balances }) {
  * Job 001h: the books read, lifted so the operating workspace's Overview and Performance share one
  * sequenced read (only the newest answer lands; losing access drops every figure, 003t).
  */
-export function useBooks(id: string) {
-  const [period, setPeriod] = useState(6);
-  const [data, setData] = useState<BooksView | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const seq = useRef(0);
-  const load = useCallback(() => {
-    const n = ++seq.current;
-    return api4
-      .books(id, period)
-      .then((d) => {
-        if (n !== seq.current) return;
-        setData(d);
-        setLoadError(null);
-      })
-      .catch((e) => {
-        if (n !== seq.current) return;
-        // Job 003t: access lost (another owner after a sale, signed out): drop every figure.
-        if (e instanceof ApiError && [401, 403, 404].includes(e.status)) setData(null);
-        setLoadError((e as Error).message);
-      });
-  }, [id, period]);
+export function useBooks(id: string): BooksHandle {
+  // Job 001h1: one shared read (web/src/booksRead.ts) that keeps the requested period apart from
+  // the period the figures shown cover. The page is keyed by actor and business, so this read
+  // belongs to one business; closing on unmount drops any answer still in flight.
+  const [read] = useState(() => new BooksRead<BooksView>((n) => api4.books(id, n), 6));
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => {
-    load();
-    // A page that unmounts ignores any answer still in flight.
+    read.open();
+    const off = read.subscribe(rerender);
+    void read.request(read.state.requested);
     return () => {
-      seq.current++;
+      off();
+      read.close();
     };
-  }, [load]);
-  return { id, period, setPeriod, data, loadError, load };
+  }, [read]);
+  return booksHandle(id, read);
 }
-export type BooksRead = ReturnType<typeof useBooks>;
+
+/** What the books' consumers use, from the shared read (also what tests drive). */
+export function booksHandle(id: string, read: BooksRead<BooksView>) {
+  const s = read.state;
+  return {
+    id,
+    state: s,
+    /** The period asked for (the selector). The figures' own period is data.period_months. */
+    period: s.requested,
+    setPeriod: (n: number) => void read.request(n),
+    data: s.data,
+    loadError: s.error,
+    /** Refresh (after a cost change) or retry: the requested period, nothing resubmitted. */
+    load: () => read.retry(),
+    notice: booksNotice(s),
+  };
+}
+export type BooksHandle = ReturnType<typeof booksHandle>;
+
+/** Job 001h1: the books' status line, shared by Performance, the Overview and the legacy desk. */
+export function BooksNotice({ books }: { books: BooksHandle }) {
+  const n = books.notice;
+  if (!n) return null;
+  return (
+    <div
+      className={n.tone === "info" ? "notice info" : n.tone === "error" ? "notice error" : "notice"}
+      role={n.tone === "info" ? "status" : "alert"}
+      style={{ fontSize: 14 }}
+    >
+      <span>{n.text}</span>
+      {n.retry && (
+        <>
+          {" "}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={books.load}>
+            Try again
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
 /** The legacy desk's books: reads its own (unchanged behaviour). */
 export function DeskBooks({ desk }: { desk: Desk }) {
@@ -133,10 +161,10 @@ export function BooksPanel({
   books,
   deliberate = false,
 }: {
-  books: BooksRead;
+  books: BooksHandle;
   deliberate?: boolean;
 }) {
-  const { id, period, setPeriod, data, loadError, load } = books;
+  const { id, period, setPeriod, data, load } = books;
   const [f, setF] = useState({
     category: "AI model usage",
     amount: "",
@@ -146,14 +174,12 @@ export function BooksPanel({
   });
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(!deliberate);
-  if (loadError && !data)
+  // Job 001h1: no figures (not yet loaded, or access lost): the notice says why, never zero.
+  if (!data && books.state.status !== "loading")
     return (
       <section className="card">
         <h2>Books</h2>
-        <p className="error-text">The books couldn't be loaded: {loadError}</p>
-        <button type="button" className="btn btn-quiet" onClick={load}>
-          Try again
-        </button>
+        <BooksNotice books={books} />
       </section>
     );
   if (!data)
@@ -220,6 +246,8 @@ export function BooksPanel({
         Earned revenue is what customers' orders and used credit earned, not what was paid in
         advance. {data.basis}
       </p>
+      {/* Job 001h1: which period the figures below cover, if not the one asked for. */}
+      <BooksNotice books={books} />
       {data.chain_error && (
         <p className="notice">
           {data.chain_error}. Those months show as "couldn't be read", not as zero.
