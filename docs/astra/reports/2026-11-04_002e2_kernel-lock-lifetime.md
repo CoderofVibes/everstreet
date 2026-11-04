@@ -2,8 +2,9 @@
 
 Job: `docs/astra/jobs/2026-11-04_002e2_kernel-lock-lifetime.md`.
 
-Commit: `00c7aeb` (code, harness, test and design doc). Astra's dispatch files were committed
-first in `63eb5d3`.
+Commits: `00c7aeb` (code, harness, test and design doc), then `3b881ef` (the stale-uninstaller
+fence; see the last section). Astra's dispatch files were committed first in `63eb5d3` and
+`bbfecc8`.
 
 Status: **in review**. Real host and engine conformance remain **open**. Nothing ran as root,
 and nothing was set up, downloaded or booted.
@@ -129,3 +130,75 @@ silenced.
   - the root path through sudo.
 - **Milestones:** all six remain open, as do 003v, 003w, 004b, 005c, 005d and 006a. I did not
   start 003v.
+
+## Follow-up: the stale uninstaller (`3b881ef`)
+
+Astra's final review section (`2026-11-04_WorkerImplementationReview.md`, "002e2 in-progress
+uninstall") was right. The post-lock inode check covered `launch` but not `setup.sh`'s
+`take_lock`.
+
+**The failing sequence:**
+1. U2 opened fd 9 and was delayed before `flock`.
+2. U1 uninstalled completely.
+3. A reinstall made a new lock inode, and a live process held it.
+4. U2 locked the OLD inode and, exiting 0, removed the NEW installation's directory and manifest
+   while that holder was alive.
+
+### The fix
+
+- **`take_lock`.** After acquiring, the inode on fd 9 must still be the current lock file, and
+  the manifest must still exist. Otherwise uninstall refuses and removes nothing; it can simply
+  be run again.
+- **No lock-file creation.** Uninstall no longer creates a missing lock file; it refuses instead.
+  The lock file is now made only by install, before the manifest, so a manifest always has its
+  lock. Only a completed uninstall unlinks it, while holding it. Its inode therefore identifies
+  the installation, and `launch` and uninstall check the same thing.
+- **Install.** It uses `mkdir` without `-p` for the state directory, so it fails if the
+  directory appeared since the conflict check.
+- **Kept:** failed-teardown retry (records stay; a repeat completes) and exact manifest ownership
+  (uninstall still reverses only manifest lines).
+- **Open point for review: install is not lock-fenced.** Install does not take the lifecycle
+  lock. An uninstall started while an install is still running is not excluded; the operator
+  must not overlap them. A fix would mean install holding fd 9 without its children (`apt-get`
+  postinst scripts, `systemctl`) inheriting it, and that needs its own real-process check. I left
+  it out of this bounded correction.
+
+### Evidence: real processes, unprivileged (NOT engine conformance)
+
+Harness case 6 replays Astra's sequence deterministically:
+- the real `setup.sh` as U1 and U2, in a fake root;
+- U2 held by a barrier `flock` shim on its PATH, which waits for a go-file and then execs the
+  real `/usr/bin/flock`;
+- a real `launch` entrant (the stand-in supervisor) as the live holder of the new lock.
+
+`EVERSTREET_OLD_SETUP` also points it at the pre-fix `setup.sh` from `9cbc769`, exported to a
+temp directory and deleted afterwards.
+
+**How it ran:**
+- WSL state before: `Ubuntu Stopped`.
+- Run as uid 1000: `timeout 150 sh scripts/worker-host/lock-primitive-harness.sh`.
+- `wsl --terminate Ubuntu` afterwards. State after: `Ubuntu Stopped`.
+- Nothing else was touched.
+
+**New lines (the first 17 lines matched the earlier run, all ok):**
+
+```
+ok    uninstall refuses when the lock file is missing (it never creates one) and removes nothing
+ok    OLD setup.sh (/mnt/c/Users/antho/AppData/Local/Temp/es-old-setup) violates the invariant: stale U2 exit 0 removed the NEW installation while its lock holder lived
+ok    fenced setup.sh: stale U2 refuses (rc=1) and the NEW installation and its live holder are untouched
+ok    after the stale U2 refused, a fresh uninstall of the new installation completes
+lock-primitive-harness: 0 failure(s); real flock(2) and real processes, unprivileged; NOT engine conformance
+harness exit=0
+leftover harness processes: none
+leftover temp dirs: none
+```
+
+### Other checks
+
+- **Shim setup harness** (Git Bash, fake root): 7/7. Rerun after the `setup.sh` change; the new
+  `/proc/$$/fd/9` check works there too, since every uninstall step in it passed.
+- **`conformance.mjs --self-test`:** ok.
+- **`npm run check`:** exit 0, lint and types clean, 1159 passed and 1 skipped across 123 files.
+  The Linux-only harness test is still skipped on Windows.
+- **`npm run web:build`:** 871.93 kB, unchanged.
+- **Not run:** real host setup, root, sudo, VM and conformance. They remain open.
