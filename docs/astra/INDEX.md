@@ -2,7 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
-| 2026-11-04 | [Worker conformance review](2026-11-04_WorkerConformanceReview.md) | Actual13/15 suite at8c8599a; memory/orphan gates and boot defect remain; host stopped | Attempt reviewed, engine not accepted;001k next then003w; bounded host correction remains required |
+| 2026-11-04 | [Executable canvas browser review](2026-11-04_ExecutableCanvasBrowserReview.md) | Actual1440/1280/390 composition, focus, recovery and generated/current separation pass; both route drafts disappear |001k remains review; reproduced001k1 correction next, then003w; previews stopped |
+| 2026-11-04 | [Worker conformance review](2026-11-04_WorkerConformanceReview.md) | Actual13/15 suite at8c8599a; memory/orphan gates and boot defect remain; host stopped |002f1 correction brief queued (JOBS row deferred while001k owns it);95764 check passes1181+1skip;001k active then003w |
 | 2026-11-04 | [Protected storage accepted](2026-11-04_ProtectedStorageAccepted.md) | Three reproduced corrections independently pass;1181 tests and web build pass atda404a0 | Narrow003v acceptance; Tony approves dedicated worker;002f next then001k/003w |
 | 2026-11-04 | [Application identity boundary](2026-11-04_ApplicationIdentityBoundaryReview.md) | Actual configured-flag routes accept name-only signup and old sessions; preview switch is correctly denied | Concrete003w identity/session-mode acceptance; no deployment or account claim;003v still sole writer |
 | 2026-11-04 | [Protected storage implementation review](2026-11-04_ProtectedStorageImplementationReview.md) | Actual separate SQLite connections admit two objects/48 bytes under one-object/32-byte limits | In-progress003v correction required; sole10846 live; host setup decision pending |

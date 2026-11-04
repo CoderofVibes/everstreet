@@ -141,3 +141,17 @@ actual orphan creation/recovery, redundant host ACL and missing VMM stress. Do n
 normal app's engine on the strength of13/15. A future host attempt needs an explicit reviewed
 dispatch with the same local scope/resource ceilings; no automatic repeat from this pass.
 
+## Follow-up preserved while001k builds
+
+Astra added jobs/2026-11-04_002f1_worker-readiness-corrections.md from the actual failed cases
+and a fresh read of setup.sh, conformance.mjs, host-launch.mjs and guest/supervisor.mjs. It
+requires reviewed boot readiness, trustworthy memory enforcement observations, an actual
+job-specific orphan, host VMM pressure evidence and removal of the redundant ACL with old
+manifest compatibility. Repository correction review precedes a separately dispatched finite
+host attempt. No host action is dispatched by that queued brief.
+
+Claude owns JOBS during001k, so the row is deliberately deferred until the next handoff.
+Independent check95764 after the brief: lint/types clean,1181 tests pass plus one Linux-only
+skip. No app implementation changed in this Astra pass. Changed files: the queued brief,
+this pass note,INDEX and ignored BUILD_STATE. Research remains unread, host remains idle.
+
