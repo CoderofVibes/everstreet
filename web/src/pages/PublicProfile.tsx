@@ -3,26 +3,36 @@
 // profile. Unsaved edits survive reloads and conflicts; a former owner's view is never kept (the
 // route is keyed by actor and business, and access loss drops everything).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api4, type DeskProduct } from "../api4.ts";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { initialLoad, type LoadState, latestLoader } from "../latestLoad.ts";
 import {
+  afterSave,
   cleanDraft,
   isDirty,
   type ProfileDraft,
   type ProfileView,
   publicationApi,
   publishBlocked,
+  savedMessage,
+  unpublishOutcome,
 } from "../publication.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { DigitalProfile } from "./DigitalProfile.tsx";
 
+const CHOICE_STATE: Record<ProfileView["choices"][number]["state"], string> = {
+  in_development: "in development",
+  released: "released, not offered",
+  offered: "released and offered to customers",
+};
+
 export function PublicProfileEditor({ id }: { id: string }) {
   const { person, requireSignIn } = useSession();
   const [ls, setLs] = useState<LoadState<ProfileView>>(initialLoad);
   const [local, setLocal] = useState<ProfileDraft | null>(null);
-  const [products, setProducts] = useState<DeskProduct[]>([]);
+  // 001d1: the latest local draft, for replies that arrive after the user kept typing.
+  const localRef = useRef<ProfileDraft | null>(null);
+  localRef.current = local;
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const loader = useMemo(
@@ -41,11 +51,7 @@ export function PublicProfileEditor({ id }: { id: string }) {
   useEffect(() => {
     if (!person) return;
     load();
-    api4
-      .digitalDesk(id)
-      .then((d) => setProducts(d.products.shown))
-      .catch(() => setProducts([]));
-  }, [person, load, id]);
+  }, [person, load]);
   const view = ls.data;
   // A loaded draft fills the editor unless there are unsaved edits.
   useEffect(() => {
@@ -86,13 +92,21 @@ export function PublicProfileEditor({ id }: { id: string }) {
   const dirty = isDirty(cleanDraft(local), view.draft);
   const blocked = publishBlocked(view, dirty);
   const set = (patch: Partial<ProfileDraft>) => setLocal({ ...local, ...patch });
+  /** Applies a newer view from an action's reply; any read still in flight is older (001d1). */
+  const applyReply = (v: ProfileView) => {
+    loader.invalidate();
+    setLs({ data: v, error: null, status: "ready" });
+  };
   const save = async () => {
     setBusy(true);
+    const sent = cleanDraft(local);
     try {
-      const v = await publicationApi.save(id, view.draft_rev, cleanDraft(local));
-      setLs({ data: v, error: null, status: "ready" });
-      setLocal(v.draft);
-      setNote({ tone: "ok", text: "Saved. Review the preview below; nothing is public yet." });
+      const v = await publicationApi.save(id, view.draft_rev, sent);
+      applyReply(v);
+      // 001d1: text typed while the save was in flight is kept, not overwritten.
+      const next = afterSave(localRef.current ?? sent, sent, v.draft);
+      setLocal(next.local);
+      setNote({ tone: "ok", text: savedMessage(v, next.typedAhead) });
     } catch (e) {
       // A conflict keeps the edits here; the latest saved draft is loaded alongside.
       setNote({ tone: "error", text: (e as Error).message });
@@ -103,16 +117,34 @@ export function PublicProfileEditor({ id }: { id: string }) {
   const publish = async () => {
     setBusy(true);
     try {
-      const v = await publicationApi.publish(id, view.draft_rev);
-      setLs({ data: v, error: null, status: "ready" });
+      // 001d1: the reviewed revision and the identity of the preview shown with it.
+      const v = await publicationApi.publish(id, view.draft_rev, view.review);
+      applyReply(v);
       setNote({
         tone: "ok",
-        text: v.already ? "This version was already live." : "Published on this site.",
+        text: v.already
+          ? "This version was already live."
+          : `Published version ${v.live_rev} on this site.`,
       });
     } catch (e) {
       setNote({ tone: "error", text: (e as Error).message });
       load();
     }
+    setBusy(false);
+  };
+  const takeDown = async () => {
+    if (!window.confirm("Take the page down? Customers keep their existing uses.")) return;
+    setBusy(true);
+    let failure: unknown = null;
+    try {
+      await publicationApi.unpublish(id);
+    } catch (e) {
+      failure = e;
+    }
+    const outcome = unpublishOutcome(failure);
+    setNote({ tone: outcome.tone === "ok" ? "ok" : "error", text: outcome.text });
+    // Whatever happened, read the actual state again (an uncertain answer is checked, not guessed).
+    await load();
     setBusy(false);
   };
   const L = view.limits;
@@ -141,6 +173,12 @@ export function PublicProfileEditor({ id }: { id: string }) {
         <strong>Draft:</strong> version {view.draft_rev}
         {dirty ? " (unsaved changes)" : ""}
       </p>
+      {view.live_outdated && view.page_published && (
+        <p className="notice">
+          A featured product has a newer release than the one your live page shows. The live page
+          keeps the version you reviewed; review the preview and publish again to show the new one.
+        </p>
+      )}
       {ls.status === "failed" && (
         <p className="notice">
           {ls.error}{" "}
@@ -196,12 +234,12 @@ export function PublicProfileEditor({ id }: { id: string }) {
           </label>
           <fieldset className="field" style={{ border: 0, padding: 0 }}>
             <legend style={{ fontSize: 14 }}>Products to feature (up to {L.products})</legend>
-            {products.length === 0 && (
+            {view.choices.length === 0 && (
               <p className="muted" style={{ fontSize: 13 }}>
                 No product projects yet. <Link to={`/build?business=${id}`}>Start one</Link>.
               </p>
             )}
-            {products.map((p) => (
+            {view.choices.map((p) => (
               <label key={p.project_id} className="check">
                 <input
                   type="checkbox"
@@ -217,10 +255,14 @@ export function PublicProfileEditor({ id }: { id: string }) {
                     })
                   }
                 />
+                {/* 001d1: the name customers would see, its state, and the private brief name. */}
                 <span>
-                  {p.name ?? "Unnamed product"}{" "}
+                  {p.public_name}{" "}
                   <span className="muted" style={{ fontSize: 13 }}>
-                    · {p.status === "brief_only" ? "in development" : p.status.replace("_", " ")}
+                    · {CHOICE_STATE[p.state]}
+                    {p.brief_name && p.brief_name !== p.public_name
+                      ? ` · brief: ${p.brief_name}`
+                      : ""}
                   </span>
                 </span>
               </label>
@@ -276,17 +318,7 @@ export function PublicProfileEditor({ id }: { id: string }) {
             </p>
           )}
           {view.page_published && (
-            <button
-              type="button"
-              className="btn btn-quiet"
-              disabled={busy}
-              onClick={async () => {
-                if (!window.confirm("Take the page down? Customers keep their existing uses."))
-                  return;
-                await publicationApi.unpublish(id).catch(() => {});
-                load();
-              }}
-            >
+            <button type="button" className="btn btn-quiet" disabled={busy} onClick={takeDown}>
               Take the page down
             </button>
           )}

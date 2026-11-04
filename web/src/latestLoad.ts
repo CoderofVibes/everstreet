@@ -43,6 +43,13 @@ export function latestLoader<T>(
         },
       );
     },
+    /**
+     * Job 001d1: a newer answer arrived by another path (e.g. a save or publish reply); any read
+     * still in flight is older and must not overwrite it.
+     */
+    invalidate() {
+      seq++;
+    },
     /** Mounted again (React may re-run an effect): answers to earlier loads are dropped. */
     open() {
       closed = false;

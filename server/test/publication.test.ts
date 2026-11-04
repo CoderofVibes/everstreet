@@ -29,8 +29,12 @@ async function digital(v3Transport?: FixtureV3Transport) {
   const profile = (who = t.w.owner) => who(`${biz}/public-profile`);
   const save = (base_rev: number, draft: Json, who = t.w.owner) =>
     who(`${biz}/public-profile/draft`, "PUT", { base_rev, draft });
-  const publish = (draft_rev: number, who = t.w.owner) =>
-    who(`${biz}/public-profile/publish`, "POST", { draft_rev });
+  /** 001d1: publishes with the review identity of the owner's current view (what they saw). */
+  const publish = async (draft_rev: number, who = t.w.owner) =>
+    who(`${biz}/public-profile/publish`, "POST", {
+      draft_rev,
+      review: (await who(`${biz}/public-profile`)).body.review,
+    });
   const page = () => t.w.cara(`/api/public/businesses/${slug}`);
   return { t, biz, slug, profile, save, publish, page };
 }
@@ -241,11 +245,14 @@ describe("001d legacy, mixed and brief-only businesses", () => {
     // Mixed: the digital business also publishes its legacy offering the old way.
     const biz = `/api/businesses/${t.w.f.business}`;
     await t.w.owner(biz, "PATCH", { name: "Ledgerline Invoice Reader" });
-    await t.w.owner(`${biz}/public-profile/draft`, "PUT", {
+    const mixedSaved = await t.w.owner(`${biz}/public-profile/draft`, "PUT", {
       base_rev: 0,
       draft: { ...DRAFT, products: [t.w.f.project] },
     });
-    await t.w.owner(`${biz}/public-profile/publish`, "POST", { draft_rev: 1 });
+    await t.w.owner(`${biz}/public-profile/publish`, "POST", {
+      draft_rev: 1,
+      review: mixedSaved.body.review,
+    });
     await t.w.owner(`${biz}/offer`, "PATCH", { title: "Invoice clean-up session" });
     await t.w.owner(`${biz}/publish`, "POST");
     const mslug = (
@@ -268,12 +275,13 @@ describe("001d legacy, mixed and brief-only businesses", () => {
     });
     const bid = p.body.project.business_id as string;
     await bea(`/api/businesses/${bid}`, "PATCH", { name: "Tutor Portal Co" });
-    await bea(`/api/businesses/${bid}/public-profile/draft`, "PUT", {
+    const beaSaved = await bea(`/api/businesses/${bid}/public-profile/draft`, "PUT", {
       base_rev: 0,
       draft: { ...DRAFT, products: [p.body.project.id] },
     });
     const pub = await bea(`/api/businesses/${bid}/public-profile/publish`, "POST", {
       draft_rev: 1,
+      review: beaSaved.body.review,
     });
     expect(pub.status).toBe(200);
     expect(pub.body.live).toMatchObject({

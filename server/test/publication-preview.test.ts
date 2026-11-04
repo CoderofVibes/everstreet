@@ -41,7 +41,14 @@ describe("001d publication preview: draft, review, publish, discover, use", () =
       },
     });
     expect(saved.body.preview.products[0].status).toBe("available");
-    expect((await ava(`${biz}/public-profile/publish`, "POST", { draft_rev: 1 })).status).toBe(200);
+    expect(
+      (
+        await ava(`${biz}/public-profile/publish`, "POST", {
+          draft_rev: 1,
+          review: saved.body.review,
+        })
+      ).status,
+    ).toBe(200);
     const found = (await cara("/api/public/discover?q=invoice")).body.businesses as Json[];
     const card = found.find((b) => b.slug === p.slugs.digital);
     expect(card?.digital.availability).toBe("available");

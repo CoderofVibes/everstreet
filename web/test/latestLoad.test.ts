@@ -63,6 +63,15 @@ describe("003u1 seller page loads", () => {
     expect(h.state()).toMatchObject({ data: null, status: "refused" });
   });
 
+  it("001d1: a read started before a save or publish reply can't overwrite that newer reply", async () => {
+    const h = harness();
+    const stale = h.loader.load(); // a view read in flight
+    h.loader.invalidate(); // the save's reply is applied now (by its own path)
+    h.calls[0]?.resolve("older view");
+    await stale;
+    expect(h.state().data).toBeNull();
+  });
+
   it("the acquisitions API's own error class is recognised too (the seller page uses it)", async () => {
     const h = harness();
     const a = h.loader.load();

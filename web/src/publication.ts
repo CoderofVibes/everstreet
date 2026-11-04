@@ -20,8 +20,19 @@ export interface ProfileView {
   live_published_at: string | null;
   page_published: boolean;
   live: DigitalPublic | null;
+  /** Job 001d1: the live profile names a release that is no longer the product's active one. */
+  live_outdated: boolean;
   preview: DigitalPublic;
+  /** Job 001d1: the identity of this exact preview; publishing presents it. */
+  review: string;
   eligibility: { ok: boolean; reasons: string[] };
+  /** Job 001d1: the owner's products, by the name customers would see. */
+  choices: {
+    project_id: string;
+    public_name: string;
+    brief_name: string | null;
+    state: "in_development" | "released" | "offered";
+  }[];
   limits: {
     headline: number;
     summary: number;
@@ -50,8 +61,12 @@ export const publicationApi = {
   view: (id: string) => call<ProfileView>(`/api/businesses/${id}/public-profile`),
   save: (id: string, base_rev: number, draft: ProfileDraft) =>
     call<ProfileView>(`/api/businesses/${id}/public-profile/draft`, "PUT", { base_rev, draft }),
-  publish: (id: string, draft_rev: number) =>
-    call<ProfileView>(`/api/businesses/${id}/public-profile/publish`, "POST", { draft_rev }),
+  /** 001d1: publishes the reviewed revision with its review identity (the preview shown). */
+  publish: (id: string, draft_rev: number, review: string) =>
+    call<ProfileView>(`/api/businesses/${id}/public-profile/publish`, "POST", {
+      draft_rev,
+      review,
+    }),
   unpublish: (id: string) => call<unknown>(`/api/businesses/${id}/unpublish`, "POST"),
 };
 
@@ -78,8 +93,49 @@ export const isDirty = (local: ProfileDraft, saved: ProfileDraft) => !same(local
 export function publishBlocked(v: ProfileView, dirty: boolean): string | null {
   if (dirty) return "Save your changes first, then review the preview below before publishing.";
   if (!v.eligibility.ok) return v.eligibility.reasons.join(" ");
-  if (v.live_rev === v.draft_rev && v.page_published) return "This version is already live.";
+  // 001d1: the same revision can show different content after a release change; then it can (and
+  // should) be reviewed and published again.
+  if (v.live_rev === v.draft_rev && v.page_published && !v.live_outdated)
+    return "This version is already live.";
   return null;
+}
+
+/**
+ * Job 001d1: what the editor holds after a save reply. Text typed while the save was in flight is
+ * kept (it isn't saved yet); otherwise the saved draft replaces the local copy.
+ */
+export function afterSave(localNow: ProfileDraft, sent: ProfileDraft, saved: ProfileDraft) {
+  const typedAhead = !same(cleanDraft(localNow), sent);
+  return { local: typedAhead ? localNow : saved, typedAhead };
+}
+
+/** Job 001d1: what a save did, without claiming nothing is public when a version is live. */
+export function savedMessage(v: ProfileView, typedAhead: boolean): string {
+  const live =
+    v.live && v.page_published
+      ? ` The public page still shows version ${v.live_rev} until you publish this one.`
+      : " Nothing is public until you publish.";
+  const more = typedAhead ? " Your newer edits aren't saved yet." : "";
+  return `Saved as version ${v.draft_rev}. Review its preview.${live}${more}`;
+}
+
+/**
+ * Job 001d1: the outcome of taking the page down. A refusal is said plainly; an answer that never
+ * came (network, server error) is uncertain, never reported as success or failure.
+ */
+export function unpublishOutcome(e: unknown): { tone: "ok" | "error" | "uncertain"; text: string } {
+  if (e === null)
+    return {
+      tone: "ok",
+      text: "The page is taken down. Customers keep their existing uses; your draft is unchanged.",
+    };
+  const status = (e as { status?: unknown })?.status;
+  if (typeof status === "number" && status >= 400 && status < 500)
+    return { tone: "error", text: (e as Error).message };
+  return {
+    tone: "uncertain",
+    text: "We couldn't confirm whether the page was taken down. Its status below is being checked again; try again only if it still shows as published.",
+  };
 }
 
 /** Trims the editor's text for saving; blank capability lines are dropped. */

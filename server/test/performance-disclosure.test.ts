@@ -73,7 +73,7 @@ function family(): { raw: RawPerformance; q: Record<string, number> }[] {
               ran,
               execution: [c, r, 0],
               current: [0, 0, s, 0],
-              calls: [0, m1, ran - m1 < 0 ? 0 : ran - m1],
+              calls: [0, m1, Math.max(0, ran - m1)],
               unknownCalls: 0,
             };
             out.push({

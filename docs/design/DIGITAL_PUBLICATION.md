@@ -92,6 +92,44 @@ needs, customer counts or costs, acquisition listing, asking price or buyer.
 - Publish this version, using the reviewed revision;
 - the live status, and Unpublish through the existing route.
 
+## Corrections in 001d1
+
+**Exact review identity.** Astra reproduced the failure: a release change between review and
+publish put an unreviewed product name live. The fix:
+- **The view carries a `review` identity:** `sha256` of the draft revision plus the exact public
+  snapshot computed from it, including each product's name and family and the release they came
+  from.
+- **Publish must present `{ draft_rev, review }`:**
+  - a missing identity returns 400 (`review_required`);
+  - a different snapshot (for example, after a release change) returns 409 (`review_changed`) and
+    nothing goes live;
+  - on a match, exactly that snapshot is stored as live.
+- **"Already"** means the live content equals this review. The same draft revision can be
+  reviewed again and republished after a release change.
+
+**Immutable content, dynamic availability.**
+- **Fixed after publish:** the live name, family and text never change.
+- **Deliberately dynamic:** availability is still read live. A **Use target** exists only while an
+  active customer offer exists for the **reviewed release**. An offer for a newer release is never
+  shown under an older reviewed name, so the product reads "Released, not open for use yet" until
+  the owner reviews and republishes.
+- **Owner signal:** the owner's view reports `live_outdated` when a featured product's active
+  release differs from the live one.
+- **Older snapshots:** 001d snapshots without a release id still match by project.
+
+**Editor recovery.**
+- **Typed-ahead edits:** text typed while a save is in flight is kept (`afterSave`), and the
+  message says it isn't saved yet.
+- **Saved message:** it names the saved version and, when a version is live, says the public page
+  still shows that one.
+- **Take down:** it marks the editor busy. A refusal is shown, and an unconfirmed answer
+  (network or server error) is reported as uncertain, never as success. The state is always
+  re-read afterwards.
+- **Reply ordering:** save and publish replies invalidate any older view read still in flight
+  (`latestLoader.invalidate`).
+- **The product picker** shows the name customers would see (the released name), its state, and
+  the private brief name beside it.
+
 ## Preview
 
 `scripts/preview-publication.ts`, labelled synthetic:

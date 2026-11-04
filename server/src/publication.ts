@@ -4,6 +4,7 @@
 // product's Use target resolved from its active customer offer at read time. No draft, brief,
 // prompt, provider, customer, cost or acquisition data is ever in the public view.
 
+import { createHash } from "node:crypto";
 import type { Db } from "./db.ts";
 import { FOUNDATION_DEFS, type Foundation } from "./products.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
@@ -28,10 +29,19 @@ export interface ProfileDraft {
 
 interface LiveProduct {
   project_id: string;
+  /** Job 001d1: the release the reviewed name came from (internal; never shown publicly). */
+  release_id?: string | null;
   name: string;
   family_label: string;
   released: boolean;
 }
+
+/**
+ * Job 001d1: the identity of a review: the draft revision and the exact public content computed
+ * from it (names and families from the then-active releases). Publish must present the same.
+ */
+export const reviewIdentity = (rev: number, snap: unknown) =>
+  createHash("sha256").update(JSON.stringify({ rev, snap })).digest("hex");
 interface LiveSnapshot extends Omit<ProfileDraft, "products"> {
   products: LiveProduct[];
 }
@@ -110,6 +120,59 @@ export class Publications {
       : { draft: EMPTY, rev: 0 };
   }
 
+  /** A project's active release and its released (artifact spec) name. */
+  private activeRelease(projectId: string): { id: string; name: string | null } | null {
+    const a = this.db
+      .prepare(
+        "SELECT r.id, a.content FROM runtime_releases r JOIN build_artifacts a ON a.job_id = r.artifact_job WHERE r.project_id = ? AND r.state = 'active'",
+      )
+      .get(projectId) as { id: string; content: string } | undefined;
+    if (!a) return null;
+    let name: string | null = null;
+    try {
+      const n = (JSON.parse(a.content) as { name?: unknown }).name;
+      name = typeof n === "string" && n.trim() ? n.trim().slice(0, 120) : null;
+    } catch {
+      name = null;
+    }
+    return { id: a.id, name };
+  }
+
+  /**
+   * Job 001d1: the owner's product choices, identifiable by the name customers would see (the
+   * released name), with the private brief name beside it. Bounded.
+   */
+  private choices(businessId: string) {
+    const rows = this.db
+      .prepare(
+        `SELECT p.id,
+            (SELECT brief FROM product_revisions WHERE project_id = p.id ORDER BY number DESC LIMIT 1) AS brief,
+            (SELECT COUNT(*) FROM customer_offers WHERE project_id = p.id AND state = 'active') AS offers
+           FROM product_projects p WHERE p.business_id = ? ORDER BY p.updated_at DESC, p.id LIMIT 12`,
+      )
+      .all(businessId) as { id: string; brief: string | null; offers: number }[];
+    return rows.map((r) => {
+      const a = this.activeRelease(r.id);
+      let briefName: string | null = null;
+      try {
+        const n = (JSON.parse(r.brief ?? "{}") as { name?: unknown }).name;
+        briefName = typeof n === "string" && n.trim() ? n.trim() : null;
+      } catch {
+        briefName = null;
+      }
+      return {
+        project_id: r.id,
+        public_name: a?.name ?? "A product in development",
+        brief_name: briefName,
+        state: !a
+          ? ("in_development" as const)
+          : r.offers > 0
+            ? ("offered" as const)
+            : ("released" as const),
+      };
+    });
+  }
+
   /** What a draft would publish: names and families from released facts only. */
   private snapshot(businessId: string, d: ProfileDraft): LiveSnapshot {
     const products: LiveProduct[] = [];
@@ -118,21 +181,11 @@ export class Publications {
         .prepare("SELECT foundation FROM product_projects WHERE id = ? AND business_id = ?")
         .get(id, businessId) as { foundation: Foundation } | undefined;
       if (!p) continue;
-      const a = this.db
-        .prepare(
-          "SELECT a.content FROM runtime_releases r JOIN build_artifacts a ON a.job_id = r.artifact_job WHERE r.project_id = ? AND r.state = 'active'",
-        )
-        .get(id) as { content: string } | undefined;
-      let name: string | null = null;
-      try {
-        const n = a ? (JSON.parse(a.content) as { name?: unknown }).name : null;
-        name = typeof n === "string" && n.trim() ? n.trim().slice(0, 120) : null;
-      } catch {
-        name = null;
-      }
+      const a = this.activeRelease(id);
       products.push({
         project_id: id,
-        name: name ?? "A product in development",
+        release_id: a?.id ?? null,
+        name: a?.name ?? "A product in development",
         family_label: FOUNDATION_DEFS[p.foundation]?.label ?? "Digital product",
         released: Boolean(a),
       });
@@ -170,6 +223,15 @@ export class Publications {
     const b = this.db
       .prepare("SELECT published_at FROM businesses WHERE id = ?")
       .get(businessId) as { published_at: string | null };
+    const snap = this.snapshot(businessId, draft);
+    const live = r?.live ? (JSON.parse(r.live) as LiveSnapshot) : null;
+    // The live profile names a release that is no longer the product's active one.
+    const outdated = Boolean(
+      live?.products.some((p) => {
+        const a = this.activeRelease(p.project_id);
+        return (a?.id ?? null) !== (p.release_id ?? a?.id ?? null);
+      }),
+    );
     const out = {
       draft,
       draft_rev: rev,
@@ -177,9 +239,13 @@ export class Publications {
       live_rev: r?.live_rev ?? null,
       live_published_at: r?.live_published_at ?? null,
       page_published: b.published_at !== null,
-      live: r?.live ? this.section(JSON.parse(r.live) as LiveSnapshot, r.live_published_at) : null,
-      preview: this.section(this.snapshot(businessId, draft), null),
+      live: live ? this.section(live, r?.live_published_at ?? null) : null,
+      live_outdated: outdated,
+      preview: this.section(snap, null),
+      /** Job 001d1: present this to publish exactly what the preview shows. */
+      review: reviewIdentity(rev, snap),
       eligibility: this.eligibility(businessId, draft),
+      choices: this.choices(businessId),
       limits: PROFILE_LIMITS,
     };
     this.store.stillControls(viewer, epoch);
@@ -219,6 +285,9 @@ export class Publications {
   publish(viewer: Person, businessId: string, input: Record<string, unknown>) {
     const epoch = this.store.controlEpoch(viewer, businessId);
     const reviewed = Number(input.draft_rev);
+    const review = typeof input.review === "string" ? input.review : "";
+    if (!/^[0-9a-f]{64}$/.test(review))
+      bad("Publish the version you reviewed (its review identity is required)", "review_required");
     this.store.stillControls(viewer, epoch);
     let already = false;
     this.store.tx(() => {
@@ -231,10 +300,22 @@ export class Publications {
           "draft_changed",
           { draft_rev: rev },
         );
+      // Job 001d1: the public content must be exactly what was reviewed (a release can change a
+      // product's public name between review and publish).
+      const snap = this.snapshot(businessId, draft);
+      if (reviewIdentity(rev, snap) !== review)
+        throw new HttpError(
+          409,
+          "What this version would show has changed since you reviewed it (a product's release changed). Review it again, then publish.",
+          "review_changed",
+          { draft_rev: rev },
+        );
       const page = this.db
         .prepare("SELECT published_at FROM businesses WHERE id = ?")
         .get(businessId) as { published_at: string | null };
-      if (r.live_rev === rev && page.published_at) {
+      // "Already" only when the live content is exactly this review (a release change may make
+      // the same draft revision show different public content).
+      if (r.live_rev === rev && page.published_at && r.live === JSON.stringify(snap)) {
         already = true;
         return;
       }
@@ -245,13 +326,7 @@ export class Publications {
         .prepare(
           "UPDATE public_profiles SET live = ?, live_rev = ?, live_published_at = ?, live_owner_generation = ? WHERE business_id = ?",
         )
-        .run(
-          JSON.stringify(this.snapshot(businessId, draft)),
-          rev,
-          t,
-          epoch.generation,
-          businessId,
-        );
+        .run(JSON.stringify(snap), rev, t, epoch.generation, businessId);
       // The page only: no legacy offering or idea, no stage, no listing, no release or price.
       this.db
         .prepare(
@@ -266,13 +341,25 @@ export class Publications {
   }
 }
 
-/** The public section from a snapshot; Use targets come from active offers right now. */
+/**
+ * The public section from a snapshot. Content (names, text) is the reviewed snapshot's and never
+ * changes; availability is deliberately dynamic: a Use target exists only while an active offer
+ * exists for the very release that was reviewed (001d1), so a newer release's offer is never shown
+ * under an older product's name. A snapshot from 001d without a release id matches by project.
+ */
 function sectionOf(db: Db, snap: LiveSnapshot, publishedAt: string | null) {
-  const offerOf = db.prepare(
+  const byRelease = db.prepare(
+    "SELECT id FROM customer_offers WHERE project_id = ? AND release_id = ? AND state = 'active' ORDER BY created_at DESC, id LIMIT 1",
+  );
+  const byProject = db.prepare(
     "SELECT id FROM customer_offers WHERE project_id = ? AND state = 'active' ORDER BY created_at DESC, id LIMIT 1",
   );
   const products = snap.products.map((p) => {
-    const o = p.released ? (offerOf.get(p.project_id) as { id: string } | undefined) : undefined;
+    const o = !p.released
+      ? undefined
+      : ((p.release_id ? byRelease.get(p.project_id, p.release_id) : byProject.get(p.project_id)) as
+          | { id: string }
+          | undefined);
     const status = o ? "available" : p.released ? "not_open" : "in_development";
     return {
       name: p.name,

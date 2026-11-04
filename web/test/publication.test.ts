@@ -4,14 +4,18 @@
 
 import { describe, expect, it } from "vitest";
 import type { DigitalPublic } from "../src/api.ts";
+import { ApiError } from "../src/api.ts";
 import {
   AVAILABILITY_LABEL,
+  afterSave,
   cleanDraft,
   isDirty,
   PRODUCT_PUBLIC_STATUS,
   type ProfileDraft,
   type ProfileView,
   publishBlocked,
+  savedMessage,
+  unpublishOutcome,
 } from "../src/publication.ts";
 
 const draft: ProfileDraft = {
@@ -40,8 +44,11 @@ const view = (o: Partial<ProfileView> = {}): ProfileView => ({
   live_published_at: "2026-11-04T09:00:00.000Z",
   page_published: true,
   live: preview,
+  live_outdated: false,
   preview,
+  review: "a".repeat(64),
   eligibility: { ok: true, reasons: [] },
+  choices: [],
   limits: {
     headline: 120,
     summary: 400,
@@ -51,6 +58,44 @@ const view = (o: Partial<ProfileView> = {}): ProfileView => ({
     products: 6,
   },
   ...o,
+});
+
+describe("001d1 editor recovery", () => {
+  it("text typed while a save was in flight is kept, and said to be unsaved", () => {
+    const sent = cleanDraft(draft);
+    const saved = { ...sent };
+    // Nothing typed meanwhile: the saved draft replaces the local copy.
+    expect(afterSave(draft, sent, saved)).toEqual({ local: saved, typedAhead: false });
+    // Typed ahead: the newer local text stays (the old editor overwrote it with the saved draft).
+    const typed = { ...draft, headline: "Clean rows from invoices, faster" };
+    expect(afterSave(typed, sent, saved)).toEqual({ local: typed, typedAhead: true });
+  });
+
+  it("the saved message never says nothing is public while a version is live", () => {
+    expect(savedMessage(view({ draft_rev: 2, live_rev: 1 }), false)).toBe(
+      "Saved as version 2. Review its preview. The public page still shows version 1 until you publish this one.",
+    );
+    expect(savedMessage(view({ live: null, live_rev: null, page_published: false }), true)).toBe(
+      "Saved as version 2. Review its preview. Nothing is public until you publish. Your newer edits aren't saved yet.",
+    );
+  });
+
+  it("taking the page down: success, refusal and an unconfirmed answer are all told apart", () => {
+    expect(unpublishOutcome(null).tone).toBe("ok");
+    expect(unpublishOutcome(new ApiError(404, "No such business"))).toEqual({
+      tone: "error",
+      text: "No such business",
+    });
+    expect(unpublishOutcome(new ApiError(503, "Busy")).tone).toBe("uncertain");
+    expect(unpublishOutcome(new TypeError("Failed to fetch")).tone).toBe("uncertain");
+    expect(unpublishOutcome(new TypeError("Failed to fetch")).text).not.toMatch(
+      /^The page is taken down/,
+    );
+  });
+
+  it("after a release change the same revision can be published again", () => {
+    expect(publishBlocked(view({ live_rev: 2, live_outdated: true }), false)).toBeNull();
+  });
 });
 
 describe("001d publishing only what was reviewed", () => {
