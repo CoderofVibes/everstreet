@@ -207,6 +207,26 @@ closed before an applied intent.
 
 The buttons call the existing controller methods. No new action is invented.
 
+**The current sale (job 001i1, pure: `saleCurrent`).** Supersedes the "Completed when" column
+above where they differ. The intent list is the business's whole history, newest first (deal 1
+applied stays in it while deal 2 is proposed). So the sale this page is about is resolved once,
+and the sentence, steps, action and the list's "Current sale"/"History" labels all read it:
+
+| Reading | Current sale | Record step | Close, apply, takeover | Next action |
+|---|---|---|---|---|
+| Paused or unbound | unknown; a recorded intent is mentioned in the sentence, never counted | Waiting ("not known while the contract can't be read") | Waiting | None / Go to Selling |
+| Nothing read | none yet | Waiting | Waiting | Read the contract again |
+| A live deal | that deal; its record is the intent with the **same sequence, version and digest**, found anywhere in the list | Completed only from that exact record; else Current, or Blocked by `reviewProblem` | from that exact record only (applied: Completed; recorded: Current) | Review (no exact record), else its outcome |
+| No live deal, a recorded intent pending | that intent (the newest by deal then version, never by list order); its outcome is unknown | Completed | Current: "Not known yet" | Check the contract's outcome… |
+| No live deal, nothing pending | none: "No sale is in progress at block H" | Waiting | Waiting | Read the contract again |
+
+- **History.** Applied, ended and superseded intents for other deals or versions are history. They
+  never complete a step of the current sale or speak in its sentence. They stay listed with their
+  status, and an older recorded version keeps its own outcome check in the list.
+- **Stale or flagged readings** say so in the sentence ("(stale)").
+- **Unchanged:** the recovery priorities above, reconciliation per exact intent, and the controller
+  and server rules.
+
 **The continuity panel**, built from the evidence and the existing `APPLY_EFFECTS`:
 - **Authority that changes.**
   - The owner role on the contract moves to the buyer account, from the deal.

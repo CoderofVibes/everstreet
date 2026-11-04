@@ -12,6 +12,7 @@ import {
   editView,
   FixtureV3Transport,
   V3_ACCEPTING,
+  V3_CLOSED,
 } from "../../server/test/v3-fixture-transport.ts";
 import { ApiError } from "../src/api.ts";
 import { OwnerHandover, type OwnerHandoverState } from "../src/handover.ts";
@@ -50,16 +51,39 @@ async function world() {
     v3Now: () => Date.now(),
   });
   w.link(w.f.ava.id, "founder.near");
-  w.link(w.person("Noah Fenn").id, "buyer.near");
-  const owner = (port = portFor(w.owner)) =>
+  const noah = w.person("Noah Fenn");
+  w.link(noah.id, "buyer.near");
+  const owner = (port = portFor(w.owner), personId = w.f.ava.id) =>
     new OwnerHandover(port, {
-      personId: w.f.ava.id,
+      personId,
       businessId: w.f.business,
       storage: null,
       makeKey: () => `sale-view-key-${String(++keys).padStart(4, "0")}`,
     });
-  return { w, t, owner };
+  return { w, t, owner, noah };
 }
+
+/**
+ * Synthetic, coherent with the contract's closed fixture: after deal 1 closed to buyer.near
+ * (generation 2), the new owner proposes deal 2 to another buyer. Nobody has accepted; no escrow.
+ */
+const V3_DEAL2 = editView(V3_CLOSED, "get_control", (c) => {
+  c.control_seq = "8";
+  c.live_deal = {
+    ...JSON.parse(V3_ACCEPTING.get_control as string).live_deal,
+    seq: "2",
+    version: 1,
+    state: "proposed",
+    digest: "d".repeat(64),
+    seller: "buyer.near",
+    buyer: "third.near",
+    expected_generation: 2,
+    seller_accepted: false,
+    buyer_accepted: false,
+    escrow: "0",
+    grants: [],
+  };
+});
 
 const status = (s: OwnerHandoverState) =>
   Object.fromEntries(saleSteps(s).map((st) => [st.key, st.status]));
@@ -239,5 +263,191 @@ describe("001i continuity keeps authority, customer rights and external transfer
     expect(rights).toContain(grouped(o.customers.reserved_in_use));
     expect(external).toMatch(/domains, provider and model accounts, secrets/);
     expect(external).not.toContain(".near");
+  });
+});
+
+// Job 001i1: the current sale stands on its own evidence. Astra's probe on dfeecae: an applied
+// deal 1 in the business's intent history (the list API returns all of it, newest first) made
+// the sentence say deal 1 was applied and the steps mark Record/Close/Apply completed for a fresh
+// proposed deal 2, while the action offered Review. These drive the real controller through the
+// whole first sale, then a second; synthetic constructions are labelled where they're made.
+
+/** Closes and applies deal 1 through the real API; returns Noah's workspace as the new owner. */
+async function afterFirstSale() {
+  const x = await world();
+  const ava = x.owner();
+  await ava.start();
+  await ava.refreshEvidence();
+  ava.review();
+  await ava.record();
+  const first = ava.getState().intents[0]?.id as string;
+  x.t.next(V3_CLOSED); // the contract fixture: this exact deal closed
+  x.w.chain.afterSale();
+  await ava.refreshEvidence();
+  // No live deal now, and the exact record awaits its outcome: that is the current sale.
+  expect(status(ava.getState())).toMatchObject({ record: "completed", close: "current" });
+  expect(saleNext(ava.getState())).toMatchObject({ action: "reconcile", intent: first });
+  await ava.reconcile(first);
+  await ava.reconcile(first);
+  expect(ava.getState().status).toBe("gone"); // the seller's management ended
+  const noah = x.owner(portFor(x.noah), x.noah.id);
+  await noah.start();
+  await noah.refreshEvidence();
+  expect(noah.getState().intents).toMatchObject([{ id: first, status: "applied" }]);
+  return { ...x, noah, first };
+}
+
+describe("001i1 a historical sale never completes the current one", () => {
+  it("after deal 1 is applied, no live deal: the history stays history", async () => {
+    const { noah } = await afterFirstSale();
+    const s = noah.getState();
+    expect(saleSentence(s)).toMatch(/^No sale is in progress at block \d+\./);
+    expect(saleSentence(s)).not.toMatch(/applied/);
+    expect(status(s)).toEqual({
+      read: "completed",
+      record: "waiting",
+      close: "waiting",
+      apply: "waiting",
+      takeover: "waiting",
+    });
+    expect(saleNext(s).action).toBe("refresh");
+  });
+
+  it("a proposed deal 2 after an applied deal 1: sentence, steps and action all describe deal 2", async () => {
+    const { w, t, noah, first } = await afterFirstSale();
+    w.link(w.person("Lena Ortiz").id, "third.near"); // deal 2's buyer, fictional
+    t.next(V3_DEAL2);
+    await noah.refreshEvidence();
+    const s = noah.getState();
+    expect(s.evidence?.observed?.deal).toMatchObject({ seq: "2", state: "proposed" });
+    expect(saleSentence(s)).toMatch(
+      /^Deal 2, version 1 is proposed on the contract; nobody has accepted yet\..* Not recorded here yet\.$/,
+    );
+    expect(status(s)).toEqual({
+      read: "completed",
+      record: "current",
+      close: "waiting",
+      apply: "waiting",
+      takeover: "waiting",
+    });
+    expect(saleNext(s).action).toBe("review");
+
+    noah.review();
+    await noah.record();
+    const second = noah.getState().intents.find((i) => i.deal.seq === "2")?.id;
+    expect(noah.getState().notice?.code).toBe("intent_recorded");
+    expect(second).toBeDefined();
+    expect(noah.getState().intents.map((i) => i.id)).toContain(first);
+    expect(status(noah.getState())).toMatchObject({
+      record: "completed",
+      close: "current",
+      apply: "current",
+      takeover: "waiting",
+    });
+    expect(saleNext(noah.getState())).toMatchObject({ action: "reconcile", intent: second });
+    // Order-independent: the same answers with the history listed the other way round
+    // (synthetic reorder of the real list).
+    const reversed = { ...noah.getState(), intents: [...noah.getState().intents].reverse() };
+    expect(status(reversed)).toEqual(status(noah.getState()));
+    expect(saleNext(reversed)).toEqual(saleNext(noah.getState()));
+    expect(saleSentence(reversed)).toBe(saleSentence(noah.getState()));
+  });
+
+  it("older and newer versions recorded: only the shown version's exact record counts, wherever it is", async () => {
+    const { t, owner } = await world();
+    const c = owner();
+    await c.start();
+    await c.refreshEvidence();
+    c.review();
+    await c.record(); // version 1
+    t.next(
+      editView(V3_ACCEPTING, "get_control", (x) => {
+        x.control_seq = "7";
+        x.live_deal.version = 2;
+        x.live_deal.digest = "e".repeat(64);
+        x.live_deal.state = "proposed";
+        x.live_deal.seller_accepted = false;
+        x.live_deal.buyer_accepted = false;
+      }),
+    );
+    await c.refreshEvidence();
+    c.review();
+    await c.record(); // version 2
+    const s = c.getState();
+    const v2 = s.intents.find((i) => i.deal.version === 2);
+    expect(v2?.status).toBe("recorded");
+    for (const intents of [s.intents, [...s.intents].reverse()]) {
+      const v = { ...s, intents };
+      expect(saleNext(v)).toMatchObject({ action: "reconcile", intent: v2?.id });
+      expect(saleSentence(v)).toMatch(/^Deal 1, version 2 .* This version is recorded here\.$/);
+      expect(saleSteps(v)[1]?.detail).toMatch(/^Version 2 of deal 1 is recorded here/);
+      // Synthetic: the next reading shows no live deal. Both records await an outcome; the
+      // newest version is the current one, whatever the list order.
+      const o = s.evidence?.observed;
+      if (!o || !s.evidence) throw new Error("no reading");
+      const gone = { ...v, evidence: { ...s.evidence, observed: { ...o, deal: null } } };
+      expect(saleNext(gone)).toMatchObject({ action: "reconcile", intent: v2?.id });
+      expect(saleSentence(gone)).toMatch(/^Version 2 of deal 1 is recorded here; the last reading/);
+      // Synthetic: reading paused with those records pending: mentioned, never completed.
+      const paused = { ...v, evidence: { state: "paused", message: "Paused." } } as typeof v;
+      expect(status(paused as OwnerHandoverState)).toMatchObject({
+        read: "blocked",
+        record: "waiting",
+        close: "waiting",
+      });
+      expect(saleSentence(paused)).toMatch(
+        /^Paused\. Version 2 of deal 1 is recorded here; its outcome can't be checked/,
+      );
+    }
+  });
+
+  it("paused or stale evidence is never covered by a historical success", async () => {
+    const { noah } = await afterFirstSale();
+    const s = noah.getState();
+    const o = s.evidence?.observed;
+    if (!o || !s.evidence) throw new Error("no reading");
+    // Synthetic: the same state with reading paused, then with the last reading stale.
+    const paused = {
+      ...s,
+      evidence: { state: "paused", message: "Reading the contract is paused here." },
+    } as OwnerHandoverState;
+    expect(saleSentence(paused)).toBe("Reading the contract is paused here.");
+    expect(status(paused)).toEqual({
+      read: "blocked",
+      record: "waiting",
+      close: "waiting",
+      apply: "waiting",
+      takeover: "waiting",
+    });
+    expect(saleNext(paused).action).toBe("none");
+    const stale = {
+      ...s,
+      evidence: { ...s.evidence, observed: { ...o, freshness: "stale" as const } },
+    };
+    expect(saleSentence(stale)).toMatch(/stale/);
+    expect(saleSentence(stale)).not.toMatch(/applied/);
+    expect(status(stale)).toMatchObject({ record: "waiting", close: "waiting", apply: "waiting" });
+    expect(saleNext(stale).action).toBe("refresh");
+  });
+
+  it("ended and superseded history completes nothing, with or without a live deal", async () => {
+    const { t, noah } = await afterFirstSale();
+    const s = noah.getState();
+    for (const st of ["ended", "superseded"] as const) {
+      // Synthetic: the real history with deal 1's record in a terminal state.
+      const none = { ...s, intents: s.intents.map((i) => ({ ...i, status: st })) };
+      expect(status(none)).toMatchObject({ record: "waiting", close: "waiting", apply: "waiting" });
+      expect(saleNext(none).action).toBe("refresh");
+    }
+    t.next(V3_DEAL2);
+    await noah.refreshEvidence();
+    const live = noah.getState();
+    for (const st of ["ended", "superseded", "recorded"] as const) {
+      // Synthetic: deal 1's record in each state alongside the live deal 2.
+      const v = { ...live, intents: live.intents.map((i) => ({ ...i, status: st })) };
+      expect(status(v)).toMatchObject({ record: "current", close: "waiting", apply: "waiting" });
+      expect(saleNext(v).action).toBe("review");
+      expect(saleSentence(v)).toMatch(/^Deal 2, .* Not recorded here yet\.$/);
+    }
   });
 });

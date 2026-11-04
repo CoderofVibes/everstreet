@@ -19,7 +19,7 @@ import {
 } from "../handoverApi.ts";
 import { type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link } from "../router.tsx";
-import { STEP_WORD, saleNext, saleSentence, saleSteps } from "../saleView.ts";
+import { STEP_WORD, saleCurrent, saleNext, saleSentence, saleSteps } from "../saleView.ts";
 import { useSession } from "../session.tsx";
 
 const STATUS: Record<IntentStatus, { label: string; tone: string }> = {
@@ -334,14 +334,11 @@ export function HandoverWorkspace({ id }: { id: string }) {
   const busy = s.busy !== null;
   const locked = busy || s.access === "unconfirmed";
   const problem = reviewProblem(ev);
-  const recordedThis = deal
-    ? s.intents.some(
-        (i) =>
-          i.deal.seq === deal.seq &&
-          i.deal.version === deal.version &&
-          i.deal.digest === deal.digest,
-      )
-    : false;
+  // Job 001i1: one resolution of the current sale, shared with the sentence, steps and action.
+  const current = saleCurrent(s);
+  const currentRecord =
+    current.kind === "live" || current.kind === "pending" ? current.record : null;
+  const recordedThis = current.kind === "live" && current.record !== null;
 
   const next = saleNext(s);
   const runNext = () => {
@@ -548,12 +545,19 @@ export function HandoverWorkspace({ id }: { id: string }) {
           {s.intents.length > 0 && (
             <section className="card" aria-labelledby="ho-intents">
               <h2 id="ho-intents" style={{ fontSize: 18 }}>
-                Recorded versions
+                Recorded versions and history
               </h2>
+              <p className="muted" style={{ fontSize: 13 }}>
+                Every version recorded for this business, newest first. Only the one marked current
+                belongs to the sale above; the others are history.
+              </p>
               <ul className="handover-list">
                 {s.intents.map((i) => (
                   <li key={i.id}>
                     <div>
+                      <span className="pill">
+                        {i.id === currentRecord?.id ? "Current sale" : "History"}
+                      </span>{" "}
                       <strong>
                         Deal {i.deal.seq}, version {i.deal.version}
                       </strong>{" "}
