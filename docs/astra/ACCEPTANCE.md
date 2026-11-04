@@ -256,6 +256,14 @@ and source-reviewed flag/refresh handling.001b reorganizes studio/navigation aro
 capabilities.003r1 dedicated browser repeat and full keyboard/Gated browser review remain pending.
 All six milestones remain open.
 
+November4 at5fd563b: independent772 tests/67files/lint/types and web build pass.001b browser:
+customer-access deep link, editor draft and trial text across tasks, brief3 versus unchanged
+release1, failed2/10/not releasable state, mobile Menu focus/Escape pass. Synthetic label visible.
+Retired offer leaves global1active summary until unrelated save; mobile status stack buries
+working area.001b1 required.002d next adds bounded injected customer maintenance supervision;
+no live provider/wallet/NEAR proof or complete milestone. Dedicated003r1/Gated browser review,
+full keyboard/zoom regression still pending. Six milestones open.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.
