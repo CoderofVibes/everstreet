@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Home fix independent review](2026-11-04_HomeFixIndependentReview.md) |1023 tests; actual delayed-response identity and catalog/foundation recovery pass;390 keyboard/fit |001f2 accepted;001g1 next |
+| 2026-11-04 | [Customer composition review](2026-11-04_CustomerCompositionReview.md) | Actual customer review1440/390; compact active step, exact units/recovery/continuity ->001j; broad functional gates preserved | Queued after001i; sole001f2 writer continues |
 | 2026-11-04 | [Canvas independent review](2026-11-04_CanvasIndependentReview.md) |1007 tests; actual desktop edit/focus/undo/save pass; phone editor covered ->001g1 |001g remains review;001f2 priority next |
 | 2026-11-04 | [Acquisition design review](2026-11-04_AcquisitionDesignReview.md) | Actual terms/review baseline; clear authority, evidence, next action and customer continuity ->001i | Queued after001h; current001g writer uninterrupted |
 | 2026-11-04 | [Home read boundary review](2026-11-04_HomeReadBoundaryReview.md) | Actual delayed-response browser: Ava project summary appears under Bea; direct detail correctly denied; Home false-empty/foundation recovery ->001f2 | Current001g writer uninterrupted; correction queued next |
