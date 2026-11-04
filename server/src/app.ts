@@ -297,6 +297,9 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/public/customer-offers/:offer", (c) =>
     c.json(customerUses.publicOffer(c.req.param("offer"))),
   );
+  app.get("/api/customer/requests/by-key/:key", (c) =>
+    c.json(customerUses.byKey(me(c), c.req.param("key"))),
+  );
   app.get("/api/customer/uses", (c) =>
     c.json(customerUses.listUses(me(c), Number(c.req.query("limit") ?? 20))),
   );

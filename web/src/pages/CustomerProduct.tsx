@@ -12,6 +12,16 @@ import { useSession } from "../session.tsx";
 
 const UNIT_WORDS: Record<UseView["units"]["unit"], { label: string; tone: string; text: string }> =
   {
+    not_held: {
+      label: "Nothing held",
+      tone: "",
+      text: "No unit is reserved for this request. Nothing is held until you authorize one use and the contract confirms it.",
+    },
+    reservation_pending: {
+      label: "Reservation pending",
+      tone: "blue",
+      text: "Your authorization was sent. Waiting for the contract to show whether one unit is held.",
+    },
     reserved_awaiting_settlement: {
       label: "One unit reserved",
       tone: "blue",
@@ -273,6 +283,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
     }
     const map: Record<Exclude<Action, "start_another">, () => unknown> = {
       prepare: () => w.prepare(),
+      recover_original: () => w.recoverOriginal(),
       match_document: () => w.matchDocument(),
       authorize: () => w.authorize(),
       check_reservation: () => w.checkReservation(),
@@ -318,8 +329,17 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
 
       <div className="use-grid">
         <section className="card use-compose" aria-labelledby="use-compose-title">
-          <h2 id="use-compose-title">{use ? use.label : "Your document"}</h2>
-          {use && <p className="muted">{use.explanation}</p>}
+          <h2 id="use-compose-title">
+            {use ? use.headline.title : s.unanswered ? "Request not answered" : "Your document"}
+          </h2>
+          {use && <p className="muted">{use.headline.detail}</p>}
+          {!use && s.unanswered && (
+            <p className="notice info" role="note">
+              Your request for a {s.unanswered.chars.toLocaleString()}-character document was sent,
+              but no answer came back. Recover it first: it's the same request, so nothing is made
+              twice. Your typed text below is kept.
+            </p>
+          )}
           {needsDocument && (
             <label className="field">
               <span>{use ? "Paste the same document to check it" : "Document"}</span>
@@ -430,7 +450,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
                     <Link to={`/uses/${r.id}`}>{r.product.name}</Link>
                     <span className="muted">
                       {" "}
-                      · {UNIT_WORDS[r.unit].label.toLowerCase()} ·{" "}
+                      · {r.headline.title.toLowerCase()} ·{" "}
                       {new Date(r.created_at).toLocaleDateString()}
                     </span>
                   </li>

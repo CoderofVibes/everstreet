@@ -38,6 +38,7 @@ function portFor(
     offer: (id) => go(`/api/public/customer-offers/${id}`),
     use: (id) => go(`/api/customer/uses/${id}`),
     uses: () => go("/api/customer/uses?limit=20"),
+    byKey: (key) => go(`/api/customer/requests/by-key/${key}`),
     prepare: (o, b) => go(`/api/customer/offers/${o}/prepare`, "POST", b),
     confirm: (id, b) => go(`/api/customer/uses/${id}/confirm`, "POST", b),
     cancel: (id) => go(`/api/customer/uses/${id}/cancel`, "POST"),
@@ -355,6 +356,197 @@ describe("003q customer workspace controller (real API)", () => {
     expect(resumed.getState()).toMatchObject({
       status: "ready",
       use: { id, offer: { offer_state: "retired" } },
+    });
+  });
+});
+
+// ---------- 003q1: recovering the original request; storage denied; honest statuses ----------
+
+/** A port whose next prepare commits on the server, then loses its answer in the given way. */
+function losingPrepare(w: CustomerWorld, how: "network" | "502" | "malformed") {
+  const base = portFor(w.cara, w);
+  let lose = true;
+  return portFor(w.cara, w, {
+    prepare: async (o, b) => {
+      const r = await base.prepare(o, b);
+      if (!lose) return r;
+      lose = false;
+      if (how === "network") throw new TypeError("network: the answer was lost");
+      if (how === "502") throw new ApiError(502, "Preview: the answer was lost on the way back.");
+      return { use: { id: "garbled" } };
+    },
+  });
+}
+
+class DeniedStorage {
+  getItem(): string | null {
+    throw new Error("SecurityError: storage denied");
+  }
+  setItem() {
+    throw new Error("SecurityError: storage denied");
+  }
+  removeItem() {
+    throw new Error("SecurityError: storage denied");
+  }
+}
+
+const OTHER = "Fictional invoice B from Alder Supply, total 10.00 USD";
+
+describe("003q1 recovering the original request", () => {
+  for (const how of ["network", "502", "malformed"] as const)
+    it(`a lost prepare answer (${how}) is recovered as the original, whatever the draft now says`, async () => {
+      const { w, offer } = await setup();
+      const ws = new CustomerWorkspace(losingPrepare(w, how), {
+        personId: w.cara.id,
+        offerId: offer,
+        authorizer: () => testAuthorizer(),
+        now: () => w.clock.now,
+        makeKey,
+      });
+      await ws.start();
+      ws.setDraft(INVOICE);
+      await ws.prepare();
+      expect(ws.getState().use).toBeNull();
+      expect(ws.getState().unanswered).toEqual({ chars: INVOICE.length });
+      expect(nextStep(ws.getState()).action).toBe("recover_original");
+      // The customer edits ahead (or clears, or overfills) the composer: no new request is made.
+      for (const draft of [OTHER, "", "x".repeat(25_000)]) {
+        ws.setDraft(draft);
+        await ws.prepare();
+        expect(ws.getState().notice?.code).toBe("recover_first");
+      }
+      ws.setDraft(OTHER);
+      await ws.recoverOriginal();
+      expect(ws.getState().use?.state).toBe("prepared");
+      expect(ws.getState().accepted).toBe(INVOICE);
+      expect(ws.getState().draft).toBe(OTHER); // the typed-ahead draft is kept, separately
+      expect(ws.getState().check?.ok).toBe(true);
+      expect(ws.getState().unanswered).toBeNull();
+      expect(w.state.store.db.prepare("SELECT COUNT(*) AS n FROM customer_requests").get()).toEqual(
+        { n: 1 },
+      );
+      expect(ws.getState().recent.map((r) => r.id)).toEqual([ws.getState().use?.id]);
+    });
+
+  it("after a reload the original is found by its exact key; the same document must be pasted", async () => {
+    const { w, offer } = await setup();
+    const storage = new MemoryStorage();
+    const first = new CustomerWorkspace(losingPrepare(w, "network"), {
+      personId: w.cara.id,
+      offerId: offer,
+      authorizer: () => testAuthorizer(),
+      now: () => w.clock.now,
+      storage,
+      makeKey,
+    });
+    await first.start();
+    first.setDraft(INVOICE);
+    await first.prepare();
+    first.retire();
+    const stored = [...storage.m.values()];
+    expect(stored.join(" ")).not.toContain("Stackline"); // only the opaque key
+    const again = new CustomerWorkspace(portFor(w.cara, w), {
+      personId: w.cara.id,
+      offerId: offer,
+      authorizer: () => testAuthorizer(),
+      now: () => w.clock.now,
+      storage,
+      makeKey,
+    });
+    await again.start();
+    expect(again.getState().use?.state).toBe("prepared");
+    expect(nextStep(again.getState()).action).toBe("match_document");
+    // Another person's session can't use that key, even if it were put in their storage.
+    const lena = w.person("Lena Park");
+    const theirs = new MemoryStorage();
+    theirs.setItem(`everstreet.use.${lena.id}.${offer}`, stored[0] as string);
+    const other = new CustomerWorkspace(portFor(lena, w), {
+      personId: lena.id,
+      offerId: offer,
+      authorizer: () => null,
+      storage: theirs,
+      makeKey,
+    });
+    await other.start();
+    expect(other.getState().use).toBeNull();
+  });
+
+  it("an attempt that never reached the server is reported after a reload, not silently replaced", async () => {
+    const { w, offer } = await setup();
+    const storage = new MemoryStorage();
+    const port = portFor(w.cara, w, {
+      prepare: async () => {
+        throw new TypeError("network: never arrived");
+      },
+    });
+    const first = new CustomerWorkspace(port, {
+      personId: w.cara.id,
+      offerId: offer,
+      authorizer: () => null,
+      now: () => w.clock.now,
+      storage,
+      makeKey,
+    });
+    await first.start();
+    first.setDraft(INVOICE);
+    await first.prepare();
+    first.retire();
+    const again = new CustomerWorkspace(portFor(w.cara, w), {
+      personId: w.cara.id,
+      offerId: offer,
+      authorizer: () => null,
+      now: () => w.clock.now,
+      storage,
+      makeKey,
+    });
+    await again.start();
+    expect(again.getState()).toMatchObject({
+      use: null,
+      notice: { code: "earlier_attempt_not_recorded" },
+    });
+  });
+
+  it("storage denied: nothing stays busy, and in-session recovery still works", async () => {
+    const { w, offer } = await setup();
+    const ws = new CustomerWorkspace(losingPrepare(w, "network"), {
+      personId: w.cara.id,
+      offerId: offer,
+      authorizer: () => testAuthorizer(),
+      now: () => w.clock.now,
+      storage: new DeniedStorage(),
+      makeKey,
+    });
+    await ws.start();
+    ws.setDraft(INVOICE);
+    await ws.prepare();
+    expect(ws.getState().busy).toBeNull();
+    await ws.recoverOriginal();
+    expect(ws.getState().use?.state).toBe("prepared");
+    await ws.authorize();
+    expect(ws.getState().use?.state).toBe("reserved");
+  });
+
+  it("statuses agree: prepared holds nothing, charged reads completed (workspace and list)", async () => {
+    const { w, offer } = await setup();
+    const ws = new CustomerWorkspace(portFor(w.cara, w), {
+      personId: w.cara.id,
+      offerId: offer,
+      authorizer: () => testAuthorizer(),
+      now: () => w.clock.now,
+      makeKey,
+    });
+    await ws.start();
+    ws.setDraft(INVOICE);
+    await ws.prepare();
+    expect(ws.getState().use?.units.unit).toBe("not_held");
+    expect(ws.getState().recent[0]?.unit).toBe("not_held");
+    await ws.authorize();
+    await ws.run();
+    for (let i = 0; i < 3 && ws.getState().use?.units.unit !== "charged"; i++) await ws.checkUnit();
+    expect(ws.getState().use?.headline.title).toBe("Completed");
+    expect(ws.getState().recent[0]).toMatchObject({
+      unit: "charged",
+      headline: { title: "Completed" },
     });
   });
 });

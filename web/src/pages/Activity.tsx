@@ -266,6 +266,8 @@ function NeedCard({ n, onChange }: { n: MyNeed; onChange: (needs: MyNeed[]) => v
 }
 
 const UNIT_LABEL: Record<UseSummary["unit"], string> = {
+  not_held: "nothing held",
+  reservation_pending: "reservation pending",
   reserved_awaiting_settlement: "unit reserved",
   charge_pending: "charging one unit",
   release_pending: "returning your unit",
@@ -313,7 +315,7 @@ function MyUses() {
                 <Link to={`/uses/${u.id}`}>{u.product.name}</Link>
                 <span className="muted">
                   {" "}
-                  · {u.label.toLowerCase()} · {UNIT_LABEL[u.unit]} · {ago(u.created_at)}
+                  · {u.headline.title.toLowerCase()} · {UNIT_LABEL[u.unit]} · {ago(u.created_at)}
                 </span>
               </li>
             ))}

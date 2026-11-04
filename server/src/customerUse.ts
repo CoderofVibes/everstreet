@@ -745,6 +745,7 @@ export class CustomerUses {
             ? { state: x.state, result: x.result, fulfilled: x.fulfilled, delivery: x.delivery }
             : null,
           unit: this.unitsView(r).unit,
+          headline: this.headline(r),
           created_at: r.created_at,
           updated_at: r.updated_at,
         };
@@ -752,10 +753,80 @@ export class CustomerUses {
     };
   }
 
+  /**
+   * What the request is now, in one title and sentence (003q1), composed from reservation,
+   * execution and settlement without changing any of them. `state`/`label` stay the protocol's.
+   */
+  private headline(r: RequestRow): { title: string; detail: string } {
+    const units = this.unitsView(r).unit;
+    if (r.state === "prepared")
+      return {
+        title: "Ready to review",
+        detail: "Check the details and authorize it before the time shown. Nothing is held yet.",
+      };
+    if (r.state !== "reserved")
+      return { title: LABELS[r.state].label, detail: LABELS[r.state].explanation };
+    switch (units) {
+      case "charged":
+        return {
+          title: "Completed",
+          detail: "This use ran, and the contract shows exactly one unit charged.",
+        };
+      case "returned":
+        return {
+          title: "Ended, unit returned",
+          detail: "The contract shows your unit back with you; nothing was charged.",
+        };
+      case "charge_pending":
+      case "release_pending":
+        return {
+          title: "Settling your unit",
+          detail: "Waiting for the contract to confirm what happened to your unit.",
+        };
+      case "conflict":
+      case "unknown":
+        return {
+          title: "Needs checking",
+          detail:
+            "The contract's records can't yet show what happened to your unit. Nothing is charged or refunded on a guess.",
+        };
+    }
+    const x = this.executionView(this.execution(r.id));
+    if (!x) return { title: LABELS.reserved.label, detail: LABELS.reserved.explanation };
+    if (x.state === "running")
+      return {
+        title: "Running",
+        detail: "Your document is being processed. It is never run twice.",
+      };
+    if (x.fulfilled)
+      return { title: "Result ready", detail: "Your result is ready; your unit is settled next." };
+    if (x.delivery === "pending")
+      return { title: "Saving your result", detail: "Your result is being saved privately." };
+    return {
+      title: "Ended without a result",
+      detail: "This run didn't produce a result you can use, so it isn't charged.",
+    };
+  }
+
+  /**
+   * The caller's own request made under an exact idempotency key (003q1), so a page that lost the
+   * prepare answer can find it again after a reload. Only the caller's own; anyone else's key
+   * finds nothing, and nothing is guessed from the product or title.
+   */
+  byKey(viewer: Person, key: string) {
+    if (!KEY.test(key)) bad(404, "No such request");
+    const r = this.db
+      .prepare("SELECT id FROM customer_requests WHERE person_id = ? AND idempotency_key = ?")
+      .get(viewer.id, key) as { id: string } | undefined;
+    if (!r) bad(404, "No such request");
+    return this.status(viewer, r.id);
+  }
+
   /** The customer's own view. The salt appears only inside the envelope, only while prepared. */
   private view(r: RequestRow) {
     const l = LABELS[r.state];
     return {
+      headline: this.headline(r),
       id: r.id,
       state: r.state,
       label: l.label,
@@ -1969,8 +2040,20 @@ export class CustomerUses {
    */
   private unitsView(r: RequestRow) {
     const s = this.settlement(r.id);
-    if (!s)
-      return { unit: "reserved_awaiting_settlement", reason: null, source: null, retryable: false };
+    // 003q1: with no settlement record, the request's own state says what is held. A prepared,
+    // cancelled, expired or refused request holds nothing; an authorization not yet confirmed by
+    // the contract is pending; only an exactly matched reservation is "reserved".
+    if (!s) {
+      const held =
+        r.state === "reserved"
+          ? "reserved_awaiting_settlement"
+          : r.state === "reserve_requested" || r.state === "reserve_unknown"
+            ? "reservation_pending"
+            : r.state === "unresolved"
+              ? "unknown"
+              : "not_held";
+      return { unit: held, reason: null, source: null, retryable: false };
+    }
     const unit =
       s.state === "charged"
         ? "charged"

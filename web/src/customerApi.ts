@@ -38,6 +38,10 @@ export type UseState =
   | "expired";
 
 export type UnitState =
+  /** 003q1: nothing held (prepared, cancelled, expired or refused). */
+  | "not_held"
+  /** 003q1: an authorization sent, not yet confirmed by the contract. */
+  | "reservation_pending"
   | "reserved_awaiting_settlement"
   | "charge_pending"
   | "release_pending"
@@ -68,11 +72,18 @@ export interface UnitsView {
   retryable: boolean;
 }
 
+/** What the request is now, composed by the server (003q1); `state`/`label` stay the protocol's. */
+export interface Headline {
+  title: string;
+  detail: string;
+}
+
 export interface UseView {
   id: string;
   state: UseState;
   label: string;
   explanation: string;
+  headline: Headline;
   offer: OfferView;
   reason: string | null;
   evidence_conflict: string | null;
@@ -100,6 +111,7 @@ export interface UseSummary {
   product: { name: string };
   execution: { state: string; result: string; fulfilled: boolean; delivery: string } | null;
   unit: UnitState;
+  headline: Headline;
   created_at: string;
 }
 
@@ -151,6 +163,8 @@ const USE_STATES = [
   "expired",
 ] as const;
 const UNIT_STATES = [
+  "not_held",
+  "reservation_pending",
   "reserved_awaiting_settlement",
   "charge_pending",
   "release_pending",
@@ -159,6 +173,11 @@ const UNIT_STATES = [
   "conflict",
   "unknown",
 ] as const;
+
+function parseHeadline(raw: unknown): Headline {
+  const h = obj(raw, "headline");
+  return { title: str(h.title, "headline.title"), detail: str(h.detail, "headline.detail") };
+}
 
 export function parseOffer(raw: unknown): OfferView {
   const o = obj(raw, "offer");
@@ -278,6 +297,7 @@ export function parseUse(raw: unknown): UseView {
     state: oneOf(w.state, USE_STATES, "use.state"),
     label: str(w.label, "use.label"),
     explanation: str(w.explanation, "use.explanation"),
+    headline: parseHeadline(w.headline),
     offer: parseOffer(w.offer),
     reason: nullable(w.reason, (v) => str(v, "use.reason")),
     evidence_conflict: nullable(w.evidence_conflict, (v) => str(v, "use.conflict")),
@@ -329,6 +349,7 @@ export function parseUses(raw: unknown): UseSummary[] {
       product: { name: str(p.name, "summary.product.name") },
       execution: e,
       unit: oneOf(x.unit, UNIT_STATES, "summary.unit"),
+      headline: parseHeadline(x.headline),
       created_at: str(x.created_at, "summary.created_at"),
     };
   });
@@ -387,6 +408,8 @@ export interface CustomerPort {
   offer(offerId: string): Promise<unknown>;
   use(id: string): Promise<unknown>;
   uses(): Promise<unknown>;
+  /** 003q1: the caller's own request under an exact opaque key (reload recovery). */
+  byKey(key: string): Promise<unknown>;
   prepare(offerId: string, body: { idempotency_key: string; input: string }): Promise<unknown>;
   confirm(
     id: string,
@@ -404,6 +427,7 @@ export const customerHttp: CustomerPort = {
   offer: (id) => call(`/api/public/customer-offers/${encodeURIComponent(id)}`),
   use: (id) => call(`/api/customer/uses/${encodeURIComponent(id)}`),
   uses: () => call("/api/customer/uses?limit=20"),
+  byKey: (key) => call(`/api/customer/requests/by-key/${encodeURIComponent(key)}`),
   prepare: (offerId, body) =>
     call(`/api/customer/offers/${encodeURIComponent(offerId)}/prepare`, "POST", body),
   confirm: (id, body) => call(`/api/customer/uses/${encodeURIComponent(id)}/confirm`, "POST", body),

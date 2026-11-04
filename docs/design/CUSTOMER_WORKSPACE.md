@@ -21,6 +21,7 @@ New API reads, all bounded:
 | `GET /api/public/businesses/:slug/customer-offers` | A published business's active offers, at most 10. An unpublished business is 404. |
 | `GET /api/public/customer-offers/:offer` | An offer, only while it is active on a published business. Guessing an id finds nothing else. |
 | `GET /api/customer/uses?limit=n` | The caller's own requests, at most 50, as a summary. No envelope, salt, signature, input or result. Retired offers still show: it is the customer's history. |
+| `GET /api/customer/requests/by-key/:key` (003q1) | The caller's own request under that idempotency key, as the normal status view; 404 otherwise. |
 
 The customer's own request view now carries its offer's public summary: the product, its fields
 and the exact terms.
@@ -60,8 +61,26 @@ and the exact terms.
 - **Draft versus accepted.** The draft (what is being typed) is separate from the accepted
   document the request was prepared from. After a reload the document isn't in the browser, so
   the customer pastes the same document and it must match the stored digest and length.
-- **Lost answers.** A lost prepare answer is retried with the same opaque key and the same
-  document: one request. Session storage holds only `{key, request id}` per person and offer.
+- **Lost answers (corrected in 003q1).** An unanswered prepare (network failure, 5xx or a
+  malformed answer) keeps its original key and document in memory. The customer then sees
+  **Recover my original request**, which resends exactly that key and document, whatever the
+  draft now says. While an attempt is unanswered, **Review** never creates a second key: a
+  different, empty or oversized draft gets "recover it first" and stays as typed. A definite
+  refusal (4xx) clears the attempt.
+- **After a reload.** Session storage holds only `{key, request id}` per person and offer, and
+  is written before the request is sent. If only the key is known, the page asks
+  `GET /api/customer/requests/by-key/:key`, which finds only the caller's own request (another
+  person's identical key is never matched). A 404 means the server never recorded it, and the
+  page says so. If storage is denied, nothing blocks: recovery still works in memory.
+- **Statuses tell the truth (003q1).** The unit projection is `not_held` for prepared,
+  cancelled, expired and refused requests, and `reservation_pending` while an authorization
+  waits for the contract. Only a confirmed reservation reads as reserved. Every view and list
+  item carries a `headline` that composes request, execution and unit facts. For example, a
+  charged request reads **Completed**, not "Reserved"; the protocol state stays `reserved` as
+  a historical fact. The workspace, Recent uses and Activity all show the same headline.
+- **Public page.** When a published business has released digital offers, the storefront no
+  longer says "No offer published yet" beside them. It says the product is offered above and
+  nothing else is open to book. No readiness is inferred.
 - **Strict answers.** A malformed answer changes nothing. A 404 on one's own request clears the
   request, result and draft.
 - **Accessibility.** Status changes are announced (`role="status"`, `aria-live`). The layout is

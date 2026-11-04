@@ -64,7 +64,8 @@ describe("003q the customer's own list", () => {
       id: p.body.use.id,
       state: "prepared",
       product: { name: "Invoice reader" },
-      unit: "reserved_awaiting_settlement",
+      unit: "not_held", // 003q1: a prepared request holds nothing
+      headline: { title: "Ready to review" },
     });
     const text = JSON.stringify(mine.body);
     for (const secret of [env.commitment.salt_hex, env.envelope_digest, "Stackline"])

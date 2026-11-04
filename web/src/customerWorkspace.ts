@@ -54,9 +54,15 @@ export interface WorkspaceState {
   busy: Action | null;
   notice: Notice | null;
   authorizer: { label: string; synthetic: boolean } | null;
+  /**
+   * 003q1: a prepare whose answer never arrived (its size only; its text stays in memory, never
+   * in state or storage). While set, no other request is made; it can only be recovered.
+   */
+  unanswered: { chars: number } | null;
 }
 
 export type Action =
+  | "recover_original"
   | "prepare"
   | "match_document"
   | "authorize"
@@ -100,6 +106,7 @@ export class CustomerWorkspace {
     busy: null,
     notice: null,
     authorizer: null,
+    unanswered: null,
   };
   private listeners = new Set<() => void>();
   private alive = true;
@@ -145,11 +152,16 @@ export class CustomerWorkspace {
   private storeKey(offerId: string) {
     return `everstreet.use.${this.opts.personId}.${offerId}`;
   }
+  /** Best effort (003q1): denied storage never blocks an action; in-session recovery still works. */
   private remember(offerId: string, v: { key: string; id?: string } | null) {
     const s = this.opts.storage;
     if (!s) return;
-    if (v) s.setItem(this.storeKey(offerId), JSON.stringify(v));
-    else s.removeItem(this.storeKey(offerId));
+    try {
+      if (v) s.setItem(this.storeKey(offerId), JSON.stringify(v));
+      else s.removeItem(this.storeKey(offerId));
+    } catch {
+      // Storage denied: recovery after a reload isn't available, nothing else changes.
+    }
   }
   private recall(offerId: string): { key: string; id?: string } | null {
     try {
@@ -174,6 +186,7 @@ export class CustomerWorkspace {
       draft: "",
       check: null,
       busy: null,
+      unanswered: null,
       notice: { tone: "warn", code: "access_ended", message: ACCESS_ENDED },
     });
   }
@@ -218,9 +231,27 @@ export class CustomerWorkspace {
         const offer = parseOffer(answer?.offer);
         if (gen !== this.generation) return;
         this.set({ offer, status: "ready" });
-        // A request whose prepare answer was lost before a reload: resume it if its id is known.
+        // A request from before a reload: by its id, or (its answer lost) by its exact key.
         const r = this.recall(offer.offer_id);
         if (r?.id) this.applyUse(await this.port.use(r.id), gen);
+        else if (r?.key) {
+          try {
+            this.applyUse(await this.port.byKey(r.key), gen);
+            this.remember(offer.offer_id, { key: r.key, id: this.state.use?.id });
+          } catch (e) {
+            if (!(e instanceof ApiError && e.status === 404)) throw e;
+            // The server never recorded that attempt: say so; a new request is the customer's call.
+            this.remember(offer.offer_id, null);
+            this.set({
+              notice: {
+                tone: "info",
+                code: "earlier_attempt_not_recorded",
+                message:
+                  "An earlier attempt on this page didn't get an answer and isn't recorded, so nothing was prepared or held. You can review a use again.",
+              },
+            });
+          }
+        }
       }
     } catch (e) {
       if (gen !== this.generation) return;
@@ -246,11 +277,28 @@ export class CustomerWorkspace {
     this.set({ draft: text });
   }
 
-  /** Prepares one use from the draft. A lost answer is retried with the same key and document. */
+  /**
+   * Prepares one use from the draft. While an earlier attempt is unanswered (003q1) nothing new is
+   * made, whatever the draft says: that attempt can only be recovered (`recoverOriginal`).
+   */
   prepare() {
     const offer = this.state.offer;
     const text = this.state.draft;
-    if (!offer || !text.trim()) return;
+    if (!offer) return;
+    // The same document again is the same request: recover it.
+    if (this.pending && this.pending.text === text) return this.recoverOriginal();
+    if (this.pending) {
+      this.set({
+        notice: {
+          tone: "warn",
+          code: "recover_first",
+          message:
+            "Your earlier request didn't get an answer yet. Recover it first: it may already be prepared, and a new one can't start while it's open.",
+        },
+      });
+      return;
+    }
+    if (!text.trim()) return;
     if (text.length > offer.product.max_chars) {
       this.set({
         notice: {
@@ -261,21 +309,46 @@ export class CustomerWorkspace {
       });
       return;
     }
-    return this.act("prepare", async (gen) => {
-      const key =
-        this.pending && this.pending.text === text
-          ? this.pending.key
-          : (this.opts.makeKey ?? (() => `use-${crypto.randomUUID()}`))();
-      this.pending = { key, text };
-      this.remember(offer.offer_id, { key });
-      const raw = await this.port.prepare(offer.offer_id, { idempotency_key: key, input: text });
+    const key = (this.opts.makeKey ?? (() => `use-${crypto.randomUUID()}`))();
+    this.pending = { key, text };
+    this.remember(offer.offer_id, { key });
+    return this.act("prepare", (gen) => this.send(offer.offer_id, gen));
+  }
+
+  /** Retries the unanswered attempt exactly: its own key and document, never the draft. */
+  recoverOriginal() {
+    const offer = this.state.offer;
+    if (!offer || !this.pending) return;
+    return this.act("recover_original", (gen) => this.send(offer.offer_id, gen));
+  }
+
+  /** Sends the pending attempt; an unanswered outcome keeps it, a definite one ends it. */
+  private async send(offerId: string, gen: number) {
+    const p = this.pending as { key: string; text: string };
+    try {
+      const raw = await this.port.prepare(offerId, { idempotency_key: p.key, input: p.text });
       if (!this.applyUse(raw, gen)) return;
-      this.pending = null;
-      this.remember(offer.offer_id, { key, id: this.state.use?.id });
-      this.set({ accepted: text, result: null });
-      await this.checkEnvelope();
-      await this.loadRecent();
-    });
+    } catch (e) {
+      // Unanswered: no answer, a gateway failure, or an answer we couldn't read. The server may
+      // have acted, so the attempt stays recoverable. A definite refusal ends it.
+      const unanswered =
+        !(e instanceof ApiError) || e.status >= 500 || e instanceof MalformedAnswer;
+      if (gen === this.generation) {
+        if (unanswered) this.set({ unanswered: { chars: p.text.length } });
+        else {
+          this.pending = null;
+          this.remember(offerId, null);
+          this.set({ unanswered: null });
+        }
+        await this.loadRecent();
+      }
+      throw e;
+    }
+    this.pending = null;
+    this.remember(offerId, { key: p.key, id: this.state.use?.id });
+    this.set({ accepted: p.text, result: null, unanswered: null });
+    await this.checkEnvelope();
+    await this.loadRecent();
   }
 
   /** The browser's own check of what would be authorized (never an opaque server hash). */
@@ -410,9 +483,10 @@ export class CustomerWorkspace {
 
   /** Leaves this request (it stays in My activity) for a new one; the draft is kept. */
   startAnother() {
+    // An unanswered attempt is never dropped here (003q1): it stays recoverable.
+    if (this.pending) return;
     this.generation++;
     if (this.state.offer) this.remember(this.state.offer.offer_id, null);
-    this.pending = null;
     this.set({ use: null, accepted: null, check: null, result: null, busy: null, notice: null });
   }
 }
@@ -426,6 +500,12 @@ export interface Next {
 /** The one primary next step for the current state, in plain words. */
 export function nextStep(s: WorkspaceState): Next {
   const u = s.use;
+  if (!u && s.unanswered)
+    return {
+      action: "recover_original",
+      label: "Recover my original request",
+      why: `Your request for a ${s.unanswered.chars.toLocaleString()}-character document didn't get an answer. Recovering finds it again: it is never made twice. What you're typing now is kept for later.`,
+    };
   if (!u)
     return s.draft.trim()
       ? {

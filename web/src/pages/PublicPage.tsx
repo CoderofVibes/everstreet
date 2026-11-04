@@ -259,10 +259,13 @@ export function StorefrontView({
   page,
   preview,
   onSent,
+  digitalOffers = 0,
 }: {
   page: PublicBusiness;
   preview?: boolean;
   onSent?: () => void;
+  /** Job 003q1: released digital offers shown above, so "no offer" isn't said beside them. */
+  digitalOffers?: number;
 }) {
   const { person, requireSignIn } = useSession();
   const [message, setMessage] = useState("");
@@ -540,6 +543,11 @@ export function StorefrontView({
               }
             />
           </>
+        ) : digitalOffers > 0 ? (
+          <div className="card muted" data-testid="no-service-offer">
+            {digitalOffers === 1 ? "Its digital product is" : "Its digital products are"} offered
+            above. Nothing else is open to book here yet.
+          </div>
         ) : (
           <div className="card muted">No offer published yet.</div>
         )}
@@ -551,7 +559,14 @@ export function StorefrontView({
 export function PublicPage({ slug }: { slug: string }) {
   const [page, setPage] = useState<PublicBusiness | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [offers, setOffers] = useState<OfferView[]>([]);
   const { person } = useSession();
+  useEffect(() => {
+    setOffers([]);
+    businessOffers(slug)
+      .then(setOffers)
+      .catch(() => setOffers([]));
+  }, [slug]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload when the acting person changes (owner banner, following)
   useEffect(() => {
     rememberVia(slug);
@@ -571,8 +586,12 @@ export function PublicPage({ slug }: { slug: string }) {
   if (!page) return <div className="page muted">Loading…</div>;
   return (
     <div className="page">
-      <ProductOffers slug={slug} />
-      <StorefrontView page={page} onSent={() => api.page(slug).then(setPage)} />
+      <ProductOffers offers={offers} />
+      <StorefrontView
+        page={page}
+        digitalOffers={offers.length}
+        onSent={() => api.page(slug).then(setPage)}
+      />
     </div>
   );
 }
@@ -581,13 +600,7 @@ export function PublicPage({ slug }: { slug: string }) {
  * Job 003q: the released digital products this published business offers, with their exact
  * one-use terms. Shown only when there are some; an unpublished business shows nothing.
  */
-function ProductOffers({ slug }: { slug: string }) {
-  const [offers, setOffers] = useState<OfferView[]>([]);
-  useEffect(() => {
-    businessOffers(slug)
-      .then(setOffers)
-      .catch(() => setOffers([]));
-  }, [slug]);
+function ProductOffers({ offers }: { offers: OfferView[] }) {
   if (offers.length === 0) return null;
   return (
     <section className="card use-offers" aria-labelledby="use-offers-title">
