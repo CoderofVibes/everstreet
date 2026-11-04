@@ -66,11 +66,15 @@ console.log("Studio preview: FICTIONAL, SYNTHETIC, in memory. Nothing is real or
 console.log("  As Ava Chen (the acting-context menu, local preview):");
 console.log(`    Released, newer brief:  http://${HOST}:8816/build/${p.projects.released}`);
 console.log(`    Failed release check:   http://${HOST}:8816/build/${p.projects.failed}`);
-console.log(`    Brief only:             http://${HOST}:8816/build/${p.projects.draft}`);
+console.log(`    Empty, brief only:      http://${HOST}:8816/build/${p.projects.draft}`);
 console.log(
   `    Customer access:        http://${HOST}:8816/build/${p.projects.released}?view=service&task=customers`,
 );
 console.log(`    Business desk:          http://${HOST}:8816/desk/${p.businesses.main}`);
 console.log(`  People: Ava ${p.people.ava}, Cara ${p.people.cara}, Noah ${p.people.noah}`);
 console.log(`  Controls: http://${HOST}:8817/  GET state; POST /lose/${LOSE_ROUTES.join("|")},`);
-console.log("            /provider/fail. Try the 390 px Menu and the editor toggle on Service.");
+console.log("            /provider/fail. Try the 390 px Menu and the companion toggle on Service.");
+console.log(
+  "  Canvas studio (001g): Preview or Brief, then Edit; select a part (Enter), change it in",
+);
+console.log("  the tools, Escape returns to it; Undo/Redo; Try it adds sample entries again.");

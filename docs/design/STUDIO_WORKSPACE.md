@@ -3,6 +3,11 @@
 Claude, 2026-11-04. Authority: [001b](../astra/jobs/2026-11-04_001b_studio-workspace-and-navigation.md).
 It reorganizes existing capabilities. No endpoint, authority rule or stored record changed.
 
+**Superseded in part by [CANVAS_STUDIO](CANVAS_STUDIO.md) (job 001g).** The left editor is now
+the conversation companion only. The brief and screen controls are context tools beside a
+Try/Edit stage. Everything below about the query links, the Service tasks, the status records
+and the summary line still holds.
+
 ## Navigation
 
 **Desktop.** The ink rail is unchanged, plus a **Buy and hand over** group with Acquisitions and

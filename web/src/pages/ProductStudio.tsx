@@ -1,6 +1,8 @@
 // The product studio workspace for one project: a compact header with the save state and one
-// next action, a step rail, brief and screen controls on the left, and the working canvas
-// (Preview, Brief, Checks, Versions, Continuity). Saved work lives on the server as immutable
+// next action, the conversation companion at the side, and the working canvas. Job 001g
+// (docs/design/CANVAS_STUDIO.md): Preview and Brief put the product on a stage with context
+// tools for the one element selected in Edit mode; the other views (Proposal, Versions, Checks,
+// Builds, Service, Continuity) are unchanged. Saved work lives on the server as immutable
 // revisions; unsaved edits are also kept in this browser so a refresh or crash never loses
 // them, and a save from an outdated revision is refused rather than overwriting newer work.
 
@@ -13,6 +15,24 @@ import {
   useState,
 } from "react";
 import { ApiError } from "../api.ts";
+import {
+  BRIEF_SECTIONS,
+  type BriefSection,
+  type Content,
+  type EditHistory,
+  elementDomId,
+  emptyHistory,
+  firstForm,
+  type Mode,
+  recordEdit,
+  redoEdit,
+  resolveSelection,
+  type Selection,
+  screenOfSelection,
+  selectionFor,
+  selectionKey,
+  undoEdit,
+} from "../canvasEdit.ts";
 import { FOUNDATION_ICON, Icon } from "../icons.tsx";
 import { offerHttp } from "../offerSetup.ts";
 import type { ProjectSource } from "../opportunitiesApi.ts";
@@ -21,14 +41,13 @@ import {
   type Brief,
   type CheckState,
   type KnownState,
-  PRICE_LABEL,
-  type PriceModel,
   type ProposalDetail,
   type Prototype,
   priceText,
   productsApi,
   type StudioView,
 } from "../productsApi.ts";
+import { nextTab } from "../publication.ts";
 import { historyReducer, initialHistory, shownRevision } from "../revisionHistory.ts";
 import { Link, queryParam, useRouter } from "../router.tsx";
 import { runtimeApi } from "../runtimeApi.ts";
@@ -37,8 +56,15 @@ import { type Records, type RecordsPort, type Source, StudioRecords } from "../s
 import { type Prefill, prefillFor, studioScope } from "../studioScope.ts";
 import { projectStatus, type Target } from "../studioStatus.ts";
 import { BuildsView } from "./Builds.tsx";
+import {
+  BRIEF_FIELD_ID,
+  ContextTools,
+  FIRST_ID,
+  type SaveControls,
+  TOOLS_ID,
+} from "./CanvasTools.tsx";
 import { ConversationPanel } from "./Conversation.tsx";
-import { emptySample, PrototypeEditor, PrototypePreview, type SampleState } from "./Prototype.tsx";
+import { emptySample, type PreviewEdit, PrototypePreview, type SampleState } from "./Prototype.tsx";
 import { SERVICE_TASKS, type ServiceTask, ServiceView } from "./Service.tsx";
 
 type Tab =
@@ -50,7 +76,6 @@ type Tab =
   | "builds"
   | "service"
   | "continuity";
-type Content = { brief: Brief; prototype: Prototype };
 interface LocalDraft extends Content {
   base: number;
   at: string;
@@ -152,208 +177,59 @@ function StateIcon({ state }: { state: CheckState | KnownState }) {
   );
 }
 
-// ---------- left panel: brief controls ----------
-
-function MiniField({
-  id,
-  label,
-  extra,
-  children,
-}: {
-  id: string;
-  label: string;
-  extra?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="mini-field">
-      <label className="mini-label" htmlFor={id}>
-        <span>{label}</span>
-        {extra}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-function MoneyInput({
-  cents,
-  onChange,
-  id,
-}: {
-  cents: number | null;
-  onChange: (c: number | null) => void;
-  id: string;
-}) {
-  const fromCents = cents === null ? "" : String(cents / 100);
-  const [text, setText] = useState(fromCents);
-  useEffect(() => {
-    setText((t) => {
-      const parsed = t.trim() === "" ? null : Math.round(Number(t) * 100);
-      return parsed === cents ? t : fromCents;
-    });
-  }, [cents, fromCents]);
-  return (
-    <input
-      id={id}
-      className="input"
-      inputMode="decimal"
-      value={text}
-      placeholder="0.00"
-      aria-describedby={`${id}-hint`}
-      onChange={(e) => {
-        const v = e.target.value;
-        setText(v);
-        if (v.trim() === "") return onChange(null);
-        const n = Number(v);
-        if (Number.isFinite(n) && n >= 0) onChange(Math.round(n * 100));
-      }}
-    />
-  );
-}
-
-function BriefEditor({
-  brief,
-  starter,
-  onChange,
-}: {
-  brief: Brief;
-  starter: boolean;
-  onChange: (b: Brief) => void;
-}) {
-  const set = (patch: Partial<Brief>) => onChange({ ...brief, ...patch });
-  const needsAmount = brief.price.model !== "free" && brief.price.model !== "undecided";
-  return (
-    <div>
-      <MiniField id="brief-name" label="Product name">
-        <input
-          id="brief-name"
-          className="input"
-          maxLength={80}
-          value={brief.name}
-          onChange={(e) => set({ name: e.target.value })}
-        />
-      </MiniField>
-      <MiniField id="brief-audience" label="Who it's for">
-        <textarea
-          id="brief-audience"
-          className="input"
-          maxLength={600}
-          value={brief.audience}
-          placeholder="The people who would use and pay for it"
-          onChange={(e) => set({ audience: e.target.value })}
-        />
-      </MiniField>
-      <MiniField id="brief-problem" label="Problem">
-        <textarea
-          id="brief-problem"
-          className="input"
-          maxLength={600}
-          value={brief.problem}
-          placeholder="What goes wrong for them today"
-          onChange={(e) => set({ problem: e.target.value })}
-        />
-      </MiniField>
-      <MiniField id="brief-promise" label="Promised result">
-        <textarea
-          id="brief-promise"
-          className="input"
-          maxLength={600}
-          value={brief.promise}
-          placeholder="What a customer can count on getting"
-          onChange={(e) => set({ promise: e.target.value })}
-        />
-      </MiniField>
-      <div className="mini-field">
-        <div className="mini-label">
-          <span>Core features</span>
-          {starter && <span className="starter-tag">Starter suggestions</span>}
-        </div>
-        <div className="list-edit">
-          {brief.features.map((feature, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: features are edited in place; position is their identity
-            <div className="item" key={i}>
-              <input
-                className="input"
-                aria-label={`Feature ${i + 1}`}
-                maxLength={140}
-                value={feature}
-                onChange={(e) =>
-                  set({ features: brief.features.map((x, j) => (j === i ? e.target.value : x)) })
-                }
-              />
-              <button
-                type="button"
-                className="btn btn-danger btn-icon"
-                aria-label={`Remove feature ${i + 1}`}
-                onClick={() => set({ features: brief.features.filter((_, j) => j !== i) })}
-              >
-                <Icon name="x" size="sm" />
-              </button>
-            </div>
-          ))}
-          <button
-            id="brief-feature-add"
-            type="button"
-            className="btn btn-quiet btn-sm"
-            style={{ justifySelf: "start" }}
-            disabled={brief.features.length >= 8}
-            onClick={() => set({ features: [...brief.features, ""] })}
-          >
-            <Icon name="plus" size="sm" /> Add feature
-          </button>
-        </div>
-      </div>
-      <div className="mini-field">
-        <span className="mini-label">Pricing assumption</span>
-        <fieldset className="seg wrap">
-          <legend className="sr-only">Pricing model</legend>
-          {(Object.keys(PRICE_LABEL) as PriceModel[]).map((m, i) => (
-            <button
-              key={m}
-              id={i === 0 ? "brief-price" : undefined}
-              type="button"
-              aria-pressed={brief.price.model === m}
-              onClick={() => set({ price: { ...brief.price, model: m } })}
-            >
-              {PRICE_LABEL[m]}
-            </button>
-          ))}
-        </fieldset>
-        {needsAmount && (
-          <div className="grid-2" style={{ gap: 8, marginTop: 6 }}>
-            <MoneyInput
-              id="brief-amount"
-              cents={brief.price.amount_cents}
-              onChange={(amount_cents) => set({ price: { ...brief.price, amount_cents } })}
-            />
-            <span
-              id="brief-amount-hint"
-              className="muted"
-              style={{ fontSize: 12.5, alignSelf: "center" }}
-            >
-              US dollars{" "}
-              {{ per_use: "per use", monthly: "per month", one_time: "once" }[
-                brief.price.model as "per_use"
-              ] ?? ""}
-            </span>
-          </div>
-        )}
-        <input
-          className="input"
-          aria-label="Pricing note"
-          style={{ marginTop: 6 }}
-          maxLength={600}
-          value={brief.price.note}
-          placeholder="Note, e.g. prepaid packs of 100"
-          onChange={(e) => set({ price: { ...brief.price, note: e.target.value } })}
-        />
-      </div>
-    </div>
-  );
-}
-
 // ---------- canvas views ----------
+
+/**
+ * Job 001g: the brief as Edit mode shows it: each section a selectable button whose context tools
+ * edit that field only. The foundation and where it started are set when the project is made, so
+ * they aren't selectable.
+ */
+function BriefEditDoc({
+  view,
+  brief,
+  edit,
+}: {
+  view: StudioView;
+  brief: Brief;
+  edit: PreviewEdit;
+}) {
+  const none = "Not decided yet";
+  const value: Record<BriefSection, string> = {
+    name: brief.name || "Untitled product",
+    audience: brief.audience || none,
+    problem: brief.problem || none,
+    promise: brief.promise || none,
+    features: brief.features.filter(Boolean).join(" · ") || none,
+    price: [priceText(brief.price) ?? none, brief.price.note].filter(Boolean).join(" · "),
+  };
+  return (
+    <article className="doc doc-edit" aria-label="Product brief, Edit mode">
+      <div className="eyebrow">{view.foundation.label} · product brief</div>
+      {BRIEF_SECTIONS.map((b) => {
+        const sel: Selection = { kind: "brief", section: b.id };
+        const on = edit.selection !== null && selectionKey(edit.selection) === selectionKey(sel);
+        return (
+          <button
+            key={b.id}
+            type="button"
+            id={elementDomId(sel)}
+            className={`pick pick-section${on ? " picked" : ""}${b.id === "name" ? " pick-title" : ""}`}
+            aria-pressed={on}
+            aria-label={`Edit ${b.label.toLowerCase()}`}
+            onClick={() => edit.onSelect(sel)}
+          >
+            <span className="pick-label">{b.label}</span>
+            <span className="pick-value">{value[b.id]}</span>
+          </button>
+        );
+      })}
+      <p className="edit-why">
+        The foundation ({view.foundation.label}) and where it started are set when the project is
+        made, so they aren't edited here.
+      </p>
+    </article>
+  );
+}
 
 function BriefDoc({ view, brief, starter }: { view: StudioView; brief: Brief; starter: boolean }) {
   const none = <em className="unknown">Not decided yet</em>;
@@ -623,7 +499,7 @@ function VersionsView({
                   <span className="muted" style={{ fontSize: 13 }}>
                     {dirty
                       ? "Save or discard your unsaved changes first."
-                      : "Nothing is deleted: the restore becomes a new revision."}
+                      : "Nothing is deleted: the restore becomes a new revision. A released build and its customers don't change until you build and release again."}
                   </span>
                 </div>
               </>
@@ -961,7 +837,6 @@ export function ProductStudio({ id }: { id: string }) {
   const [editorOpen, setEditorOpen] = useState(false);
   /** Job 001b: the records the status is derived from (never a single boolean). */
   const [records, setRecords] = useState<Records | null>(null);
-  const [side, setSide] = useState<"assistant" | "brief" | "screens">("assistant");
   const [proposalId, setProposalId] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<Prefill | null>(null);
   const personId = person?.id ?? "";
@@ -974,12 +849,24 @@ export function ProductStudio({ id }: { id: string }) {
   const [offered, setOffered] = useState<LocalDraft | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [sample, setSample] = useState<SampleState>(emptySample);
+  /** Job 001g: Try it or Edit, and the one selected element; both survive view switches. */
+  const [mode, setMode] = useState<Mode>("try");
+  const [selection, setSelection] = useState<Selection | null>(null);
+  /** Job 001g: undo of unsaved edits only; reset when the draft is replaced from the server. */
+  const [history, setHistory] = useState<EditHistory<Content>>(emptyHistory);
 
   const adopt = useCallback((v: StudioView) => {
     setView(v);
     setDraft({ brief: v.head.brief, prototype: v.head.prototype });
     setBase(v.head.number);
+    setHistory(emptyHistory());
   }, []);
+  /** Every edit from the context tools goes through here, so it can be undone. */
+  const edit = (next: Content) => {
+    if (!draft) return;
+    setHistory((h) => recordEdit(h, draft, next));
+    setDraft(next);
+  };
 
   const load = useCallback(() => {
     setLoadError(null);
@@ -1121,13 +1008,53 @@ export function ProductStudio({ id }: { id: string }) {
     }
   };
 
-  const focusField = (fieldId: string, panel: "brief" | "screens" = "brief") => {
-    setSide(panel);
+  /** Focus an element once the view, mode and selection just set have rendered. */
+  const focusSoon = (elementId: string) =>
     window.setTimeout(() => {
-      const el = document.getElementById(fieldId);
+      const el = document.getElementById(elementId);
       el?.focus();
-      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      el?.scrollIntoView({ block: "nearest" });
     }, 0);
+
+  /**
+   * Job 001g: select an element; its tools appear and focus moves to their first control (on a
+   * narrow screen the tools sit under the stage, so this also brings them into view).
+   */
+  const select = (s: Selection | null) => {
+    setSelection(s);
+    const screen = screenOfSelection(s);
+    if (screen) setSample((x) => (x.screen === screen ? x : { ...x, screen }));
+    if (s) focusSoon(s.kind === "brief" ? BRIEF_FIELD_ID[s.section] : FIRST_ID);
+  };
+
+  /** The header's "Next" brief to-do: open the part that needs it, in Edit mode. */
+  const focusTodo = (todoId: string) => {
+    setMode("edit");
+    if (todoId === "input") {
+      setTab("preview");
+      const form = draft ? firstForm(draft.prototype) : null;
+      select(form ? { kind: "screen", screen: form } : null);
+      if (!form) focusSoon(TOOLS_ID);
+      return;
+    }
+    const section = BRIEF_SECTIONS.find((b) => b.id === todoId)?.id ?? "name";
+    setTab("brief");
+    select({ kind: "brief", section });
+  };
+
+  const undo = () => {
+    if (!draft) return;
+    const r = undoEdit(history, draft);
+    if (!r) return;
+    setDraft(r.value);
+    setHistory(r.history);
+  };
+  const redo = () => {
+    if (!draft) return;
+    const r = redoEdit(history, draft);
+    if (!r) return;
+    setDraft(r.value);
+    setHistory(r.history);
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -1184,15 +1111,6 @@ export function ProductStudio({ id }: { id: string }) {
   const shapeDone = view.checks.deterministic
     .filter((c) => ["name", "audience", "problem", "promise", "features"].includes(c.id))
     .every((c) => c.state === "pass");
-  const todoTarget: Record<string, [string, "brief" | "screens"]> = {
-    name: ["brief-name", "brief"],
-    audience: ["brief-audience", "brief"],
-    problem: ["brief-problem", "brief"],
-    promise: ["brief-promise", "brief"],
-    features: ["brief-feature-add", "brief"],
-    price: ["brief-price", "brief"],
-    input: ["screens-panel", "screens"],
-  };
 
   const status = records
     ? projectStatus({
@@ -1211,14 +1129,33 @@ export function ProductStudio({ id }: { id: string }) {
   };
   const layout = studioLayout(tab, editorOpen);
   const item = (k: string) => status?.items.find((i) => i.key === k);
-  /** Job 001b1: whether the editor is visible now (on narrow screens it is opt-in everywhere). */
+  /** Job 001b1: whether the companion is visible now (on narrow screens it is opt-in everywhere). */
   const editorVisible = layout.operate ? layout.editorShown : editorOpen;
+  /** Job 001g: Preview and Brief are the views with a stage and context tools. */
+  const toolsView = tab === "preview" || tab === "brief" ? tab : null;
+  const shown = toolsView
+    ? selectionFor(toolsView, resolveSelection(selection, draft.prototype))
+    : null;
+  const saveControls: SaveControls = {
+    dirty,
+    busy,
+    note,
+    setNote,
+    save,
+    discard: () => {
+      if (window.confirm("Discard your unsaved changes? Saved revisions stay.")) adopt(view);
+    },
+    canUndo: history.past.length > 0,
+    canRedo: history.future.length > 0,
+    undo,
+    redo,
+  };
 
   const onTabKey = (e: KeyboardEvent, i: number) => {
-    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const n = nextTab(i, e.key, TABS.length);
+    const next = n === null ? undefined : TABS[n];
+    if (!next || e.key === "ArrowUp" || e.key === "ArrowDown") return;
     e.preventDefault();
-    const next = TABS[(i + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
-    if (!next) return;
     setTab(next.id);
     document.getElementById(`tab-${next.id}`)?.focus();
   };
@@ -1255,14 +1192,7 @@ export function ProductStudio({ id }: { id: string }) {
             {busy ? "Saving…" : `Save revision ${view.head.number + 1}`}
           </button>
         ) : todo ? (
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => {
-              const [target, panel] = todoTarget[todo.id] ?? ["brief-name", "brief"];
-              focusField(target, panel);
-            }}
-          >
+          <button type="button" className="btn btn-primary" onClick={() => focusTodo(todo.id)}>
             Next: {todo.detail} <Icon name="arrowRight" size="sm" />
           </button>
         ) : status?.next ? (
@@ -1302,13 +1232,7 @@ export function ProductStudio({ id }: { id: string }) {
                 </li>
               ))}
               <li className={`tone-${shapeDone ? "done" : "now"}`}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTab("brief");
-                    setSide("brief");
-                  }}
-                >
+                <button type="button" onClick={() => setTab("checks")}>
                   <span className="ps-status-label">Brief checks</span>
                   <span className="ps-status-value">
                     {view.checks.passed} of {total} rules met
@@ -1348,6 +1272,7 @@ export function ProductStudio({ id }: { id: string }) {
             onClick={() => {
               setDraft({ brief: offered.brief, prototype: offered.prototype });
               setBase(view.head.number);
+              setHistory(emptyHistory());
               setOffered(null);
             }}
           >
@@ -1396,105 +1321,32 @@ export function ProductStudio({ id }: { id: string }) {
         editorShown={layout.editorShown}
         editorOpen={editorOpen}
         editor={
-          <>
-            <div className="ps-side-scroll">
-              {view.source && <SourcePanel source={view.source} />}
-              <fieldset className="seg">
-                <legend className="sr-only">Work with</legend>
-                <button
-                  type="button"
-                  aria-pressed={side === "assistant"}
-                  onClick={() => setSide("assistant")}
-                >
-                  Assistant
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={side === "brief"}
-                  onClick={() => setSide("brief")}
-                >
-                  Brief
-                </button>
-                <button
-                  id="screens-panel"
-                  type="button"
-                  aria-pressed={side === "screens"}
-                  onClick={() => setSide("screens")}
-                >
-                  Screens · {draft.prototype.screens.length}
-                </button>
-              </fieldset>
-              {/* Kept mounted while hidden, so the unsent thought and an unresolved request
-                survive switching to Brief or Screens. The key starts it clean for another
-                person, project or owner epoch. */}
-              <div hidden={side !== "assistant"}>
-                <ConversationPanel
-                  key={scope}
-                  projectId={view.project.id}
-                  businessId={view.business.id}
-                  idea={view.project.idea}
-                  prefill={prefillFor(prefill, scope)}
-                  onReview={reviewProposal}
-                  onManual={() => setSide("brief")}
-                />
-              </div>
-              {side === "assistant" ? null : side === "brief" ? (
-                <BriefEditor
-                  brief={brief}
-                  starter={starter}
-                  onChange={(b) => setDraft({ ...draft, brief: b })}
-                />
-              ) : (
-                <PrototypeEditor
-                  prototype={draft.prototype}
-                  onChange={(p) => {
-                    setDraft({ ...draft, prototype: p });
-                    setTab("preview");
-                  }}
-                />
-              )}
+          <div className="ps-side-scroll">
+            <div className="companion-head">
+              <span className="ctx-kicker">Companion</span>
+              <span className="muted">
+                Shape the idea in words; proposals open beside your revision.
+              </span>
             </div>
-            <div className="ps-savebar">
-              <input
-                className="input"
-                aria-label="What changed (optional)"
-                placeholder="What changed? (optional)"
-                maxLength={200}
-                value={note}
-                disabled={!dirty}
-                onChange={(e) => setNote(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") save();
-                }}
-              />
-              <div className="row" style={{ gap: 8 }}>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={!dirty || busy}
-                  onClick={save}
-                >
-                  {busy ? "Saving…" : "Save revision"}
-                </button>
-                {dirty && (
-                  <button
-                    type="button"
-                    className="btn btn-quiet btn-sm"
-                    onClick={() => {
-                      if (window.confirm("Discard your unsaved changes? Saved revisions stay."))
-                        adopt(view);
-                    }}
-                  >
-                    Discard changes
-                  </button>
-                )}
-                <span className="spacer" />
-                <span className="muted" style={{ fontSize: 12 }}>
-                  <kbd>Ctrl</kbd> + <kbd>S</kbd>
-                </span>
-              </div>
-            </div>
-          </>
+            {view.source && <SourcePanel source={view.source} />}
+            {/* Job 001g: the conversation is the companion's only content, always mounted, so
+                the unsent thought and an unresolved request survive every view, mode and layout
+                switch. The key starts it clean for another person, project or owner epoch. */}
+            <ConversationPanel
+              key={scope}
+              projectId={view.project.id}
+              businessId={view.business.id}
+              idea={view.project.idea}
+              prefill={prefillFor(prefill, scope)}
+              onReview={reviewProposal}
+              onManual={() => {
+                setTab("brief");
+                setMode("edit");
+                setSelection(null);
+                focusSoon(TOOLS_ID);
+              }}
+            />
+          </div>
         }
         canvas={
           <section className="ps-canvas" aria-label="Canvas">
@@ -1506,7 +1358,7 @@ export function ProductStudio({ id }: { id: string }) {
                     id={`tab-${t.id}`}
                     type="button"
                     role="tab"
-                    className="tab"
+                    className={`tab${t.id === "builds" ? " tab-group-start" : ""}`}
                     aria-selected={tab === t.id}
                     aria-controls="ps-view"
                     tabIndex={tab === t.id ? 0 : -1}
@@ -1523,8 +1375,28 @@ export function ProductStudio({ id }: { id: string }) {
                   </button>
                 ))}
               </div>
-              {/* On wide screens shown for operating views only; on narrow screens the editor is
-                opt-in for every view, so the chosen task comes first. */}
+              {/* Job 001g: Try it or Edit, on the views with a stage. */}
+              {toolsView && (
+                <fieldset className="seg ps-mode">
+                  <legend className="sr-only">Mode</legend>
+                  <button
+                    type="button"
+                    aria-pressed={mode === "try"}
+                    onClick={() => setMode("try")}
+                  >
+                    {toolsView === "preview" ? "Try it" : "Read"}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={mode === "edit"}
+                    onClick={() => setMode("edit")}
+                  >
+                    Edit
+                  </button>
+                </fieldset>
+              )}
+              {/* On wide screens shown for operating views only; on narrow screens the companion
+                is opt-in for every view, so the chosen task comes first. */}
               <button
                 type="button"
                 className={`btn btn-quiet btn-sm ps-editor-toggle${layout.operate ? "" : " shaping"}`}
@@ -1532,29 +1404,54 @@ export function ProductStudio({ id }: { id: string }) {
                 aria-controls="ps-side"
                 onClick={() => setEditorOpen((o) => !o)}
               >
-                {editorVisible
-                  ? "Hide the editor"
-                  : dirty
-                    ? "Show the editor (unsaved)"
-                    : "Show the editor"}
+                {editorVisible ? "Hide the companion" : "Show the companion"}
               </button>
             </div>
             <div className="ps-view" id="ps-view" role="tabpanel" aria-labelledby={`tab-${tab}`}>
-              {tab === "preview" && (
-                <>
-                  {dirty && (
-                    <p className="notice info">
-                      Showing your unsaved changes. Save to keep them as revision{" "}
-                      {view.head.number + 1}.
-                    </p>
-                  )}
-                  <PrototypePreview
-                    name={brief.name || "Untitled product"}
-                    prototype={draft.prototype}
-                    sample={sample}
-                    setSample={setSample}
+              {toolsView && (
+                <div className="ps-work">
+                  <div className="ps-stage-wrap">
+                    {dirty && (
+                      <p className="notice info">
+                        Showing your unsaved changes. Save to keep them as revision{" "}
+                        {view.head.number + 1}.
+                      </p>
+                    )}
+                    {tab === "preview" ? (
+                      <div className={`ps-stage${mode === "edit" ? " editing" : ""}`}>
+                        <PrototypePreview
+                          name={brief.name || "Untitled product"}
+                          prototype={draft.prototype}
+                          sample={sample}
+                          setSample={setSample}
+                          edit={
+                            mode === "edit"
+                              ? { selection: shown, onSelect: (s) => select(s) }
+                              : undefined
+                          }
+                        />
+                      </div>
+                    ) : mode === "edit" ? (
+                      <BriefEditDoc
+                        view={view}
+                        brief={brief}
+                        edit={{ selection: shown, onSelect: (s) => select(s) }}
+                      />
+                    ) : (
+                      <BriefDoc view={view} brief={brief} starter={starter} />
+                    )}
+                  </div>
+                  <ContextTools
+                    view={toolsView}
+                    mode={mode}
+                    selection={shown}
+                    draft={draft}
+                    starter={starter}
+                    onDraft={edit}
+                    onSelect={(s) => select(s)}
+                    save={saveControls}
                   />
-                </>
+                </div>
               )}
               {tab === "proposal" && (
                 <ProposalView
@@ -1567,12 +1464,11 @@ export function ProductStudio({ id }: { id: string }) {
                     setFlash(message);
                   }}
                   onAskAgain={(text) => {
-                    setSide("assistant");
+                    setEditorOpen(true);
                     setPrefill((p) => ({ text, n: (p?.n ?? 0) + 1, scope }));
                   }}
                 />
               )}
-              {tab === "brief" && <BriefDoc view={view} brief={brief} starter={starter} />}
               {tab === "checks" && <ChecksView view={view} dirty={dirty} />}
               {tab === "versions" && (
                 <VersionsView view={view} dirty={dirty} busy={busy} onRestore={restore} />
@@ -1629,12 +1525,7 @@ export function StudioBody({
 }) {
   return (
     <div className={`ps-body${editorShown ? "" : " operate"}${editorOpen ? " editor-open" : ""}`}>
-      <aside
-        className="ps-side"
-        id="ps-side"
-        aria-label="Assistant, brief and screens"
-        hidden={!editorShown}
-      >
+      <aside className="ps-side" id="ps-side" aria-label="Companion" hidden={!editorShown}>
         {editor}
       </aside>
       {canvas}

@@ -73,6 +73,15 @@ describe("001b studio preview: released, failed and draft products, from real re
     expect(d.s.chip.label).toBe("Prototype only");
     expect(items(d.s).build).toMatch(/building isn't connected here/);
     expect(d.s.next).toBeNull();
+    // Job 001g: it is also the empty state the canvas studio starts from: revision 1, untitled,
+    // no audience or promised result yet, so the header's Next opens a brief to-do in Edit mode;
+    // its starter prototype has a form whose parts Edit mode can select.
+    expect(d.v.head.number).toBe(1);
+    expect(d.v.head.brief).toMatchObject({ name: "Untitled product", audience: "", promise: "" });
+    expect(
+      (d.v.checks.deterministic as Json[]).some((c) => c.state === "todo" && c.id === "name"),
+    ).toBe(true);
+    expect((d.v.head.prototype.screens as Json[]).some((s) => s.kind === "form")).toBe(true);
 
     // The buyer-to-be and the customer see none of Ava's projects.
     const noah = await browser(p, p.people.noah);

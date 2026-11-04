@@ -2,10 +2,50 @@
 // forms collect sample entries, lists and boards show and move them, and a model step shows the
 // result shape it would return, saying plainly that no model is connected. Sample entries live
 // in this browser tab only; nothing is sent anywhere.
+//
+// Job 001g: in Edit mode the same preview renders each supported element as a selectable button
+// and nothing submits (no form, no sample input); the context tools edit what is selected. The
+// per-screen and per-field editors below are those tools.
 
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { elementDomId, type Selection, selectionKey } from "../canvasEdit.ts";
 import { Icon, type IconName } from "../icons.tsx";
 import type { FieldType, ProtoField, Prototype, Screen } from "../productsApi.ts";
+
+/** Job 001g: Edit mode's selection, passed to the preview. */
+export interface PreviewEdit {
+  selection: Selection | null;
+  onSelect: (s: Selection) => void;
+}
+
+/** A selectable element in Edit mode: a real button, its role in its name. */
+function Pick({
+  sel,
+  edit,
+  label,
+  className = "",
+  children,
+}: {
+  sel: Selection;
+  edit: PreviewEdit;
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const on = edit.selection !== null && selectionKey(edit.selection) === selectionKey(sel);
+  return (
+    <button
+      type="button"
+      id={elementDomId(sel)}
+      className={`pick${on ? " picked" : ""}${className ? ` ${className}` : ""}`}
+      aria-pressed={on}
+      aria-label={label}
+      onClick={() => edit.onSelect(sel)}
+    >
+      {children}
+    </button>
+  );
+}
 
 // ---------- preview ----------
 
@@ -281,16 +321,110 @@ function ModelScreen({
   );
 }
 
+/** Job 001g: one screen as Edit mode shows it: its parts selectable, nothing that submits. */
+function EditScreen({
+  screen,
+  screens,
+  edit,
+}: {
+  screen: Screen;
+  screens: Screen[];
+  edit: PreviewEdit;
+}) {
+  const sourceTitle = (id: string) => screens.find((s) => s.id === id)?.title ?? "no form";
+  if (screen.kind === "form")
+    return (
+      <div className="edit-screen">
+        {screen.fields.map((f) => (
+          <Pick
+            key={f.key}
+            sel={{ kind: "field", screen: screen.id, key: f.key }}
+            edit={edit}
+            label={`Edit field: ${f.label || "unlabelled"}`}
+            className="pick-field"
+          >
+            <span className="pick-label">{f.label || "Unlabelled field"}</span>
+            <span className="pick-input" aria-hidden="true">
+              {TYPE_LABEL[f.type]}
+              {f.type === "choice" && f.options.length > 0 ? `: ${f.options.join(", ")}` : ""}
+            </span>
+          </Pick>
+        ))}
+        <Pick
+          sel={{ kind: "submit", screen: screen.id }}
+          edit={edit}
+          label={`Edit button: ${screen.submit_label || "unlabelled"}`}
+          className="pick-submit"
+        >
+          {screen.submit_label || "Unlabelled button"}
+        </Pick>
+      </div>
+    );
+  if (screen.kind === "list") {
+    const source = screens.find((s) => s.id === screen.source);
+    const columns =
+      screen.stages.length > 0
+        ? screen.stages
+        : source?.kind === "form"
+          ? source.fields.map((f) => f.label)
+          : [];
+    return (
+      <div className="edit-screen">
+        <Pick
+          sel={{ kind: "stages", screen: screen.id }}
+          edit={edit}
+          label={`Edit ${screen.stages.length ? "stages" : "columns"} of ${screen.title || "this list"}`}
+          className="pick-stages"
+        >
+          <span className="pick-label">
+            {screen.stages.length ? "Board stages" : "Columns"} · reads from{" "}
+            {sourceTitle(screen.source)}
+          </span>
+          <span className="pick-columns" aria-hidden="true">
+            {columns.length ? columns.map((c) => <span key={c}>{c}</span>) : <span>None yet</span>}
+          </span>
+        </Pick>
+        <p className="edit-why">Sample entries aren't part of the design; they appear in Try it.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="edit-screen">
+      <p className="edit-why">
+        <Icon name="plug" size="sm" /> What a model returns comes from a build, not from this
+        prototype, so it can't be edited here. Its result fields can.
+      </p>
+      {screen.outputs.map((o) => (
+        <Pick
+          key={o.key}
+          sel={{ kind: "output", screen: screen.id, key: o.key }}
+          edit={edit}
+          label={`Edit result field: ${o.label || "unlabelled"}`}
+          className="pick-field"
+        >
+          <span className="pick-label">{o.label || "Unlabelled result"}</span>
+          <span className="pick-input" aria-hidden="true">
+            {TYPE_LABEL[o.type]} · not generated
+          </span>
+        </Pick>
+      ))}
+    </div>
+  );
+}
+
 export function PrototypePreview({
   name,
   prototype,
   sample,
   setSample,
+  edit,
 }: {
   name: string;
   prototype: Prototype;
   sample: SampleState;
   setSample: (s: SampleState) => void;
+  /** Job 001g: Edit mode (selectable parts, nothing submits); absent means Try it. */
+  edit?: PreviewEdit;
 }) {
   const screens = prototype.screens;
   const current = screens.find((s) => s.id === sample.screen) ?? screens[0];
@@ -298,15 +432,27 @@ export function PrototypePreview({
   const form = (id: string) =>
     screens.find((s): s is Extract<Screen, { kind: "form" }> => s.kind === "form" && s.id === id);
   const open = (id: string) => setSample({ ...sample, screen: id });
+  const nameSel: Selection = { kind: "brief", section: "name" };
   return (
-    <div className="proto">
+    <div className={`proto${edit ? " editing" : ""}`}>
       <div className="proto-bar">
         <span className="dots" aria-hidden="true">
           <span />
           <span />
           <span />
         </span>
-        <span>{name}</span>
+        {edit ? (
+          <Pick
+            sel={nameSel}
+            edit={edit}
+            label={`Edit product name: ${name}`}
+            className="pick-inline"
+          >
+            {name}
+          </Pick>
+        ) : (
+          <span>{name}</span>
+        )}
         <span className="proto-label">
           <Icon name="flask" size="sm" /> Prototype · not a working product
         </span>
@@ -319,15 +465,38 @@ export function PrototypePreview({
               key={s.id}
               type="button"
               aria-current={s.id === current.id ? "page" : undefined}
-              onClick={() => open(s.id)}
+              onClick={() => {
+                open(s.id);
+                edit?.onSelect({ kind: "screen", screen: s.id });
+              }}
             >
               <Icon name={KIND_ICON[s.kind]} size="sm" /> {s.title}
             </button>
           ))}
         </nav>
         <div className="proto-main">
-          <h2>{current.title}</h2>
-          {current.kind === "form" && (
+          {edit ? (
+            <>
+              <h2>
+                <Pick
+                  sel={{ kind: "screen", screen: current.id }}
+                  edit={edit}
+                  label={`Edit screen: ${current.title || "untitled"}`}
+                  className="pick-inline"
+                >
+                  {current.title || "Untitled screen"}
+                </Pick>
+              </h2>
+              <EditScreen screen={current} screens={screens} edit={edit} />
+              <p className="proto-note">
+                Edit mode: select a part to change it. Nothing here submits; your sample entries
+                come back in Try it.
+              </p>
+            </>
+          ) : (
+            <h2>{current.title}</h2>
+          )}
+          {!edit && current.kind === "form" && (
             <FormScreen
               key={current.id}
               screen={current}
@@ -346,7 +515,7 @@ export function PrototypePreview({
               }}
             />
           )}
-          {current.kind === "list" && (
+          {!edit && current.kind === "list" && (
             <ListScreen
               screen={current}
               source={form(current.source)}
@@ -365,16 +534,18 @@ export function PrototypePreview({
               }
             />
           )}
-          {current.kind === "model" && (
+          {!edit && current.kind === "model" && (
             <ModelScreen
               screen={current}
               source={form(current.source)}
               records={sample.records[current.source] ?? []}
             />
           )}
-          <p className="proto-note">
-            Sample entries stay in this browser tab; they are not saved or sent anywhere.
-          </p>
+          {!edit && (
+            <p className="proto-note">
+              Sample entries stay in this browser tab; they are not saved or sent anywhere.
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -444,6 +615,80 @@ function CommaInput({
   );
 }
 
+/**
+ * One field (or model output): label, type, choice options, remove. The last one can't be removed.
+ * Job 001g: also the context tools for a single selected field.
+ */
+export function FieldRow({
+  noun,
+  index: i,
+  fields,
+  onChange,
+  firstId,
+}: {
+  noun: string;
+  index: number;
+  fields: ProtoField[];
+  onChange: (f: ProtoField[]) => void;
+  /** Job 001g: the id of the first control, so selecting the field can move focus to it. */
+  firstId?: string;
+}) {
+  const f = fields[i];
+  if (!f) return null;
+  const set = (patch: Partial<ProtoField>) =>
+    onChange(fields.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="field-edit">
+      <input
+        id={firstId}
+        className="input"
+        aria-label={`${noun} ${i + 1} label`}
+        value={f.label}
+        maxLength={80}
+        onChange={(e) => set({ label: e.target.value })}
+      />
+      <select
+        className="input"
+        aria-label={`${noun} ${i + 1} type`}
+        value={f.type}
+        onChange={(e) => {
+          const type = e.target.value as FieldType;
+          set({
+            type,
+            options: type === "choice" ? (f.options.length ? f.options : ["Option A"]) : [],
+          });
+        }}
+      >
+        {(Object.keys(TYPE_LABEL) as FieldType[]).map((t) => (
+          <option key={t} value={t}>
+            {TYPE_LABEL[t]}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="btn btn-danger btn-icon"
+        aria-label={`Remove ${f.label || `${noun} ${i + 1}`}`}
+        title={fields.length === 1 ? `The last ${noun.toLowerCase()} can't be removed` : undefined}
+        disabled={fields.length === 1}
+        onClick={() => onChange(fields.filter((_, j) => j !== i))}
+      >
+        <Icon name="x" size="sm" />
+      </button>
+      {f.type === "choice" && (
+        <div className="options">
+          <CommaInput
+            label={`${f.label} options, separated by commas`}
+            value={f.options}
+            placeholder="Options, separated by commas"
+            onChange={(options) => set({ options })}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FieldsEditor({
   fields,
   onChange,
@@ -453,57 +698,10 @@ function FieldsEditor({
   onChange: (f: ProtoField[]) => void;
   noun: string;
 }) {
-  const set = (i: number, patch: Partial<ProtoField>) =>
-    onChange(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   return (
     <>
       {fields.map((f, i) => (
-        <div className="field-edit" key={f.key}>
-          <input
-            className="input"
-            aria-label={`${noun} ${i + 1} label`}
-            value={f.label}
-            maxLength={80}
-            onChange={(e) => set(i, { label: e.target.value })}
-          />
-          <select
-            className="input"
-            aria-label={`${noun} ${i + 1} type`}
-            value={f.type}
-            onChange={(e) => {
-              const type = e.target.value as FieldType;
-              set(i, {
-                type,
-                options: type === "choice" ? (f.options.length ? f.options : ["Option A"]) : [],
-              });
-            }}
-          >
-            {(Object.keys(TYPE_LABEL) as FieldType[]).map((t) => (
-              <option key={t} value={t}>
-                {TYPE_LABEL[t]}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="btn btn-danger btn-icon"
-            aria-label={`Remove ${f.label || `${noun} ${i + 1}`}`}
-            disabled={fields.length === 1}
-            onClick={() => onChange(fields.filter((_, j) => j !== i))}
-          >
-            <Icon name="x" size="sm" />
-          </button>
-          {f.type === "choice" && (
-            <div className="options">
-              <CommaInput
-                label={`${f.label} options, separated by commas`}
-                value={f.options}
-                placeholder="Options, separated by commas"
-                onChange={(options) => set(i, { options })}
-              />
-            </div>
-          )}
-        </div>
+        <FieldRow key={f.key} noun={noun} index={i} fields={fields} onChange={onChange} />
       ))}
       <button
         type="button"
@@ -530,158 +728,234 @@ function FieldsEditor({
   );
 }
 
-export function PrototypeEditor({
+/** Job 001g: a new screen of this kind, appended; the same defaults as before. Null at 6 screens. */
+export function addScreen(
+  prototype: Prototype,
+  kind: Screen["kind"],
+): { prototype: Prototype; id: string } | null {
+  const screens = prototype.screens;
+  const forms = screens.filter((s) => s.kind === "form");
+  if (screens.length >= 6 || (kind !== "form" && forms.length === 0)) return null;
+  const id = freeKey(
+    "screen",
+    screens.map((s) => s.id),
+  );
+  const source = forms[0]?.id ?? "";
+  const next: Screen =
+    kind === "form"
+      ? {
+          id,
+          kind,
+          title: "New form",
+          fields: [{ key: "field_1", label: "New field", type: "text", options: [] }],
+          submit_label: "Submit",
+        }
+      : kind === "list"
+        ? { id, kind, title: "New list", source, stages: [] }
+        : {
+            id,
+            kind,
+            title: "New model step",
+            source,
+            outputs: [{ key: "field_1", label: "Result", type: "text", options: [] }],
+          };
+  return { prototype: { ...prototype, screens: [...screens, next] }, id };
+}
+
+/** Why a screen can't be removed (another screen reads it, or it is the last form), or null. */
+export function removeBlocked(prototype: Prototype, id: string): string | null {
+  const screens = prototype.screens;
+  const s = screens.find((x) => x.id === id);
+  if (!s) return null;
+  if (screens.length === 1) return "The prototype needs a screen";
+  const readBy = screens.filter((o) => o.kind !== "form" && o.source === id);
+  if (readBy.length) return `${readBy.map((r) => r.title).join(", ")} read from this form`;
+  if (s.kind === "form" && screens.filter((x) => x.kind === "form").length === 1)
+    return "The prototype needs a form";
+  return null;
+}
+
+/**
+ * Job 001g: the context tools for one screen. `part` narrows them to what was selected: the whole
+ * screen, its button, or a list's source and stages. Same controls, labels and limits as the
+ * previous all-screens editor.
+ */
+export function ScreenEditor({
   prototype,
+  screenId,
+  onChange,
+  onRemoved,
+  part = "all",
+  firstId,
+}: {
+  prototype: Prototype;
+  screenId: string;
+  onChange: (p: Prototype) => void;
+  onRemoved?: () => void;
+  part?: "all" | "submit" | "stages";
+  firstId?: string;
+}) {
+  const screens = prototype.screens;
+  const i = screens.findIndex((s) => s.id === screenId);
+  const s = screens[i];
+  if (!s) return null;
+  const forms = screens.filter((x) => x.kind === "form");
+  const setScreen = (next: Screen) =>
+    onChange({ ...prototype, screens: screens.map((x, j) => (j === i ? next : x)) });
+  const blocked = removeBlocked(prototype, s.id);
+  const all = part === "all";
+  const buttonText = s.kind === "form" && (all || part === "submit") && (
+    <label className="mini-field" style={{ marginTop: all ? 8 : 0, marginBottom: 0 }}>
+      <span className="mini-label">Button text</span>
+      <input
+        id={all ? undefined : firstId}
+        className="input"
+        value={s.submit_label}
+        maxLength={80}
+        onChange={(e) => setScreen({ ...s, submit_label: e.target.value })}
+      />
+    </label>
+  );
+  const source = s.kind !== "form" && (all || part === "stages") && (
+    <label className="mini-field">
+      <span className="mini-label">Reads entries from</span>
+      <select
+        id={all ? undefined : firstId}
+        className="input"
+        value={s.source}
+        onChange={(e) => setScreen({ ...s, source: e.target.value })}
+      >
+        {forms.map((fm) => (
+          <option key={fm.id} value={fm.id}>
+            {fm.title}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  const stages = s.kind === "list" && (all || part === "stages") && (
+    <div className="mini-field" style={{ marginBottom: 0 }}>
+      <span className="mini-label">Stages (optional; makes it a board)</span>
+      <CommaInput
+        label="Stages, separated by commas"
+        value={s.stages}
+        placeholder="e.g. To do, In progress, Done"
+        onChange={(next) => setScreen({ ...s, stages: next })}
+      />
+    </div>
+  );
+  if (!all)
+    return (
+      <div className="screen-edit">
+        {buttonText}
+        {source}
+        {stages}
+      </div>
+    );
+  return (
+    <section className="screen-edit" aria-label={`${KIND_LABEL[s.kind]}: ${s.title}`}>
+      <div className="se-head">
+        <span className="pill" title={KIND_LABEL[s.kind]}>
+          <Icon name={KIND_ICON[s.kind]} size="sm" /> {KIND_LABEL[s.kind]}
+        </span>
+        <input
+          id={firstId}
+          className="input"
+          aria-label="Screen title"
+          value={s.title}
+          maxLength={80}
+          onChange={(e) => setScreen({ ...s, title: e.target.value })}
+        />
+        <button
+          type="button"
+          className="btn btn-danger btn-icon"
+          aria-label={`Remove screen ${s.title}`}
+          title={blocked ?? "Remove screen"}
+          disabled={blocked !== null}
+          onClick={() => {
+            onChange({ ...prototype, screens: screens.filter((_, j) => j !== i) });
+            onRemoved?.();
+          }}
+        >
+          <Icon name="x" size="sm" />
+        </button>
+      </div>
+      {blocked && <p className="edit-why">Can't remove: {blocked.toLowerCase()}.</p>}
+      {s.kind === "form" && (
+        <FieldsEditor
+          noun="Field"
+          fields={s.fields}
+          onChange={(fields) => setScreen({ ...s, fields })}
+        />
+      )}
+      {buttonText}
+      {source}
+      {stages}
+      {s.kind === "model" && (
+        <>
+          <span className="mini-label" style={{ display: "block", marginBottom: 6 }}>
+            Result fields it should return
+          </span>
+          <FieldsEditor
+            noun="Output"
+            fields={s.outputs}
+            onChange={(outputs) => setScreen({ ...s, outputs })}
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Job 001g: the screens as an outline (each selectable), and adding one. */
+export function ScreenOutline({
+  prototype,
+  onSelect,
   onChange,
 }: {
   prototype: Prototype;
-  onChange: (p: Prototype) => void;
+  onSelect: (screenId: string) => void;
+  onChange: (p: Prototype, added: string) => void;
 }) {
   const screens = prototype.screens;
-  const forms = screens.filter((s) => s.kind === "form");
-  const setScreen = (i: number, next: Screen) =>
-    onChange({ ...prototype, screens: screens.map((s, j) => (j === i ? next : s)) });
-  const ids = screens.map((s) => s.id);
-  const add = (kind: Screen["kind"]) => {
-    const id = freeKey("screen", ids);
-    const source = forms[0]?.id ?? "";
-    const next: Screen =
-      kind === "form"
-        ? {
-            id,
-            kind,
-            title: "New form",
-            fields: [{ key: "field_1", label: "New field", type: "text", options: [] }],
-            submit_label: "Submit",
-          }
-        : kind === "list"
-          ? { id, kind, title: "New list", source, stages: [] }
-          : {
-              id,
-              kind,
-              title: "New model step",
-              source,
-              outputs: [{ key: "field_1", label: "Result", type: "text", options: [] }],
-            };
-    onChange({ ...prototype, screens: [...screens, next] });
-  };
-
   return (
-    <div>
-      {screens.map((s, i) => {
-        const readBy = screens.filter((o) => o.kind !== "form" && o.source === s.id);
-        const lastForm = s.kind === "form" && forms.length === 1;
-        return (
-          <section
-            className="screen-edit"
-            key={s.id}
-            aria-label={`${KIND_LABEL[s.kind]}: ${s.title}`}
-          >
-            <div className="se-head">
-              <span className="pill" title={KIND_LABEL[s.kind]}>
-                <Icon name={KIND_ICON[s.kind]} size="sm" /> {KIND_LABEL[s.kind]}
-              </span>
-              <input
-                className="input"
-                aria-label="Screen title"
-                value={s.title}
-                maxLength={80}
-                onChange={(e) => setScreen(i, { ...s, title: e.target.value })}
-              />
-              <button
-                type="button"
-                className="btn btn-danger btn-icon"
-                aria-label={`Remove screen ${s.title}`}
-                title={
-                  readBy.length
-                    ? `${readBy.map((r) => r.title).join(", ")} read from this form`
-                    : lastForm
-                      ? "The prototype needs a form"
-                      : "Remove screen"
-                }
-                disabled={screens.length === 1 || readBy.length > 0 || lastForm}
-                onClick={() =>
-                  onChange({ ...prototype, screens: screens.filter((_, j) => j !== i) })
-                }
-              >
-                <Icon name="x" size="sm" />
-              </button>
-            </div>
-            {s.kind === "form" && (
-              <>
-                <FieldsEditor
-                  noun="Field"
-                  fields={s.fields}
-                  onChange={(fields) => setScreen(i, { ...s, fields })}
-                />
-                <label className="mini-field" style={{ marginTop: 8, marginBottom: 0 }}>
-                  <span className="mini-label">Button text</span>
-                  <input
-                    className="input"
-                    value={s.submit_label}
-                    maxLength={80}
-                    onChange={(e) => setScreen(i, { ...s, submit_label: e.target.value })}
-                  />
-                </label>
-              </>
-            )}
-            {s.kind !== "form" && (
-              <label className="mini-field">
-                <span className="mini-label">Reads entries from</span>
-                <select
-                  className="input"
-                  value={s.source}
-                  onChange={(e) => setScreen(i, { ...s, source: e.target.value })}
-                >
-                  {forms.map((fm) => (
-                    <option key={fm.id} value={fm.id}>
-                      {fm.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {s.kind === "list" && (
-              <div className="mini-field" style={{ marginBottom: 0 }}>
-                <span className="mini-label">Stages (optional; makes it a board)</span>
-                <CommaInput
-                  label="Stages, separated by commas"
-                  value={s.stages}
-                  placeholder="e.g. To do, In progress, Done"
-                  onChange={(stages) => setScreen(i, { ...s, stages })}
-                />
-              </div>
-            )}
-            {s.kind === "model" && (
-              <>
-                <span className="mini-label" style={{ display: "block", marginBottom: 6 }}>
-                  Result fields it should return
-                </span>
-                <FieldsEditor
-                  noun="Output"
-                  fields={s.outputs}
-                  onChange={(outputs) => setScreen(i, { ...s, outputs })}
-                />
-              </>
-            )}
-          </section>
-        );
-      })}
+    <div className="outline">
+      <ul className="outline-list">
+        {screens.map((s) => (
+          <li key={s.id}>
+            <button type="button" className="outline-item" onClick={() => onSelect(s.id)}>
+              <Icon name={KIND_ICON[s.kind]} size="sm" />
+              <span>{s.title || "Untitled screen"}</span>
+              <span className="muted">{KIND_LABEL[s.kind]}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
       <div className="row" style={{ gap: 6 }}>
         <span className="muted" style={{ fontSize: 13 }}>
           Add:
         </span>
-        {(["form", "list", "model"] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={screens.length >= 6 || (k !== "form" && forms.length === 0)}
-            onClick={() => add(k)}
-          >
-            <Icon name={KIND_ICON[k]} size="sm" /> {KIND_LABEL[k]}
-          </button>
-        ))}
+        {(["form", "list", "model"] as const).map((k) => {
+          const next = addScreen(prototype, k);
+          return (
+            <button
+              key={k}
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={next === null}
+              title={
+                next
+                  ? undefined
+                  : screens.length >= 6
+                    ? "A prototype has at most 6 screens"
+                    : "Add a form first"
+              }
+              onClick={() => next && onChange(next.prototype, next.id)}
+            >
+              <Icon name={KIND_ICON[k]} size="sm" /> {KIND_LABEL[k]}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

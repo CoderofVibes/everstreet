@@ -680,6 +680,72 @@ details.advanced[open] > summary { margin-bottom: 8px; }
   .compare { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* ---------- job 001g: the canvas studio (docs/design/CANVAS_STUDIO.md) ---------- */
+.companion-head { display: grid; gap: 2px; margin: 0 0 12px; font-size: 13px; }
+.ctx-kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cobalt-ink); font-weight: 600; }
+.ps-mode { flex: none; }
+.ps-mode button { min-height: 32px; }
+/* The Run views (Builds, Service, Continuity) are set apart from the Shape views by a rule. */
+.ps-canvas .tab.tab-group-start { margin-left: 10px; position: relative; }
+.ps-canvas .tab.tab-group-start::before { content: ""; position: absolute; left: -6px; top: 25%; bottom: 25%; width: 1px; background: var(--line-strong); }
+.ps-work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: 18px; align-items: start; }
+.ps-stage-wrap { min-width: 0; }
+/* A local dark surface for the product, the one dark area in the studio. */
+.ps-stage { background: var(--ink); border-radius: var(--radius-xl); padding: 28px; box-shadow: inset 0 0 0 1px var(--ink-line); }
+.ps-stage.editing { background-image: radial-gradient(rgba(175, 194, 255, 0.14) 1px, transparent 1px); background-size: 18px 18px; }
+.ctx-tools {
+  position: sticky; top: 12px; display: flex; flex-direction: column; min-width: 0; max-height: calc(100vh - 24px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+}
+.ctx-tools:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ctx-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.ctx-head .ctx-kicker { flex-basis: 100%; }
+.ctx-title { font-size: 16px; margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ctx-body { padding: 14px 16px; overflow-y: auto; flex: 1; min-height: 0; }
+.ctx-body .screen-edit { margin-bottom: 0; }
+.ctx-tools .ps-savebar { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.tools-hint { font-size: 13.5px; color: var(--text-2); margin: 0 0 12px; }
+.edit-why { font-size: 12.5px; color: var(--text-3); margin: 6px 0 0; display: flex; gap: 6px; align-items: flex-start; }
+.outline-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; }
+.outline-item {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; min-height: 40px;
+  font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; padding: 6px 10px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text);
+}
+.outline-item:hover { border-color: var(--cobalt-line); }
+.outline-item .muted { font-size: 12px; }
+/* Selectable parts in Edit mode: real buttons, dashed until chosen. */
+.pick {
+  display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: transparent; border: 1.5px dashed var(--cobalt-line); border-radius: var(--radius-sm); padding: 8px 10px;
+}
+.pick:hover { border-color: var(--cobalt); }
+.pick:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.pick.picked { border-style: solid; border-color: var(--cobalt); background: var(--cobalt-soft); box-shadow: 0 0 0 3px rgba(49, 85, 217, 0.16); }
+.pick-inline { display: inline-block; width: auto; padding: 1px 8px; }
+.proto-bar .pick-inline { color: var(--text-2); }
+.pick-label { display: block; font-weight: 600; font-size: 13.5px; }
+.pick-input { display: block; margin-top: 4px; padding: 6px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; color: var(--text-3); font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.pick-submit { display: inline-block; width: auto; background: var(--ink); color: var(--on-ink); border-style: solid; border-color: var(--ink); font-weight: 600; padding: 8px 16px; }
+.pick-submit.picked { background: var(--ink); color: var(--on-ink); border-color: var(--cobalt); }
+.pick-columns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.pick-columns span { background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; font-size: 12.5px; color: var(--text-2); }
+.edit-screen { display: grid; gap: 8px; }
+.doc-edit { display: grid; gap: 8px; }
+.pick-section .pick-value { display: block; font-size: 14.5px; color: var(--text); margin-top: 2px; overflow-wrap: anywhere; }
+.pick-title .pick-value { font-family: var(--display); font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+@container canvas (max-width: 880px) {
+  .ps-work { grid-template-columns: minmax(0, 1fr); }
+  .ctx-tools { position: static; max-height: none; }
+  .ps-stage { padding: 16px; }
+}
+@container canvas (max-width: 480px) {
+  .ps-stage { padding: 8px; border-radius: var(--radius-lg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pick { transition: none; }
+}
+
 kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--surface); color: var(--text-2); }
 
 /* ---------- the studio canvas reflows by its own width, not the window's ---------- */
@@ -730,8 +796,8 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
   /* Job 001b1: the chosen view comes first; the editor is opt-in on every view (kept mounted). */
   .ps-body:not(.editor-open) > .ps-side { display: none; }
   .ps-editor-toggle.shaping { display: inline-flex; }
-  .ps-tabbar { padding: 0 8px; }
-  .ps-tabbar .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+  .ps-tabbar { padding: 0 8px 6px; flex-wrap: wrap; }
+  .ps-tabbar .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; flex-basis: 100%; }
   .ps-tabbar .tab { flex: none; }
   .ps-view { padding: 16px 12px 32px; }
   .proto-app { grid-template-columns: 1fr; }
