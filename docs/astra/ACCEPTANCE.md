@@ -222,6 +222,13 @@ post-await retention disclosure and raw provider diagnostic persistence.003n1 re
 003o unit settlement/release. Home/Opportunities browser regression inspected; no new frontend.
 No contract changes, no live evidence and no full milestone acceptance.
 
+November3 at3b0e661: independent654 app tests/50files/lint/types, web build and71 v3 contract
+tests pass. Actual100/20/80 contract sale evidence and API-double journey remain separate.
+Independent probes reproduce delayed release affecting a recreated registration's hold and
+release during pending result protection.003o1 requires actual lifecycle proof/guard and delivery
+finalization before003q customer workspace. My activity still lacks digital-use history. No live
+integration, complete customer UI or full milestone acceptance.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.
