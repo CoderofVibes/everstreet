@@ -1,0 +1,16 @@
+#!/bin/sh
+# Job 002e: /opt/everstreet-worker/bin/launch, root-owned 0755, the ONLY command in the sudoers
+# line for everstreet-runner. It passes exactly one fixed verb (and a validated id for cleanup)
+# to the launcher; nothing else from the caller reaches it. The environment is reset.
+set -eu
+case "${1:-}" in
+  preflight|run) VERB="$1"; ARG="" ;;
+  cleanup)
+    case "${2:-}" in
+      es-[0-9a-f]*) VERB=cleanup; ARG="$2" ;;
+      *) echo '{"error":"usage"}'; exit 2 ;;
+    esac ;;
+  *) echo '{"error":"usage"}'; exit 2 ;;
+esac
+exec env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  /opt/everstreet-worker/node/bin/node /opt/everstreet-worker/host-launch.mjs "$VERB" $ARG

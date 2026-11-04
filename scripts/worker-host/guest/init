@@ -1,0 +1,19 @@
+#!/bin/sh
+# Job 002e, guest PID 1 (kernel boot_args: init=/opt/everstreet/init, root read-only).
+# Mounts what the supervisor needs, protects the drives, runs the trusted supervisor as root,
+# then asks Firecracker to end the VM (a guest reboot exits the VMM). No network is configured:
+# the VM has no network device.
+# Fail closed: any failed mount or permission change ends PID 1, the kernel panics (panic=1) and
+# reboots, Firecracker exits, and the host finds no report (invalid_report): never a pass.
+set -eu
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t cgroup2 none /sys/fs/cgroup
+mount -t tmpfs -o size=8M,nr_inodes=512,nosuid,nodev,noexec,mode=0755 tmpfs /work
+mount -t tmpfs -o size=1M,mode=0755 tmpfs /tmp
+# The drives are root's alone: untrusted steps (uid 1000) can't read the job or write a report.
+chown root:root /dev/vdb /dev/vdc
+chmod 0600 /dev/vdb /dev/vdc
+/opt/node/bin/node /opt/everstreet/supervisor.mjs
+sync
+reboot -f

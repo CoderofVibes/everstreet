@@ -18,7 +18,7 @@ const refused = (raw: unknown) => {
 };
 
 describe("002e web_app_bundle/1", () => {
-  it("accepts the fictional quote calculator; the digest doesn't depend on file order", () => {
+  it("accepts the fictional API plan estimator; the digest doesn't depend on file order", () => {
     const a = validateBundle(QUOTE_BUNDLE);
     const b = validateBundle(withFiles([...QUOTE_BUNDLE.files].reverse()));
     expect(a.ok && b.ok).toBe(true);
@@ -27,8 +27,8 @@ describe("002e web_app_bundle/1", () => {
     expect(b.digest).toBe(a.digest);
     expect(a.bundle.files.map((f) => f.path)).toEqual([
       "app.js",
+      "estimate.js",
       "index.html",
-      "quote.js",
       "style.css",
     ]);
     // As a JSON string too (how a provider returns it).
@@ -51,13 +51,42 @@ describe("002e web_app_bundle/1", () => {
     ])
       expect(refused(add(path, "export const x = 1;\n")), path).toMatch(/path/);
     expect(refused(add("app.js", "// again\n"))).toMatch(/share the path "app.js"/);
+    // Astra's BundleInputReview: serialized "__proto__" must not collapse into another digest.
+    const proto = JSON.stringify({
+      ...QUOTE_BUNDLE,
+      checks: [{ ...QUOTE_BUNDLE.checks[0], input: { thousands: 100 } }],
+    }).replace(
+      '"input":{"thousands":100}',
+      '"input":{"__proto__":{"marker":"retained"},"thousands":100}',
+    );
+    expect(proto).toContain("__proto__");
+    expect(refused(proto)).toMatch(/__proto__/);
+    const nested = JSON.stringify(QUOTE_BUNDLE).replace(
+      '"expect":{"thousands":100',
+      '"expect":{"deep":{"__proto__":{}},"thousands":100',
+    );
+    expect(nested).toContain("__proto__");
+    expect(refused(nested)).toMatch(/__proto__/);
+    // Distinct accepted data keeps distinct digests through the canonical round trip.
+    const a = validateBundle(JSON.stringify(QUOTE_BUNDLE));
+    const b = validateBundle(
+      JSON.stringify(QUOTE_BUNDLE).replace('{"thousands":100,', '{"thousands":101,'),
+    );
+    expect(JSON.stringify(QUOTE_BUNDLE)).toContain('{"thousands":100,');
+    expect(a.ok && b.ok && a.digest !== b.digest).toBe(true);
+    if (a.ok) expect(validateBundle(a.canonical)).toMatchObject({ ok: true, digest: a.digest });
+    // The worker's module system is the platform's: a bundle can't bring its own.
+    for (const path of ["package.json", "lib/package.json", "node_modules/x.js"])
+      expect(refused(add(path, "{}")), path).toMatch(/reserved/);
   });
 
   it("refuses ambiguous text: lone surrogates, non-NFC, a BOM, control characters", () => {
-    expect(refused(replace("quote.js", "const a = '\uD800';\n"))).toMatch(/lone surrogate/);
-    expect(refused(replace("quote.js", "const café = 1;\n".normalize("NFD")))).toMatch(/NFC/);
-    expect(refused(replace("quote.js", "\uFEFFexport const a = 1;\n"))).toMatch(/byte-order mark/);
-    expect(refused(replace("quote.js", "const a = 1;\u0007\n"))).toMatch(/control characters/);
+    expect(refused(replace("estimate.js", "const a = '\uD800';\n"))).toMatch(/lone surrogate/);
+    expect(refused(replace("estimate.js", "const café = 1;\n".normalize("NFD")))).toMatch(/NFC/);
+    expect(refused(replace("estimate.js", "\uFEFFexport const a = 1;\n"))).toMatch(
+      /byte-order mark/,
+    );
+    expect(refused(replace("estimate.js", "const a = 1;\u0007\n"))).toMatch(/control characters/);
   });
 
   it("refuses external or out-of-bundle references, inline code and embedding", () => {
@@ -95,7 +124,7 @@ describe("002e web_app_bundle/1", () => {
   });
 
   it("bounds sizes, counts and checks", () => {
-    expect(refused(replace("quote.js", "x".repeat(MAX_FILE_BYTES + 1)))).toMatch(
+    expect(refused(replace("estimate.js", "x".repeat(MAX_FILE_BYTES + 1)))).toMatch(
       /larger than 64 KB/,
     );
     const many = Array.from({ length: 25 }, (_, i) => ({ path: `f${i}.css`, text: "a{}" }));

@@ -135,6 +135,7 @@ describe("002e app builds", () => {
     const pid = await project(ava);
     w.provider.next.push({ kind: "extraction_spec", schema_version: 1 });
     const a = await appBuild(ava, pid, "app-key-0002");
+    await w.drain(); // one job at a time: each takes its own scripted answer
     w.provider.next.push(QUOTE_BUNDLE);
     const b = await ava(`/api/product-projects/${pid}/builds`, "POST", {
       idempotency_key: "build-key-0002",
@@ -211,6 +212,7 @@ describe("002e app builds", () => {
     };
     w.provider.next.push(big);
     const ok = await appBuild(ava, pid, "app-key-0008");
+    await w.drain(); // one job at a time: each takes its own scripted answer
     w.provider.next.push({ kind: "extraction_spec", padding: "x".repeat(70_000) });
     const spec = await ava(`/api/product-projects/${pid}/builds`, "POST", {
       idempotency_key: "build-key-0009",

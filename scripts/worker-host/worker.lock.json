@@ -1,0 +1,50 @@
+{
+  "lock_version": 1,
+  "note": "Job 002e. Pinned identities for the isolated check worker. Read from official sources on 2026-11-04 through a fetch tool; `setup.sh fetch` re-verifies each against its official checksum file or S3 listing and refuses any difference. Empty sha256 values are filled by a reviewer from `fetch` output before `install` will run. Nothing here has been downloaded or installed.",
+  "firecracker": {
+    "version": "v1.17.0",
+    "url": "https://github.com/firecracker-microvm/firecracker/releases/download/v1.17.0/firecracker-v1.17.0-x86_64.tgz",
+    "checksum_url": "https://github.com/firecracker-microvm/firecracker/releases/download/v1.17.0/firecracker-v1.17.0-x86_64.tgz.sha256.txt",
+    "sha256": "06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558",
+    "binaries": {
+      "firecracker": "release-v1.17.0-x86_64/firecracker-v1.17.0-x86_64",
+      "jailer": "release-v1.17.0-x86_64/jailer-v1.17.0-x86_64"
+    },
+    "binaries_note": "Paths inside the archive are expected, not yet observed; `fetch` refuses if either is absent."
+  },
+  "kernel": {
+    "url": "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/20261028-84df49062576-0/x86_64/vmlinux-6.1.188",
+    "size": 45064368,
+    "etag": "a1be6c8d192c2e816fb841e49fcfd70e-6",
+    "sha256": ""
+  },
+  "rootfs": {
+    "url": "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/20261028-84df49062576-0/x86_64/ubuntu-24.04.squashfs",
+    "size": 108503040,
+    "etag": "6e31666e67adbee77a60d49d04d93aea-13",
+    "sha256": ""
+  },
+  "node": {
+    "version": "v24.22.2",
+    "url": "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-x64.tar.xz",
+    "checksum_url": "https://nodejs.org/dist/v24.22.2/SHASUMS256.txt",
+    "sha256": "48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75"
+  },
+  "recipe": "web_app_checks/1",
+  "limits": {
+    "vm": { "vcpus": 1, "mem_mib": 256 },
+    "host_vmm_cgroup": { "memory.max": "402653184", "pids.max": "32", "cpu.max": "100000 100000" },
+    "host_vmm_rlimit": { "fsize": 2097152 },
+    "guest_untrusted_cgroup": {
+      "memory.max": "167772160",
+      "pids.max": "32",
+      "cpu.max": "100000 100000"
+    },
+    "guest_work_tmpfs": "size=8M,nr_inodes=512,nosuid,nodev,noexec",
+    "guest_step_seconds": 5,
+    "vm_wall_seconds": 60,
+    "input_drive_max": 409600,
+    "output_drive_bytes": 1048576,
+    "report_max": 65536
+  }
+}

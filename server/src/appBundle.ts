@@ -102,9 +102,13 @@ function jsonValue(v: unknown, what: string, depth = 0): JsonValue {
   }
   if (Array.isArray(v)) return v.map((x, i) => jsonValue(x, `${what}[${i}]`, depth + 1));
   if (typeof v === "object") {
+    // Astra's BundleInputReview: `__proto__` assigned on a plain object changes its prototype
+    // instead of adding a key, so distinct data would collapse to one digest. Refuse it plainly.
     const out: Record<string, JsonValue> = {};
-    for (const [k, x] of Object.entries(v as Record<string, unknown>))
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (k === "__proto__") fail(`${what} uses the key "__proto__", which isn't supported`);
       out[k] = jsonValue(x, `${what}.${k}`, depth + 1);
+    }
     return out;
   }
   return fail(`${what} must be plain data`);
@@ -198,6 +202,9 @@ function parse(raw: unknown): WebAppBundle {
         `files[${i}].path must be a short lowercase relative path ending .html, .js, .css or .json`,
       );
     const path = f.path as string;
+    // The module system is the platform's (EXECUTABLE_PRODUCTS §5): a bundle can't add its own.
+    if (/(^|\/)package\.json$|(^|\/)node_modules\//.test(path))
+      fail(`files[${i}].path "${path}" is reserved: package.json and node_modules aren't allowed`);
     if (seen.has(path)) fail(`Two files share the path "${path}"`);
     seen.add(path);
     const text = cleanText(f.text, `files[${i}] (${path})`, MAX_FILE_BYTES);
