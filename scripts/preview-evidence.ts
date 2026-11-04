@@ -63,6 +63,11 @@ control.post("/deal/:state", (c) => {
   }
   return c.json({ contract_state: s, note: "Read the contract again in the app to record it." });
 });
+control.post("/legacy-payments/:shape", (c) => {
+  const s = c.req.param("shape") as (typeof p.legacyShapes)[number];
+  if (!p.legacyShapes.includes(s)) return c.json({ error: "unknown shape" }, 400);
+  return c.json(p.legacyPayments(s));
+});
 serve({ fetch: control.fetch, port: 8825, hostname: HOST });
 
 console.log("Evidence preview: FICTIONAL, SYNTHETIC, in memory. Nothing is real or sent.");
@@ -76,3 +81,9 @@ console.log(
 console.log(`  Sale:          http://${HOST}:8824/desk/${p.businessId}/handover   (fixture views)`);
 console.log(`  Controls: http://${HOST}:8825/  GET state; POST /maintenance/pass, /use,`);
 console.log(`            /deal/${DEAL_CONTROLS.join("|")}`);
+console.log(
+  `  Customers summary (003u2): http://${HOST}:8824/acquire/room/${p.requests.marsh}   (act as Cole Marsh (buyer); Ava grants first)`,
+);
+console.log(
+  `            POST /legacy-payments/${p.legacyShapes.join("|")}  (starts as small: 4 orders, 3 delivered, 1 refunded)`,
+);

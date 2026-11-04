@@ -15,6 +15,7 @@ import { firstName } from "./bookings.ts";
 import { BOOKS_BASIS, type Books, financialMonth, revenueOf } from "./books.ts";
 import type { Chain } from "./chain.ts";
 import type { Db } from "./db.ts";
+import { discloseLegacy, LEGACY_LIMITS, LEGACY_NOTE, legacySource } from "./legacyCustomers.ts";
 import { type PerformanceEvidence, performanceEvidence } from "./performanceEvidence.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { type Estimate, estimate, type Overrides, type Valuation, withOverrides } from "./value.ts";
@@ -1540,10 +1541,6 @@ export class Acquisitions {
     return { g, out };
   }
 
-  private suppress(n: number) {
-    return n > 0 && n < 3 ? "Fewer than 3" : String(n);
-  }
-
   async room(viewer: Person, requestId: string, log = true) {
     const { g, out } = await this.withGrant(viewer, requestId, null, async (g) => {
       const f = await this.facts(g.listing.business_id);
@@ -1702,24 +1699,30 @@ export class Acquisitions {
         .get(businessId, now()) as { n: number }
     ).n;
     const count = (s: string) => orders.filter((o) => o.status === s).length;
+    // Job 003u2: decided for the whole summary (legacyCustomers.ts), never cell by cell.
+    const d = discloseLegacy({
+      customers: per.size,
+      orders: orders.length,
+      delivered: count("delivered"),
+      refunded: count("refunded"),
+      repeat: [...per.values()].filter((n) => n >= 2).length,
+      bookings,
+    });
     return {
       rows: [
-        { label: "Paying customers", value: this.suppress(per.size) },
-        { label: "Paid orders", value: this.suppress(orders.length) },
-        { label: "Delivered", value: this.suppress(count("delivered")) },
-        { label: "Refunded", value: this.suppress(count("refunded")) },
-        {
-          label: "Customers with 2 or more orders",
-          value: this.suppress([...per.values()].filter((n) => n >= 2).length),
-        },
-        { label: "Bookings through OpenSeat", value: this.suppress(bookings) },
+        { label: "Paying customers", value: d.customers },
+        { label: "Paid orders", value: d.orders },
+        { label: "Delivered", value: d.delivered },
+        { label: "Refunded", value: d.refunded },
+        { label: "Customers with 2 or more orders", value: d.repeat },
+        { label: "Bookings", value: d.bookings },
+        // Sessions the business offers: its schedule, not a count of customers.
         { label: "Upcoming sessions", value: String(upcoming) },
       ],
-      source:
-        orders.length || bookings
-          ? "Orders: Everstreet's records of NEAR testnet payments. Bookings: OpenSeat (connected service)."
-          : "No customer records through Everstreet yet. Seeded history has revenue totals only.",
-      note: 'Counts of 1 or 2 are shown as "Fewer than 3" so nobody can be singled out.',
+      withheld: d.withheld,
+      source: legacySource(orders.length, bookings),
+      note: LEGACY_NOTE,
+      limits: LEGACY_LIMITS,
     };
   }
 

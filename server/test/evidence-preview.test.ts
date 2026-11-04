@@ -22,6 +22,39 @@ async function browser(p: Awaited<ReturnType<typeof evidencePreview>>, personId:
   };
 }
 
+describe("003u2 evidence preview: the customers summary, whole or withheld", () => {
+  it("Astra's shape is withheld in room and export alike; the large shape is exact; no rows is zeros", async () => {
+    const p = await evidencePreview();
+    const ava = await browser(p, p.people.ava);
+    const cole = await browser(p, p.people.marshBuyer);
+    const room = `/api/acquire/rooms/${p.requests.marsh}`;
+    expect((await cole(room)).status).toBe(403); // pending
+    expect(
+      (await ava(`/api/acquire/requests/${p.requests.marsh}/decide`, "POST", { action: "grant" }))
+        .status,
+    ).toBe(200);
+    const values = (c: Json) =>
+      Object.fromEntries((c.rows as Json[]).map((r) => [r.label, r.value]));
+    const small = (await cole(room)).body.customers as Json;
+    expect(small.withheld).toBe(true);
+    expect(values(small).Refunded).toBe("Withheld");
+    expect((await cole(`${room}/export`)).body.customers).toEqual(small);
+    p.legacyPayments("large");
+    const large = (await cole(room)).body.customers as Json;
+    expect(large.withheld).toBe(false);
+    expect(values(large)).toMatchObject({ "Paid orders": "9", Refunded: "3" });
+    p.legacyPayments("none");
+    expect(values((await cole(room)).body.customers as Json)["Paid orders"]).toBe("0");
+    // The other teams' scopes are unchanged: no customers summary without that category.
+    expect(
+      (await ava(`/api/acquire/requests/${p.requests.ruiz}/decide`, "POST", { action: "grant" }))
+        .status,
+    ).toBe(200);
+    const ruiz = await browser(p, p.people.ruizBuyer);
+    expect("customers" in (await ruiz(`/api/acquire/rooms/${p.requests.ruiz}`)).body).toBe(false);
+  });
+});
+
 describe("003u evidence preview: request, deliberate grant, scoped figures, sale ends access", () => {
   it("only the team that asked and was granted sees digital performance; a sale ends it", async () => {
     const p = await evidencePreview();

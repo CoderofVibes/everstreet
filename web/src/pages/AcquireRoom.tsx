@@ -539,6 +539,14 @@ export function AcquireRoom({ id }: { id: string }) {
       {tab === "customers" && room.customers && (
         <section className="card">
           <h2>Customer activity, in aggregate</h2>
+          {/* Job 003u2: one explanation for the whole summary, not a hint per figure. */}
+          {room.customers.withheld && (
+            <p className="notice" style={{ fontSize: 14 }}>
+              These counts are withheld together: some group they describe is small enough that
+              showing any of them could single someone out. Withheld says nothing about which
+              figure, or how large any of them is.
+            </p>
+          )}
           <div className="stat-row">
             {room.customers.rows.map((x) => (
               <div key={x.label} className="stat">
@@ -552,9 +560,21 @@ export function AcquireRoom({ id }: { id: string }) {
           <p className="muted" style={{ fontSize: 14 }}>
             {room.customers.source}
           </p>
-          <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+          <p className="muted" style={{ fontSize: 13 }}>
             {room.customers.note}
           </p>
+          {(room.customers.limits?.length ?? 0) > 0 && (
+            <details className="advanced" style={{ marginTop: 0 }}>
+              <summary>What this protection doesn't do</summary>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 13 }}>
+                {room.customers.limits?.map((l) => (
+                  <li key={l} className="muted">
+                    {l}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </section>
       )}
 

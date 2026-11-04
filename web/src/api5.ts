@@ -259,7 +259,14 @@ export interface Room {
     label: string;
     lines: { kind: string; label: string; cents: number; source: string }[];
   }[];
-  customers?: { rows: { label: string; value: string }[]; source: string; note: string };
+  /** Job 003u2: counts are all shown or all "Withheld" together (whole-summary rule). */
+  customers?: {
+    rows: { label: string; value: string }[];
+    withheld?: boolean;
+    source: string;
+    note: string;
+    limits?: string[];
+  };
   operations?: {
     founder_hours: { text: string; source: string };
     helpers: { text: string; source: string };
