@@ -153,6 +153,9 @@ trust bound, limited to one unit per request.
 - Retention is configurable per offer (default 30 days for results, in a later job). Prepared and
   terminal request rows are bounded per person (§8.4). Erasure and encryption at rest are seams,
   not claims: neither exists until a protection implementation is configured.
+- **Job 003v:** one real implementation exists, `ProtectedStore` (AES-256-GCM, its own SQLite
+  file, injected keys), with context-bound `load(ref, ctx)` and `delete(ref, ctx)` and an orphan
+  sweep. It is not wired in `main`. See `PROTECTED_STORAGE.md`.
 
 ## 4. Canonical bytes [V for the contract messages, P for the app's]
 
@@ -582,7 +585,9 @@ The rules now:
     neither execute nor `result` loads it (`protection_scheme_changed`).
   - **Orphans.** Protecting a result is followed by a compare-and-swap. A losing result copy is
     deleted, as are duplicate input copies. A crash between `protect` returning and the record
-    leaves an unreferenced copy in the seam's own store; the seam's own expiry must cover that.
+    leaves an unreferenced copy in the seam's own store.
+    - **003v:** the orphan sweep (`sweepProtected`, maintenance phase `orphans`) deletes such a
+      copy only once its publication window is closed (PROTECTED_STORAGE §5), never by age.
 
 ### 13.6 Bounds and limits
 
