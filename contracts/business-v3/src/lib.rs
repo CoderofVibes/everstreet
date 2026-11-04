@@ -1590,6 +1590,16 @@ impl Business {
         emit("hold_released", serde_json::json!({ "customer": customer, "plan_id": plan_id, "hold_seq": hold_seq }));
     }
 
+    /// Closes an active hold only if it belongs to registration `reg_id` (job 003o1). A release
+    /// prepared for one registration can never close a later registration's hold with the same
+    /// number (unit test c05). Otherwise exactly `release_hold`: the operator any time, anyone
+    /// once the settle deadline has passed. Checked and applied in one call.
+    pub fn release_hold_for(&mut self, customer: AccountId, plan_id: u32, reg_id: U64, hold_seq: u32) {
+        let e = self.entitlement(&(customer.clone(), plan_id));
+        require!(e.reg_id == reg_id.0, "E_REGISTRATION: that hold belongs to another registration");
+        self.release_hold(customer, plan_id, hold_seq);
+    }
+
     // ---------- money out ----------
 
     /// Refunds unused units at the plan's fixed price.

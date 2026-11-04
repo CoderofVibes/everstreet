@@ -155,6 +155,35 @@ describe("003o settlement decisions over contract-produced views", () => {
       kind: "conflict",
       reason: "views_disagree",
     });
+    // 003o1, synthetic (labelled): the right status and root, but check_use's slot bit contradicts
+    // the bitmap. Contradictory same-block views never manufacture charged or returned.
+    const closed = v("charge.closed.check_use");
+    expect(
+      decideSettlement(
+        exp(1),
+        ent("charge.closed.entitlement"),
+        decodeUseCheck({ ...closed, slot_used: false }),
+        T0,
+      ),
+    ).toEqual({ kind: "conflict", reason: "views_disagree" });
+    const released = v("released_unused.check_use");
+    expect(
+      decideSettlement(
+        exp(3),
+        ent("released_unused.entitlement"),
+        decodeUseCheck({ ...released, slot_used: true }),
+        T0,
+      ),
+    ).toEqual({ kind: "conflict", reason: "views_disagree" });
+    const open = v("charge.open.check_use");
+    expect(
+      decideSettlement(
+        exp(1),
+        ent("charge.open.entitlement"),
+        decodeUseCheck({ ...open, slot_used: true }),
+        T0,
+      ),
+    ).toEqual({ kind: "conflict", reason: "views_disagree" });
     expect(
       decideSettlement(
         { ...exp(1), units: 2 },

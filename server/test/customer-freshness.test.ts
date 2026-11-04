@@ -265,7 +265,9 @@ describe("003n1 delivery is separate from validation", () => {
         validated: true,
         delivered: false,
         settlement_eligible: false,
-        result: "unavailable",
+        // 003o1: still undecided until the delivery timeout; never delivered, never eligible.
+        result: "pending",
+        delivery: "pending",
       });
       const calls = w.provider.calls.length;
       await w.cara(`/api/customer/uses/${id}/execute`, "POST", {});

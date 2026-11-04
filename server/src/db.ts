@@ -570,7 +570,8 @@ CREATE TABLE IF NOT EXISTS customer_executions (
   input_source TEXT NOT NULL CHECK (input_source IN ('protected','resubmitted')),
   result_state TEXT NOT NULL CHECK (result_state IN ('pending','stored','none','unavailable','deleted')),
   result_ref TEXT, result_scheme TEXT, result_outcome TEXT, retention_until_ms INTEGER,
-  delivered_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  delivered_at TEXT, delivery TEXT CHECK (delivery IN ('protecting','delivered','not_delivered')),
+  delivery_started_ms INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS customer_executions_retention ON customer_executions(result_state, retention_until_ms);
 -- Job 003o: one unit outcome per reserved request: charge the delivered use, or release the
@@ -657,6 +658,13 @@ export function openDb(path: string) {
     db.exec("ALTER TABLE customer_requests ADD COLUMN input_deleted_at TEXT");
   if (!columns("customer_executions").has("delivered_at"))
     db.exec("ALTER TABLE customer_executions ADD COLUMN delivered_at TEXT");
+  // Job 003o1: the durable delivery decision (null: undecided) and when protection started.
+  if (!columns("customer_executions").has("delivery"))
+    db.exec(
+      "ALTER TABLE customer_executions ADD COLUMN delivery TEXT CHECK (delivery IN ('protecting','delivered','not_delivered'))",
+    );
+  if (!columns("customer_executions").has("delivery_started_ms"))
+    db.exec("ALTER TABLE customer_executions ADD COLUMN delivery_started_ms INTEGER");
   // Job 003b: one ownership entry per closed deal, as a backstop to the reconciler. Installed
   // only when existing data allows it; earlier duplicates are reported, never deleted.
   if (ownershipConflicts(db).length === 0)

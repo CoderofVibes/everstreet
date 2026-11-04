@@ -684,3 +684,47 @@ invocation, whose provider cost is already exact and is never counted again here
   which models `settle_hold`, `release_hold` and `check_use` from `lib.rs`. It does not execute
   the contract. Its 20-use trace and the reconciled sale are evidence about the app, not about the
   contract VM.
+
+### 14.5 Registration-bound release and the delivery decision (job 003o1)
+
+**The registration ABA [V].** `release_hold(customer, plan_id, hold_seq)` names no registration.
+Unit test `c05` shows the problem using only the actual lifecycle:
+1. registration 1's hold 1 closes;
+2. the customer refunds all 10 units, the payout callback succeeds, and the customer
+   unregisters;
+3. the customer registers again (registration 2), buys with a key, and opens hold 1.
+
+A release meant for registration 1's hold 1 then **closes registration 2's hold 1**. No read
+before the transaction can prevent this.
+
+**The correction.** This is an additive contract method, undeployed:
+`release_hold_for(customer, plan_id, reg_id, hold_seq)`. It refuses another registration
+(`E_REGISTRATION`) in the same call, changing nothing, then behaves exactly as `release_hold`: the
+operator any time, anyone after `settle_until` (`c06`). `release_hold` itself is unchanged, for
+compatibility.
+- **The worker.** The injected writer has only `releaseHoldFor`, and the request's stored
+  `reg_id` is in its payload. A writer without it can't release (`writer_unavailable`); there is no
+  unguarded fallback.
+- **Deployment.** Live use needs a new business-v3 deployment that includes this method (a new
+  account, per the born-locked rule). Nothing was deployed.
+
+**The delivery decision.** It is durable, and a release can't overtake it.
+- **The states.** `customer_executions.delivery` is:
+  - undecided (`null`);
+  - `protecting`, set by CAS before the protection await, with its start time;
+  - `delivered`, by CAS only from `protecting`;
+  - `not_delivered`: the protection failed, the run didn't complete, or recovery after
+    `deliveryTimeoutMs` (default 5 min) since the protection started or the run finished.
+- **No intent while undecided.** Neither the worker, the customer's reconcile nor the customer's
+  release (`delivery_pending`) records a unit intent while the decision is pending. Recovery
+  persists `not_delivered` in the intent's own transaction, so the frozen intent and the delivery
+  decision always agree.
+- **Late completion.** A protection that completes after the decision became final is discarded:
+  its copy is deleted through the seam (`late_result_discarded`). It never turns a release
+  decision into a delivered or chargeable result. The provider cost stands; nothing is re-run.
+
+**Fenced unit steps.** Every write in a unit step, its error and conflict paths included, happens
+only under the step's lease. A stale worker whose read is overtaken records nothing, not even a
+sticky conflict (reproduced as reachable by a mutant). `check_use`'s slot bit must agree with the
+entitlement's bitmap, and a closed hold's charged count with its bitmap. Contradictory views at
+one block never manufacture charged or returned.

@@ -3631,3 +3631,69 @@ fn customer_settlement_matches_server_fixture() {
     let actual = serde_json::to_string_pretty(&serde_json::Value::Object(out)).unwrap() + "\n";
     fixture("customer-settlement", include_str!("../../../server/test/fixtures/v3/customer-settlement.json"), actual);
 }
+
+// =====================================================================================
+// 003o1: the registration ABA, through the actual lifecycle methods only (no state edits):
+// close the hold, refund every unit, settle the payout callback, unregister, register again,
+// buy with a key, open the new registration's hold 1. A release meant for the old
+// registration's hold 1 then arrives.
+// =====================================================================================
+
+/// Registration 1 with hold 1 closed and the entitlement gone; registration 2 funded with
+/// hold 1 open. Returns the world and registration 2's id.
+fn reregistered_with_hold_one() -> (W, SigningKey, u64) {
+    let k = key(1);
+    let mut w = W::new();
+    assert_eq!(w.shell(CARA, CARA), 1);
+    assert_eq!(w.buy(CARA, 10, 1, Some((0, &k))), 0);
+    assert_eq!(w.open(CARA, &k, 1, 1), "opened");
+    w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 1));
+    let (slot, payout) = w.refund(CARA, 10);
+    assert!(w.callback(slot, payout, true));
+    w.call(CARA, 1, |b| b.unregister(id(CARA), 1));
+    assert!(w.b.get_entitlement(id(CARA), 1).is_none());
+    let reg2 = w.shell(CARA, CARA);
+    assert_eq!(reg2, 2);
+    assert_eq!(w.buy(CARA, 10, 1, Some((0, &k))), 0);
+    assert_eq!(w.open(CARA, &k, 1, 1), "opened");
+    let e = w.ent(CARA);
+    assert_eq!((e.reg_id.0, e.hold_seq, e.hold_active, e.free.0), (2, 1, true, 9));
+    (w, k, reg2)
+}
+
+#[test]
+fn c05_an_old_registrations_release_closes_the_new_registrations_hold_one() {
+    // Reproduced: release_hold names only (customer, plan, hold_seq), so the old release
+    // closes registration 2's hold 1.
+    let (mut w, _, _) = reregistered_with_hold_one();
+    w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 1));
+    let e = w.ent(CARA);
+    assert_eq!((e.reg_id.0, e.hold_active, e.last_hold_seq, e.free.0), (2, false, 1, 10));
+}
+
+#[test]
+fn c06_the_guarded_release_names_its_registration() {
+    let (mut w, k, reg2) = reregistered_with_hold_one();
+    // The old registration's release is refused, changing nothing (refuse checks the snapshot).
+    w.refuse(METER, 0, "E_REGISTRATION", |b| b.release_hold_for(id(CARA), 1, U64(1), 1));
+    assert!(w.ent(CARA).hold_active);
+    // A missing entitlement is refused too.
+    w.refuse(METER, 0, "E_ARGS", |b| b.release_hold_for(id(STRANGER), 1, U64(1), 1));
+    // The caller and deadline rules are release_hold's: a stranger before settle_until is
+    // refused; the operator closes it now; the same release again is a closed hold.
+    w.refuse(STRANGER, 0, "E_NOT_OPERATOR", |b| b.release_hold_for(id(CARA), 1, U64(reg2), 1));
+    w.call(METER, 0, |b| b.release_hold_for(id(CARA), 1, U64(reg2), 1));
+    let e = w.ent(CARA);
+    assert_eq!((e.hold_active, e.last_hold_seq, e.free.0, e.consumed.0), (false, 1, 10, 0));
+    w.refuse(METER, 0, "E_HOLD_CLOSED", |b| b.release_hold_for(id(CARA), 1, U64(reg2), 1));
+    // After the settle deadline anyone may release, still only for the named registration.
+    assert_eq!(w.open(CARA, &k, 2, 1), "opened");
+    w.now = w.ent(CARA).settle_until_ms.0 + 1;
+    w.refuse(STRANGER, 0, "E_REGISTRATION", |b| b.release_hold_for(id(CARA), 1, U64(1), 2));
+    w.call(STRANGER, 0, |b| b.release_hold_for(id(CARA), 1, U64(reg2), 2));
+    assert_eq!((w.ent(CARA).hold_active, w.ent(CARA).free.0), (false, 10));
+    // release_hold itself is unchanged (compatibility): it still closes by number alone.
+    assert_eq!(w.open(CARA, &k, 3, 1), "opened");
+    w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 3));
+    assert!(!w.ent(CARA).hold_active);
+}

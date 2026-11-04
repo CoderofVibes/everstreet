@@ -83,12 +83,18 @@ export interface CustomerChainWriter {
     close: boolean;
     signal: AbortSignal;
   }): Promise<WriterAnswer>;
-  /** Job 003o: `release_hold` for this exact hold. Only readback proves the unit returned. */
-  releaseHold?(input: {
+  /**
+   * Job 003o1: `release_hold_for` for this exact registration and hold. The contract checks
+   * `reg_id` in the same call, so a delayed release can never close a later registration's hold
+   * with the same number (unit test c05/c06). The worker has no unguarded release: a writer
+   * without this method can't release at all. Only readback proves the unit returned.
+   */
+  releaseHoldFor?(input: {
     network: string;
     account: string;
     customer: string;
     plan_id: number;
+    reg_id: string;
     hold_seq: number;
     signal: AbortSignal;
   }): Promise<WriterAnswer>;
@@ -133,6 +139,11 @@ export interface CustomerUseOptions {
    */
   maxBlockAgeMs?: number;
   maxFutureSkewMs?: number;
+  /**
+   * Job 003o1: how long a completed execution's result may stay undecided (not yet protected)
+   * before recovery finalizes it as not delivered. A later protection is then discarded.
+   */
+  deliveryTimeoutMs?: number;
   now?: () => number;
 }
 
@@ -308,6 +319,7 @@ export class CustomerUses {
   private readonly executionMarginMs: number;
   private readonly maxBlockAgeMs: number;
   private readonly maxFutureSkewMs: number;
+  private readonly deliveryTimeoutMs: number;
 
   /**
    * Admission freshness (003n1): a block read now is fresh only if its own timestamp is close
@@ -344,6 +356,7 @@ export class CustomerUses {
     this.executionMarginMs = positive(opts.executionMarginMs, 60_000, "executionMarginMs");
     this.maxBlockAgeMs = positive(opts.maxBlockAgeMs, 120_000, "maxBlockAgeMs");
     this.maxFutureSkewMs = positive(opts.maxFutureSkewMs, 30_000, "maxFutureSkewMs");
+    this.deliveryTimeoutMs = positive(opts.deliveryTimeoutMs, 300_000, "deliveryTimeoutMs");
     this.reader = opts.reader;
     this.writer = opts.writer;
     this.operator = opts.operatorAccount;
@@ -1351,6 +1364,7 @@ export class CustomerUses {
    */
   private eligible(x: ExecutionRow, inv: InvocationRow | undefined) {
     return (
+      x.delivery === "delivered" &&
       x.delivered_at !== null &&
       x.result_outcome === "extracted" &&
       inv?.state === "completed" &&
@@ -1358,11 +1372,45 @@ export class CustomerUses {
     );
   }
 
+  /**
+   * The delivery decision (003o1): `pending` while the run or the result's protection may still
+   * finish; otherwise final. A completed run whose result stays undecided past the delivery
+   * timeout counts as not delivered: recovery persists that (`finalizeDelivery`), and a later
+   * protection is then discarded, never turned into a delivery.
+   */
+  private deliveryDecision(
+    x: ExecutionRow,
+    inv: InvocationRow | undefined,
+  ): "pending" | "delivered" | "not_delivered" {
+    if (x.delivery === "delivered" || x.delivery === "not_delivered") return x.delivery;
+    if (!inv || inv.state === "running") return "pending";
+    // Only a completed run's result is ever protected (invocations.ts run/sink).
+    if (inv.state !== "completed") return "not_delivered";
+    const since =
+      x.delivery_started_ms ?? (inv.finished_at ? Date.parse(inv.finished_at) : this.now());
+    return this.now() - since >= this.deliveryTimeoutMs ? "not_delivered" : "pending";
+  }
+
+  /** Persists a final not-delivered decision, by CAS, in the caller's transaction. */
+  private finalizeDelivery(x: ExecutionRow, inv: InvocationRow | undefined) {
+    const d = this.deliveryDecision(x, inv);
+    if (d === "not_delivered" && x.delivery !== "not_delivered") {
+      const c = this.db
+        .prepare(
+          "UPDATE customer_executions SET delivery = 'not_delivered', result_state = CASE WHEN result_state = 'pending' THEN 'unavailable' ELSE result_state END, updated_at = ? WHERE request_id = ? AND (delivery IS NULL OR delivery = 'protecting')",
+        )
+        .run(iso(), x.request_id);
+      if (c.changes) this.event(x.request_id, "delivery_finalized_not_delivered", {});
+    }
+    return d;
+  }
+
   /** The customer's view of an execution: outcome and result availability, never cost or text. */
   private executionView(x: ExecutionRow | undefined) {
     if (!x) return null;
     const inv = this.runtime?.row(x.invocation_id);
     const state = inv?.state ?? "unknown";
+    const decision = this.deliveryDecision(x, inv);
     // Available strictly before the deadline; at the deadline it is expired (003n1).
     const expired = x.retention_until_ms !== null && this.now() >= x.retention_until_ms;
     const result =
@@ -1376,11 +1424,14 @@ export class CustomerUses {
             ? "expired"
             : x.result_state === "pending"
               ? state === "completed"
-                ? "unavailable"
+                ? decision === "pending"
+                  ? "pending"
+                  : "unavailable"
                 : "none"
               : x.result_state;
     return {
       state,
+      delivery: decision,
       outcome: inv?.outcome ?? null,
       // 003n1: three separate facts. Validated: the model's answer passed the validator as a
       // complete extraction (not a judgement of its quality). Delivered: that result was durably
@@ -1606,40 +1657,56 @@ export class CustomerUses {
     result: Extraction,
   ) {
     const p = this.protection as InputProtection;
+    // 003o1: the decision is "protecting" before the await; only that same decision may become
+    // "delivered" afterwards. If recovery finalized it as not delivered meanwhile, the late copy
+    // is deleted and nothing is delivered or made chargeable.
+    const started = this.tx(
+      () =>
+        this.db
+          .prepare(
+            "UPDATE customer_executions SET delivery = 'protecting', delivery_started_ms = ?, updated_at = ? WHERE request_id = ? AND delivery IS NULL AND result_state = 'pending'",
+          )
+          .run(this.now(), iso(), id).changes === 1,
+    );
+    if (!started) return;
+    let ref: string;
     try {
-      const ref = await p.protect({
+      ref = await p.protect({
         person_id: personId,
         request_id: id,
         kind: "result",
         bytes: Buffer.from(JSON.stringify(result), "utf8"),
       });
-      const kept = this.tx(
-        () =>
-          this.db
-            .prepare(
-              "UPDATE customer_executions SET result_state = 'stored', result_ref = ?, result_scheme = ?, result_outcome = ?, retention_until_ms = ?, delivered_at = ?, updated_at = ? WHERE request_id = ? AND result_state = 'pending'",
-            )
-            .run(
-              ref,
-              p.scheme,
-              result.outcome,
-              this.now() + retentionDays * 86_400_000,
-              iso(),
-              iso(),
-              id,
-            ).changes === 1,
-      );
-      if (!kept) await p.delete?.(ref).catch(() => {});
     } catch {
       this.tx(() => {
-        this.db
+        const c = this.db
           .prepare(
-            "UPDATE customer_executions SET result_state = 'unavailable', updated_at = ? WHERE request_id = ? AND result_state = 'pending'",
+            "UPDATE customer_executions SET delivery = 'not_delivered', result_state = 'unavailable', updated_at = ? WHERE request_id = ? AND delivery = 'protecting'",
           )
           .run(iso(), id);
-        this.event(id, "result_protect_failed", {});
+        if (c.changes) this.event(id, "result_protect_failed", {});
       });
+      return;
     }
+    const kept = this.tx(() => {
+      const c = this.db
+        .prepare(
+          "UPDATE customer_executions SET result_state = 'stored', result_ref = ?, result_scheme = ?, result_outcome = ?, retention_until_ms = ?, delivered_at = ?, delivery = 'delivered', updated_at = ? WHERE request_id = ? AND delivery = 'protecting' AND result_state = 'pending'",
+        )
+        .run(
+          ref,
+          p.scheme,
+          result.outcome,
+          this.now() + retentionDays * 86_400_000,
+          iso(),
+          iso(),
+          id,
+        );
+      if (!c.changes) this.event(id, "late_result_discarded", {});
+      return c.changes === 1;
+    });
+    // A late copy is never kept: deleted through the seam (its own expiry covers a failure).
+    if (!kept) await p.delete?.(ref).catch(() => {});
   }
 
   /** The customer's own result, through the protection seam, while it is retained. */
@@ -1836,7 +1903,10 @@ export class CustomerUses {
       let eligibility: Record<string, unknown>;
       if (x) {
         const inv = this.runtime?.row(x.invocation_id);
-        if (!inv || inv.state === "running") return undefined;
+        // 003o1: the intent is frozen only on a final delivery decision, persisted here first.
+        // While the result may still be protected, nothing (worker or customer) decides.
+        if (!inv || this.finalizeDelivery(x, inv) === "pending") return undefined;
+        x.delivery = (this.execution(id) as ExecutionRow).delivery;
         if (this.eligible(x, inv)) {
           kind = "charge";
           eligibility = {
@@ -1851,7 +1921,7 @@ export class CustomerUses {
             invocation_id: inv.id,
             state: inv.state,
             outcome: inv.outcome,
-            delivered: x.delivered_at !== null,
+            delivery: x.delivery ?? "not_delivered",
           };
         }
       } else if (abandon || this.now() >= Number(r.serve_until_ms)) {
@@ -1890,8 +1960,12 @@ export class CustomerUses {
       bad(409, "This use was delivered; its unit is settled, not released", "delivered");
     if (r.state !== "reserved")
       bad(409, "Only a reserved request has a unit to release", "not_reserved");
-    if (!this.ensureIntent(id, true))
+    if (!this.ensureIntent(id, true)) {
+      const inv = x ? this.runtime?.row(x.invocation_id) : undefined;
+      if (inv?.state === "completed")
+        bad(409, "Your result is still being saved; try again shortly", "delivery_pending");
       bad(409, "This request is still running; try again when it ends", "execution_running");
+    }
     await this.unitStep(id);
     return this.status(viewer, id);
   }
@@ -2001,9 +2075,14 @@ export class CustomerUses {
       );
     } catch (e) {
       const code = e instanceof V3ReadError ? e.code : "unavailable";
-      this.tx(() => this.event(id, "unit_read_failed", { code, lease: gen }));
-      endLease();
-      return "read_failed";
+      // Every write, error paths included, only under this step's lease (003o1).
+      const ok = this.underUnitLease(id, gen, () => {
+        this.event(id, "unit_read_failed", { code, lease: gen });
+        this.db
+          .prepare("UPDATE customer_settlements SET lease_until = NULL WHERE request_id = ?")
+          .run(id);
+      });
+      return ok ? "read_failed" : "stale";
     }
     const cur = this.request(id) as RequestRow;
     const e = read.entitlement ?? null;
@@ -2011,22 +2090,32 @@ export class CustomerUses {
     const { mark: prev, digestKnown } = this.markFor(cur);
     const problem = evidenceProblem(digestKnown ? prev : { ...prev, digest: next.digest }, next);
     if (problem === "stale") {
-      this.tx(() => this.event(id, "unit_stale_read", { block: read.block.height, lease: gen }));
-      endLease();
-      return "stale_read";
+      const ok = this.underUnitLease(id, gen, () => {
+        this.event(id, "unit_stale_read", { block: read.block.height, lease: gen });
+        this.db
+          .prepare("UPDATE customer_settlements SET lease_until = NULL WHERE request_id = ?")
+          .run(id);
+      });
+      return ok ? "stale_read" : "stale";
     }
     if (problem !== null) {
       // The request's evidence conflict is sticky (003m1): nothing more is decided or sent.
-      this.tx(() => {
+      // Recorded only while this step still holds the lease (003o1): a stale worker whose read
+      // is overtaken by a newer worker's decision records nothing.
+      const ok = this.underUnitLease(id, gen, () => {
         this.db
           .prepare(
             "UPDATE customer_requests SET conflict = ?, updated_at = ? WHERE id = ? AND conflict IS NULL",
           )
           .run(JSON.stringify({ reason: problem, block: read.block, against: prev }), iso(), id);
         this.event(id, "evidence_conflict", { code: problem, block: read.block.height });
+        this.db
+          .prepare(
+            "UPDATE customer_settlements SET reason = 'evidence_conflict', lease_until = NULL, updated_at = ? WHERE request_id = ?",
+          )
+          .run(iso(), id);
       });
-      endLease({ reason: "evidence_conflict" });
-      return "evidence_conflict";
+      return ok ? "evidence_conflict" : "stale";
     }
     const fact = decideSettlement(
       {
@@ -2139,7 +2228,8 @@ export class CustomerUses {
       return "evidence_too_old";
     }
     const writer = this.writer;
-    const op = action === "settle" ? writer?.settleHold : writer?.releaseHold;
+    // Only the registration-guarded release exists here (003o1): no unguarded fallback.
+    const op = action === "settle" ? writer?.settleHold : writer?.releaseHoldFor;
     if (!writer || !op) {
       endLease({ reason: "writer_unavailable" });
       return "writer_unavailable";
@@ -2172,9 +2262,10 @@ export class CustomerUses {
               uses: [{ slot: 0, fingerprint: cur.fingerprint, sig: cur.use_sig as string }],
               close: true,
             })
-          : (writer.releaseHold as NonNullable<CustomerChainWriter["releaseHold"]>).call(
+          : (writer.releaseHoldFor as NonNullable<CustomerChainWriter["releaseHoldFor"]>).call(
               writer,
-              base,
+              // The exact registration this request was prepared under, from its stored payload.
+              { ...base, reg_id: cur.reg_id },
             ),
         new Promise<WriterAnswer>((resolve) =>
           controller.signal.addEventListener(
@@ -2233,6 +2324,8 @@ interface ExecutionRow {
   result_outcome: string | null;
   retention_until_ms: number | null;
   delivered_at: string | null;
+  delivery: "protecting" | "delivered" | "not_delivered" | null;
+  delivery_started_ms: number | null;
   created_at: string;
   updated_at: string;
 }

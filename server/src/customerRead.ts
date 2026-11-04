@@ -597,6 +597,8 @@ export function decideSettlement(
     if ((e.hold_used & ~1) !== 0) return { kind: "unknown", reason: "not_one_unit" };
     const used = (e.hold_used & 1) !== 0;
     const slot = e.hold_slots[0] ?? null;
+    // 003o1: check_use's slot bit must agree with the entitlement's bitmap, not only its status.
+    if (c.slot_used !== used) return { kind: "conflict", reason: "views_disagree" };
     if (!used) {
       if (c.status !== "unused" || slot !== null)
         return { kind: "conflict", reason: "views_disagree" };
@@ -614,8 +616,15 @@ export function decideSettlement(
     return { kind: "conflict", reason: "other_fingerprint" };
   }
   if (!e.hold_active && e.last_hold_seq === exp.hold_seq && e.hold_seq === exp.hold_seq) {
-    if (c.status !== "closed" || c.closed_root !== e.last_hold_root)
+    if (
+      c.status !== "closed" ||
+      c.closed_root !== e.last_hold_root ||
+      c.slot_used !== ((e.last_hold_used & 1) !== 0)
+    )
       return { kind: "conflict", reason: "views_disagree" };
+    // The count must agree with the bitmap (U2: popcount of used == charged).
+    if (e.last_hold_charged !== (e.last_hold_used & 1))
+      return { kind: "unknown", reason: "root_mismatch" };
     if (e.last_hold_used === 0) {
       if (e.last_hold_charged !== 0 || e.last_hold_root !== EMPTY_ROOT)
         return { kind: "unknown", reason: "root_mismatch" };

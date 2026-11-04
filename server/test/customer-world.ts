@@ -253,6 +253,14 @@ export class FixtureChain {
     this.released++;
   }
 
+  /** release_hold_for (lib.rs, 003o1): the registration is checked in the same call. */
+  releaseHoldFor(signer: string, customer: string, regId: string, holdSeq: number) {
+    const e = this.ent(customer);
+    if (!e) throw new ChainRefusal("E_ARGS");
+    if (e.reg_id !== regId) throw new ChainRefusal("E_REGISTRATION");
+    this.releaseHold(signer, customer, holdSeq);
+  }
+
   private meters(signer: string) {
     if (signer === this.control.owner) return true;
     return (this.control.operators as [string, number, number][]).some(
@@ -404,8 +412,28 @@ export class FixtureReader implements CustomerViewTransport {
   scripted: { block: PinnedBlock; views: Record<string, Json | null> } | null = null;
   private reads = 0;
   constructor(private readonly chain: FixtureChain) {}
+  private readGate: { release: Promise<void>; arrive: () => void } | null = null;
+  /** The next read waits at its final block until opened (job 003o1); then answers as set then. */
+  holdNextRead() {
+    let open: () => void = () => {};
+    let arrive: () => void = () => {};
+    const release = new Promise<void>((r) => {
+      open = r;
+    });
+    const entered = new Promise<void>((r) => {
+      arrive = r;
+    });
+    this.readGate = { release, arrive };
+    return { open, entered };
+  }
   async finalBlock(): Promise<PinnedBlock> {
     if (++this.reads > 300) throw new Error("fixture reader ceiling reached");
+    const gate = this.readGate;
+    if (gate) {
+      this.readGate = null;
+      gate.arrive();
+      await gate.release;
+    }
     if (this.scripted) return this.scripted.block;
     if (this.failNext > 0) {
       this.failNext--;
@@ -540,10 +568,10 @@ export class FixtureWriter implements CustomerChainWriter {
     });
   }
 
-  releaseHold(input: Parameters<NonNullable<CustomerChainWriter["releaseHold"]>>[0]) {
+  releaseHoldFor(input: Parameters<NonNullable<CustomerChainWriter["releaseHoldFor"]>>[0]) {
     this.releaseCalls++;
     return this.submit(this.unitModes, () => {
-      this.chain.releaseHold(this.signer, input.customer, input.hold_seq);
+      this.chain.releaseHoldFor(this.signer, input.customer, input.reg_id, input.hold_seq);
       return "applied";
     });
   }
@@ -577,13 +605,14 @@ export class SyntheticProtection implements InputProtection {
   }
   async protect(input: { request_id: string; kind?: string; bytes: Buffer }) {
     if (++this.calls > 100) throw new Error("synthetic protection ceiling reached");
-    if (this.failProtect > 0) {
-      this.failProtect--;
-      throw new Error("synthetic protection failure");
-    }
+    // The gate first, so a protection can also fail after it waited (job 003o1).
     if (input.kind === "result" && this.resultGate) {
       this.resultGate.arrive();
       await this.resultGate.release;
+    }
+    if (this.failProtect > 0) {
+      this.failProtect--;
+      throw new Error("synthetic protection failure");
     }
     const ref = `ref-${++this.n}`;
     this.kept.set(ref, input.bytes);
