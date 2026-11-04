@@ -228,3 +228,41 @@ temporary files and removed their directory. Thus this is now real primitive evi
 the source inference above. It still does not constitute real worker-host conformance. Replace
 the separate holder/`-o` lifetime assumption and use this case as a meaningful regression; string
 assertions requiring those options cannot establish exclusion.
+
+## 002e2 in-progress uninstall: stale descriptor can remove a reinstallation
+
+Astra independently exercised the actual `setup.sh uninstall` against an explicit temporary
+fake root on Ubuntu (no root, package/user/ACL/netns/cgroup/unit changes). The new launch wrapper
+checks its held inode after locking; `setup.sh`'s take_lock currently does not. This matters for
+an uninstall already waiting before a previous uninstall/reinstall, not just a new launcher.
+
+Deterministic interleaving:
+
+1. Create a disposable fake installation: manifest containing one `dir` under the temp root,
+   installed.json and lifecycle.flock. Start U2 through actual setup.sh with a logging/barrier
+   flock shim. It pauses after setup opened fd9 but before the real `/usr/bin/flock` acquires it.
+2. U1 uses actual setup.sh with ordinary PATH and removes that installation successfully.
+3. Recreate the fake installation at the same paths, with a NEW lock inode. A harmless sleep
+   process holds the new inode through fd8 and writes a ready marker.
+4. Release U2's barrier. It locks its OLD inode, but processes the NEW manifest and deletes the
+   new installation, while the new lock holder is still alive.
+
+Exact observations:
+
+```
+stale uninstall exit=0; new lock holder still alive=yes
+new installation sample directory survives=NO
+new installation manifest survives=NO
+```
+
+The outer command ran in a20-second envelope and returned in3.91seconds. A final diagnostic cat
+failed because the piped command's last line retained a carriage return in its filename; that
+occurred AFTER the observations above, making overall exit1. The EXIT trap terminated only the
+recorded test process and removed the scoped temp root. A separate exact-path check returned
+`temporary-root-removed` with exit0. Do not misreport the full probe as an exit0 check.
+
+Apply post-lock identity/installation checks to EVERY entrant, including uninstall, and cover
+this U2/U1/reinstall/new-live-holder sequence with actual primitive evidence. Existing tests of
+the launch wrapper's stale inode refusal do not cover a stale uninstaller. Keep failed teardown
+retry semantics and exact manifest ownership. This is within002e2, not new roadmap scope. Source
+was still being edited; rerun against the final implementation before acceptance.

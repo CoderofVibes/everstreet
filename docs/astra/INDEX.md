@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Executable Studio composition](2026-11-04_ExecutableStudioCompositionReview.md) | Actual desktop preview below fold and two ambiguous composers;001k canvas correction brief |1440/1280 fit and keyboard comparison observed; preview cleaned up; JOBS row deferred while Claude owns it |
 | 2026-11-04 | [App Studio recovery accepted](2026-11-04_AppStudioRecoveryAccepted.md) | a4a12c9 actual reload/outage/lost-answer/typed-ahead one-job recovery and390 comparison pass | Narrow UI corrections accepted;002e1 host lock race remains, no engine/live claim |
 | 2026-11-04 | [Wallet integration alignment](2026-11-04_WalletIntegrationAlignment.md) | Official NEP-413 differs from our raw hold/use digest signatures; concrete identity/use-key requirements for003w | No external actions, wallet or key provisioning;76931 remains sole writer on002e1 |
 | 2026-11-04 | [Executable Studio recovery review](2026-11-04_AppStudioReview.md) | Actual client/API lost-response retry creates two jobs and two scripted provider calls | In-progress002e; preserve request/draft/budget/check details before acceptance;67893 sole writer |
