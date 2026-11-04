@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Operations review](2026-11-04_OperationsReview.md) | Independent817 tests; charts/counts browser pass; date/status corrections and digital operating desk; browser sale-intent approval pending | Active; see local checkpoint |
 | 2026-11-04 | [Maintenance review](2026-11-04_MaintenanceReview.md) | Independent798 tests; browser automatic return/charge and studio status correction pass; two maintenance failures then operating performance | Active; see local checkpoint |
 | 2026-11-04 | [Studio integration review](2026-11-04_StudioIntegrationReview.md) | Independent772 tests; draft/task/menu/version browser checks; stale summary/mobile density corrections then customer maintenance | Active; see local checkpoint |
 | 2026-11-04 | [Acquisition workspace review](2026-11-04_AcquisitionWorkspaceReview.md) | Independent747 tests; actual app handover/lost reply/customer continuity browser pass; evidence presentation then studio integration | Active; see local checkpoint |

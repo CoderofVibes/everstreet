@@ -300,3 +300,14 @@ Two finite independent probes fail: standby.stop overwrites active worker health
 settlement phase starves expired-result cleanup.002d1 blocks maintenance acceptance.003t adds
 customer operating performance next. See2026-11-04_MaintenanceReview.md. No full milestone or
 live provider/testnet acceptance;73 prior v3 unit tests are separate evidence, not rerun.
+
+## November4 customer operations review
+
+At017617e, independent817tests/75files, lint/types and webbuild pass;002d1 original failures now
+covered by passing regressions and generation-fenced publication/durable rotation source review.
+003t browser1440/390:8requests,3charged/1returned,4usable/5runs,$0.0075customer/$0.012founder
+costs; charts and keyboard month detail work. Same-month future-row probe fails (1/1/1/8 vs
+0/0/0/0), plus misleading automatic-settlement/open-now/empty-books claims ->003t1. Digital
+operating desk coherence ->001c. Browser sale-intent action blocked by automatic review; explicit
+Tony approval pending, no bypass. Pre-block regression continuity proof is separate from browser
+proof. All six milestones remain open; see2026-11-04_OperationsReview.md.
