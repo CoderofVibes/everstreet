@@ -290,6 +290,13 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/customer/uses/:id/result", async (c) =>
     c.json(await customerUses.result(me(c), c.req.param("id"))),
   );
+  // Job 003o: the unit's settlement or release, decided only from contract readback.
+  app.post("/api/customer/uses/:id/units/reconcile", async (c) =>
+    c.json(await customerUses.reconcileUnit(me(c), c.req.param("id"))),
+  );
+  app.post("/api/customer/uses/:id/release", async (c) =>
+    c.json(await customerUses.releaseUnit(me(c), c.req.param("id"))),
+  );
 
   // ---------- product studio: digital product projects and their revisions ----------
 

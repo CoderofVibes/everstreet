@@ -10,6 +10,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   type CustomerViewTransport,
   decideReservation,
+  decideSettlement,
   type EntitlementV3,
   type EvidenceMark,
   type ExpectedHold,
@@ -42,7 +43,7 @@ import { isAccountId, V3ReadError } from "./v3read.ts";
 
 /** What a writer's endpoint said. Recorded as an event; never evidence by itself (§5.2). */
 export type WriterAnswer =
-  | { status: "opened" | "already"; tx?: string }
+  | { status: "opened" | "already" | "applied"; tx?: string }
   | { status: "refused"; code: string; tx?: string }
   | { status: "unknown"; detail?: string };
 
@@ -66,6 +67,29 @@ export interface CustomerChainWriter {
       key_epoch: number;
     };
     sig: string;
+    signal: AbortSignal;
+  }): Promise<WriterAnswer>;
+  /**
+   * Job 003o: `settle_hold` with the customer's stored UseAuth, exactly as signed, closing the
+   * one-unit hold. The answer is an event; only readback proves a charge.
+   */
+  settleHold?(input: {
+    network: string;
+    account: string;
+    customer: string;
+    plan_id: number;
+    hold_seq: number;
+    uses: { slot: number; fingerprint: string; sig: string }[];
+    close: boolean;
+    signal: AbortSignal;
+  }): Promise<WriterAnswer>;
+  /** Job 003o: `release_hold` for this exact hold. Only readback proves the unit returned. */
+  releaseHold?(input: {
+    network: string;
+    account: string;
+    customer: string;
+    plan_id: number;
+    hold_seq: number;
     signal: AbortSignal;
   }): Promise<WriterAnswer>;
 }
@@ -642,6 +666,7 @@ export class CustomerUses {
       evidence: r.evidence ? (JSON.parse(r.evidence) as Record<string, unknown>) : null,
       submissions: r.submissions,
       execution: this.executionView(this.execution(r.id)),
+      units: this.unitsView(r),
       envelope:
         r.state === "prepared"
           ? { ...(JSON.parse(r.envelope) as Envelope), envelope_digest: r.envelope_digest }
@@ -849,7 +874,8 @@ export class CustomerUses {
       this.binding(now);
       const counts = this.db
         .prepare(
-          `SELECT COUNT(*) AS total, SUM(CASE WHEN state IN (${OPEN.map(() => "?").join(",")}) THEN 1 ELSE 0 END) AS open FROM customer_requests WHERE person_id = ?`,
+          // A reserved request whose unit outcome is decided (003o) is no longer open.
+          `SELECT COUNT(*) AS total, SUM(CASE WHEN state IN (${OPEN.map(() => "?").join(",")}) AND NOT EXISTS (SELECT 1 FROM customer_settlements s WHERE s.request_id = r.id AND s.state IN ('charged','returned','unresolved')) THEN 1 ELSE 0 END) AS open FROM customer_requests r WHERE person_id = ?`,
         )
         .get(...OPEN, viewer.id) as { total: number; open: number | null };
       if ((counts.open ?? 0) >= LIMITS.openPerPerson)
@@ -1369,9 +1395,10 @@ export class CustomerUses {
       result,
       retention_until_ms: x.retention_until_ms === null ? null : String(x.retention_until_ms),
       input_source: x.input_source,
-      unit: "reserved_awaiting_settlement" as const,
+      // The unit's state comes from its settlement record, decided only from contract views.
+      unit: this.unitsView(this.request(x.request_id) as RequestRow).unit,
       unit_note:
-        "Your unit stays reserved on the contract until it is settled; nothing here charged or returned it.",
+        "A unit is charged or returned only when the contract's views show it; until then it stays reserved.",
       started_at: x.created_at,
     };
   }
@@ -1384,6 +1411,9 @@ export class CustomerUses {
   async execute(viewer: Person, id: string, input: Record<string, unknown>) {
     const r = this.own(viewer, id);
     if (this.execution(id)) return this.status(viewer, id); // never dispatched twice
+    // A unit already being released (003o) can't also be used.
+    if (this.settlement(id))
+      bad(409, "This request's unit is already being settled or released", "unit_settling");
     const runtime = this.runtime;
     if (!runtime || !this.reader || !this.operator) unavailable();
     const availability = runtime.availability();
@@ -1519,6 +1549,8 @@ export class CustomerUses {
         const now = this.request(id) as RequestRow;
         if (now.state !== "reserved" || now.conflict)
           bad(409, "This request changed while it was being checked", "not_reserved");
+        if (this.settlement(id))
+          bad(409, "This request's unit is already being settled or released", "unit_settling");
         const offer = this.offer(o.id) as OfferRow;
         if (offer.state !== "active") bad(409, "This offer was withdrawn", "offer_retired");
         if (!this.releaseActive(offer))
@@ -1745,6 +1777,448 @@ export class CustomerUses {
     }
     return { deleted, failed };
   }
+
+  // ---------- unit settlement and release (job 003o, design §14) ----------
+
+  private settlement(id: string) {
+    return this.db
+      .prepare("SELECT * FROM customer_settlements WHERE request_id = ?")
+      .get(id) as unknown as SettlementRow | undefined;
+  }
+
+  /**
+   * The unit's outcome for a request, as the customer sees it. Balances come only from the
+   * contract's views at the recorded block, never from local arithmetic.
+   */
+  private unitsView(r: RequestRow) {
+    const s = this.settlement(r.id);
+    if (!s)
+      return { unit: "reserved_awaiting_settlement", reason: null, source: null, retryable: false };
+    const unit =
+      s.state === "charged"
+        ? "charged"
+        : s.state === "returned"
+          ? "returned"
+          : s.state === "conflict"
+            ? "conflict"
+            : s.state === "unresolved"
+              ? "unknown"
+              : s.kind === "charge"
+                ? "charge_pending"
+                : "release_pending";
+    const ev = s.evidence
+      ? (JSON.parse(s.evidence) as { block: PinnedBlock; free: string; consumed: string })
+      : null;
+    return {
+      unit,
+      kind: s.kind,
+      reason: s.reason,
+      source: ev ? { block: ev.block, observed: { free: ev.free, consumed: ev.consumed } } : null,
+      retryable: ["requested", "unknown"].includes(s.state) && s.submissions < this.maxSubmissions,
+      submissions: s.submissions,
+    };
+  }
+
+  /**
+   * Records the unit's intent, once, when its outcome is decidable (§14.1). A charge needs the
+   * frozen eligibility of a delivered, validated extraction; anything else releases the unused
+   * unit. Nothing is decided while the execution is running, or while an unexecuted request can
+   * still run, unless the customer abandons it explicitly.
+   */
+  private ensureIntent(id: string, abandon = false): SettlementRow | undefined {
+    return this.tx(() => {
+      const existing = this.settlement(id);
+      if (existing) return existing;
+      const r = this.request(id);
+      if (r?.state !== "reserved" || r.conflict) return undefined;
+      const x = this.execution(id);
+      let kind: "charge" | "release";
+      let eligibility: Record<string, unknown>;
+      if (x) {
+        const inv = this.runtime?.row(x.invocation_id);
+        if (!inv || inv.state === "running") return undefined;
+        if (this.eligible(x, inv)) {
+          kind = "charge";
+          eligibility = {
+            invocation_id: inv.id,
+            outcome: inv.outcome,
+            delivered_at: x.delivered_at,
+            result_outcome: x.result_outcome,
+          };
+        } else {
+          kind = "release";
+          eligibility = {
+            invocation_id: inv.id,
+            state: inv.state,
+            outcome: inv.outcome,
+            delivered: x.delivered_at !== null,
+          };
+        }
+      } else if (abandon || this.now() >= Number(r.serve_until_ms)) {
+        kind = "release";
+        eligibility = { executed: false, abandoned: abandon };
+      } else return undefined;
+      const t = iso();
+      this.db
+        .prepare(
+          "INSERT INTO customer_settlements (request_id, kind, state, reason, eligibility, created_at, updated_at) VALUES (?, ?, 'requested', ?, ?, ?, ?)",
+        )
+        .run(
+          id,
+          kind,
+          kind === "charge"
+            ? "delivered"
+            : x
+              ? "not_eligible"
+              : abandon
+                ? "abandoned"
+                : "not_executed",
+          JSON.stringify(eligibility),
+          t,
+          t,
+        );
+      this.event(id, `unit_${kind}_intent`, {});
+      return this.settlement(id);
+    });
+  }
+
+  /** The customer abandons a reserved request that hasn't run (or ran ineligibly): release it. */
+  async releaseUnit(viewer: Person, id: string) {
+    const r = this.own(viewer, id);
+    const x = this.execution(id);
+    if (x && this.eligible(x, this.runtime?.row(x.invocation_id)))
+      bad(409, "This use was delivered; its unit is settled, not released", "delivered");
+    if (r.state !== "reserved")
+      bad(409, "Only a reserved request has a unit to release", "not_reserved");
+    if (!this.ensureIntent(id, true))
+      bad(409, "This request is still running; try again when it ends", "execution_running");
+    await this.unitStep(id);
+    return this.status(viewer, id);
+  }
+
+  /** One bounded unit step for the customer's own request (recovery after a lost reply). */
+  async reconcileUnit(viewer: Person, id: string) {
+    this.own(viewer, id);
+    this.ensureIntent(id);
+    await this.unitStep(id);
+    return this.status(viewer, id);
+  }
+
+  /** One bounded pass for a later worker: decidable intents, then due unit steps. */
+  async settleDue(limit: number = LIMITS.duePerPass) {
+    const n = Math.max(1, Math.min(LIMITS.duePerPass, Math.floor(limit)));
+    const candidates = this.db
+      .prepare(
+        `SELECT r.id FROM customer_requests r LEFT JOIN customer_settlements s ON s.request_id = r.id
+          WHERE r.state = 'reserved' AND r.conflict IS NULL
+            AND (s.request_id IS NULL OR (s.state IN ('requested','unknown') AND (s.lease_until IS NULL OR s.lease_until <= ?)))
+          ORDER BY r.updated_at, r.id LIMIT ?`,
+      )
+      .all(this.now(), n) as { id: string }[];
+    const results: Record<string, string> = {};
+    for (const c of candidates) {
+      if (!this.ensureIntent(c.id)) {
+        results[c.id] = "not_decidable";
+        continue;
+      }
+      results[c.id] = await this.unitStep(c.id);
+    }
+    return results;
+  }
+
+  private claimUnit(id: string): number | null {
+    return this.tx(() => {
+      const now = this.now();
+      const c = this.db
+        .prepare(
+          "UPDATE customer_settlements SET lease_gen = lease_gen + 1, lease_until = ? WHERE request_id = ? AND state IN ('requested','unknown') AND (lease_until IS NULL OR lease_until <= ?)",
+        )
+        .run(now + this.leaseMs, id, now);
+      if (!c.changes) return null;
+      return (this.settlement(id) as SettlementRow).lease_gen;
+    });
+  }
+
+  private underUnitLease(id: string, gen: number, f: (s: SettlementRow) => void): boolean {
+    return this.tx(() => {
+      const s = this.settlement(id) as SettlementRow;
+      if (s.lease_gen !== gen || !["requested", "unknown"].includes(s.state)) return false;
+      f(s);
+      return true;
+    });
+  }
+
+  /**
+   * One leased step (§14.2): read the hold at one pinned block (entitlement and check_use),
+   * fenced against the request's evidence; decide only from that; then, if an action is still
+   * due and allowed, submit the exact stored payload once. The writer's answer is an event.
+   */
+  async unitStep(id: string): Promise<string> {
+    const gen = this.claimUnit(id);
+    if (gen === null) return "not_due";
+    /** Ends this step's lease, recording `extra` (fixed column names only) under the CAS. */
+    const endLease = (extra: { reason?: string } = {}) =>
+      this.underUnitLease(id, gen, () => {
+        const sets = Object.keys(extra).map((k) => `${k} = ?`);
+        this.db
+          .prepare(
+            `UPDATE customer_settlements SET ${[...sets, "lease_until = NULL", "updated_at = ?"].join(", ")} WHERE request_id = ?`,
+          )
+          .run(...(Object.values(extra) as (string | number | null)[]), iso(), id);
+      });
+    const r = this.request(id) as RequestRow;
+    if (r.conflict) {
+      endLease({ reason: "evidence_conflict" });
+      return "evidence_conflict";
+    }
+    const b = this.v3.bindingFor(r.business_id);
+    if (!this.adaptersFit(r) || b?.network !== r.network || b.account !== r.account) {
+      endLease({ reason: "binding_mismatch" });
+      return "binding_mismatch";
+    }
+    if (!this.reader) {
+      endLease();
+      return "reader_unavailable";
+    }
+    let read: Awaited<ReturnType<typeof readCustomerViews>>;
+    try {
+      read = await readCustomerViews(
+        this.reader,
+        r,
+        {
+          control: true,
+          entitlement: { customer: r.customer_account, plan_id: r.plan_id },
+          checkUse: {
+            customer: r.customer_account,
+            plan_id: r.plan_id,
+            reg_id: r.reg_id,
+            hold_seq: r.hold_seq,
+            slot: 0,
+            fingerprint: r.fingerprint,
+          },
+        },
+        this.readTimeoutMs,
+      );
+    } catch (e) {
+      const code = e instanceof V3ReadError ? e.code : "unavailable";
+      this.tx(() => this.event(id, "unit_read_failed", { code, lease: gen }));
+      endLease();
+      return "read_failed";
+    }
+    const cur = this.request(id) as RequestRow;
+    const e = read.entitlement ?? null;
+    const next = markOf(read.block, e);
+    const { mark: prev, digestKnown } = this.markFor(cur);
+    const problem = evidenceProblem(digestKnown ? prev : { ...prev, digest: next.digest }, next);
+    if (problem === "stale") {
+      this.tx(() => this.event(id, "unit_stale_read", { block: read.block.height, lease: gen }));
+      endLease();
+      return "stale_read";
+    }
+    if (problem !== null) {
+      // The request's evidence conflict is sticky (003m1): nothing more is decided or sent.
+      this.tx(() => {
+        this.db
+          .prepare(
+            "UPDATE customer_requests SET conflict = ?, updated_at = ? WHERE id = ? AND conflict IS NULL",
+          )
+          .run(JSON.stringify({ reason: problem, block: read.block, against: prev }), iso(), id);
+        this.event(id, "evidence_conflict", { code: problem, block: read.block.height });
+      });
+      endLease({ reason: "evidence_conflict" });
+      return "evidence_conflict";
+    }
+    const fact = decideSettlement(
+      {
+        reg_id: cur.reg_id,
+        key_slot: cur.key_slot,
+        key_epoch: cur.key_epoch,
+        hold_seq: cur.hold_seq,
+        units: cur.units,
+        serve_until_ms: cur.serve_until_ms,
+        settle_until_ms: cur.settle_until_ms,
+        accept_by_ms: cur.accept_by_ms,
+        fingerprint: cur.fingerprint,
+      },
+      e,
+      read.checkUse as NonNullable<typeof read.checkUse>,
+      read.block.timestamp_ms,
+    );
+    const evidence = JSON.stringify({
+      block: read.block,
+      fact,
+      free: e?.free ?? null,
+      consumed: e?.consumed ?? null,
+      hold_seq: e?.hold_seq ?? null,
+      last_hold_seq: e?.last_hold_seq ?? null,
+    });
+    // Set inside the transaction below (a holder, so the type isn't narrowed away).
+    const todo: { action: "settle" | "release" | null } = { action: null };
+    const decided = this.underUnitLease(id, gen, (s) => {
+      this.db
+        .prepare("UPDATE customer_requests SET evidence_mark = ?, evidence_height = ? WHERE id = ?")
+        .run(JSON.stringify(next), read.block.height, id);
+      this.event(id, "unit_read", {
+        code: `${fact.kind}${"reason" in fact ? `:${fact.reason}` : ""}`,
+        block: read.block.height,
+        lease: gen,
+      });
+      const end = (state: SettlementRow["state"], reason: string | null, free: boolean) => {
+        this.db
+          .prepare(
+            "UPDATE customer_settlements SET state = ?, reason = ?, evidence = ?, lease_until = NULL, updated_at = ? WHERE request_id = ?",
+          )
+          .run(state, reason, evidence, iso(), id);
+        // Only a closed or moved-on hold frees the allocation: the customer may prepare again.
+        if (free)
+          this.db
+            .prepare("UPDATE customer_requests SET allocation = NULL, updated_at = ? WHERE id = ?")
+            .run(iso(), id);
+      };
+      const keep = (reason: string | null) =>
+        this.db
+          .prepare(
+            "UPDATE customer_settlements SET reason = ?, evidence = ?, updated_at = ? WHERE request_id = ?",
+          )
+          .run(reason, evidence, iso(), id);
+      switch (fact.kind) {
+        case "charged":
+          if (fact.closed)
+            end("charged", s.kind === "charge" ? "charged" : "charged_by_signed_use", true);
+          else {
+            keep("charged_open");
+            todo.action = "release"; // close the hold; nothing more is charged (its one unit is used)
+          }
+          break;
+        case "returned":
+          end("returned", s.kind === "charge" ? "closed_unused" : "released", true);
+          break;
+        case "conflict":
+          end("conflict", fact.reason, false);
+          break;
+        case "unknown":
+          end("unresolved", fact.reason, fact.reason !== "not_our_hold");
+          break;
+        case "unused_open":
+          if (s.kind === "charge" && !fact.settleable) {
+            // settle_hold can never apply now: the unit is released instead, not charged.
+            this.db
+              .prepare(
+                "UPDATE customer_settlements SET kind = 'release', reason = 'settle_deadline_passed', evidence = ?, updated_at = ? WHERE request_id = ?",
+              )
+              .run(evidence, iso(), id);
+            this.event(id, "unit_settle_deadline_passed", { block: read.block.height });
+            todo.action = "release";
+          } else {
+            keep(s.kind === "charge" ? "charge_due" : "release_due");
+            todo.action = s.kind === "charge" ? "settle" : "release";
+          }
+          break;
+      }
+    });
+    if (!decided) return "stale";
+    const action = todo.action;
+    if (!action) return fact.kind;
+    const s = this.settlement(id) as SettlementRow;
+    if (s.submissions >= this.maxSubmissions) {
+      endLease({ reason: "attempts_exhausted" });
+      return "attempts_exhausted";
+    }
+    // Authority, from the same read: the platform's granted METERING now, or (a release) the
+    // deadline after which the contract lets anyone release. The configured actor only.
+    const control = read.control as NonNullable<typeof read.control>;
+    const anyone =
+      action === "release" && BigInt(read.block.timestamp_ms) > BigInt(cur.settle_until_ms);
+    if (!anyone && !platformMeters(control, this.operator as string)) {
+      endLease({ reason: "operator_not_authorized" });
+      return "operator_not_authorized";
+    }
+    const t = Number(read.block.timestamp_ms);
+    if (this.now() - t > this.maxBlockAgeMs || t - this.now() > this.maxFutureSkewMs) {
+      endLease({ reason: "evidence_too_old" });
+      return "evidence_too_old";
+    }
+    const writer = this.writer;
+    const op = action === "settle" ? writer?.settleHold : writer?.releaseHold;
+    if (!writer || !op) {
+      endLease({ reason: "writer_unavailable" });
+      return "writer_unavailable";
+    }
+    const sent = this.underUnitLease(id, gen, (row) => {
+      this.db
+        .prepare(
+          "UPDATE customer_settlements SET state = 'unknown', submissions = submissions + 1, updated_at = ? WHERE request_id = ?",
+        )
+        .run(iso(), id);
+      this.event(id, `unit_submit_${action}`, { code: String(row.submissions + 1), lease: gen });
+    });
+    if (!sent) return "stale";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.writeTimeoutMs);
+    const base = {
+      network: cur.network,
+      account: cur.account,
+      customer: cur.customer_account,
+      plan_id: cur.plan_id,
+      hold_seq: cur.hold_seq,
+      signal: controller.signal,
+    };
+    let answer: WriterAnswer;
+    try {
+      answer = await Promise.race([
+        action === "settle"
+          ? (writer.settleHold as NonNullable<CustomerChainWriter["settleHold"]>).call(writer, {
+              ...base,
+              uses: [{ slot: 0, fingerprint: cur.fingerprint, sig: cur.use_sig as string }],
+              close: true,
+            })
+          : (writer.releaseHold as NonNullable<CustomerChainWriter["releaseHold"]>).call(
+              writer,
+              base,
+            ),
+        new Promise<WriterAnswer>((resolve) =>
+          controller.signal.addEventListener(
+            "abort",
+            () => resolve({ status: "unknown", detail: "timeout" }),
+            { once: true },
+          ),
+        ),
+      ]);
+    } catch {
+      answer = { status: "unknown", detail: "no answer" };
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+    }
+    const code =
+      answer.status === "refused"
+        ? /^E_[A-Z_]{1,40}$/.test(answer.code)
+          ? answer.code
+          : "E_UNRECOGNIZED"
+        : answer.status;
+    if (
+      !this.underUnitLease(id, gen, () =>
+        this.event(id, "unit_writer_answer", { code, lease: gen }),
+      )
+    )
+      return "stale";
+    endLease();
+    return `submitted_${action}`;
+  }
+}
+
+interface SettlementRow {
+  request_id: string;
+  kind: "charge" | "release";
+  state: "requested" | "unknown" | "charged" | "returned" | "conflict" | "unresolved";
+  reason: string | null;
+  eligibility: string;
+  submissions: number;
+  lease_gen: number;
+  lease_until: number | null;
+  evidence: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface ExecutionRow {

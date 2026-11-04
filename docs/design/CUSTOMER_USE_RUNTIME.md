@@ -589,4 +589,98 @@ The rules now:
 - **Residual race.** A sale or revocation can land after the fresh read and before or during the
   provider call. That is bounded by the one-unit hold and its `serve_until`; it is not atomic.
 - **No worker.** No worker starts by itself, and nothing is wired in `main`.
-- **Deferred.** Unit settlement, release and the customer UI are later jobs.
+- **Deferred.** Unit settlement and release follow in §14 (job 003o); the customer UI is later.
+
+## 14. Settling the unit, or releasing it (job 003o) [P, with V rules]
+
+### 14.1 Intent
+
+There is one `customer_settlements` row per reserved request. It is separate from the
+invocation, whose provider cost is already exact and is never counted again here.
+
+| Situation | Intent | Payload |
+|---|---|---|
+| An execution that is **settlement-eligible** (§13.7: validated, durably delivered) | `charge` | The request's own fingerprint and stored UseAuth for slot 0, with `close: true`; no new signature or hold. The frozen eligibility facts are kept. |
+| An execution that finished and is not eligible: failed, unknown, cancelled, refused, undeliverable | `release` | `release_hold` for this exact hold |
+| A request that never ran: abandoned by the customer (`POST /api/customer/uses/:id/release`), or its serving time passed | `release` | The same |
+
+- **Not yet.** While an execution is running, or an unexecuted request can still run, nothing is
+  decided. Once a unit intent exists, execute is refused (`unit_settling`).
+- **No release instead of a charge.** A delivered use can't be released instead of settled
+  (`delivered`).
+
+### 14.2 The step (leased, bounded)
+
+1. **Claim.** The lease is claimed by compare-and-swap (`lease_gen`).
+2. **Check.** The adapters and binding must fit (`binding_mismatch`), and the request must have no
+   evidence conflict.
+3. **Read.** One pinned read of `get_control`, `get_entitlement` and `check_use` for slot 0, fenced
+   against the request's evidence mark (§5.4): stale is ignored, a conflict is sticky.
+4. **Decide.** `decideSettlement` uses the entitlement **and** `check_use`, which must agree
+   (`views_disagree` otherwise). The one-unit scope is validated:
+
+   | Readback | Fact |
+   |---|---|
+   | Open, our identity, slot 0 holding **our** fingerprint | `charged`, open |
+   | Closed, `last_hold_seq` ours, bitmap `1`, charged 1, and `last_hold_root == root([(0, our fingerprint)])` (recomputed from the complete used list) | `charged`, closed |
+   | Closed, bitmap `0`, root = the empty list's | `returned` |
+   | Open, slot 0 unused | `unused_open`; settleable only while `T_B ≤ settle_until` **[V]** (`E_EXPIRED` after) |
+   | Open, another fingerprint in slot 0 | `conflict: other_fingerprint` |
+   | Closed with any other root or bitmap | `unknown: root_mismatch` / `not_one_unit` |
+   | Our sequence behind the contract's record | `unknown: history_lost` |
+   | Another registration | `unknown: registration_changed` |
+
+5. **Apply**, under the lease:
+   - charged and closed is `charged`;
+   - returned is `returned`;
+   - a conflict is sticky;
+   - unknown is `unresolved`;
+   - charged but open: release the hold to close it (its one unit is used, so nothing more is
+     charged);
+   - unused and open: settle (charge) or release. A charge whose deadline passed becomes a
+     release (`settle_deadline_passed`): never a charge.
+6. **Submit**, only if an action is due:
+   - within five submissions;
+   - with authority from the same read: the platform's granted METERING now, or, for a release,
+     a block after `settle_until`, when the contract lets anyone release, though only the
+     configured actor is used;
+   - with a fresh block (§13.7).
+
+   The intent is persisted (`unknown`, attempt count) before the await. The writer's answer is
+   only an event; the next step's readback decides.
+
+### 14.3 What it guarantees
+
+- **Charges.** Only a delivered extraction can be charged, and only readback proves it. A lost
+  answer, a dropped request or a duplicate yields at most one charge (the same signed use is
+  `already` while open, and `E_HOLD_CLOSED` once closed **[V]**).
+- **Refunds.** An unused unit returns only when observed released (closed with the empty root).
+  Expiry alone is never a refund. Root mismatch, lost history and changed registration stay
+  `unknown`.
+- **The allocation.** It is freed only when the hold is closed or the sequence moved on. Then the
+  customer may explicitly prepare the next use; nothing is created automatically. A conflict
+  keeps it held.
+- **Open requests.** A reserved request whose unit is decided (charged, returned or unresolved)
+  no longer counts toward the open-request limit.
+- **Authority.** Lost platform authority (for example after a sale that granted METERING to
+  someone else) sends nothing (`operator_not_authorized`) and stays retryable. A regrant
+  resumes. The new owner never inherits customer keys or private results.
+- **Balances.** The customer's view shows the unit state, its source block, retryability, and
+  `free`/`consumed` exactly as the contract's view reported them. There is no local arithmetic.
+
+### 14.4 Evidence, kept apart
+
+- **The contract itself:** `customer_settlement_matches_server_fixture` (Rust, actual methods)
+  produces `customer-settlement.json`. It covers:
+  - a one-unit charge with close;
+  - a replay (`already`) and a close by release;
+  - an unused release (the empty root);
+  - a conflicting fingerprint (`E_CONFLICT`);
+  - an expired settle (`E_EXPIRED`) followed by a release by anyone;
+  - 100/20/80 across an actual sale with the platform's grant;
+  - the former owner refused, and the successor's next use (21/79).
+- **The decision rules over that JSON:** `customer-settlement-fixture.test.ts`.
+- **The API path:** `customer-settlement.test.ts` runs against the **TypeScript test double**,
+  which models `settle_hold`, `release_hold` and `check_use` from `lib.rs`. It does not execute
+  the contract. Its 20-use trace and the reconciled sale are evidence about the app, not about the
+  contract VM.

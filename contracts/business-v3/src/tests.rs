@@ -3517,3 +3517,117 @@ fn customer_signing_matches_server_fixture() {
     let actual = serde_json::to_string_pretty(&out).unwrap() + "\n";
     fixture("customer-signing", include_str!("../../../server/test/fixtures/v3/customer-signing.json"), actual);
 }
+
+// =====================================================================================
+// 003o: one-unit settlement and release through the actual methods, as the customer-use
+// runtime does them (one unit, slot 0, settle with close). Synthetic key seed 1; no contract
+// behaviour change. Each state is the contract's own JSON for get_entitlement / check_use.
+// =====================================================================================
+
+#[test]
+fn customer_settlement_matches_server_fixture() {
+    let mut out = serde_json::Map::new();
+    let mut put = |name: &str, json: String| {
+        out.insert(name.to_string(), serde_json::Value::String(json));
+    };
+    let k = key(1);
+    let ent = |w: &W| serde_json::to_string(&w.b.get_entitlement(id(CARA), 1)).unwrap();
+    let check = |w: &W, hold: u32, f: [u8; 32]| {
+        serde_json::to_string(&w.b.check_use(id(CARA), 1, w.ent(CARA).reg_id, hold, 0, hex::encode(f))).unwrap()
+    };
+    let mut w = W::new();
+    w.shell(CARA, CARA);
+    assert_eq!(w.buy(CARA, 100, 1, Some((0, &k))), 0);
+    put("plan_1", serde_json::to_string(&w.b.get_plan(1)).unwrap());
+    put("funded.entitlement", ent(&w));
+
+    // 1. A one-unit hold, its use settled with close: charged and closed in one call.
+    assert_eq!(w.open(CARA, &k, 1, 1), "opened");
+    put("charge.open.entitlement", ent(&w));
+    put("charge.open.check_use", check(&w, 1, fp(1, 0, 0)));
+    let u = vec![w.use_(CARA, &k, 1, 0, 0)];
+    let settled = w.settle(CARA, 1, u.clone(), true);
+    assert_eq!(settled, vec!["charged"]);
+    put("charge.settle_answer", serde_json::to_string(&settled).unwrap());
+    put("charge.closed.entitlement", ent(&w));
+    put("charge.closed.check_use", check(&w, 1, fp(1, 0, 0)));
+    put("charge.closed.check_use_altered", check(&w, 1, fp(1, 0, 1)));
+    assert_eq!(w.ent(CARA).last_hold_root, hex::encode(closed_hold_root(&[(0, fp(1, 0, 0))])));
+    // The same use again, after the close: the hold is closed (no second charge).
+    w.refuse(METER, 0, "E_HOLD_CLOSED", |b| b.settle_hold(id(CARA), 1, 1, u, true));
+
+    // 2. Settled without close, replayed ("already"), then closed by release: still one charge.
+    assert_eq!(w.open(CARA, &k, 2, 1), "opened");
+    let u = vec![w.use_(CARA, &k, 2, 0, 0)];
+    all(&w.settle(CARA, 2, u.clone(), false), "charged", 1);
+    put("charged_open.entitlement", ent(&w));
+    put("charged_open.check_use", check(&w, 2, fp(2, 0, 0)));
+    let replay = w.settle(CARA, 2, u, false);
+    assert_eq!(replay, vec!["already"]);
+    put("charged_open.replay_answer", serde_json::to_string(&replay).unwrap());
+    w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 2));
+    put("charged_open.released.entitlement", ent(&w));
+    assert_eq!((w.ent(CARA).consumed.0, w.ent(CARA).free.0), (2, 98));
+
+    // 3. Unused, released by the operator: the unit comes back, the root is the empty list's.
+    assert_eq!(w.open(CARA, &k, 3, 1), "opened");
+    w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 3));
+    put("released_unused.entitlement", ent(&w));
+    put("released_unused.check_use", check(&w, 3, fp(3, 0, 0)));
+    assert_eq!(w.ent(CARA).last_hold_root, hex::encode(env::sha256_array([0u8; 4])));
+    assert_eq!((w.ent(CARA).consumed.0, w.ent(CARA).free.0), (2, 98));
+
+    // 4. A different fingerprint already charged the slot: our use is a conflict.
+    assert_eq!(w.open(CARA, &k, 4, 1), "opened");
+    all(&w.settle(CARA, 4, vec![w.use_(CARA, &k, 4, 0, 7)], false), "charged", 1);
+    let ours = vec![w.use_(CARA, &k, 4, 0, 0)];
+    w.refuse(METER, 0, "E_CONFLICT", |b| b.settle_hold(id(CARA), 1, 4, ours, true));
+    put("conflict.entitlement", ent(&w));
+    put("conflict.check_use", check(&w, 4, fp(4, 0, 0)));
+    w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 4));
+    put("conflict.closed.entitlement", ent(&w));
+    put("conflict.closed.check_use", check(&w, 4, fp(4, 0, 0)));
+
+    // 5. Past settle_until the use can no longer be charged; anyone releases; the unit returns.
+    assert_eq!(w.open(CARA, &k, 5, 1), "opened");
+    let late = vec![w.use_(CARA, &k, 5, 0, 0)];
+    w.now = w.ent(CARA).settle_until_ms.0 + 1;
+    w.refuse(METER, 0, "E_EXPIRED", |b| b.settle_hold(id(CARA), 1, 5, late, true));
+    put("expired.open.entitlement", ent(&w));
+    w.call(STRANGER, 0, |b| b.release_hold(id(CARA), 1, 5));
+    put("expired.released.entitlement", ent(&w));
+    assert_eq!((w.ent(CARA).consumed.0, w.ent(CARA).free.0), (3, 97));
+
+    // 6. Seventeen more one-unit uses: 100 bought, 20 used, 80 left.
+    w.now += DAY; // a new day for the key's daily cap
+    for seq in 6..=22 {
+        assert_eq!(w.open(CARA, &k, seq, 1), "opened");
+        all(&w.settle(CARA, seq, vec![w.use_(CARA, &k, seq, 0, 0)], true), "charged", 1);
+    }
+    let e = w.ent(CARA);
+    assert_eq!((e.purchased.0, e.consumed.0, e.free.0, e.hold_active), (100, 20, 80, false));
+    put("used_20.entitlement", ent(&w));
+
+    // 7. An actual sale with the platform's METERING grant: the customer's 80 stay; the former
+    //    owner can no longer meter; the successor generation's operator serves the next use.
+    w.sell(FOUNDER, BUYER, 100 * P, &[(METER, METERING)]);
+    put("after_sale.control", serde_json::to_string(&w.b.get_control()).unwrap());
+    put("after_sale.entitlement", ent(&w));
+    assert_eq!((w.ent(CARA).consumed.0, w.ent(CARA).free.0), (20, 80));
+    assert_eq!(w.open(CARA, &k, 23, 1), "opened");
+    let next = vec![w.use_(CARA, &k, 23, 0, 0)];
+    w.refuse(FOUNDER, 0, "E_NOT_OPERATOR", |b| b.settle_hold(id(CARA), 1, 23, next.clone(), true));
+    all(&w.settle(CARA, 23, next, true), "charged", 1);
+    put("after_sale.successor_charge.entitlement", ent(&w));
+    assert_eq!((w.ent(CARA).consumed.0, w.ent(CARA).free.0), (21, 79));
+
+    // The fingerprints the server side needs to recompute roots (fp(seq, 0, alt)).
+    let fps: serde_json::Map<String, serde_json::Value> = [(1, 0), (2, 0), (3, 0), (4, 0), (4, 7), (5, 0)]
+        .iter()
+        .map(|(s, a)| (format!("{s}.{a}"), serde_json::Value::String(hex::encode(fp(*s, 0, *a)))))
+        .collect();
+    put("fingerprints", serde_json::to_string(&fps).unwrap());
+
+    let actual = serde_json::to_string_pretty(&serde_json::Value::Object(out)).unwrap() + "\n";
+    fixture("customer-settlement", include_str!("../../../server/test/fixtures/v3/customer-settlement.json"), actual);
+}

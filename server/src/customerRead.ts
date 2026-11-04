@@ -231,6 +231,7 @@ export interface PinnedRead {
   plan?: PlanV3 | null;
   entitlement?: EntitlementV3 | null;
   treasury?: TreasuryV3;
+  checkUse?: UseCheckV3;
 }
 
 /**
@@ -245,6 +246,15 @@ export async function readCustomerViews(
     treasury?: boolean;
     plan?: number;
     entitlement?: { customer: string; plan_id: number };
+    /** Job 003o: `check_use` for one slot, at the same block. */
+    checkUse?: {
+      customer: string;
+      plan_id: number;
+      reg_id: string;
+      hold_seq: number;
+      slot: number;
+      fingerprint: string;
+    };
   },
   timeoutMs: number,
 ): Promise<PinnedRead> {
@@ -304,7 +314,7 @@ export async function readCustomerViews(
       }
     };
     const none = Promise.resolve(undefined);
-    const [control, treasury, plan, entitlement] = await Promise.all([
+    const [control, treasury, plan, entitlement, checkUse] = await Promise.all([
       want.control ? read("get_control", {}) : none,
       want.treasury ? read("get_treasury", {}) : none,
       want.plan !== undefined ? read("get_plan", { plan_id: want.plan }) : none,
@@ -314,8 +324,10 @@ export async function readCustomerViews(
             plan_id: want.entitlement.plan_id,
           })
         : none,
+      want.checkUse ? read("check_use", { ...want.checkUse }) : none,
     ]);
     const out: PinnedRead = { block };
+    if (want.checkUse) out.checkUse = decodeUseCheck(checkUse);
     if (want.control) out.control = decodeControl(control);
     if (want.treasury) out.treasury = decodeTreasury(treasury);
     if (want.plan !== undefined) out.plan = decodePlan(plan);
@@ -491,4 +503,131 @@ export function evidenceProblem(prev: EvidenceMark, next: EvidenceMark): "stale"
     }
   }
   return null;
+}
+
+// ---------- settlement readback (job 003o) ----------
+
+export interface UseCheckV3 {
+  status:
+    | "charged"
+    | "conflict"
+    | "unused"
+    | "closed"
+    | "unknown_hold"
+    | "other_registration"
+    | "no_entitlement"
+    | "invalid";
+  slot_used: boolean | null;
+  closed_root: string | null;
+}
+
+/** `check_use`, strictly (lib.rs `check_use`). */
+export function decodeUseCheck(v: unknown): UseCheckV3 {
+  const o = obj(v, "check_use", ["status", "slot_used", "closed_root"]);
+  return {
+    status: oneOf(o.status, "check_use.status", [
+      "charged",
+      "conflict",
+      "unused",
+      "closed",
+      "unknown_hold",
+      "other_registration",
+      "no_entitlement",
+      "invalid",
+    ] as const),
+    slot_used: o.slot_used === null ? null : bool(o.slot_used, "check_use.slot_used"),
+    closed_root: o.closed_root === null ? null : hex32(o.closed_root, "check_use.closed_root"),
+  };
+}
+
+const rootOf = (used: [number, string][]) => {
+  const parts = [Buffer.alloc(4)];
+  (parts[0] as Buffer).writeUInt32LE(used.length);
+  for (const [slot, fp] of used) parts.push(Buffer.from([slot]), Buffer.from(fp, "hex"));
+  return createHash("sha256").update(Buffer.concat(parts)).digest("hex");
+};
+/** `closed_hold_root` of the empty list (lib.rs; fixture `closed_root_empty`). */
+export const EMPTY_ROOT = rootOf([]);
+/** `closed_hold_root` of a one-unit hold whose slot 0 holds `fingerprint`. */
+export const oneSlotRoot = (fingerprint: string) => rootOf([[0, fingerprint]]);
+
+export interface ExpectedUse extends ExpectedHold {
+  /** Our use's fingerprint for slot 0. */
+  fingerprint: string;
+}
+
+export type SettlementFact =
+  /** Positive proof: our fingerprint charged slot 0, with the hold `closed` or still open. */
+  | { kind: "charged"; closed: boolean }
+  /** Proof the unit wasn't charged and came back: our hold closed with no used slot. */
+  | { kind: "returned" }
+  /** Our hold is open and slot 0 unused; it can still be charged only until settle_until. */
+  | { kind: "unused_open"; settleable: boolean }
+  /** Another fingerprint holds slot 0, or the views disagree: never resolved automatically. */
+  | { kind: "conflict"; reason: string }
+  /** The readback can't establish the outcome: never a charge, never a refund. */
+  | { kind: "unknown"; reason: string };
+
+/**
+ * What a one-unit hold's settlement readback proves (CUSTOMER_USE_RUNTIME §14). It uses the
+ * entitlement and `check_use` read at one block, and requires them to agree. A closed hold is
+ * decided only by recomputing the contract's root from the complete ordered list of used slots
+ * implied by the bitmap: `check_use` alone says the same for any fingerprint. The one-unit scope
+ * is validated, not assumed. Expiry alone never proves a use wasn't charged.
+ */
+export function decideSettlement(
+  exp: ExpectedUse,
+  e: EntitlementV3 | null,
+  c: UseCheckV3,
+  blockTimestampMs: string,
+): SettlementFact {
+  if (exp.units !== 1) return { kind: "unknown", reason: "not_one_unit" };
+  if (!e || e.reg_id !== exp.reg_id) {
+    if (!["no_entitlement", "other_registration"].includes(c.status))
+      return { kind: "conflict", reason: "views_disagree" };
+    return { kind: "unknown", reason: "registration_changed" };
+  }
+  if (e.hold_active && e.hold_seq === exp.hold_seq) {
+    const ours =
+      e.hold_units === 1 &&
+      e.hold_key_slot === exp.key_slot &&
+      e.hold_key_epoch === exp.key_epoch &&
+      e.settle_until_ms === exp.settle_until_ms;
+    if (!ours) return { kind: "unknown", reason: "not_our_hold" };
+    if ((e.hold_used & ~1) !== 0) return { kind: "unknown", reason: "not_one_unit" };
+    const used = (e.hold_used & 1) !== 0;
+    const slot = e.hold_slots[0] ?? null;
+    if (!used) {
+      if (c.status !== "unused" || slot !== null)
+        return { kind: "conflict", reason: "views_disagree" };
+      // settle_hold needs now ≤ settle_until; block time only rises (A1).
+      return {
+        kind: "unused_open",
+        settleable: BigInt(blockTimestampMs) <= BigInt(exp.settle_until_ms),
+      };
+    }
+    if (slot === exp.fingerprint) {
+      if (c.status !== "charged") return { kind: "conflict", reason: "views_disagree" };
+      return { kind: "charged", closed: false };
+    }
+    if (c.status !== "conflict") return { kind: "conflict", reason: "views_disagree" };
+    return { kind: "conflict", reason: "other_fingerprint" };
+  }
+  if (!e.hold_active && e.last_hold_seq === exp.hold_seq && e.hold_seq === exp.hold_seq) {
+    if (c.status !== "closed" || c.closed_root !== e.last_hold_root)
+      return { kind: "conflict", reason: "views_disagree" };
+    if (e.last_hold_used === 0) {
+      if (e.last_hold_charged !== 0 || e.last_hold_root !== EMPTY_ROOT)
+        return { kind: "unknown", reason: "root_mismatch" };
+      return { kind: "returned" };
+    }
+    if (e.last_hold_used !== 1) return { kind: "unknown", reason: "not_one_unit" };
+    // The complete used list of a one-unit hold is slot 0 alone: the root decides whose use.
+    if (e.last_hold_charged === 1 && e.last_hold_root === oneSlotRoot(exp.fingerprint))
+      return { kind: "charged", closed: true };
+    return { kind: "unknown", reason: "root_mismatch" };
+  }
+  if (e.hold_seq < exp.hold_seq) return { kind: "conflict", reason: "hold_sequence_regressed" };
+  // Our sequence is behind the contract's only record: whose use it carried is not readable.
+  return { kind: "unknown", reason: "history_lost" };
 }

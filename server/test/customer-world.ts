@@ -33,7 +33,7 @@ import { ManagedRuntime, type RuntimeOptions } from "../src/invocations.ts";
 import { RuntimeFailure } from "../src/runtime.ts";
 import type { Store } from "../src/store.ts";
 import { V3Observations } from "../src/v3observe.ts";
-import type { BlockRef } from "../src/v3read.ts";
+import type { BlockRef, ViewTransport } from "../src/v3read.ts";
 import { type Answer, correct, runtimeWorld, ScriptedRuntime } from "./runtime-world.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: fixture JSON is read field by field
@@ -89,6 +89,9 @@ export class FixtureChain {
   ents = new Map<string, Json>();
   private holdPk = new Map<string, string>();
   opened = 0;
+  /** Units the double charged, and holds released through release_hold (job 003o). */
+  charged = 0;
+  released = 0;
   calls = 0;
   readonly ceiling = 400;
 
@@ -152,7 +155,102 @@ export class FixtureChain {
     if (method === "get_plan") return JSON.stringify(args.plan_id === 1 ? this.plan : null);
     if (method === "get_entitlement")
       return JSON.stringify(args.plan_id === 1 ? this.ent(String(args.customer)) : null);
+    if (method === "check_use") return JSON.stringify(this.checkUse(args));
     throw new Error(`no view ${method}`);
+  }
+
+  /** check_use (lib.rs `check_use`), over the double's state. */
+  private checkUse(args: Record<string, unknown>) {
+    const answer = (status: string, slot_used: boolean | null, closed_root: string | null) => ({
+      status,
+      slot_used,
+      closed_root,
+    });
+    const e = this.ent(String(args.customer));
+    if (!e || args.plan_id !== 1) return answer("no_entitlement", null, null);
+    if (e.reg_id !== args.reg_id) return answer("other_registration", null, null);
+    const fpHex = String(args.fingerprint);
+    if (!/^[0-9a-f]{64}$/.test(fpHex)) return answer("invalid", null, null);
+    const slot = Number(args.slot);
+    const bit = slot < 10 ? 1 << slot : 0;
+    if (e.hold_active && e.hold_seq === args.hold_seq) {
+      if (slot >= e.hold_units) return answer("invalid", null, null);
+      if ((e.hold_used & bit) === 0) return answer("unused", false, null);
+      return e.hold_slots[slot] === fpHex
+        ? answer("charged", true, null)
+        : answer("conflict", true, null);
+    }
+    if (e.last_hold_seq === args.hold_seq && args.hold_seq !== 0)
+      return answer("closed", bit !== 0 && (e.last_hold_used & bit) !== 0, e.last_hold_root);
+    return answer("unknown_hold", null, null);
+  }
+
+  /** settle_hold (lib.rs): the whole batch is checked first; close returns the rest. */
+  settleHold(
+    signer: string,
+    customer: string,
+    holdSeq: number,
+    uses: { slot: number; fingerprint: string; sig: string }[],
+    close: boolean,
+    verify: (pk: string, message: string, sig: string) => boolean,
+  ): string[] {
+    this.bump();
+    if (!this.meters(signer)) throw new ChainRefusal("E_NOT_OPERATOR");
+    const e = this.ent(customer) as Json;
+    if (!e?.hold_active || e.hold_seq !== holdSeq) throw new ChainRefusal("E_HOLD_CLOSED");
+    if (this.ts > BigInt(e.settle_until_ms)) throw new ChainRefusal("E_EXPIRED");
+    if (uses.length > e.hold_units) throw new ChainRefusal("E_BATCH");
+    let used = e.hold_used as number;
+    const slots = [...(e.hold_slots as (string | null)[])];
+    const out: string[] = [];
+    let newly = 0;
+    for (const u of uses) {
+      if (u.slot >= e.hold_units) throw new ChainRefusal("E_SLOT");
+      const ref = {
+        business: BUSINESS,
+        plan_id: 1,
+        customer,
+        reg_id: e.reg_id as string,
+        key_slot: e.hold_key_slot as number,
+        key_epoch: e.hold_key_epoch as number,
+      };
+      const message = sha256(
+        preimageOfUse(ref, { hold_seq: holdSeq, slot: u.slot, fingerprint: u.fingerprint }),
+      ).toString("hex");
+      if (!verify(this.holdPk.get(customer) as string, message, u.sig))
+        throw new ChainRefusal("E_SIG");
+      const bit = 1 << u.slot;
+      if (used & bit) {
+        if (slots[u.slot] === u.fingerprint) out.push("already");
+        else throw new ChainRefusal("E_CONFLICT");
+      } else {
+        used |= bit;
+        slots[u.slot] = u.fingerprint;
+        newly++;
+        out.push("charged");
+      }
+    }
+    Object.assign(e, {
+      hold_used: used,
+      hold_slots: slots,
+      hold_charged: e.hold_charged + newly,
+      consumed: String(BigInt(e.consumed) + BigInt(newly)),
+    });
+    if (close) this.release(customer);
+    else this.nextBlock();
+    if (newly > 0) this.charged += newly;
+    return out;
+  }
+
+  /** release_hold (lib.rs): an operator any time; anyone once the settle deadline has passed. */
+  releaseHold(signer: string, customer: string, holdSeq: number) {
+    this.bump();
+    const e = this.ent(customer) as Json;
+    if (!e?.hold_active || e.hold_seq !== holdSeq) throw new ChainRefusal("E_HOLD_CLOSED");
+    if (this.ts <= BigInt(e.settle_until_ms) && !this.meters(signer))
+      throw new ChainRefusal("E_NOT_OPERATOR");
+    this.release(customer);
+    this.released++;
   }
 
   private meters(signer: string) {
@@ -387,9 +485,16 @@ export class FixtureWriter implements CustomerChainWriter {
     this.entered = entered;
     return gate;
   }
-  async openHold(input: Parameters<CustomerChainWriter["openHold"]>[0]): Promise<WriterAnswer> {
-    if (++this.calls > 50) throw new Error("fixture writer ceiling reached");
-    const mode = this.modes.shift() ?? "ok";
+  /** Settle and release submissions, counted apart (job 003o). */
+  settleCalls = 0;
+  releaseCalls = 0;
+  /** Faults for settle/release only, so reservation faults stay independent. */
+  unitModes: Mode[] = [];
+
+  /** One submission: its fault mode, then the double's rule; the shared ceiling is 200. */
+  private async submit(modes: Mode[], apply: () => WriterAnswer["status"]): Promise<WriterAnswer> {
+    if (++this.calls > 200) throw new Error("fixture writer ceiling reached");
+    const mode = modes.shift() ?? "ok";
     if (mode === "drop") throw new Error("network: the request never arrived");
     if (typeof mode === "object") {
       mode.arrive();
@@ -397,15 +502,7 @@ export class FixtureWriter implements CustomerChainWriter {
     }
     let answer: WriterAnswer;
     try {
-      answer = {
-        status: this.chain.openHold(
-          this.signer,
-          input.customer,
-          input.auth,
-          input.sig,
-          this.verify,
-        ),
-      };
+      answer = { status: apply() } as WriterAnswer;
     } catch (e) {
       if (e instanceof ChainRefusal) answer = { status: "refused", code: e.code };
       else throw e;
@@ -413,6 +510,42 @@ export class FixtureWriter implements CustomerChainWriter {
     this.answers.push(answer);
     if (mode === "lose_reply") throw new Error("network: the response was lost");
     return answer;
+  }
+
+  openHold(input: Parameters<CustomerChainWriter["openHold"]>[0]): Promise<WriterAnswer> {
+    return this.submit(this.modes, () =>
+      this.chain.openHold(this.signer, input.customer, input.auth, input.sig, this.verify),
+    );
+  }
+
+  /** A unit-step gate (job 003o): the next settle or release waits until it opens. */
+  holdNextUnit(): Gate {
+    const g = this.holdNext();
+    this.unitModes.push(this.modes.pop() as Mode);
+    return g;
+  }
+
+  settleHold(input: Parameters<NonNullable<CustomerChainWriter["settleHold"]>>[0]) {
+    this.settleCalls++;
+    return this.submit(this.unitModes, () => {
+      this.chain.settleHold(
+        this.signer,
+        input.customer,
+        input.hold_seq,
+        input.uses,
+        input.close,
+        this.verify,
+      );
+      return "applied";
+    });
+  }
+
+  releaseHold(input: Parameters<NonNullable<CustomerChainWriter["releaseHold"]>>[0]) {
+    this.releaseCalls++;
+    return this.submit(this.unitModes, () => {
+      this.chain.releaseHold(this.signer, input.customer, input.hold_seq);
+      return "applied";
+    });
   }
 }
 
@@ -562,6 +695,8 @@ export async function customerWorld(
     runtime?: RuntimeOptions;
     /** No runtime provider in the customer app (job 003n). */
     noProvider?: boolean;
+    /** A v3 view transport for owner observations and sale reconciliation (job 003o). */
+    v3Transport?: ViewTransport | null;
   } = {},
 ) {
   // The scripted extractor that passes the release check (fictional documents only).
@@ -585,7 +720,7 @@ export async function customerWorld(
     ...opts.customer,
   });
   const v3 = {
-    transport: null,
+    transport: opts.v3Transport ?? null,
     bindings: [{ business_id: f.business, network: "testnet", account: BUSINESS }],
   };
   /** The managed runtime for a store: the founder's own, or (a restart) a new one, recovered. */

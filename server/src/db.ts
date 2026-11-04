@@ -573,6 +573,17 @@ CREATE TABLE IF NOT EXISTS customer_executions (
   delivered_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS customer_executions_retention ON customer_executions(result_state, retention_until_ms);
+-- Job 003o: one unit outcome per reserved request: charge the delivered use, or release the
+-- unused unit. Its own state, separate from the invocation's provider cost (never counted twice).
+CREATE TABLE IF NOT EXISTS customer_settlements (
+  request_id TEXT PRIMARY KEY REFERENCES customer_requests(id),
+  kind TEXT NOT NULL CHECK (kind IN ('charge','release')),
+  state TEXT NOT NULL CHECK (state IN ('requested','unknown','charged','returned','conflict','unresolved')),
+  reason TEXT, eligibility TEXT NOT NULL,
+  submissions INTEGER NOT NULL DEFAULT 0, lease_gen INTEGER NOT NULL DEFAULT 0, lease_until INTEGER,
+  evidence TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS customer_settlements_due ON customer_settlements(state, updated_at);
 CREATE TRIGGER IF NOT EXISTS customer_request_events_no_update BEFORE UPDATE ON customer_request_events
 BEGIN SELECT RAISE(ABORT, 'customer request events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS customer_request_events_no_delete BEFORE DELETE ON customer_request_events
