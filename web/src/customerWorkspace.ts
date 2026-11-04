@@ -78,6 +78,15 @@ export interface WorkspaceState {
 export type DoubtAction = "authorize" | "run" | "release" | "check_unit" | "cancel";
 const DOUBT: readonly Action[] = ["authorize", "run", "release", "check_unit", "cancel"];
 
+/** A failure on this device before anything was sent (001j1): definite, never "answer lost". */
+class NotSent extends Error {
+  constructor(readonly cause: unknown) {
+    super("not sent");
+  }
+}
+const NOT_SENT =
+  "Your authorization wasn't completed on this device, so nothing was sent and nothing is held. You can authorize this same request again.";
+
 /** No answer, a gateway failure, or an answer we couldn't read: the server may have acted. */
 const unansweredError = (e: unknown) =>
   !(e instanceof ApiError) || e.status >= 500 || e instanceof MalformedAnswer;
@@ -244,6 +253,10 @@ export class CustomerWorkspace {
       if (gen !== this.generation) return;
       if (e instanceof ApiError && e.status === 404 && this.state.use) return this.gone();
       const use = this.state.use;
+      if (e instanceof NotSent) {
+        this.set({ notice: { tone: "warn", code: "not_sent", message: NOT_SENT } });
+        return;
+      }
       if (DOUBT.includes(action) && use && unansweredError(e)) {
         // 001j1: the server may have acted; the request shown is stale until it is read again.
         const doubt = action as DoubtAction;
@@ -484,14 +497,22 @@ export class CustomerWorkspace {
       return;
     }
     return this.act("authorize", async (gen) => {
-      await this.checkEnvelope(); // again, now: the time to authorize may have passed
-      if (gen !== this.generation) return;
-      if (!this.state.check?.ok) return;
       const env = use.envelope as NonNullable<UseView["envelope"]>;
-      const s = await a.sign({
-        hold_message_hex: env.hold.message_hex,
-        use_message_hex: env.use.message_hex,
-      });
+      let s: Awaited<ReturnType<CustomerAuthorizer["sign"]>>;
+      // 001j1 (Astra's recovery review): everything before `confirm` happens on this device. A
+      // failure here (the check, the key, the signer refusing) sent nothing, so it is never
+      // treated as a lost answer: the same request can simply be authorized again.
+      try {
+        await this.checkEnvelope(); // again, now: the time to authorize may have passed
+        if (gen !== this.generation) return;
+        if (!this.state.check?.ok) return;
+        s = await a.sign({
+          hold_message_hex: env.hold.message_hex,
+          use_message_hex: env.use.message_hex,
+        });
+      } catch (e) {
+        throw new NotSent(e);
+      }
       if (gen !== this.generation) return;
       this.applyUse(
         await this.port.confirm(use.id, { envelope_digest: env.envelope_digest, ...s }),
@@ -586,27 +607,37 @@ function found(action: DoubtAction, u: UseView): Notice {
   const x = u.execution;
   switch (action) {
     case "run":
+      // Astra's recovery review: say what is recorded now; never infer more from the read.
       if (!x)
         return {
           tone: "info",
-          code: "run_not_started",
+          code: "run_not_recorded",
           message:
-            "Checked: this request shows no run, so it didn't start and nothing was charged. Running it now uses the same request.",
+            "Checked: no run is recorded for this request yet, and nothing has been charged for it. Running it uses this same request.",
         };
-      return ok(
-        x.state === "running"
-          ? "Checked: it is running. It is never run twice."
-          : x.state === "completed"
-            ? "Checked: the run finished. Nothing was run twice."
-            : "Checked: the run ended without a usable result. It isn't run again automatically.",
-      );
+      if (x.state === "unknown")
+        return {
+          tone: "warn",
+          code: "run_unknown",
+          message:
+            "Checked: it can't be told whether this run finished. It is never run again automatically, and it isn't charged.",
+        };
+      return x.state === "running"
+        ? ok("Checked: it is running. It is never run twice.")
+        : x.state === "completed"
+          ? ok("Checked: the run finished. Nothing was run twice.")
+          : {
+              tone: "warn",
+              code: "run_no_result",
+              message: `Checked: the run ${x.state === "cancelled" ? "was cancelled" : "failed"} without a usable result. It isn't run again automatically.`,
+            };
     case "authorize":
       return u.state === "prepared"
         ? {
             tone: "info",
             code: "authorization_not_recorded",
             message:
-              "Checked: your authorization wasn't recorded, so nothing is held. You can authorize this same request again.",
+              "Checked: no authorization is recorded for this request yet, so nothing is held now. You can authorize this same request.",
           }
         : ok("Checked: your authorization was received. What happened next is shown below.");
     default:

@@ -239,16 +239,52 @@ export function CustomerResult({ r }: { r: ResultView }) {
   );
 }
 
-function ResultArea({
+/**
+ * The active step card's heading: the request's own headline. 001j1 (Astra's recovery review):
+ * while a lost answer is in doubt that headline is from before it, so it is shown only as the
+ * last reading, never as the current instruction.
+ */
+export function StepHeading({ s }: { s: WorkspaceState }) {
+  const use = s.use;
+  if (use && s.inDoubt?.useId === use.id)
+    return (
+      <>
+        <h2 id="use-compose-title">Check this request</h2>
+        <p className="muted">
+          Your last request didn't get an answer, so what it did isn't known here yet. As last read
+          before it: {use.headline.title.toLowerCase()}.
+        </p>
+      </>
+    );
+  return (
+    <>
+      <h2 id="use-compose-title">
+        {use ? use.headline.title : s.unanswered ? "Request not answered" : "Your document"}
+      </h2>
+      {use && <p className="muted">{use.headline.detail}</p>}
+    </>
+  );
+}
+
+export function ResultArea({
   use,
   result,
   fields,
+  inDoubt = false,
 }: {
   use: UseView | null;
   result: ResultView | null;
   fields: string[];
+  inDoubt?: boolean;
 }) {
   if (result) return <CustomerResult r={result} />;
+  // 001j1: no instruction from the stale state while a lost answer is in doubt.
+  if (inDoubt)
+    return (
+      <p className="use-placeholder">
+        Not known until this request is checked: it may already have a result.
+      </p>
+    );
   const x = use?.execution;
   // Job 001j: nothing has run: a compact placeholder that says what will appear, not a tall blank.
   if (!x)
@@ -479,10 +515,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
 
       <div className="use-grid">
         <section className="card use-compose" aria-labelledby="use-compose-title">
-          <h2 id="use-compose-title">
-            {use ? use.headline.title : s.unanswered ? "Request not answered" : "Your document"}
-          </h2>
-          {use && <p className="muted">{use.headline.detail}</p>}
+          <StepHeading s={s} />
           {!use && s.unanswered && (
             <p className="notice info" role="note">
               Your request for a {s.unanswered.chars.toLocaleString()}-character document was sent,
@@ -564,7 +597,12 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
 
         <section className="card use-result" aria-labelledby="use-result-title" aria-live="polite">
           <h2 id="use-result-title">{s.result ? "Your result" : "Result"}</h2>
-          <ResultArea use={use} result={s.result} fields={fields} />
+          <ResultArea
+            use={use}
+            result={s.result}
+            fields={fields}
+            inDoubt={!!use && s.inDoubt?.useId === use.id}
+          />
         </section>
 
         <section className="card use-recent-card" aria-labelledby="use-recent-title">

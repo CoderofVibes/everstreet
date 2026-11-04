@@ -23,7 +23,13 @@ import type { CustomerPort } from "../src/customerApi.ts";
 import type { CustomerAuthorizer } from "../src/customerAuthorizer.ts";
 import { activeCustomerStep, completeResult, customerSteps } from "../src/customerView.ts";
 import { CustomerWorkspace, nextStep, type WorkspaceState } from "../src/customerWorkspace.ts";
-import { CustomerProgress, CustomerResult, StepActions } from "../src/pages/CustomerProduct.tsx";
+import {
+  CustomerProgress,
+  CustomerResult,
+  ResultArea,
+  StepActions,
+  StepHeading,
+} from "../src/pages/CustomerProduct.tsx";
 
 const INVOICE =
   "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD";
@@ -83,7 +89,10 @@ const testAuthorizer = (): CustomerAuthorizer => {
 let keys = 0;
 const makeKey = () => `view-key-${String(++keys).padStart(6, "0")}`;
 
-async function setup(override: Partial<CustomerPort> = {}) {
+async function setup(
+  override: Partial<CustomerPort> = {},
+  authorizer: () => CustomerAuthorizer = testAuthorizer,
+) {
   const w = await customerWorld({ customer: { protection: new SyntheticProtection() } });
   const offer = await w.offer();
   // Synthetic: publish the founder's business so its offer is public.
@@ -102,7 +111,7 @@ async function setup(override: Partial<CustomerPort> = {}) {
       personId: w.cara.id,
       offerId: useId ? undefined : offer,
       useId,
-      authorizer: testAuthorizer,
+      authorizer,
       now: () => w.clock.now,
       makeKey,
     });
@@ -388,6 +397,18 @@ describe("001j1 a lost answer is recovered visibly, on the same request", () => 
     expect(html).not.toContain("return my unit");
     expect(statuses(s)).toMatchObject({ run: "attention", result: "waiting" });
     expect(runs()).toBe(1);
+    // Astra's recovery review: the heading and result area don't keep the stale instruction.
+    const use = s.use;
+    const card = renderToStaticMarkup(
+      <>
+        <StepHeading s={s} />
+        <ResultArea use={use} result={null} fields={[]} inDoubt />
+      </>,
+    );
+    expect(card).toContain("Check this request");
+    expect(card).toContain("Not known until this request is checked");
+    expect(card).not.toMatch(/Run it when you.re ready/);
+    expect(card).not.toContain(use?.headline.detail ?? "(none)");
 
     // The check's read fails: still in doubt, still the same action, nothing run.
     box.failReads = 1;
@@ -421,12 +442,85 @@ describe("001j1 a lost answer is recovered visibly, on the same request", () => 
     await ws.run();
     expect(nextStep(ws.getState()).action).toBe("check_request");
     await ws.checkRequest();
-    expect(ws.getState().notice?.code).toBe("run_not_started");
+    // Astra's recovery review: the read says what is recorded now, nothing more.
+    expect(ws.getState().notice).toMatchObject({
+      code: "run_not_recorded",
+      message: expect.stringMatching(/^Checked: no run is recorded for this request yet/),
+    });
     expect(nextStep(ws.getState()).action).toBe("run");
     expect(runs()).toBe(0);
     await ws.run();
     expect(ws.getState().use).toMatchObject({ id, execution: { state: "completed" } });
     expect(runs()).toBe(1);
+  });
+
+  it("a lost execute whose run ended unknown: the check keeps it unknown, never 'ended'", async () => {
+    const { w, open, runs } = await losing("execute", "acted");
+    const ws = open();
+    await reserved(ws);
+    w.provider.script = async () => {
+      throw new RuntimeFailure("No answer", "provider_error", null);
+    };
+    await ws.run();
+    expect(nextStep(ws.getState()).action).toBe("check_request");
+    await ws.checkRequest();
+    const s = ws.getState();
+    expect(s.use?.execution?.state).toBe("unknown");
+    expect(s.notice).toMatchObject({ tone: "warn", code: "run_unknown" });
+    expect(s.notice?.message).toMatch(/can't be told whether this run finished/);
+    expect(s.notice?.message).not.toMatch(/ended|failed/);
+    expect(nextStep(s).action).not.toBe("run");
+    expect(runs()).toBe(1);
+  });
+
+  it("the signer fails on this device: nothing sent, no doubt, the same request can be authorized", async () => {
+    let fail = true;
+    let confirms = 0;
+    const box: { real?: CustomerPort } = {};
+    const failing = (): CustomerAuthorizer => {
+      const real = testAuthorizer();
+      return {
+        ...real,
+        sign: async (m) => {
+          if (fail) {
+            fail = false;
+            throw new Error("The signer was closed");
+          }
+          return real.sign(m);
+        },
+      };
+    };
+    const { w, open } = await setup(
+      {
+        confirm: async (id, b) => {
+          confirms++;
+          return box.real?.confirm(id, b);
+        },
+      },
+      failing,
+    );
+    box.real = portOver(w.cara, () => {
+      w.clock.now = Number(w.chain.ts);
+    });
+    const ws = open();
+    await ws.start();
+    ws.setDraft(INVOICE);
+    await ws.prepare();
+    const id = ws.getState().use?.id;
+    await ws.authorize();
+    let s = ws.getState();
+    expect(confirms).toBe(0);
+    expect(s.inDoubt).toBeNull();
+    expect(s.notice).toMatchObject({ code: "not_sent" });
+    expect(s.notice?.message).toMatch(/nothing was sent and nothing is held/);
+    expect(nextStep(s).action).toBe("authorize");
+    const html = controls(s);
+    expect(html).toContain("Authorize this one use");
+    expect(html).not.toContain("Check what happened");
+    await ws.authorize();
+    s = ws.getState();
+    expect(confirms).toBe(1);
+    expect(s.use).toMatchObject({ id, state: "reserved" });
   });
 
   it("an explicit refusal is a definite answer: no doubt, the refusal is shown", async () => {

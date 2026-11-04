@@ -168,6 +168,19 @@ have acted:
 The server's idempotency and its actor and request fences are unchanged. The lost prepare is the
 existing 003q1 recovery.
 
+**Finishing corrections (Astra's CustomerRecoveryReview):**
+- **A failure on this device before `confirm`** (the envelope recheck, the key, or the signer
+  refusing) sent nothing. It is a definite "nothing was sent", the same request can be authorized
+  again, and it is never treated as a lost answer.
+- **The check's message says what is recorded now:**
+  - an unknown run stays unknown ("can't be told whether this run finished"), never "ended";
+  - an empty read says "no run is recorded for this request yet", or "no authorization is
+    recorded yet";
+  - it never infers what a dispatched request will do.
+- **While in doubt, the step card's heading reads "Check this request".** The request's old
+  headline shows only as the last reading, and the result area says "not known until this
+  request is checked". Neither repeats a stale instruction such as "Run it when you're ready".
+
 ## Disposable preview
 
 ```

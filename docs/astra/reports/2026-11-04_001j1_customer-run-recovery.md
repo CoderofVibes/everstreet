@@ -47,3 +47,26 @@ The cause is that `act()` only set a "lost" notice: the request state stayed as 
   - the same with `/lose/confirm` and `/lose/release`, if those routes exist in the preview's `LOSE_ROUTES`.
 - **Actor change.** A different person gets a new workspace instance per page mount; the marker is in memory only. I didn't change how the page remounts on an account switch.
 - **Still open.** No backend, provider, chain or main-wiring change. All six milestones and the live gates remain open. 002e is next after review.
+
+## Finishing corrections (Astra's CustomerRecoveryReview)
+
+Separate commit after `f9e6cd1`; see its hash in JOBS.
+- **Signer failure on this device.** Everything before `confirm` (the envelope recheck, the key,
+  `sign`) runs in a `NotSent` guard. A failure there gives "nothing was sent and nothing is held":
+  no doubt and no "Check" control, and Authorize is offered again for the same request.
+  - Test: the authorizer refuses once. That makes zero confirm calls and renders Authorize, not
+    Check. Authorizing again makes one confirm call and the same request becomes `reserved`.
+- **Lost execute, then the provider's outcome is unknown.** The check reports "can't be told
+  whether this run finished … never run again automatically", with tone warn. It is never
+  "ended" or "failed"; the next action is not Run; one provider call.
+- **An empty read says what is recorded now.** For a run: "no run is recorded for this request
+  yet". For an authorization: "no authorization is recorded for this request yet". It no longer
+  says the run "didn't start".
+- **While in doubt, `StepHeading` reads "Check this request".** The old headline appears only as
+  "as last read before it". `ResultArea` says "Not known until this request is checked" instead
+  of "Reserved. Run it when you're ready."
+  - Tested by rendering both components with the real in-doubt state.
+- **Undoing each fix on purpose makes its test fail:** the `NotSent` branch, the unknown branch
+  and the in-doubt heading.
+- **Full run.** `npm run check` gave 1102 tests in 111 files; `npm run web:build` passed at
+  853.95 kB. Still not browser-verified by me.
