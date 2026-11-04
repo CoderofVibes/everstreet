@@ -31,7 +31,7 @@ const types: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 const site = new Hono();
-site.route("/", p.api);
+site.route("/", p.site);
 site.get("*", (c) => {
   if (!existsSync(dist)) return c.text("Run `npm run web:build` first.", 503);
   const path = normalize(c.req.path).replace(/^([/\\])+/, "");
@@ -61,7 +61,27 @@ setInterval(async () => {
   }
 }, 1000);
 
+// 002e1: synthetic recovery controls (loopback only), for repeating the recovery flows by hand.
+const control = new Hono();
+control.get("/", (c) => c.json(p.controls.state()));
+control.post("/generation/lose", (c) => {
+  p.controls.loseNextGeneration();
+  return c.json({ next_generation: "answer lost after the server acts" });
+});
+control.post("/generation/complete", async (c) =>
+  c.json({ ran: await p.controls.completeGeneration() }),
+);
+control.post("/reads/fail/:n", (c) => {
+  p.controls.failReads(Number(c.req.param("n")));
+  return c.json(p.controls.state());
+});
+serve({ fetch: control.fetch, port: PORT + 1, hostname: "127.0.0.1" });
+
 console.log("Web app preview: FICTIONAL, SYNTHETIC, in memory. Nothing is real or sent.");
+console.log(
+  `  Controls: http://127.0.0.1:${PORT + 1}/  GET state; POST /generation/lose, /generation/complete, /reads/fail/<n ≤ 20>`,
+);
+console.log("  A generation started in the browser stays queued until /generation/complete.");
 console.log(
   `  Studio, Web app view (as Ava Chen): http://127.0.0.1:${PORT}/build/${p.projectId}?view=app`,
 );

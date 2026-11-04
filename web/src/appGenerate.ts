@@ -32,9 +32,14 @@ export interface GenerationState {
   job: GenerationJob | null;
   busy: boolean;
   notice: string | null;
+  /** 002e1: the last progress read failed; "Check progress" tries again (never a new job). */
+  readFailed: boolean;
 }
 
 const LIVE = ["queued", "running", "validating"];
+/** 002e1: what is kept across a reload: the unanswered request, or the acknowledged job. */
+type Kept = { kind: "request"; request: GenerationRequest } | { kind: "job"; id: string };
+const ID = /^[0-9a-f-]{36}$/;
 const KEY = /^[A-Za-z0-9_-]{8,80}$/;
 
 export class Generations {
@@ -45,6 +50,7 @@ export class Generations {
     job: null,
     busy: false,
     notice: null,
+    readFailed: false,
   };
   private listeners = new Set<() => void>();
 
@@ -58,7 +64,11 @@ export class Generations {
     },
   ) {
     const kept = this.recall();
-    if (kept) this.state = { ...this.state, pending: kept, unanswered: true };
+    if (kept?.kind === "request")
+      this.state = { ...this.state, pending: kept.request, unanswered: true };
+    // An acknowledged job is recovered by its id; its state is read before anything else.
+    if (kept?.kind === "job")
+      this.state = { ...this.state, job: { id: kept.id, state: "unknown", failure: null } };
   }
 
   getState = () => this.state;
@@ -73,25 +83,32 @@ export class Generations {
   private storeKey() {
     return `everstreet.app-generation.${this.opts.scope}`;
   }
-  private remember(r: GenerationRequest | null) {
+  private remember(k: Kept | null) {
     try {
-      if (r) this.opts.storage?.setItem(this.storeKey(), JSON.stringify(r));
+      if (k) this.opts.storage?.setItem(this.storeKey(), JSON.stringify(k));
       else this.opts.storage?.removeItem(this.storeKey());
     } catch {
       // storage denied: in-session recovery still works
     }
   }
-  private recall(): GenerationRequest | null {
+  private recall(): Kept | null {
     try {
-      const v = JSON.parse(
-        this.opts.storage?.getItem(this.storeKey()) ?? "null",
-      ) as GenerationRequest | null;
-      return v && typeof v.key === "string" && KEY.test(v.key) && typeof v.instructions === "string"
-        ? v
+      const v = JSON.parse(this.opts.storage?.getItem(this.storeKey()) ?? "null") as
+        | (Kept & { request?: GenerationRequest })
+        | null;
+      if (v?.kind === "job") return typeof v.id === "string" && ID.test(v.id) ? v : null;
+      const r = v?.kind === "request" ? v.request : null;
+      return r && typeof r.key === "string" && KEY.test(r.key) && typeof r.instructions === "string"
+        ? { kind: "request", request: r }
         : null;
     } catch {
       return null;
     }
+  }
+  /** Keeps the job until a terminal state has been read back. */
+  private settle(job: GenerationJob) {
+    if (LIVE.includes(job.state)) this.remember({ kind: "job", id: job.id });
+    else this.remember(null);
   }
 
   setDraft(text: string) {
@@ -106,7 +123,12 @@ export class Generations {
     budget: GenerationBudget;
   }) {
     if (this.state.busy) return;
-    if (this.state.job && LIVE.includes(this.state.job.state)) return;
+    // A known job not yet read to its end blocks a new paid generation (also "unknown" after a reload).
+    if (
+      this.state.job &&
+      (LIVE.includes(this.state.job.state) || this.state.job.state === "unknown")
+    )
+      return;
     const request: GenerationRequest = this.state.pending ?? {
       key: this.opts.newKey(),
       instructions: this.state.draft.trim(),
@@ -115,7 +137,7 @@ export class Generations {
     if (!request.instructions) return;
     const fresh = this.state.pending === null;
     // Kept BEFORE sending: a reload during the call still finds it.
-    this.remember(request);
+    this.remember({ kind: "request", request });
     this.set({
       pending: request,
       busy: true,
@@ -125,8 +147,9 @@ export class Generations {
     });
     try {
       const r = await this.port.generate(request);
-      this.remember(null);
-      this.set({ pending: null, unanswered: false, job: r.job, busy: false });
+      // 002e1: acknowledged is not finished: the job stays recoverable until its end is read.
+      this.settle(r.job);
+      this.set({ pending: null, unanswered: false, job: r.job, busy: false, readFailed: false });
     } catch (e) {
       const lost = !(e instanceof ApiError) || e.status >= 500;
       if (lost) {
@@ -151,15 +174,28 @@ export class Generations {
     }
   }
 
-  /** Reads the job's state again (polling while it is live). */
+  /**
+   * Reads the job's state again ("Check progress", and polling while it is live). A failed read
+   * keeps the job and says so; a definite 404 (access ended) forgets it here.
+   */
   async refresh() {
     const j = this.state.job;
     if (!j) return;
     try {
       const r = await this.port.build(j.id);
-      this.set({ job: r.job });
-    } catch {
-      // keep the last known state; the next poll tries again
+      if (this.state.job?.id !== j.id) return;
+      this.settle(r.job);
+      this.set({ job: r.job, readFailed: false });
+    } catch (e) {
+      if (this.state.job?.id !== j.id) return;
+      if (e instanceof ApiError && e.status === 404) {
+        this.remember(null);
+        this.set({
+          job: null,
+          readFailed: false,
+          notice: "That generation is no longer available to you here.",
+        });
+      } else this.set({ readFailed: true });
     }
   }
 
@@ -169,6 +205,7 @@ export class Generations {
     this.set({ busy: true });
     try {
       const r = await this.port.cancelBuild(j.id);
+      this.settle(r.job);
       this.set({ job: r.job, busy: false });
     } catch (e) {
       this.set({ busy: false, notice: e instanceof Error ? e.message : "Couldn't cancel" });

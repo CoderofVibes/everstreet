@@ -9,6 +9,7 @@
 // unavailable: nothing ran". There is no test-double engine here, so nothing is shown as passed.
 // Preview is served on a separate site (localhost vs 127.0.0.1).
 
+import { Hono } from "hono";
 import { everstreetApi } from "../../server/src/app.ts";
 import { AppChecks } from "../../server/src/appChecks.ts";
 import { AppCheckWorker } from "../../server/src/appCheckWorker.ts";
@@ -127,5 +128,65 @@ export async function appPreview(opts: { port: number; wslDistro?: string }) {
   // The real check worker: one at a time, polled while the preview runs.
   const checkWorker = new AppCheckWorker(checks, engine, { id: "preview-checks" });
   checkWorker.recover();
-  return { api, projectId, people: { ava: ava.id }, builds: { worker }, checkWorker };
+
+  // 002e1: SYNTHETIC recovery controls for Astra's browser repeat (bounded; no real call). A
+  // generation submitted in the browser stays queued until `completeGeneration` runs it.
+  const faults = { loseGeneration: false, failReads: 0 };
+  const site = new Hono();
+  site.use("*", async (c, next) => {
+    const path = c.req.path;
+    const read =
+      c.req.method === "GET" &&
+      (/^\/api\/builds\/[^/]+$/.test(path) ||
+        /^\/api\/product-projects\/[^/]+\/app-versions$/.test(path));
+    if (read && faults.failReads > 0) {
+      faults.failReads--;
+      return c.json({ error: "Preview: a synthetic read failure" }, 503);
+    }
+    await next();
+    if (
+      faults.loseGeneration &&
+      c.req.method === "POST" &&
+      /^\/api\/product-projects\/[^/]+\/builds$/.test(path) &&
+      c.res.status < 300
+    ) {
+      faults.loseGeneration = false;
+      // The server acted (the job exists); only its answer is lost.
+      c.res = new Response(
+        JSON.stringify({ error: "Preview: the answer was lost after the server acted" }),
+        {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }
+  });
+  site.route("/", api);
+  const controls = {
+    loseNextGeneration: () => {
+      faults.loseGeneration = true;
+    },
+    failReads: (n: number) => {
+      faults.failReads = Math.max(0, Math.min(20, Math.floor(n)));
+    },
+    /** Runs the oldest queued scripted generation once (no model). */
+    completeGeneration: () => worker.runNext(),
+    state: () => ({
+      ...faults,
+      queued_generations: (
+        store.db.prepare("SELECT COUNT(*) AS n FROM build_jobs WHERE state = 'queued'").get() as {
+          n: number;
+        }
+      ).n,
+    }),
+  };
+  return {
+    api,
+    site,
+    controls,
+    projectId,
+    people: { ava: ava.id },
+    builds: { worker },
+    checkWorker,
+  };
 }

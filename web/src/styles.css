@@ -1182,17 +1182,21 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 @media (max-width: 760px) { .room-title { font-size: 28px; } .room-tagline { font-size: 16px; } .room-access { grid-template-columns: 1fr; } .room-access .btn { justify-self: start; } }
 
 /* Job 002e: the Studio web app view. */
-.app-view { display: grid; gap: 16px; }
+/* 002e1 (Astra: 390 px Compare made the document 477 px): the view's grids get a shrinkable
+   column and their children may shrink, so long code scrolls inside its own region. */
+.app-view { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.app-view > * { min-width: 0; }
 .app-view h2 { margin-top: 0; }
 .app-note { font-size: 13.5px; margin: 6px 0 0; }
-.app-versions { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.app-versions { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.app-version, .app-diff, .app-check { min-width: 0; }
 .app-version { border-top: 1px solid var(--line); padding-top: 12px; }
 .app-version:first-child { border-top: 0; padding-top: 0; }
 .app-version-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .app-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .app-preview-frame { width: 100%; height: 480px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fff; margin-top: 10px; }
 .app-diff h3 { font-size: 13.5px; margin: 14px 0 6px; }
-.app-diff pre { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px; }
+.app-diff pre { max-width: 100%; margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px; }
 .app-diff-add { color: var(--success); background: var(--success-soft); }
 .app-diff-del { color: var(--error); background: var(--error-soft); }
 @media (max-width: 760px) { .app-preview-frame { height: 380px; } }

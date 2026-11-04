@@ -53,4 +53,45 @@ describe("002e web app preview scenario", () => {
     );
     expect(await doc.text()).toContain("Lumen Parse API");
   });
+
+  it("002e1 recovery controls: a lost answer after the server acted, failed reads, explicit completion", async () => {
+    const p = await appPreview({ port: 8858 });
+    const s = await p.site.request(`/api/session/as/${p.people.ava}`, { method: "POST" });
+    const cookie = (s.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const call = (path: string, method = "GET", body?: unknown) =>
+      p.site.request(path, {
+        method,
+        headers: { cookie, "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    const request = {
+      idempotency_key: "browser-like-0001",
+      revision: 1,
+      intent: "app",
+      instructions: "Add an annual price",
+      budget: {
+        max_input_tokens: 1000,
+        max_output_tokens: 1000,
+        max_seconds: 60,
+        max_cost_cents: 1,
+      },
+    };
+    p.controls.loseNextGeneration();
+    const lost = await call(`/api/product-projects/${p.projectId}/builds`, "POST", request);
+    expect(lost.status).toBe(502);
+    expect(p.controls.state().queued_generations).toBe(1); // the server acted
+    // Recovery with the same key returns that job: still one queued generation.
+    const again = await call(`/api/product-projects/${p.projectId}/builds`, "POST", request);
+    expect(again.status).toBe(200);
+    const id = ((await again.json()) as { job: { id: string } }).job.id;
+    expect(p.controls.state().queued_generations).toBe(1);
+    p.controls.failReads(2);
+    expect((await call(`/api/builds/${id}`)).status).toBe(503);
+    expect((await call(`/api/product-projects/${p.projectId}/app-versions`)).status).toBe(503);
+    expect((await call(`/api/builds/${id}`)).status).toBe(200);
+    expect(await p.controls.completeGeneration()).toBe(id);
+    const done = (await (await call(`/api/builds/${id}`)).json()) as { job: { state: string } };
+    expect(done.job.state).toBe("succeeded");
+    expect(p.controls.state().queued_generations).toBe(0);
+  });
 });

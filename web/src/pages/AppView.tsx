@@ -332,16 +332,28 @@ export function AppView({
   }, [load]);
 
   // Poll finitely, only while something is in flight.
-  const jobLive = g.job !== null && ["queued", "running", "validating"].includes(g.job.state);
+  // 002e1: a job recovered after a reload is "unknown" until read; it counts as unfinished.
+  const jobLive =
+    g.job !== null && ["queued", "running", "validating", "unknown"].includes(g.job.state);
   const inFlight =
     jobLive || (view?.checks ?? []).some((c) => c.state === "queued" || c.state === "running");
+  const [pollStopped, setPollStopped] = useState(false);
+  const checkProgress = async () => {
+    polls.current = 0;
+    setPollStopped(false);
+    await gen.refresh();
+    await load();
+  };
   useEffect(() => {
     if (!inFlight) {
       polls.current = 0;
       return;
     }
     const t = setTimeout(async () => {
-      if (++polls.current > MAX_POLLS) return;
+      if (++polls.current > MAX_POLLS) {
+        setPollStopped(true); // automatic checking stops; "Check progress" stays available
+        return;
+      }
       if (g.job) await gen.refresh();
       await load();
     }, POLL_MS);
@@ -480,13 +492,29 @@ export function AppView({
           )}
         </div>
         {g.job && (
-          <p className="notice" role="status">
-            {jobLive
-              ? `Generating: ${g.job.state}.`
-              : g.job.state === "succeeded"
-                ? "The new version is ready below."
-                : `The generation ended (${g.job.state})${g.job.failure ? `: ${g.job.failure.detail}` : "."}`}
-          </p>
+          <div className="notice" role="status">
+            <p>
+              {g.job.state === "unknown"
+                ? "A generation you started is still known here; reading its progress…"
+                : jobLive
+                  ? `Generating: ${g.job.state}.`
+                  : g.job.state === "succeeded"
+                    ? "The new version is ready below."
+                    : `The generation ended (${g.job.state})${g.job.failure ? `: ${g.job.failure.detail}` : "."}`}
+              {g.readFailed && " Its progress couldn't be read just now."}
+              {pollStopped && jobLive && " Automatic checking has stopped."}
+            </p>
+            {jobLive && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={g.busy}
+                onClick={() => void checkProgress()}
+              >
+                Check progress
+              </button>
+            )}
+          </div>
         )}
         {g.notice && !g.unanswered && <p className="notice">{g.notice}</p>}
         {note && (

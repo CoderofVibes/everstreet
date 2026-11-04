@@ -93,6 +93,8 @@ async function setup() {
   await go(`/api/businesses/${p.project.business_id}/build-budget`, "PUT", { limit_cents: 100 });
   let lose = 0;
   let refuse = false;
+  /** The next n progress reads fail: a network failure (status 0) or that HTTP status. */
+  const readFail = { n: 0, status: 0 };
   const port: GenerationPort = {
     generate: async (r: GenerationRequest) => {
       if (refuse) throw new ApiError(409, "Not enough AI budget");
@@ -109,7 +111,15 @@ async function setup() {
       }
       return answer as never;
     },
-    build: async (id) => (await go(`/api/builds/${id}`)) as never,
+    build: async (id) => {
+      if (readFail.n > 0) {
+        readFail.n--;
+        throw readFail.status
+          ? new ApiError(readFail.status, "No such build")
+          : new TypeError("network");
+      }
+      return (await go(`/api/builds/${id}`)) as never;
+    },
     cancelBuild: async (id) => (await go(`/api/builds/${id}/cancel`, "POST")) as never,
   };
   const worker = new BuildWorker(builds, provider, { id: "b1" });
@@ -127,6 +137,10 @@ async function setup() {
     },
     refuseNext: (v: boolean) => {
       refuse = v;
+    },
+    failReads: (n: number, status = 0) => {
+      readFail.n = n;
+      readFail.status = status;
     },
   };
 }
@@ -196,6 +210,61 @@ describe("002e generation requests survive a lost answer (one paid build)", () =
       notice: "Not enough AI budget",
     });
     expect(w.jobs().n).toBe(0);
+    expect(storage.m.size).toBe(0);
+  });
+});
+
+// Job 002e1 (Astra's AppStudioReview follow-up on 0da94e6): an ACKNOWLEDGED generation must stay
+// recoverable through a reload until a terminal readback; progress stays reachable after read
+// failures; access loss clears it; another scope never sees it.
+describe("002e1 an acknowledged generation survives a reload until its outcome is read", () => {
+  it("queued job -> reload -> the same job is recovered, read to its end, then forgotten", async () => {
+    const w = await setup();
+    const storage = new MemoryStorage();
+    const g = new Generations(w.port, { scope: "ava:p:0", storage, newKey });
+    g.setDraft("A plan estimator");
+    await g.submit(w.base);
+    const id = g.getState().job?.id;
+    expect(g.getState().job?.state).toBe("queued");
+    const reloaded = new Generations(w.port, { scope: "ava:p:0", storage, newKey });
+    expect(reloaded.getState().job?.id).toBe(id);
+    expect(
+      new Generations(w.port, { scope: "ben:p:0", storage, newKey }).getState().job,
+    ).toBeNull();
+    await reloaded.refresh();
+    expect(reloaded.getState().job).toMatchObject({ id, state: "queued" });
+    expect(storage.m.size).toBe(1);
+    // It can't start another paid generation while this one is live.
+    reloaded.setDraft("Something else");
+    await reloaded.submit(w.base);
+    expect(w.jobs().n).toBe(1);
+    await w.worker.runNext();
+    await reloaded.refresh();
+    expect(reloaded.getState().job).toMatchObject({ id, state: "succeeded" });
+    expect(storage.m.size).toBe(0);
+    expect(
+      new Generations(w.port, { scope: "ava:p:0", storage, newKey }).getState().job,
+    ).toBeNull();
+    expect(w.provider.calls).toBe(1);
+  });
+
+  it("failed progress reads keep the job and say so; checking again recovers; a 404 forgets it", async () => {
+    const w = await setup();
+    const storage = new MemoryStorage();
+    const g = new Generations(w.port, { scope: "ava:p:0", storage, newKey });
+    g.setDraft("A plan estimator");
+    await g.submit(w.base);
+    const id = g.getState().job?.id;
+    w.failReads(3);
+    for (let i = 0; i < 3; i++) await g.refresh();
+    expect(g.getState()).toMatchObject({ job: { id }, readFailed: true });
+    expect(storage.m.size).toBe(1);
+    await g.refresh(); // "Check progress"
+    expect(g.getState()).toMatchObject({ job: { id, state: "queued" }, readFailed: false });
+    w.failReads(1, 404);
+    await g.refresh();
+    expect(g.getState().job).toBeNull();
+    expect(g.getState().notice).toMatch(/no longer available/);
     expect(storage.m.size).toBe(0);
   });
 });
