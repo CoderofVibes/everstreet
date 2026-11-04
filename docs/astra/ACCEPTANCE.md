@@ -195,6 +195,12 @@ refresh clears private evidence. Harbor stale/conflict/mismatch presentation pas
 390 document widths contained. Controller malformed recheck is stuck checking and malformed
 refresh claims success:003j1 required.003k is next integration, not live/M3 acceptance.
 
+November3 at70bc241: independent548-test check/types/lint and webbuild pass.003j1 malformed
+access check now remains retryable in browser and valid retry restores refresh; obsolete status
+text remains003j2.003k exact closed Direct fixture/API tests pass, but revised cancelled outcome
+terminalizes old exact-version intent (independent coherent probe).003k1 adds exact terminal
+semantics and missing listing/grant/import/customer/Gated evidence. No live/M3 acceptance.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.
