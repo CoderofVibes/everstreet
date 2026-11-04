@@ -3,11 +3,13 @@
 Claude, 2026-11-04. Authority: [002e](../astra/jobs/2026-11-04_002e_executable-product-path.md).
 
 Inputs:
-- [WorkerHostCapabilities](../astra/2026-11-04_WorkerHostCapabilities.md): the observed host;
-- [WorkerSetupReview](../astra/2026-11-04_WorkerSetupReview.md): Astra's requirements;
-- `BUILD_RUNTIME.md` §8–9, which this replaces for executable products.
+- [WorkerHostCapabilities](../astra/2026-11-04_WorkerHostCapabilities.md);
+- [WorkerSetupReview](../astra/2026-11-04_WorkerSetupReview.md);
+- [ExecutableDesignReview](../astra/2026-11-04_ExecutableDesignReview.md). Its browser canary
+  showed that an opaque-origin module preview fails under the headers first proposed here (§6).
+  This revision corrects §1, §2, §5, §6, §7 and §8.
 
-**Status words used here:**
+**Status words:**
 - **implemented and tested:** with labelled doubles;
 - **implemented, never run on a real engine:** the adapter, launcher and guest;
 - **proposed host setup:** not performed.
@@ -18,32 +20,36 @@ No engine has been installed or booted. Isolation is **unverified** until the co
 ## 1. What a founder gets
 
 1. **"Generate a web app" in Studio.** It is a build job with intent `app` that returns
-   `web_app_bundle/1`: a small, versioned file bundle for a browser-only app (for example a
-   fictional quote calculator). It uses the same budgets, cancel, retry, fencing and recovery as
-   every build (BUILD_RUNTIME §3–5). No provider configured means "not connected", with no spend.
-2. **Validation on the platform.** Every returned bundle is parsed, rebuilt from checked parts,
-   statically checked and hashed (§2). Nothing in it executes on the platform host.
-3. **"Run checks in an isolated worker".** This is a separate, deterministic, unpaid job against
-   that exact digest (§3–4). It reports Passed, Failed, Unavailable (no verified engine), Unknown
-   (outcome lost) or Cancelled. A generation is never re-run because a check needs a retry.
-4. **Preview.** A sandboxed opaque-origin iframe served from a capability URL (§6), labelled with
-   its check state. The preview runs the app's own code in the founder's browser. That is the
-   browser's sandbox, not the worker's, and its limits are stated (§6).
-5. **Versions.** Every succeeded `app` job is an immutable version. The project's *current app
-   version* is an append-only pointer.
-   - **Request a change:** a new `app` job carries the current bundle and the founder's words.
-   - **Compare:** a file-level and line-level diff of two versions.
-   - **Restore:** move the pointer back to an older version; nothing is rewritten.
-   - **Interrupted builds** recover through the existing build recovery.
-
-The words stay distinct throughout:
+   `web_app_bundle/1`: a small versioned file bundle for a browser-only, single-page app (the
+   first one is a fictional print-shop quote calculator). It uses the same budgets, cancel, retry,
+   fencing and recovery as every build. No provider means "not connected", with no spend.
+2. **Validation on the platform.** Every bundle is parsed, rebuilt, statically checked and hashed
+   (§2). Nothing in it executes on the platform host.
+3. **"Run logic checks in an isolated worker".** A separate, deterministic, unpaid job against
+   that exact digest (§3–5).
+   - **States:** Passed, Failed, Unavailable (no verified engine: nothing ran), Unknown (outcome
+     lost) or Cancelled.
+   - **What it proves:** it checks the bundle's **logic modules** (§2). It is **not** a browser or
+     UI check.
+4. **Preview (§6).** A sandboxed iframe from a separate site and a capability URL.
+   - **Ordinary Preview opens the newest version whose logic checks passed.**
+   - **Unchecked versions:** a version without passed checks can be opened only through an
+     explicit "Open unchecked preview" with a warning. It is never the default, and never
+     presented as the product because the engine is missing.
+   - **What a preview proves:** the founder sees and uses the app's real UI. A preview proves
+     nothing about isolation.
+5. **Versions.** Every succeeded `app` job is an immutable version. A *current version* is an
+   append-only pointer.
+   - **Change:** a new `app` job carries the current bundle and the founder's words.
+   - **Compare:** a file and line diff.
+   - **Restore:** move the pointer back; nothing is rewritten.
 
 | Word | Means |
 |---|---|
 | Generated | a bundle passed platform validation |
-| Checks passed | the isolated worker ran the fixed recipe on that digest and every case passed, with the engine identity recorded |
-| Preview | it runs in your browser |
-| Released | not part of this job: releasing a web app to customers is later work, and existing extraction releases are untouched |
+| Logic checks passed | the isolated worker ran recipe `web_app_checks/1` on that digest; every case's value, compared by the trusted supervisor, matched; engine identity recorded |
+| Preview | the app runs in your browser, sandboxed, from a separate site |
+| Released | not in this job: customer release of web apps is later; extraction releases are untouched |
 
 ## 2. `web_app_bundle/1` (`server/src/appBundle.ts`)
 
@@ -51,259 +57,275 @@ An explicit JSON file list, never an archive:
 
 ```
 { kind: "web_app_bundle", schema_version: 1, name, description,
-  files: [{ path, text }],                       // media type comes from the extension, never the model
-  checks: [{ id, label, module, export, input, expect }] }   // declarative cases for the recipe
+  files: [{ path, text }],                       // media type from the extension, never the model
+  checks: [{ id, label, module, export, input, expect }] }
 ```
 
-- **Paths:**
-  - lowercase `^[a-z0-9][a-z0-9_-]{0,39}(/[a-z0-9][a-z0-9_-]{0,39}){0,2}\.(html|js|css|json)$`;
-  - so: no absolute paths, `..`, backslashes, drive letters, links, devices, case collisions or
-    hidden files;
-  - unique;
-  - `index.html` is required;
-  - at most 24 files.
+- **Paths:** lowercase `^[a-z0-9][a-z0-9_-]{0,39}(/[a-z0-9][a-z0-9_-]{0,39}){0,2}\.(html|js|css|json)$`,
+  unique, with `index.html` required, at most 24 files. That excludes absolute paths, `..`,
+  backslashes, links, devices, case collisions and hidden files.
 - **Text:**
   - well-formed (no lone surrogates);
   - NFC;
-  - no BOM, NUL or C0 controls except tab, LF and CR;
-  - at most 64 KiB per file and 256 KiB in total (UTF-8);
-  - the canonical JSON at most 320 KiB.
-- **Static references (not execution):**
-  - `src`/`href` in HTML and `import`/`from` specifiers in JS must be relative paths to files in
-    the bundle;
-  - no scheme, `//` or absolute path, so no external scripts, styles, images or fetch targets;
-  - inline event handlers (`on…=`) and `javascript:` are refused;
-  - CSP enforces the same at runtime (§6). The static check is an early refusal, not the
-    boundary.
-- **Checks:**
-  - 1–20 cases;
-  - `module` is a `.js` file in the bundle and `export` an identifier;
-  - `input` and `expect` are JSON values of at most 4 KiB each.
-  - The recipe calls the export with the input and compares the result for deep JSON equality.
-- **Digest:** SHA-256 of the canonical JSON (sorted keys). Provenance is stored as with
-  `extraction_spec/1`.
+  - no BOM, NUL or controls except tab, LF and CR;
+  - 64 KiB per file, 256 KiB in total, 320 KiB for the canonical JSON.
+- **Static refusals.** These are early refusals, not the boundary:
+  - references in HTML `src`/`href`/`action`/`srcset`/`poster`/`data`, CSS `url()`/`@import` and
+    JS `import`/`export … from` must resolve to bundle files;
+  - dynamic `import()`, inline scripts, inline styles, `on…=` handlers, `javascript:`, `iframe`,
+    `object`, `embed`, `base` and `meta http-equiv` are all refused.
+- **Module contract.** The recipe never imports browser modules in Node:
+  - **Logic modules:** a check's `module` must be a *logic module*. It exports pure functions and
+    touches no DOM or browser globals at load or call time. It is imported only in the worker.
+  - **UI modules:** every other `.js` file. These are *parsed* (syntax only, never executed) by
+    the worker.
+  - **The first supported app** splits its pricing into `quote.js` (logic, checked) and `app.js`
+    (UI, parsed only).
+  - **UI behaviour** is shown in Preview and reviewed there. Automated in-browser journey checks
+    are not in this slice and are never claimed.
+- **Digest:** SHA-256 of canonical JSON (sorted keys). Provenance is as for `extraction_spec/1`.
 
-## 3. Build contract change (`build.ts`, `builds.ts`)
+## 3. Build contract change (`build.ts`, `builds.ts`, `anthropic.ts`)
 
-- **Intent `app`.** `intent ∈ {build, propose, app}`. The intent fixes `outputSchema`
-  (`app → web_app_bundle/1`) and is already in the request fingerprint, so the expected kind is
-  part of the request identity.
-- **Validation.** The returned kind is validated by the intent's own validator; any other kind
-  fails `invalid_output`.
-- **Size.** The artifact bound for `app` is 320 KiB; other intents stay at 64 KiB.
-- **Change requests.** A change request carries `base_job` (a succeeded `app` job of the same
-  project). Its bundle goes to the provider as data.
-- **Storage.** Generation records (build jobs and artifacts) and execution records (`app_checks`)
-  are separate tables.
+- **Intent:** `intent ∈ {build, propose, app}`. The intent fixes `outputSchema`
+  (`app → web_app_bundle/1`) and is in the request fingerprint, along with `base_job` and
+  `instructions`.
+- **Validation:** each intent has its own validator; `app` accepts only `web_app_bundle`. The
+  output bound for `app` is 320 KiB; others stay at 64 KiB.
+- **Change requests:** `base_job` must be a succeeded `app` job of the same project, and its
+  bundle reaches the provider as data.
+- **Anthropic adapter:** has the `app` schema, with check values as JSON text parsed back by
+  `reshapeApp`. No live call has been made.
+- **Records:** generation records (`build_jobs`, `build_artifacts`) and execution records
+  (`app_checks`) are separate. A check retry never touches a generation.
 
-## 4. Isolated checks: orchestration (`server/src/appChecks.ts`)
+## 4. Logic checks: orchestration (`server/src/appChecks.ts`)
 
-`app_checks` (one row per request):
-- **Identity:** project, business, artifact job, digest, recipe id `web_app_checks/1`, owner id
-  and generation (the epoch), requester, idempotency key and fingerprint.
-- **Lifecycle fields:** engine identity at dispatch, state, attempt, lease, `dispatched_at`,
-  deadline, result (bounded JSON), measured usage where the engine reports it, failure code and
-  timestamps.
+`app_checks`: one row per request.
+- **Identity:** project, business, artifact job, digest, recipe, owner id and generation,
+  requester, idempotency key and fingerprint.
+- **Lifecycle:** engine identity at dispatch, state, attempt, lease, `dispatched_at`, deadline,
+  bounded result, measured usage and failure.
 
 ```
-queued ─claim─► running ─preflight fail─► unavailable        (nothing ran)
+queued ─claim─► running ─preflight fails─► unavailable          (nothing ran)
                    │ dispatch recorded
-                   ├─report valid, bound, all pass─► passed
-                   ├─report valid, a case fails ──► failed
-                   ├─engine error / bad report ───► failed (worker_error | invalid_report)
-                   ├─cancel / deadline ───────────► cancelled | failed(timeout)
-                   └─restart after dispatch ──────► unknown (never re-run automatically)
+                   ├─valid bound report, all pass ► passed
+                   ├─valid bound report, a fail ──► failed
+                   ├─engine error / bad report ──► failed (worker_error | invalid_report)
+                   ├─cancel / deadline ──────────► cancelled | failed(timeout)
+                   └─restart after dispatch ─────► unknown (never re-run automatically)
 ```
 
-- **Fences.** Every write requires the same attempt and lease and a live state. The owner epoch
-  is rechecked before dispatch and before the result is applied. A changed owner makes the check
-  `cancelled (ownership_changed)`, and the late output is dropped.
-- **Binding.** The report must name the job id, attempt, digest and recipe it was asked for.
-  Anything else is `invalid_report`, as are a duplicate report, partial output or an oversize
-  output.
-- **Concurrency.** One worker; one running check across the platform.
-- **Cost.** No model and no spend. A retry is a new request and never touches the generation job.
-- **Restart.** Not dispatched goes back to queued. Dispatched becomes `unknown`.
+- **Fences:** attempt, lease and live state on every write. The owner epoch is rechecked before
+  dispatch and before applying. A changed owner gives `cancelled (ownership_changed)` and the
+  late output is dropped.
+- **Report binding:** the report must name the check id, attempt, digest, recipe and engine
+  identity it was asked for. Otherwise it is `invalid_report`; so is a duplicate or a bad shape.
+- **Scope:** one worker, one running check platform-wide. No model call and no spend.
 
-## 5. The engine: Firecracker microVM with its jailer
+## 5. Engine: Firecracker microVM with its jailer
 
-### Engine and identities
+### Pinned identities (`scripts/worker-host/worker.lock.json`)
 
-Pinned, recorded in the job's engine identity, and verified at setup and in every preflight:
-
-| Component | Version | Source |
+| Component | Exact identity | Provenance |
 |---|---|---|
-| Firecracker and jailer | v1.17.0, x86_64 | release `firecracker-v1.17.0-x86_64.tgz`, checked against its `.sha256.txt` from the same release page. Assets confirmed on the official release page 2026-11-04; the binaries' names inside the archive are confirmed at setup, not assumed. |
-| Guest kernel and base root filesystem | a pinned key | the official Firecracker CI artifacts bucket (getting-started guide) |
-| Guest Node.js runtime | v24 LTS, a pinned exact version | official `linux-x64` tarball checked against its `SHASUMS256.txt` |
+| Firecracker and jailer | `firecracker-v1.17.0-x86_64.tgz`, sha256 `06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558` | release v1.17.0 `.sha256.txt` (fetched 2026-11-04). Binary names inside are checked at fetch. |
+| Guest kernel | `firecracker-ci/20261028-84df49062576-0/x86_64/vmlinux-6.1.188`, size 45064368, S3 ETag `a1be6c8d192c2e816fb841e49fcfd70e-6` | official CI bucket `spec.ccfc.min` (listing 2026-11-04). sha256 recorded by `fetch` for review. |
+| Guest base root filesystem | `…/x86_64/ubuntu-24.04.squashfs`, size 108503040, ETag `6e31666e67adbee77a60d49d04d93aea-13` | same bucket and snapshot; sha256 recorded by `fetch` for review |
+| Guest runtime | `node-v24.22.2-linux-x64.tar.xz`, sha256 `48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75` | Node.js v24.22.2 LTS "Krypton" `SHASUMS256.txt` (2026-11-04) |
 
-- **Lock file.** The setup writes `worker.lock.json` with every file's SHA-256. The reviewer
-  approves that lock file. The adapter refuses any file whose digest differs.
-- **Why Node in the guest is acceptable.** The boundary is the VM, not the runtime.
+- **Where the values came from.** They were read through a fetch tool on 2026-11-04.
+  `setup.sh fetch` re-downloads each official checksum file and refuses any mismatch with the
+  lock.
+- **No sha256 for the kernel and root filesystem yet.** The CI bucket publishes none. `fetch`
+  verifies the exact key, size and ETag, then prints the sha256. A reviewer records it in the
+  lock before `install` will run; `install` refuses a lock with empty digests.
+- **The built guest image's digest** is recorded by `install` and checked by every preflight.
 
-### Topology on this machine
-
-The platform server is Node on Windows. It never runs generated code. The worker side is a
-dedicated WSL2 distribution or the existing Ubuntu, used only through a root-owned launcher:
+### Topology
 
 ```
-platform (Windows Node) ──spawn fixed argv──► wsl.exe -d <distro> -u everstreet-runner --
-    sudo -n /opt/everstreet-worker/bin/launch {preflight|run|cleanup}
-        stdin : length-limited job JSON (id, attempt, digest, recipe, canonical bundle)
-        stdout: length-limited report JSON
+platform (Windows Node) ── spawn fixed argv ──► wsl.exe -d <distro> -u everstreet-runner --
+    sudo -n /opt/everstreet-worker/bin/launch {preflight | run | cleanup}
+        stdin: ≤ 400 KiB job JSON          stdout: ≤ 64 KiB report JSON
 ```
 
-- **Fixed command line.** The model never chooses any of it, and the platform passes only the
-  verb.
-- **Narrow sudo.** One root-owned script for three fixed verbs. No other sudo, no
-  world-writable `/dev/kvm`, and no change to Tony's account or to `.wslconfig`.
+The model chooses none of this. Sudo covers one root-owned script, three verbs and nothing else.
 
-### What `launch run` does
+### Host-side limits: the VMM process only
 
-1. Read stdin up to 400 KiB and validate the job JSON.
-2. Write the canonical bundle to a raw, length-prefixed **input drive** (read-only), and make an
-   empty 1 MiB raw **output drive**. Nothing is mounted on the host.
-3. Hard-link the pinned kernel and root filesystem (read-only) and both drives into a fresh jail.
-4. Start the jailer with:
-   - `--id es-<job>-<attempt>`, `--exec-file` the pinned Firecracker,
-     `--uid/--gid everstreet-vm`;
-   - `--cgroup-version=2 --parent-cgroup everstreet-worker`, with explicit
-     `--cgroup memory.max=…`, `pids.max=…` and `cpu.max=…`, so the fail-open path never applies;
-   - `--new-pid-ns --netns /var/run/netns/everstreet-none` (an empty network namespace) and
-     `--resource-limit fsize=…`;
-   - `--daemonize`;
-   - Firecracker started with `--api-sock`.
-5. **Before any input**, verify the live Firecracker pid's `/proc/<pid>/cgroup` path and the
-   limit files. Mismatch: kill, clean up, report `limits_unverified`.
-6. Over the API socket, configure:
-   - boot source (`init=/opt/everstreet/init`, read-only root);
-   - machine config (vCPUs, memory);
-   - the three drives;
-   - **no network interface**;
-   then `InstanceStart`.
-7. Wall-clock deadline: kill the Firecracker pid group.
-8. The guest writes its report to the output drive and powers off. Read at most 64 KiB, strip
-   the length prefix and print it.
-9. A `trap` always removes the jail directory and the cgroup.
-10. `launch cleanup <id>` removes a leftover from a crash. It runs from preflight for any stale
-    `es-*`.
+The jailer runs with:
+- `--cgroup-version=2 --parent-cgroup everstreet-worker`, with explicit `--cgroup` values for
+  `memory.max=402653184` (384 MiB: guest RAM plus VMM overhead), `pids.max=32` and
+  `cpu.max=100000 100000`;
+- `--new-pid-ns --netns /var/run/netns/everstreet-none`;
+- `--resource-limit fsize=2097152`.
 
-### Guest
+These bound **the host's Firecracker process tree and its files**, not anything inside the guest.
+Before any input is attached, the launcher verifies:
+1. the live pid's `/proc/<pid>/cgroup` path;
+2. each limit file's value.
 
-- **`/opt/everstreet/init`.** Mounts `proc`, `sys` and a size-limited `tmpfs`. Reads the input
-  drive, writes the files into the tmpfs, runs `/opt/everstreet/check.mjs` under the pinned Node
-  with `--max-old-space-size` and a per-case timeout, writes the length-prefixed report to the
-  output drive, and powers off.
-- **The guest is the sandbox.** No network device, no host share, no secrets.
-- **Recipe `web_app_checks/1`:**
-  1. every `.js` file loads as an ES module;
-  2. each declared case calls its export and compares the result;
-  3. the report records per-case pass or fail with a bounded detail, plus engine and recipe
-     identity.
+A mismatch, or a missing parent (the jailer's fail-open trap), refuses the job with
+`limits_unverified`.
 
-### Proposed limits (Astra's request: small, explicit, measured)
-
-Not yet measured:
+### Guest-side limits: enforced by the guest kernel
 
 | Limit | Value |
 |---|---|
-| guest | 1 vCPU, 256 MiB |
-| cgroup | `memory.max` 384 MiB (guest plus VMM overhead); `pids.max` 64; `cpu.max` `100000 100000` (one CPU) |
-| wall clock | 60 s |
-| writable files | `fsize` 2 MiB; output drive 1 MiB; report 64 KiB |
+| VM | 1 vCPU, 256 MiB RAM, no network device |
+| root filesystem | read-only |
+| input drive | raw, read-only |
+| output drive | raw, 1 MiB, **owned by root, mode 0600** |
 
-The measured peak memory (`memory.peak`) is recorded in the report when available.
+- **The supervisor** (`/opt/everstreet/supervisor.mjs`, root, pinned Node) creates a guest
+  cgroup v2 `untrusted` with `pids.max=32`, `memory.max=160M` and `cpu.max=100000 100000`.
+- **The working directory** is a separate `tmpfs` at `/work`, `size=8M,nr_inodes=512`, mounted
+  `nosuid,nodev,noexec`.
+- **Every untrusted step** runs as uid 1000 `app` (no capabilities, `no_new_privs`) inside that
+  cgroup, with `RLIMIT_NPROC=32`, `RLIMIT_FSIZE=2M` and a 5-second per-step kill.
+- **A fork bomb or tmpfs fill** stops at these guest limits. The host limits above only bound the
+  VMM.
 
-### Host output and resources
+### Report integrity: untrusted code never holds the reporter's authority
 
-- **Host output.** The adapter parses at most 64 KiB, validates names, counts, types and the
-  binding, and never lets anything the worker wrote choose a host path.
-- **Backend limits are not browser limits.** These bound the worker. They do nothing for the
-  preview (§6).
+- **The supervisor runs as root and owns everything that matters.** It holds the job binding
+  (check id, attempt, digest, recipe), the output drive (0600 root), the per-case expected values,
+  the comparisons and the engine identity it was given by the host.
+- **The untrusted step can't write the output drive.** It runs as uid `app`.
+- **Each case is a separate process**, `case-runner.mjs` as `app`. It imports *only* that case's
+  logic module, calls the export with the input, and prints exactly one bounded JSON line: the
+  returned value.
+- **The supervisor reads that line itself** (at most 8 KiB, first line only) and compares it with
+  `expect`. The runner never sees `expect`.
+- **What a dishonest module can do:** change only the value of its own case, which is exactly the
+  behaviour under test. It can't mark another case passed, forge the engine identity, or write
+  the report.
+- **Syntax checks** run as `app` in separate processes: `node --check` on each `.js` treated as
+  an ES module. They parse and never execute.
+- **Outside the threat model:** a guest-kernel privilege escalation would let code forge the
+  report. The microVM still protects the host. A "passed" is evidence about honest or buggy code,
+  not a proof against a guest exploit, and it never proves a later preview can't abuse browser
+  resources.
 
-## 6. Preview boundary
+### Launcher run steps
 
+1. Validate the job.
+2. Write the length-prefixed input drive and create the output drive.
+3. Hard-link the pinned kernel and guest image into a fresh jail.
+4. Start the jailer (`--daemonize`).
+5. Verify cgroup placement and limits.
+6. Configure through the API socket: boot source, machine config and drives, with no network
+   interface.
+7. Start the VM, with a wall deadline of 60 s that kills the pid group.
+8. Read and strip the output drive's report, at most 64 KiB.
+9. A `trap` always removes the jail and the cgroup. `cleanup` and every `preflight` remove stale
+   `es-*` leftovers.
+
+**The host never mounts a guest-written filesystem.** It parses at most 64 KiB, and nothing the
+worker writes chooses a host path.
+
+## 6. Preview boundary (corrected after Astra's canary)
+
+- **Separate site.** Studio frames `previewOrigin` (local: `http://localhost:<port>` while the
+  platform is opened at `http://127.0.0.1:<port>`; production: a distinct registrable domain). A
+  cross-site frame is eligible for the browser's out-of-process iframe isolation. **Whether the
+  parent stays responsive is not proven.** Astra checks it with a *finite* busy canary; never an
+  infinite loop on Tony's machine.
 - **Capability token.** `POST /api/product-projects/:id/app-versions/:job/preview` (owner only)
-  returns a 256-bit token. Its SHA-256 is stored with the digest, the owner epoch, the viewer and
-  an expiry of 30 minutes.
-- **Serving.** `GET /preview/app/:token/<path>` serves files by the token alone. It ignores
-  cookies and sets none. A changed owner epoch, an expired token or an unknown path gives 404.
-- **Response headers:**
-  - `Content-Security-Policy: sandbox allow-scripts; default-src 'none'; script-src <this token's path prefix>; style-src <prefix>; img-src <prefix> data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors <platform origin>`
-  - `X-Content-Type-Options: nosniff`
-  - `Referrer-Policy: no-referrer`
-  - `Cross-Origin-Resource-Policy: same-origin`
-  - `Cache-Control: no-store`
-- **Studio iframe.** `sandbox="allow-scripts"`: no `allow-same-origin`, popups, top navigation,
-  forms, modals or downloads. The document's origin is opaque, so it can't read platform cookies
-  or storage. Its subresource requests are cross-site, so `SameSite=Lax` session cookies are not
-  sent.
-- **Messages.** Only `{everstreet_preview: 1, type: "ready" | "height", height?}` from that
-  iframe's `contentWindow`, with origin `"null"` and a bounded number. Anything else is ignored.
-  The parent sends nothing.
-- **Browser resource risk.** A preview can spin a CPU core or allocate memory in the founder's
-  browser tab. Mitigations:
-  - it loads only on request;
-  - it has a visible Stop, which removes the iframe;
-  - Studio stays usable.
+  returns a 256-bit token.
+  - **Stored:** only its SHA-256, with the digest, the owner epoch and an expiry of 30 minutes.
+  - **Authority:** that version's files and nothing else.
+  - **Checked on every request:** the token's owner epoch against the business's current one. A
+    sale, expiry or another version gives 404.
+- **Document** `GET /preview/app/:token/index.html`:
+  - `Content-Security-Policy: sandbox allow-scripts; default-src 'none'; script-src <origin>/preview/app/<token>/; style-src <same>; img-src <same> data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors <platform origin>`
+  - `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`.
+  - No cookies are read for authority and none are set.
+- **Subresources** (`.js`, `.css`, `.json`). An opaque-origin document fetches module scripts in
+  CORS mode with `Origin: null` and no credentials. They are served with
+  `Access-Control-Allow-Origin: *` (never with credentials), `Cross-Origin-Resource-Policy:
+  cross-origin`, `nosniff` and `no-store`. Exposure is bounded by the token: one version's own
+  files, for 30 minutes, under the current owner. Astra's canary showed this pair loads modules
+  where `same-origin`/no-CORS failed. The real route is re-verified in the browser.
+- **Iframe.** `sandbox="allow-scripts"`, with no `allow-same-origin`, popups, top navigation,
+  forms, modals or downloads, and `referrerpolicy="no-referrer"`.
+- **Navigation.** The sandbox does **not** stop the frame navigating itself, so:
+  - static refusals keep the bundle's own links and forms local;
+  - CSP `connect-src 'none'` blocks fetch, XHR and WebSocket;
+  - single-page only: Studio counts the frame's `load` events, and any load after the first
+    removes the frame with "The preview tried to open another page and was stopped". It does not
+    claim the navigation never started.
+- **Messages.** Only `{everstreet_preview: 1, type: "ready"}` from that frame's `contentWindow`,
+  with origin `"null"`. Everything else is ignored, and the parent sends nothing.
+- **Browser resources.**
+  - **No quota.** Sandbox, CSP and Stop are not CPU or memory limits. A preview runs only when
+    asked, and Stop removes the frame **if the page can still run**.
+  - **What the logic checks don't cover.** They are no evidence the UI code is resource-safe.
+  - **Making abuse unlikely.** Ordinary Preview opens checked versions, and unchecked preview is
+    an explicit, warned choice.
 
-  This is not a quota. Backend limits do not apply here.
-- **Decision for review.** A preview may be opened for any *validated* bundle, labelled with its
-  check state ("Checks not run: isolated worker unavailable"). The browser sandbox, not the
-  worker, is the preview's boundary. The alternative is to gate preview on Passed checks, which
-  would make preview impossible on this machine until the engine exists. Astra or Tony may
-  choose that.
+## 7. Conformance suite (`scripts/worker-host/conformance.sh`, authorized host only)
 
-## 7. Conformance suite (`scripts/worker-host/conformance.sh`, run only on an authorized host)
-
-Each case runs through the real launcher and records its result into `conformance-<date>.json`
-with the engine and lock identities:
-1. **Benign app:** the quote calculator, all cases pass.
-2. **Canary host file:** a synthetic file under the host's job dir, plus another job's input
-   drive, unreadable from the guest. The report says "not found".
-3. **Network:** connecting to `10.0.2.2`, `169.254.169.254` or a public IP fails (no NIC).
-4. **Memory:** allocation past 256 MiB is stopped (the guest out-of-memory killer or the cgroup),
-   and the host stays responsive.
-5. **Processes:** a fork bomb stops at `pids.max`, and the host keeps a free pid budget.
-6. **Output abuse:** writing past the output drive or the report limit yields `invalid_report`.
-7. **Time:** an infinite loop is killed at the deadline, with the jail and cgroup gone.
-8. **Cancel and orphan:** kill the launcher mid-run; `cleanup` and preflight leave no `es-*`
-   process, jail or cgroup.
-9. **Fail-open trap:** remove the parent cgroup; preflight refuses (`limits_unverified`), and
-   no VM starts.
-
-Until this runs: **isolation unverified**. Tests in this repository prove orchestration with a
-labelled **test double**. A double's "passed" is stored with engine id `test-double` and is shown
-as "Test double: not an isolation check".
+Each case runs through the real launcher, and the results go to `conformance-<date>.json` with
+the lock identity:
+1. **Benign:** the quote calculator, all cases pass, plus the measured `memory.peak`.
+2. **Canary:** a synthetic host canary file, and another job's drive, are not visible.
+3. **Network:** `10.0.2.2`, `169.254.169.254` and a public IP all fail (no NIC).
+4. **Guest memory:** a logic module allocating past 160 MiB is killed by the guest cgroup; the
+   VM and host stay up.
+5. **Guest processes:** a module spawning children is refused (no `child_process` beyond
+   `pids.max`); the host pid budget is untouched.
+6. **Guest tmpfs:** writing past 8 MiB in `/work` fails, and the report is still produced.
+7. **Report forgery:** a module prints a fake whole-report envelope and tries to open
+   `/dev/vdc`. The open fails with EACCES, the forged envelope is just that case's (wrong) value,
+   and other cases are unaffected.
+8. **Time:** a module looping forever is killed at 5 s per step, and the VM at 60 s.
+9. **Host VMM limits:** a finite stress of the VMM stays under `memory.max`, and cgroup files are
+   read back.
+10. **Cancel and orphan:** kill the launcher mid-run; `cleanup` and preflight leave no `es-*`.
+11. **Fail-open trap:** remove the parent cgroup; preflight gives `limits_unverified` and no VM
+    starts.
 
 ## 8. Proposed host setup (needs Tony's explicit yes; not performed)
 
-`scripts/worker-host/setup.sh` (reviewable; nothing runs it automatically):
-- **Packages:** `apt-get install` of `curl`, `e2fsprogs`, `squashfs-tools` and `iproute2`, listed
-  exactly.
-- **Accounts:** creates `everstreet-runner` (spawned from Windows) and `everstreet-vm` (Firecracker
-  drops to it), both without login shells.
-- **KVM access:** `setfacl -m u:everstreet-vm:rw /dev/kvm`, for that user only, re-applied by a
-  boot unit. Tony's account and the `kvm` group are unchanged.
-- **cgroup:** creates the cgroup v2 parent `everstreet-worker` with `+cpu +memory +pids` in its
-  `subtree_control`.
-- **Network:** creates the empty namespace `everstreet-none`.
-- **Downloads:** the pinned artifacts, each verified against its official checksum. Writes
-  `worker.lock.json`.
-- **Install:** `/opt/everstreet-worker` (root-owned, `0755`): bin, guest and lock.
-- **sudoers:** one line in a drop-in file, checked with `visudo -c`:
-  `everstreet-runner ALL=(root) NOPASSWD: /opt/everstreet-worker/bin/launch`. The launcher accepts
-  only `preflight`, `run` or `cleanup <id>`.
+`scripts/worker-host/setup.sh`, run by root with each phase separate:
 
-`teardown.sh` reverses every step. `verify.sh` runs preflight, then conformance.
+- **`check`.** Changes nothing. Lists what is present.
+  - **Commands:** `curl`, `sha256sum`, `tar`, `xz`, `unsquashfs` (squashfs-tools), `mkfs.ext4`
+    (e2fsprogs), `setfacl` (acl), `ip` (iproute2), `visudo` and `sudo`, `useradd`, `userdel`,
+    `groupdel`, `install`, `ln`, `timeout`.
+  - **The host:** `/dev/kvm`, cgroup2 controllers, an existing `everstreet-*` state, and the
+    distro and kernel.
+- **`fetch <dir>`.** Downloads only into `<dir>`. Verifies the official checksum files and the
+  lock's sizes and ETags, and prints sha256 values for review. No system change.
+- **`install <dir>`.** Requires a lock with every digest filled in. Each step is appended to
+  `/var/lib/everstreet-worker/manifest`:
+  1. `apt-get install` of only the missing packages from the `check` list, recorded by name;
+  2. create `everstreet-runner` and `everstreet-vm` (no login, no home);
+  3. `setfacl -m u:everstreet-vm:rw /dev/kvm`, plus a systemd unit re-applying it at boot (both
+     recorded);
+  4. the cgroup `everstreet-worker` with `+cpu +memory +pids`;
+  5. the network namespace `everstreet-none` (created by a unit, recorded);
+  6. `/opt/everstreet-worker`, root-owned, 0755, holding the binaries, the guest image built from
+     the pinned root filesystem plus Node plus guest files, and the lock;
+  7. `/etc/sudoers.d/everstreet-worker` (0440, checked with `visudo -cf`):
+     `everstreet-runner ALL=(root) NOPASSWD: /opt/everstreet-worker/bin/launch`.
+- **`uninstall`.** Reverses **only the manifest's entries**, in reverse order. It removes packages
+  only if the manifest says setup installed them, and never touches pre-existing users,
+  packages, ACLs or Tony's account.
 
-Host decisions needed: run setup in the existing Ubuntu or a dedicated distro (recommended:
-dedicated); approve the package list and the sudoers line; approve the downloads.
+Decisions for Tony, after Astra's review:
+- a dedicated distro (recommended) or the existing Ubuntu;
+- the package list and the sudoers line;
+- approving the downloads;
+- the kernel and root-filesystem sha256 once `fetch` has printed them.
 
 ## 9. Not in this job
 
-- **Customer release of web apps:** the extraction runtime and its releases are unchanged.
-- **Dependencies or npm packages:** no package install in jobs, and none in bundles.
-- **Backends** for generated apps.
+- **Releases and runtime:** customer release of web apps; backends for generated apps;
+  dependencies or npm packages.
+- **Checks:** automated in-browser UI journey checks.
 - **Live model generation** without a configured budget.
-- **Engine conformance proof:** pending until the host setup above is approved and run.
+- **Proof still outstanding:** real-engine conformance and browser verification, both pending.
