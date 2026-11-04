@@ -1,6 +1,6 @@
 {
   "lock_version": 1,
-  "note": "Job 002e. Pinned identities for the isolated check worker. Read from official sources on 2026-11-04 through a fetch tool; `setup.sh fetch` re-verifies each against its official checksum file or S3 listing and refuses any difference. Empty sha256 values are filled by a reviewer from `fetch` output before `install` will run. Nothing here has been downloaded or installed.",
+  "note": "Job 002e. Pinned identities for the isolated check worker. Read from official sources on 2026-11-04 through a fetch tool; `setup.sh fetch` re-verifies each against its official checksum file or S3 listing and refuses any difference. Empty sha256 values are filled by a reviewer from `fetch` output before `install` will run. Job 002f (2026-11-04): fetched in the dedicated Everstreet-Worker WSL distro; Firecracker and Node matched their official checksum files, kernel and rootfs matched the pinned size and S3 ETag (recomputed locally from 8 MiB parts), and their sha256 below were filled from that verified download.",
   "firecracker": {
     "version": "v1.17.0",
     "url": "https://github.com/firecracker-microvm/firecracker/releases/download/v1.17.0/firecracker-v1.17.0-x86_64.tgz",
@@ -16,13 +16,13 @@
     "url": "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/20261028-84df49062576-0/x86_64/vmlinux-6.1.188",
     "size": 45064368,
     "etag": "a1be6c8d192c2e816fb841e49fcfd70e-6",
-    "sha256": ""
+    "sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1"
   },
   "rootfs": {
     "url": "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/20261028-84df49062576-0/x86_64/ubuntu-24.04.squashfs",
     "size": 108503040,
     "etag": "6e31666e67adbee77a60d49d04d93aea-13",
-    "sha256": ""
+    "sha256": "568127fd53c728c1f275fbbcc0d61da065b435e455b89307e985b32b02dc56d9"
   },
   "node": {
     "version": "v24.22.2",

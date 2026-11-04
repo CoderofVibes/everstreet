@@ -1,0 +1,564 @@
+{
+  "results": [
+    {
+      "name": "preflight ready",
+      "pass": true,
+      "evidence": {
+        "ok": true,
+        "engine": {
+          "engine": "firecracker",
+          "firecracker": "v1.17.0",
+          "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+          "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+          "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+          "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+          "recipe": "web_app_checks/1"
+        },
+        "removed": []
+      }
+    },
+    {
+      "name": "benign app passes; host responsive",
+      "pass": true,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "ca123a53-ef2a-48b3-96ee-48808ee3b502",
+          "attempt": 1,
+          "digest": "ad00132b8fcf2b183914fbe80c76fc2f29ff5f9c6a828bb74a1080697d70874d",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "standard_100k",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 11075584
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 119726080
+        }
+      }
+    },
+    {
+      "name": "host and job canaries absent; drives closed to the case",
+      "pass": true,
+      "evidence": {
+        "o": {
+          "report": {
+            "recipe": "web_app_checks/1",
+            "check_id": "4a7ad31d-c218-43e4-ac5e-274144c41e9c",
+            "attempt": 1,
+            "digest": "907fb19195bc856b290455626b12dd0b6a9dda0fb635bb94a95478c62969ce10",
+            "engine": {
+              "engine": "firecracker",
+              "firecracker": "v1.17.0",
+              "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+              "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+              "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+              "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+              "recipe": "web_app_checks/1"
+            },
+            "syntax": [
+              {
+                "path": "logic.js",
+                "ok": true,
+                "detail": ""
+              }
+            ],
+            "cases": [
+              {
+                "id": "probe",
+                "passed": true,
+                "detail": ""
+              }
+            ],
+            "usage": {
+              "untrusted_memory_peak_bytes": 11341824
+            }
+          },
+          "host": {
+            "vmm_memory_peak_bytes": 119701504
+          }
+        },
+        "canaries": [
+          "/var/tmp/everstreet-conformance-8ebb3783deee/host-canary.txt",
+          "/var/tmp/everstreet-conformance-8ebb3783deee/other-job-input.img"
+        ],
+        "existed": true
+      }
+    },
+    {
+      "name": "network unreachable",
+      "pass": true,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "d7b4ae49-d8ed-4610-ab15-bec6410047c1",
+          "attempt": 1,
+          "digest": "7caa786f8d96aa2b111bb6984decfaa504245fb17b398dac43b4c8240577b424",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "net",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 11849728
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 120229888
+        }
+      }
+    },
+    {
+      "name": "guest memory bounded",
+      "pass": false,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "22783595-eb28-47f1-a2eb-b3b422ffc162",
+          "attempt": 1,
+          "digest": "c9a94595e04bca472b39f3925f7f15a784d8a5c42dacaabc5f3562814a1ee8ee",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "grow",
+              "passed": false,
+              "detail": "Took longer than 5 seconds and was stopped"
+            },
+            {
+              "id": "ok",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 167772160
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 267030528
+        }
+      }
+    },
+    {
+      "name": "guest processes bounded",
+      "pass": true,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "db89057d-016a-4455-bd28-fde9cb9b6842",
+          "attempt": 1,
+          "digest": "012c5932cf5512d1029ba9093f60ac82754d21d8f8783f925b70297b9d3702c7",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "fork",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 28618752
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 139632640
+        }
+      }
+    },
+    {
+      "name": "per-file size bounded",
+      "pass": true,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "8581fdf0-619d-417b-a094-9d23df645ea2",
+          "attempt": 1,
+          "digest": "c3c428d090a0ce2786adf84a23fb5029f30e15ae78b2bc2ef29a2153c82c5adb",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "big",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 13443072
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 122073088
+        }
+      }
+    },
+    {
+      "name": "work space bounded in aggregate",
+      "pass": true,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "b8bf6e9f-217f-4f9b-a64d-ee3cd5e08138",
+          "attempt": 1,
+          "digest": "ff681f297ce8f93eb6f77f8b33a781a0e2016d2e8b5caa786fca10a2c97d8352",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "fill",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 19730432
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 128892928
+        }
+      }
+    },
+    {
+      "name": "bundle tree immutable to cases",
+      "pass": true,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "2cf975ad-2f84-41df-961f-b3bbd51d6296",
+          "attempt": 1,
+          "digest": "5a63497ad104eb1a941888d49690106fc2a142a455b47bef265b7768c9e19b2b",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "swap",
+              "passed": true,
+              "detail": ""
+            },
+            {
+              "id": "after",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 11399168
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 120504320
+        }
+      }
+    },
+    {
+      "name": "report forgery contained",
+      "pass": true,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "07e650f8-3872-477f-b87e-34b9914cd32d",
+          "attempt": 1,
+          "digest": "a1437180926b897873a67f50b06347d414ca52b7ae82ab054339664b4527bc51",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "forge",
+              "passed": true,
+              "detail": ""
+            },
+            {
+              "id": "drive",
+              "passed": true,
+              "detail": ""
+            },
+            {
+              "id": "other",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 11382784
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 120786944
+        }
+      }
+    },
+    {
+      "name": "step time bounded",
+      "pass": true,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "3c3a904e-561f-4d6a-87c8-28cdcd9f1d1f",
+          "attempt": 1,
+          "digest": "facf0c8a107cd97a73c732b9ab74411c09a092c55639fe2330d7eaf9dc5c732f",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "spin",
+              "passed": false,
+              "detail": "Took longer than 5 seconds and was stopped"
+            },
+            {
+              "id": "ok",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 16494592
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 125751296
+        }
+      }
+    },
+    {
+      "name": "preflight during a run is busy and harmless",
+      "pass": true,
+      "evidence": {
+        "mid": {
+          "ok": false,
+          "busy": true,
+          "reason": "another lifecycle operation is in progress"
+        },
+        "o": {
+          "report": {
+            "recipe": "web_app_checks/1",
+            "check_id": "9223aa0a-e66b-4ed0-8e79-d385ed469723",
+            "attempt": 1,
+            "digest": "cb4a90ac8a0e2f3a59ba5991ee75de703df6de7676c10c583780dfa5aa1fb690",
+            "engine": {
+              "engine": "firecracker",
+              "firecracker": "v1.17.0",
+              "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+              "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+              "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+              "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+              "recipe": "web_app_checks/1"
+            },
+            "syntax": [
+              {
+                "path": "logic.js",
+                "ok": true,
+                "detail": ""
+              }
+            ],
+            "cases": [
+              {
+                "id": "nap",
+                "passed": true,
+                "detail": ""
+              }
+            ],
+            "usage": {
+              "untrusted_memory_peak_bytes": 18927616
+            }
+          },
+          "host": {
+            "vmm_memory_peak_bytes": 127819776
+          }
+        }
+      }
+    },
+    {
+      "name": "orphan proven and cleaned",
+      "pass": false,
+      "evidence": {
+        "after": {
+          "ok": true,
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "removed": []
+        },
+        "left": []
+      }
+    },
+    {
+      "name": "a killed outer process does not free the lock while the launcher lives",
+      "pass": true,
+      "evidence": {
+        "exercised": true,
+        "mid": {
+          "ok": false,
+          "busy": true,
+          "reason": "another lifecycle operation is in progress"
+        },
+        "end": {
+          "ok": true,
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "178877af57dec85f160217007f5a9a0840c5c7248e136f2e5fbf9396df059b47",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "removed": []
+        },
+        "left": []
+      }
+    },
+    {
+      "name": "no leftovers at the end",
+      "pass": true,
+      "evidence": {
+        "left": []
+      }
+    }
+  ]
+}

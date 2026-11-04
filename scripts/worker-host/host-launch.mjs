@@ -22,14 +22,17 @@ import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chownSync,
+  closeSync,
   createReadStream,
   existsSync,
   linkSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { request } from "node:http";
@@ -105,10 +108,19 @@ async function readinessProblems() {
   if ((await sha(JAILER)) !== i.jailer_sha256) p.push("jailer binary changed");
   if ((await sha(KERNEL)) !== LOCK.kernel.sha256) p.push("guest kernel changed");
   if ((await sha(IMAGE)) !== i.guest_image_sha256) p.push("guest image changed");
+  // 002f (found on the real host): the jailer creates its OWN /dev/kvm node inside each chroot
+  // (mknod 10:232, chowned to the jailed uid), so the VM never uses the host node's permissions.
+  // The host's /dev/kvm is tagged `uaccess`, and systemd-logind rewrites its ACL on every session
+  // change, removing the everstreet-vm entry setup.sh added: probing that ACL refused every run
+  // after the first. What the jailer (root) needs is a real KVM device it can open read-write.
   try {
-    run1("setpriv", [`--reuid=${uidOf(VM_USER)}`, "--init-groups", "test", "-r", "/dev/kvm", "-a", "-w", "/dev/kvm"]);
+    const st = statSync("/dev/kvm");
+    const major = Number((BigInt(st.rdev) >> 8n) & 0xfffn);
+    const minor = Number((BigInt(st.rdev) & 0xffn) | ((BigInt(st.rdev) >> 12n) & 0xfff00n));
+    if (!st.isCharacterDevice() || major !== 10 || minor !== 232) throw new Error("not kvm");
+    closeSync(openSync("/dev/kvm", "r+"));
   } catch {
-    p.push(`/dev/kvm is not readable and writable by ${VM_USER}`);
+    p.push("/dev/kvm is not a usable KVM device");
   }
   // The jailer's cgroup-v2 fail-open trap: the parent must exist with its controllers.
   try {

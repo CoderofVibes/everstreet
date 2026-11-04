@@ -1,0 +1,193 @@
+{
+  "results": [
+    {
+      "name": "preflight ready",
+      "pass": true,
+      "evidence": {
+        "ok": true,
+        "engine": {
+          "engine": "firecracker",
+          "firecracker": "v1.17.0",
+          "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+          "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+          "guest_image_sha256": "e249386a3fb53cef967904201317102929a3ebfa332f8fd14dea3679d38d46ab",
+          "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+          "recipe": "web_app_checks/1"
+        },
+        "removed": []
+      }
+    },
+    {
+      "name": "benign app passes; host responsive",
+      "pass": true,
+      "evidence": {
+        "report": {
+          "recipe": "web_app_checks/1",
+          "check_id": "1d881e8e-118a-4be6-a7da-b8a422fa087d",
+          "attempt": 1,
+          "digest": "ad00132b8fcf2b183914fbe80c76fc2f29ff5f9c6a828bb74a1080697d70874d",
+          "engine": {
+            "engine": "firecracker",
+            "firecracker": "v1.17.0",
+            "firecracker_sha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+            "kernel_sha256": "50048e55ab43115ef4798830cc8a8cde675f1d4d925b2450dcdb96ca5f77e0c1",
+            "guest_image_sha256": "e249386a3fb53cef967904201317102929a3ebfa332f8fd14dea3679d38d46ab",
+            "lock_sha256": "b2161fdf953cc7cfb9c3c9d5717ab142606a22eb75e707a2be2316128a839c76",
+            "recipe": "web_app_checks/1"
+          },
+          "syntax": [
+            {
+              "path": "logic.js",
+              "ok": true,
+              "detail": ""
+            }
+          ],
+          "cases": [
+            {
+              "id": "standard_100k",
+              "passed": true,
+              "detail": ""
+            }
+          ],
+          "usage": {
+            "untrusted_memory_peak_bytes": 11083776
+          }
+        },
+        "host": {
+          "vmm_memory_peak_bytes": 119459840
+        }
+      }
+    },
+    {
+      "name": "host and job canaries absent; drives closed to the case",
+      "pass": false,
+      "evidence": {
+        "o": {
+          "error": "unavailable",
+          "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+        },
+        "canaries": [
+          "/var/tmp/everstreet-conformance-1e35639d0124/host-canary.txt",
+          "/var/tmp/everstreet-conformance-1e35639d0124/other-job-input.img"
+        ],
+        "existed": true
+      }
+    },
+    {
+      "name": "network unreachable",
+      "pass": false,
+      "evidence": {
+        "error": "unavailable",
+        "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+      }
+    },
+    {
+      "name": "guest memory bounded",
+      "pass": false,
+      "evidence": {
+        "error": "unavailable",
+        "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+      }
+    },
+    {
+      "name": "guest processes bounded",
+      "pass": false,
+      "evidence": {
+        "error": "unavailable",
+        "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+      }
+    },
+    {
+      "name": "per-file size bounded",
+      "pass": false,
+      "evidence": {
+        "error": "unavailable",
+        "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+      }
+    },
+    {
+      "name": "work space bounded in aggregate",
+      "pass": false,
+      "evidence": {
+        "error": "unavailable",
+        "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+      }
+    },
+    {
+      "name": "bundle tree immutable to cases",
+      "pass": false,
+      "evidence": {
+        "error": "unavailable",
+        "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+      }
+    },
+    {
+      "name": "report forgery contained",
+      "pass": false,
+      "evidence": {
+        "error": "unavailable",
+        "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+      }
+    },
+    {
+      "name": "step time bounded",
+      "pass": false,
+      "evidence": {
+        "error": "unavailable",
+        "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+      }
+    },
+    {
+      "name": "preflight during a run is busy and harmless",
+      "pass": false,
+      "evidence": {
+        "mid": {
+          "ok": false,
+          "reason": "/dev/kvm is not readable and writable by everstreet-vm",
+          "removed": []
+        },
+        "o": {
+          "error": "unavailable",
+          "detail": "/dev/kvm is not readable and writable by everstreet-vm"
+        }
+      }
+    },
+    {
+      "name": "orphan proven and cleaned",
+      "pass": false,
+      "evidence": {
+        "after": {
+          "ok": false,
+          "reason": "/dev/kvm is not readable and writable by everstreet-vm",
+          "removed": []
+        },
+        "left": []
+      }
+    },
+    {
+      "name": "a killed outer process does not free the lock while the launcher lives",
+      "pass": false,
+      "evidence": {
+        "exercised": false,
+        "mid": {
+          "ok": false,
+          "reason": "/dev/kvm is not readable and writable by everstreet-vm",
+          "removed": []
+        },
+        "end": {
+          "ok": false,
+          "reason": "/dev/kvm is not readable and writable by everstreet-vm",
+          "removed": []
+        },
+        "left": []
+      }
+    },
+    {
+      "name": "no leftovers at the end",
+      "pass": true,
+      "evidence": {
+        "left": []
+      }
+    }
+  ]
+}

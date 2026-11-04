@@ -180,9 +180,12 @@ install_all() {
   # Each line is written BEFORE its resource is created: a failure leaves a removable record.
 
   # 1. Only the missing packages, by name, so uninstall removes only those.
+  # 002f (found on the real host): `dpkg -s` also succeeds for a REMOVED package whose config
+  # files remain ("deinstall ok config-files", which our own uninstall leaves), so a reinstall
+  # skipped it and then failed. Installed means exactly "install ok installed", as in gone().
   for pair in $NEEDS; do
     cmd=${pair%%:*}; pkg=${pair#*:}
-    if ! command -v "$cmd" >/dev/null 2>&1 && ! dpkg -s "$pkg" >/dev/null 2>&1; then
+    if ! command -v "$cmd" >/dev/null 2>&1 && ! dpkg -s "$pkg" 2>/dev/null | grep -q '^Status: install ok installed'; then
       record "package $pkg"; DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$pkg"
     fi
   done

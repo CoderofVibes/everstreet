@@ -396,7 +396,71 @@ The cases:
 11. **Fail-open trap:** remove the parent cgroup; preflight gives `limits_unverified` and no VM
     starts.
 
-## 8. Proposed host setup (needs Tony's explicit yes; not performed)
+### 7.1 First real host run (job 002f, 2026-11-04)
+
+**Host.** The dedicated `Everstreet-Worker` WSL2 distro at `C:\Dev\EverstreetWorker`:
+- Ubuntu 24.04.5 LTS, kernel 6.18.54.1-microsoft-standard-WSL2, WSL 3.0.3.0;
+- systemd, cgroup v2, `/dev/kvm` present (nested virtualization);
+- Windows-drive automount and interop disabled.
+
+Tony approved this host in WorkerHostSetupProposal. Evidence is in `data/evidence/002f/`.
+
+**Two defects were found on the real host and corrected:**
+- **The KVM ACL can't be relied on.** `/dev/kvm` is tagged `uaccess` (systemd's
+  `70-uaccess.rules`), so systemd-logind rewrites its ACL on every session change. That removed
+  the `everstreet-vm` entry after the first run, and the readiness probe (setpriv as
+  `everstreet-vm`) then refused every later run: run 1, 3/15.
+  - Access never came from that ACL. The jailer creates its own `/dev/kvm` node in each chroot,
+    owned by the jailed uid.
+  - Readiness now checks that the host node is a real KVM device (10:232) that root can open.
+    Run 2 booted every VM with the ACL entry absent.
+  - Setup still adds the ACL. It is redundant and transient, and should be dropped in review.
+- **Reinstall skipped a removed package.** `dpkg -s` succeeds for a removed package with
+  remaining config ("deinstall ok config-files", which our uninstall leaves), so the reinstall
+  skipped `acl` and failed at `setfacl`. The manifest rollback removed the partial install
+  exactly. Installed now means `install ok installed`.
+
+**Run 2 (13/15, real Firecracker VMs through sudo, `launch` and the lifecycle lock):**
+- **Passed:**
+  - preflight;
+  - the benign app (VMM peak 120 MB);
+  - host and job canaries absent, and the drives closed to the case;
+  - no network;
+  - guest processes bounded;
+  - per-file and aggregate tmpfs bounds;
+  - the bundle tree immutable;
+  - report forgery contained;
+  - the 5-second step limit;
+  - a busy preflight during a run;
+  - case 11 (outer sudo killed: exercised, busy while the launcher lived);
+  - no leftovers at the end.
+- **Failed: guest memory.** The bound held: the untrusted peak was exactly 167,772,160 bytes
+  (`memory.max`), the VMM peaked at 267 MB, under 384 MiB, and the next case ran. But the step
+  was stopped by the 5-second timer, not killed by OOM, and the case requires a kill signal.
+  Whether to accept "held at the limit, then stopped" is a criterion decision for review.
+- **Failed: orphan proven and cleaned. No orphan was produced.** Ubuntu's `Defaults use_pty`
+  puts the launcher in sudo's pty session, so the harness's process-group kill reaches only
+  sudo. The launcher finished and cleaned up normally (`removed: []`). Real-orphan cleanup is
+  **unverified** on this host. The harness needs a way to kill the launcher itself.
+
+**The fail-open trap (run by hand afterwards).** With the parent cgroup removed, preflight
+refused ("cgroup parent everstreet-worker is missing") and no Firecracker started. Restarting the
+boot unit restored it, and preflight was ok again.
+
+**Third defect, open (found by that check, not corrected in 002f).** At every distro boot (three
+reproduced), the unit's write of `+cpu +memory +pids` to the new cgroup's `subtree_control`
+fails with `I/O error`. The unit fails, so the netns isn't created and preflight refuses ("cgroup
+parent lacks cpu …"). A manual `systemctl restart everstreet-worker-host.service` two seconds
+later succeeds.
+- **Impact:** it fails closed, but after a restart the worker isn't ready until the unit is
+  restarted.
+- **Likely cause:** boot ordering against systemd's own controller setup (not proven).
+- **Candidate fix (needs review):** order the unit after systemd's setup, or retry the write.
+
+**Not run:** a full host-VMM stress (§7 case 9). Isolation is evidenced only for the cases that
+passed above.
+
+## 8. Host setup (approved for the dedicated distro; performed in 002f, see §7.1)
 
 `scripts/worker-host/setup.sh`, run by root with each phase separate:
 
