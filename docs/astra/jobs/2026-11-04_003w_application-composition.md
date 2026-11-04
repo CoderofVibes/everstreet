@@ -46,6 +46,9 @@ work usable. An owner sees readiness; customers get a simple actionable unavaila
    turn localPreview:false into a false production-readiness claim. Verify supported wallet
    signing capabilities against the exact custom hold/use message scheme; never assume a generic
    wallet message-sign API signs those bytes. Additional live/account decisions remain separate.
+   See `docs/astra/2026-11-04_WalletIntegrationAlignment.md`: official NEP-413/Wallet Selector
+   interface review and concrete account-proof versus registered use-key requirements. Implement
+   the missing identity adapter as a bounded sub-job; do not call an unavailable seam complete.
 
 ## Evidence
 

@@ -145,3 +145,86 @@ These corrections can follow the current Studio work without starting another wr
 002e acceptance still requires the real host and Studio journey; all six milestones remain.
 Astra changed this review and BUILD_STATE only in this follow-up. Check result goes in the
 checkpoint; the earlier synthetic sale/access approvals remain authorized and research unread.
+
+##002e1 in-progress lifecycleLock: independently reproduced two winners
+
+The extracted conformance `node scripts/worker-host/conformance.mjs --self-test` now passes
+independently and exits before launcher/host calls. That fixes the earlier assertion-helper
+failure only; it is not isolation conformance.
+
+The new lifecycle-lock.mjs still violates mutual exclusion. A finite test used the actual module,
+one temporary directory, simulated process liveness and an injected filesystem wrapper. No actual
+worker/WSL/root resource or real process termination. Sandbox file renames returned EPERM, so the
+same bounded test was rerun with approved escalation; its temporary path was verified to be an
+immediate child of the temp directory with the expected prefix before recursive cleanup.
+
+Interleaving (even two contenders, not just the comment's three-way residual):
+
+1. Lock belongs to dead pid1. B(pid2) and A(pid3) are simulated live.
+2. A's readFileSync obtains pid1's old JSON. Before returning those bytes, the injected wrapper
+   calls B.acquire('run','b-live'). B takes over the orphan and succeeds.
+3. A resumes with stale owner bytes, then statSync reads B's NEW inode. A moves that same inode
+   aside, considers its comparison valid, deletes it, and creates A's lock.
+4. Both acquire calls return ok:true/orphan pid1. Current lock belongs to A, B is still live,
+   and B.release returns false. Thus a preflight could enter its destructive scan while B runs.
+
+Exact output: bAnswer.ok=true, aAnswer.ok=true, lock.pid=3/purpose=preflight,
+bStillLive=true, bCanRelease=false. The existing beforeMoveStale hook tests a later interleaving
+after stat, not this read/stat window. Add this earlier window to the regression coverage.
+
+Do not accept the documented live-lock displacement residual as harmless: detecting it when the
+displaced owner releases is too late to protect its critical section. Use a proven OS locking
+primitive appropriate to the Linux host, or another protocol with actual exclusive ownership
+through recovery, shared with uninstall. Validate process/descriptor lifetime, crash recovery
+and orphan cleanup without a race-prone unlink/recreate takeover. This is within002e1's existing
+scope. No real installation or launcher execution is authorized by this finding.
+
+## 002e1 kernel-lock follow-up: descriptor lifetime needs a real-process check
+
+The in-progress replacement removes the reproduced file-takeover protocol. Before accepting it,
+validate the process that actually owns the descriptor. `launch` currently uses `flock -n -o`:
+the flock parent owns the lock; its child closes the descriptor before execing Node. The comment
+that the lock lasts exactly as long as Node lives is therefore too broad. Killing only the flock
+parent can release the lock while Node continues. `host-launch.mjs` then assumes any discovered
+jail is an orphan, which depends on that inaccurate lifetime assumption.
+
+This is a source-backed finding, not a new runtime reproduction. The primary
+[util-linux implementation](https://raw.githubusercontent.com/util-linux/util-linux/master/sys-utils/flock.c)
+forks, closes the descriptor in the child for `-o`, and waits in the parent (lines 462–479 in the
+source read November 4). The source contains no parent-death coupling in that path. The actual
+installed util-linux version and WSL process behavior remain unverified.
+
+Please use a lock descriptor owned by the process executing the critical section, while ensuring
+VM descendants cannot keep it alive after that supervisor ends. Test the real primitive with
+finite harmless child processes and a temporary lock, without installing/running the worker:
+two entrants; supervisor exit and SIGKILL; lock-wrapper exit independently of child; child spawn
+and daemon inheritance; preflight/uninstall exclusion. The fake-root harness's busy-marker shim
+proves branching only, not descriptor lifetime or concurrency. Do not claim those from it.
+
+Also review the final uninstall sequence: it closes fd9 before unlinking lifecycle.flock. A
+contender can open/acquire the old inode during removal. Define how entry is disabled and pending
+entrants are excluded before removing that lock path; do not rely on unlinking a lock to serialize
+operations. Account for reinstall too. This remains bounded host-review correction work, with no
+real host provisioning, VM, generated-code execution, signing or provider call authorized here.
+
+### Independent real-primitive reproduction (November 4)
+
+Astra subsequently reproduced this on Ubuntu with util-linux 2.41.3, using `timeout 20 sh`,
+one mktemp directory under `/tmp/everstreet-flock-review.*`, an eight-second harmless sleep
+child, and the same `flock -n -o -E 75` options. No actual launcher, worker install, generated
+code, network, keys or system configuration. Before the test no WSL distribution was running.
+The command completed in 4.33 seconds with exit0. Exact observations:
+
+```
+flock from util-linux 2.41.3
+before: busy rc=75
+after holder death: original child still alive
+after holder death: second contender acquired lock
+```
+
+Only the test's recorded flock PID was killed; the original sleep PID was still alive when a
+second flock succeeded. The EXIT trap terminated the recorded child, removed the two named
+temporary files and removed their directory. Thus this is now real primitive evidence, beyond
+the source inference above. It still does not constitute real worker-host conformance. Replace
+the separate holder/`-o` lifetime assumption and use this case as a meaningful regression; string
+assertions requiring those options cannot establish exclusion.

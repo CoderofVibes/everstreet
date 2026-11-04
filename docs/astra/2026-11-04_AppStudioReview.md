@@ -108,3 +108,13 @@ or browser; no second real generation was attempted.
 
 Independent85462 on933bfdb passed lint/types1148tests120files and870.72kB web build.67893 then
 exited0; exact-session CIM process query empty.002e remains review, with002e1 finishing work.
+
+## Independent0da94e6 browser repeat while002e1 runs
+
+83213/tab51, finite240second synthetic preview on8858, existing870.72kB built UI. Typed the
+same draft, switched Brief -> Web app: the exact draft survived. Opened uncheckedversion2,
+then explicitly replaced it with uncheckedversion1: frame remained running with no false
+navigation-stop warning. Version1 controls at1000kPriority returned$409.50. These two earlier
+browser failures are corrected by0da94e6. Screenshot app-studio-preview-switch-2026-11-04.jpg.
+No generation/host/model/NEAR execution.83213stopped/tab51closed.002e1 reload/phone/worker
+corrections remain active; do not equate this narrow repeat with full Studio acceptance.
