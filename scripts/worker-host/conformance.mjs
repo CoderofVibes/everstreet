@@ -15,38 +15,23 @@
 //   limits are tested separately; preflight during a live run must say busy and kill nothing.
 
 import { spawn } from "node:child_process";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { failedWith, makeJob, observed, selfTest } from "./conformance-lib.mjs";
+
+// 002e1: the evidence rules first; `--self-test` stops here, before any launcher or host call.
+const problems = selfTest();
+if (problems.length) {
+  console.error(`conformance helpers accept non-evidence; refusing to run:\n  ${problems.join("\n  ")}`);
+  process.exit(1);
+}
+if (process.argv.includes("--self-test")) {
+  console.log("conformance self-test: all evidence rules hold (no launcher or host call made)");
+  process.exit(0);
+}
 
 const HARNESS_MS = 120_000;
 const OUT_MAX = 256 * 1024;
-
-const canon = (v) =>
-  Array.isArray(v)
-    ? `[${v.map(canon).join(",")}]`
-    : v && typeof v === "object"
-      ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(",")}}`
-      : JSON.stringify(v);
-
-const INDEX = { path: "index.html", text: "<!doctype html><title>t</title>\n" };
-function makeJob(logic, checks) {
-  const bundle = canon({
-    kind: "web_app_bundle",
-    schema_version: 1,
-    name: "Conformance",
-    description: "",
-    files: [INDEX, { path: "logic.js", text: logic }].sort((a, b) => (a.path < b.path ? -1 : 1)),
-    checks: checks.map((c) => ({ label: c.id, module: "logic.js", input: null, ...c })),
-  });
-  return {
-    check_id: randomUUID(),
-    attempt: 1,
-    digest: createHash("sha256").update(bundle).digest("hex"),
-    recipe: "web_app_checks/1",
-    bundle,
-    ids: checks.map((c) => c.id),
-  };
-}
 
 /** One launcher call with its OWN deadline and bounds, independent of the engine's. */
 function launch(verb, stdin, killAfterMs = HARNESS_MS) {
@@ -81,43 +66,6 @@ function launch(verb, stdin, killAfterMs = HARNESS_MS) {
   });
 }
 
-/** A run counts only with a complete report bound to this job and exactly its cases. */
-function completeReport(o, job) {
-  const r = o?.report;
-  if (!r || typeof r !== "object" || r.error) return null;
-  if (r.check_id !== job.check_id || r.attempt !== job.attempt || r.digest !== job.digest) return null;
-  if (!Array.isArray(r.cases)) return null;
-  const ids = r.cases.map((c) => c.id).sort();
-  if (canon(ids) !== canon([...job.ids].sort())) return null;
-  return r;
-}
-/** The probe ran and returned exactly its expected observation. */
-const observed = (o, job, id) => completeReport(o, job)?.cases.find((c) => c.id === id)?.passed === true;
-/** The case ran to a definite failure with this detail (e.g. a limit killed it). */
-const failedWith = (o, job, id, re) => {
-  const c = completeReport(o, job)?.cases.find((x) => x.id === id);
-  return c?.passed === false && re.test(c.detail ?? "");
-};
-
-// Negative controls: the helpers must refuse what isn't evidence.
-function selfTest() {
-  const job = { check_id: "a", attempt: 1, digest: "d", ids: ["p", "q"] };
-  const good = { report: { check_id: "a", attempt: 1, digest: "d", cases: [{ id: "p", passed: true }, { id: "q", passed: false, detail: "killed by signal SIGXFSZ" }] } };
-  const bad = [
-    {},
-    { report: {} },
-    { error: "unavailable" },
-    { report: { ...good.report, digest: "x" } },
-    { report: { ...good.report, cases: [{ id: "p", passed: true }] } },
-    { report: { ...good.report, cases: [...good.report.cases, { id: "z", passed: true }] } },
-    { report: { ...good.report, cases: [{ id: "p", passed: false, detail: "module_load_failed: x" }, good.report.cases[1]] } },
-    { report: { ...good.report, error: "supervisor_failed" } },
-  ];
-  const ok = observed(good, job, "p") && failedWith(good, job, "q", /SIGXFSZ/);
-  const refused = bad.every((b) => !observed(b, job, "p") && !failedWith(b, job, "q", /SIGXFSZ/));
-  if (!ok || !refused) throw new Error("conformance helpers accept non-evidence; refusing to run");
-}
-
 const results = [];
 const record = (name, pass, evidence) => {
   results.push({ name, pass, evidence });
@@ -141,24 +89,28 @@ async function runCase(logic, checks, killAfterMs) {
   return { o, job, responsive: ticks >= Math.floor(secs * 10 * 0.8), secs };
 }
 const fin = () => {
+  rmSync(canaryDir, { recursive: true, force: true });
   const file = `conformance-${new Date().toISOString().slice(0, 10)}.json`;
   writeFileSync(file, JSON.stringify({ results }, null, 2));
   console.log(`wrote ${file}; ${results.filter((r) => r.pass).length}/${results.length} passed`);
   process.exit(results.length > 1 && results.every((r) => r.pass) ? 0 : 1);
 };
 
-selfTest();
+// Synthetic canaries on the HOST (Astra's follow-up: real files, verified to exist before the
+// case claims they're unreadable). One stands for "a host file", the other for "another job's
+// drive" (fictional content in a file shaped like one). They live outside the jail base, so the
+// launcher's orphan scanner never touches them; they are removed at the end.
+const canaryDir = `/var/tmp/everstreet-conformance-${randomBytes(6).toString("hex")}`;
+const hostCanary = `${canaryDir}/host-canary.txt`;
+const jobCanary = `${canaryDir}/other-job-input.img`;
+mkdirSync(canaryDir, { recursive: true, mode: 0o755 });
+writeFileSync(hostCanary, "FICTIONAL HOST CANARY\n", { mode: 0o644 });
+writeFileSync(jobCanary, Buffer.from("ESW1 FICTIONAL OTHER JOB DRIVE"), { mode: 0o644 });
+const canariesExist = () => [hostCanary, jobCanary].every((f) => existsSync(f) && statSync(f).size > 0);
+
 const pre = await launch("preflight");
 record("preflight ready", pre?.ok === true, pre);
 if (!pre?.ok) fin();
-
-// Synthetic canaries on the host, standing for "a host file" and "another job's file".
-const canaryDir = `/tmp/everstreet-canary-${randomBytes(6).toString("hex")}`;
-const hostCanary = `${canaryDir}/host-canary.txt`;
-const jobCanary = `/srv/everstreet-jail/firecracker/es-000000000000-1/root/input.img`;
-rmSync(canaryDir, { recursive: true, force: true });
-(await import("node:fs")).mkdirSync(canaryDir, { recursive: true });
-writeFileSync(hostCanary, "FICTIONAL CANARY\n");
 
 // 1. Benign: the fictional API plan estimate passes; host responsive.
 {
@@ -175,7 +127,7 @@ writeFileSync(hostCanary, "FICTIONAL CANARY\n");
     `import {readFileSync} from 'node:fs';export function probe(){const r={};for(const p of ${JSON.stringify(paths)}){try{readFileSync(p);r[p]='READ'}catch(e){r[p]=e.code}}return r;}\n`,
     [{ id: "probe", export: "probe", expect: { [hostCanary]: "ENOENT", [jobCanary]: "ENOENT", "/dev/vdb": "EACCES", "/dev/vdc": "EACCES" } }],
   );
-  record("host and job canaries absent; drives closed to the case", observed(c.o, c.job, "probe"), c.o);
+  record("host and job canaries absent; drives closed to the case", canariesExist() && observed(c.o, c.job, "probe"), { o: c.o, canaries: [hostCanary, jobCanary], existed: canariesExist() });
 }
 // 3. Network: no NIC; every connection fails with an error (never connects or hangs).
 {
@@ -268,5 +220,4 @@ writeFileSync(hostCanary, "FICTIONAL CANARY\n");
 record("no leftovers at the end", leftovers().length === 0, { left: leftovers() });
 // Host VMM limits are verified by the launcher before every VM start (limits_unverified).
 // The fail-open trap (removing the parent cgroup) needs root: run by hand, EXECUTABLE_PRODUCTS §7.
-rmSync(canaryDir, { recursive: true, force: true });
 fin();

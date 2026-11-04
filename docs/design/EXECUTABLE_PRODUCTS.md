@@ -239,6 +239,17 @@ WorkerImplementationReview):
 - **Bounds.** Stdin is bounded and deadlined, hashes are streamed, and every subprocess has a
   timeout.
 
+**Lifecycle lock** (002e1, after Astra's follow-up):
+- **Which operations hold it.** The run lock is one lifecycle lock (`lifecycle-lock.mjs`) held
+  across the whole critical section of run (taken before readiness), preflight (across its orphan
+  scan), cleanup and `setup.sh uninstall`. A run can't start between a preflight's "free" and its
+  scan.
+- **Taking over a dead holder.** It moves the stale file aside and checks by inode that it moved
+  the stale lock it judged; having moved a newer live lock, it puts that back and reports busy.
+- **Release.** Only the owner, by pid and process start time, releases.
+- **Tests.** Deterministic interleavings, including two contenders, are in
+  `server/test/lifecycle-lock.test.ts`.
+
 **The platform worker side** (after Astra's AppCheckLifecycleReview):
 - the lease is renewed on every poll tick from claim to end;
 - a cancel is checked in the transactional dispatch gate and before an outcome is applied;
@@ -305,6 +316,14 @@ the lock identity.
   - per-file (`RLIMIT_FSIZE`) and aggregate (tmpfs) limits tested separately;
   - a busy preflight during a finite live run;
   - a real orphan proven and cleaned.
+- **002e1 corrections:**
+  - **Pure rules.** The evidence rules live in `conformance-lib.mjs`.
+    `node conformance.mjs --self-test` runs only the negative controls and exits before any
+    launcher or host call. Whole-report corruptions void every claim; a per-case corruption voids
+    only that claim (Astra reproduced the old self-test failing).
+  - **Canaries.** Both are real synthetic files, created and confirmed to exist under
+    `/var/tmp/everstreet-conformance-*` (outside the jail base, so never orphan-scanned), and
+    removed at the end.
 
 The cases:
 1. **Benign:** the quote calculator, all cases pass, plus the measured `memory.peak`.
@@ -363,9 +382,21 @@ The cases:
   removed, and is safe to repeat.
 - **Fake-root harness.** `setup-harness.sh` runs all of this in a temporary fake root with
   logging shims for every system command: read-only check, conflict refusal, an interrupted
-  install, repeat uninstall, refusal under a run lock, and a clean full cycle. **It has not been
-  run in this session** (running it needed an approval). It proves bookkeeping only, not the
-  real commands.
+  install, repeat uninstall, refusal under a run lock, and a clean full cycle. It proves
+  bookkeeping only, not the real commands.
+- **002e1 corrections:**
+  - **Confirmed removal.** Uninstall confirms each removal: the item is absent, or no longer
+    enabled or installed. Otherwise the record and everything older stays, and uninstall fails.
+  - **Conflicts.** Dangling symlinks and annotated `ip netns list` output count as conflicts.
+  - **Locking.** Uninstall takes the lifecycle lock.
+  - **The harness.** It is stateful (users, ACLs, units, packages, netns). It saves its baseline
+    before the install it removes, and covers installs interrupted at each privileged step, a
+    retained record on a failed removal, and live and dead locks.
+  - **Harness run.** It **was run** in 002e1 (Git Bash, a temporary fake root, shims only): all
+    checks passed.
+    - Dangling symlinks were skipped: that filesystem has none.
+    - `install` was shimmed, so modes were logged rather than applied: NTFS can't hold Linux
+      modes.
 
 Decisions for Tony, after Astra's review:
 - a dedicated distro (recommended) or the existing Ubuntu;

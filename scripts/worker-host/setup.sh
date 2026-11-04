@@ -67,12 +67,49 @@ pin() { # fc|node -> the pinned sha256 (the harness's fake inputs have their own
 
 record() { echo "$*" >> "$MANIFEST"; }
 
+netns_present() { ip netns list 2>/dev/null | awk '{print $1}' | grep -qx everstreet-none; }
+
+# 002e1: the launcher's lifecycle lock, taken by uninstall with an atomic no-clobber create.
+# A lock whose holder is gone (kill -0 fails) is stale and moved aside first; a live one refuses.
+take_lock() {
+  lockf=$MANIFEST_DIR/run.lock
+  if [ -e "$lockf" ]; then
+    holder=$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$lockf")
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      echo "a lifecycle operation is in progress (pid $holder); try again when it ends" >&2; return 1
+    fi
+    mv "$lockf" "$lockf.stale-$$"; rm -f "$lockf.stale-$$"
+  fi
+  start=$(cut -d' ' -f22 "/proc/$$/stat" 2>/dev/null || echo 0)
+  ( set -C; printf '{"pid":%s,"start":"%s","purpose":"uninstall","id":null}\n' "$$" "$start" > "$lockf" ) 2>/dev/null \
+    || { echo "another lifecycle operation took the lock" >&2; return 1; }
+}
+
+# Confirms a recorded resource is really gone (or no longer enabled/installed).
+gone() {
+  kind=$1; what=$2; who=${3:-}
+  case "$kind" in
+    file|dir) [ ! -e "$what" ] && [ ! -L "$what" ] ;;
+    unit) ! systemctl is-enabled --quiet "$what" 2>/dev/null && ! systemctl is-active --quiet "$what" 2>/dev/null ;;
+    netns) ! netns_present ;;
+    cgroup) [ ! -d "$what" ] ;;
+    acl) ! getfacl -p "$what" 2>/dev/null | grep -q "^user:$who:" ;;
+    user) ! id "$what" >/dev/null 2>&1 ;;
+    package) ! dpkg -s "$what" 2>/dev/null | grep -q '^Status: install ok installed' ;;
+    *) return 1 ;;
+  esac
+}
+
 # Everything install would create; any that exists is a conflict (nothing is adopted).
 conflicts() {
   c=""
   for u in everstreet-runner everstreet-vm; do id "$u" >/dev/null 2>&1 && c="$c user:$u"; done
-  for p in "$ROOT" "$JAILS" "$UNIT" "$SUDOERS" "$CGROUP" "$MANIFEST_DIR"; do [ -e "$p" ] && c="$c path:$p"; done
-  ip netns list 2>/dev/null | grep -qx everstreet-none && c="$c netns:everstreet-none"
+  # A dangling symlink is a conflict too (002e1): `[ -e ]` alone misses it.
+  for p in "$ROOT" "$JAILS" "$UNIT" "$SUDOERS" "$CGROUP" "$MANIFEST_DIR"; do
+    if [ -e "$p" ] || [ -L "$p" ]; then c="$c path:$p"; fi
+  done
+  # `ip netns list` may annotate names ("everstreet-none (id: 0)"): compare the name field only.
+  netns_present && c="$c netns:everstreet-none"
   getfacl -p "$KVM" 2>/dev/null | grep -q "^user:everstreet-vm:" && c="$c acl:$KVM"
   echo "$c"
 }
@@ -171,6 +208,8 @@ UNITFILE
   install -m 0755 "$HERE/launch" "$ROOT/bin/launch"
   install -m 0644 "$HERE/host-launch.mjs" "$ROOT/host-launch.mjs"
   install -m 0644 "$HERE/conformance.mjs" "$ROOT/conformance.mjs"
+  install -m 0644 "$HERE/conformance-lib.mjs" "$ROOT/conformance-lib.mjs"
+  install -m 0644 "$HERE/lifecycle-lock.mjs" "$ROOT/lifecycle-lock.mjs"
   install -m 0644 "$LOCK" "$ROOT/worker.lock.json"
   install -m 0644 "$HERE/guest/wire.mjs" "$ROOT/guest/wire.mjs"
   install -m 0644 vmlinux "$ROOT/guest/vmlinux"
@@ -198,28 +237,38 @@ JSON
 uninstall_all() {
   [ -n "$S" ] || [ "$(id -u)" = 0 ] || { echo "uninstall must run as root" >&2; exit 1; }
   [ -e "$MANIFEST" ] || { echo "nothing recorded; nothing to remove"; exit 0; }
-  # Never under a live run: its lock names a live process, or a job cgroup still has processes.
-  if [ -e "$MANIFEST_DIR/run.lock" ]; then echo "a run lock exists; run preflight first (it proves orphans) or stop the run" >&2; exit 1; fi
+  # The same lifecycle lock as run/preflight/cleanup (002e1): never under a live operation.
+  take_lock || exit 1
   for d in "$CGROUP"/es-*; do
-    [ -d "$d" ] && [ -n "$(cat "$d/cgroup.procs" 2>/dev/null)" ] && { echo "a job is still running ($d)" >&2; exit 1; }
+    if [ -d "$d" ] && [ -n "$(cat "$d/cgroup.procs" 2>/dev/null)" ]; then
+      rm -f "$MANIFEST_DIR/run.lock"; echo "a job is still running ($d)" >&2; exit 1
+    fi
   done
   while [ -s "$MANIFEST" ]; do
     line=$(tail -n 1 "$MANIFEST"); kind=${line%% *}; rest=${line#* }; what=${rest%% *}; who=${rest#* }
+    [ "$who" = "$rest" ] && who=""
     case "$kind" in
       file) rm -f "$what" ;;
-      unit) systemctl disable --now "$what" 2>/dev/null || true; systemctl daemon-reload ;;
-      netns) ip netns delete "$what" 2>/dev/null || true ;;
-      cgroup) [ ! -d "$what" ] || rmdir "$what" ;;
-      acl) setfacl -x "u:$who" "$what" 2>/dev/null || true ;;
-      user) ! id "$what" >/dev/null 2>&1 || userdel "$what" ;;
-      package) DEBIAN_FRONTEND=noninteractive apt-get remove -y "$what" ;;
-      dir) rm -rf "$what" ;;
-      *) echo "unknown manifest entry: $line" >&2; exit 1 ;;
+      unit) systemctl disable --now "$what" || true; systemctl daemon-reload || true ;;
+      netns) ! netns_present || ip netns delete "$what" || true ;;
+      cgroup) [ ! -d "$what" ] || rmdir "$what" || true ;;
+      acl) setfacl -x "u:$who" "$what" || true ;;
+      user) ! id "$what" >/dev/null 2>&1 || userdel "$what" || true ;;
+      package) DEBIAN_FRONTEND=noninteractive apt-get remove -y "$what" || true ;;
+      dir) [ "$what" = "$MANIFEST_DIR" ] || rm -rf "$what" ;;
+      *) echo "unknown manifest entry: $line" >&2; rm -f "$MANIFEST_DIR/run.lock"; exit 1 ;;
     esac
-    # Only a removed entry leaves the manifest; a failure above stops here with the rest recorded.
+    # 002e1: the record leaves the manifest only once removal is CONFIRMED; otherwise it stays
+    # (with everything older) and uninstall fails, to be repeated after the cause is fixed.
+    if [ "$kind" != dir ] || [ "$what" != "$MANIFEST_DIR" ]; then
+      if ! gone "$kind" "$what" "$who"; then
+        rm -f "$MANIFEST_DIR/run.lock"
+        echo "could not confirm removal of: $line (kept in the manifest)" >&2; exit 1
+      fi
+    fi
     sed -i '$d' "$MANIFEST"
   done
-  rm -f "$MANIFEST" "$MANIFEST_DIR/installed.json"; rmdir "$MANIFEST_DIR"
+  rm -f "$MANIFEST" "$MANIFEST_DIR/installed.json" "$MANIFEST_DIR/run.lock"; rmdir "$MANIFEST_DIR"
   echo "Removed exactly what the manifest recorded."
 }
 

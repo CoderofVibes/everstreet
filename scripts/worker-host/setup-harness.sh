@@ -1,10 +1,10 @@
 #!/bin/sh
-# Job 002e: a FINITE fake-root harness for setup.sh (Astra's WorkerImplementationReview). It runs
-# setup.sh against a temporary directory (EVERSTREET_SYSROOT) with every privileged or system
-# command replaced by a logging shim, so nothing on this machine changes. It checks: a conflict
-# is refused before any change; an install interrupted mid-way is removed exactly by uninstall;
-# uninstall is safe to repeat and refuses under a run lock; a full install/uninstall leaves the
-# fake root as it started. It proves setup.sh's bookkeeping, NOT that the real commands work.
+# Job 002e1: a FINITE fake-root harness for setup.sh (Astra's WorkerImplementationReview). It runs
+# setup.sh against a temporary directory (EVERSTREET_SYSROOT) with EVERY privileged or system
+# command replaced by a stateful logging shim (users, ACLs, units, packages, netns), so nothing on
+# this machine changes and nothing leaves the temp dir, which is removed on exit. It proves
+# setup.sh's bookkeeping (conflicts, interruption, confirmed rollback, repeat safety, the
+# lifecycle lock), NOT that the real commands work.
 #   sh scripts/worker-host/setup-harness.sh
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -13,37 +13,52 @@ trap 'rm -rf "$T"' EXIT
 SYS=$T/sys; BIN=$T/shims; IN=$T/inputs
 fail() { echo "HARNESS FAIL: $*" >&2; exit 1; }
 pass() { echo "ok  $*"; }
+case "$T" in /tmp/*|/var/tmp/*|*/Temp/*|*/tmp/*) ;; *) fail "unexpected temp location $T";; esac
 
 reset_sys() {
-  rm -rf "$SYS"; mkdir -p "$SYS/dev" "$SYS/sys/fs/cgroup" "$SYS/state"
+  # The standard directories every Ubuntu host already has (setup creates only its own below them).
+  rm -rf "$SYS"; mkdir -p "$SYS/dev" "$SYS/sys/fs/cgroup" "$SYS/state" "$SYS/var/lib" "$SYS/opt" \
+    "$SYS/srv" "$SYS/etc/systemd/system" "$SYS/etc/sudoers.d"
   : > "$SYS/dev/kvm"; echo "cpu memory pids" > "$SYS/sys/fs/cgroup/cgroup.controllers"
-  : > "$SYS/state/users"; : > "$SYS/state/acl"; : > "$SYS/state/netns"; : > "$SYS/state/log"
+  for f in users acl netns units packages log; do : > "$SYS/state/$f"; done
 }
-snapshot() { (cd "$SYS" && find . -path ./state -prune -o -print | sort; cat state/users state/acl state/netns); }
+snapshot() { (cd "$SYS" && find . -path ./state -prune -o -print | sort; for f in users acl netns units packages; do echo "[$f]"; sort "state/$f"; done); }
 
 mkdir -p "$BIN" "$IN"
-shim() { printf '#!/bin/sh\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }
-# Every shim logs; FAIL_AT=<name> makes that command fail (an interrupted install).
-L='echo "$(basename "$0") $*" >> "$EVERSTREET_SYSROOT/state/log"; [ "${FAIL_AT:-}" != "$(basename "$0")" ] || exit 1'
+shim() { printf '#!/bin/sh\nST="$EVERSTREET_SYSROOT/state"\n%s\n' "$2" > "$BIN/$1"; chmod +x "$BIN/$1"; }
+# Every shim logs; FAIL_AT=<name> makes that command fail (an interrupted step).
+L='echo "$(basename "$0") $*" >> "$ST/log"; [ "${FAIL_AT:-}" != "$(basename "$0")" ] || exit 1'
+del() { echo "grep -vx \"\$1\" \"\$ST/$1\" > \"\$ST/$1.n\" || true; mv \"\$ST/$1.n\" \"\$ST/$1\""; }
 shim id "$L
-case \"\${1:-}\" in -u) echo 0 ;; *) grep -qx \"\$1\" \"\$EVERSTREET_SYSROOT/state/users\" ;; esac"
+case \"\${1:-}\" in -u) echo 0 ;; *) grep -qx \"\$1\" \"\$ST/users\" ;; esac"
 shim useradd "$L
-for a; do u=\$a; done; echo \"\$u\" >> \"\$EVERSTREET_SYSROOT/state/users\""
+for a; do u=\$a; done; echo \"\$u\" >> \"\$ST/users\""
 shim userdel "$L
-grep -vx \"\$1\" \"\$EVERSTREET_SYSROOT/state/users\" > \"\$EVERSTREET_SYSROOT/state/u2\" || true; mv \"\$EVERSTREET_SYSROOT/state/u2\" \"\$EVERSTREET_SYSROOT/state/users\""
+$(del users)"
 shim setfacl "$L
-case \"\$1\" in -m) echo \"\$3 \$2\" >> \"\$EVERSTREET_SYSROOT/state/acl\" ;; -x) grep -v \" \$2:\" \"\$EVERSTREET_SYSROOT/state/acl\" > \"\$EVERSTREET_SYSROOT/state/a2\" || true; mv \"\$EVERSTREET_SYSROOT/state/a2\" \"\$EVERSTREET_SYSROOT/state/acl\" ;; esac"
+case \"\$1\" in -m) echo \"\${2#u:} \$3\" >> \"\$ST/acl\" ;; -x) grep -v \"^\${2#u:}:\" \"\$ST/acl\" > \"\$ST/acl.n\" || true; mv \"\$ST/acl.n\" \"\$ST/acl\" ;; esac"
 shim getfacl "$L
-sed 's/^[^ ]* u:\([^:]*\):\(.*\)/user:\1:\2/' \"\$EVERSTREET_SYSROOT/state/acl\""
-shim systemctl "$L"
+sed 's/^\([^:]*\):\([^ ]*\) .*/user:\1:\2/' \"\$ST/acl\""
+shim systemctl "$L
+case \"\$1\" in
+  enable) echo \"\$3\" >> \"\$ST/units\" ;;
+  disable) set -- \"\$3\"; $(del units) ;;
+  is-enabled|is-active) grep -qx \"\$3\" \"\$ST/units\" ;;
+esac"
 shim ip "$L
-case \"\$2\" in list) cat \"\$EVERSTREET_SYSROOT/state/netns\" ;; add) echo \"\$3\" >> \"\$EVERSTREET_SYSROOT/state/netns\" ;; delete) : > \"\$EVERSTREET_SYSROOT/state/netns\" ;; esac"
+case \"\$2\" in
+  list) sed 's/\$/ (id: 0)/' \"\$ST/netns\" ;;
+  add) echo \"\$3\" >> \"\$ST/netns\" ;;
+  delete) set -- \"\$3\"; $(del netns) ;;
+esac"
 shim visudo "$L"
-shim apt-get "$L"
+shim apt-get "$L
+for a; do p=\$a; done
+case \" \$* \" in *\" install \"*) echo \"\$p\" >> \"\$ST/packages\" ;; *\" remove \"*) set -- \"\$p\"; $(del packages) ;; esac"
 shim dpkg "$L
-exit 0"
+grep -qx \"\$2\" \"\$ST/packages\" && echo 'Status: install ok installed'"
 shim unsquashfs "$L
-for a; do [ \"\$prev\" = -d ] && mkdir -p \"\$a/etc\"; prev=\$a; done"
+for a; do [ \"\${prev:-}\" = -d ] && mkdir -p \"\$a/etc\"; prev=\$a; done"
 shim mkfs.ext4 "$L
 for a; do f=\$a; done; : > \"\$f\""
 shim truncate "$L
@@ -52,8 +67,15 @@ shim tar "$L
 case \"\$1\" in -xzf) echo \"fake \$4\" ;; -xJf) mkdir -p \"\$4/bin\" ;; esac"
 shim curl "$L
 exit 1"
+# install(1): same creation and copies, the requested mode logged but not applied (this fake root
+# may be on a filesystem that can't hold Linux modes; modes are verified on the real host only).
+shim install "$L
+dirs=0; mode=''
+while [ \$# -gt 0 ]; do case \"\$1\" in -d) dirs=1; shift ;; -m) mode=\$2; shift 2 ;; *) break ;; esac; done
+if [ \$dirs = 1 ]; then mkdir -p \"\$@\"; else cp \"\$1\" \"\$2\"; fi
+echo \"install mode \$mode \$*\" >> \"\$ST/log\""
 
-# Fake inputs and their pins (the harness never touches real downloads or the real lock pins).
+# Fake inputs and their pins (never the real downloads or the real lock pins).
 for f in firecracker-v1.17.0-x86_64.tgz node-v24.22.2-linux-x64.tar.xz vmlinux rootfs.squashfs; do echo "fake $f" > "$IN/$f"; done
 PINS=$T/pins
 {
@@ -64,48 +86,74 @@ PINS=$T/pins
 } > "$PINS"
 
 run() { PATH="$BIN:$PATH" EVERSTREET_SYSROOT="$SYS" EVERSTREET_TEST_PINS="$PINS" sh "$HERE/setup.sh" "$@"; }
+M=$SYS/var/lib/everstreet-worker
 
-# 1. check changes nothing and sees no conflicts.
-reset_sys; before=$(snapshot)
+# 1. check changes nothing.
+reset_sys; base=$(snapshot)
 run check > "$T/out" 2>&1 || fail "check failed: $(cat "$T/out")"
 grep -q "no conflicts" "$T/out" || fail "check should see no conflicts"
-[ "$before" = "$(snapshot)" ] || fail "check changed the fake root"
+[ "$base" = "$(snapshot)" ] || fail "check changed the fake root"
 pass "check is read-only"
 
-# 2. A pre-existing target is refused before any change.
-reset_sys; mkdir -p "$SYS/opt/everstreet-worker"; before=$(snapshot)
-if run install "$IN" > "$T/out" 2>&1; then fail "install adopted an existing /opt/everstreet-worker"; fi
-grep -q "refusing" "$T/out" || fail "no refusal message: $(cat "$T/out")"
-[ "$before" = "$(snapshot)" ] || fail "a refused install changed the fake root"
-echo everstreet-vm >> "$SYS/state/users"; rmdir "$SYS/opt/everstreet-worker"
+# 2. Conflicts are refused before any change: a path, a user, an annotated netns, a dangling link.
+reset_sys; mkdir -p "$SYS/opt/everstreet-worker"; base=$(snapshot)
+if run install "$IN" > "$T/out" 2>&1; then fail "install adopted an existing path"; fi
+[ "$base" = "$(snapshot)" ] || fail "a refused install changed the fake root"
+reset_sys; echo everstreet-vm >> "$SYS/state/users"
 if run install "$IN" > "$T/out" 2>&1; then fail "install adopted an existing user"; fi
-pass "conflicts refused before any change"
+reset_sys; echo everstreet-none >> "$SYS/state/netns"   # listed as "everstreet-none (id: 0)"
+if run install "$IN" > "$T/out" 2>&1; then fail "install missed an annotated netns"; fi
+grep -q "netns:everstreet-none" "$T/out" || fail "no netns conflict named"
+reset_sys; mkdir -p "$SYS/etc/sudoers.d"
+if ln -s "$SYS/nowhere" "$SYS/etc/sudoers.d/everstreet-worker" 2>/dev/null && [ -L "$SYS/etc/sudoers.d/everstreet-worker" ]; then
+  if run install "$IN" > "$T/out" 2>&1; then fail "install missed a dangling symlink"; fi
+  pass "conflicts refused before any change (path, user, annotated netns, dangling symlink)"
+else
+  pass "conflicts refused before any change (path, user, annotated netns); SKIPPED dangling symlink: no symlinks here"
+fi
 
-# 3. An install interrupted at systemctl is removed exactly; uninstall is safe to repeat.
-reset_sys; before=$(snapshot)
-if FAIL_AT=systemctl run install "$IN" > "$T/out" 2>&1; then fail "the interrupted install reported success"; fi
-[ -s "$SYS/var/lib/everstreet-worker/manifest" ] || fail "no manifest after an interrupted install"
-grep -q everstreet-runner "$SYS/state/users" || fail "the harness didn't reach user creation"
-run uninstall > "$T/out" 2>&1 || fail "uninstall after interruption failed: $(cat "$T/out")"
-[ "$before" = "$(snapshot)" ] || { snapshot > "$T/after"; fail "leftovers after uninstall: $(diff "$T/after" /dev/null | head -5)"; }
-run uninstall > "$T/out" 2>&1 || fail "a second uninstall failed"
-grep -q "nothing recorded" "$T/out" || fail "a second uninstall should find nothing"
-pass "interrupted install removed exactly; repeat uninstall safe"
+# 3. An install interrupted at each privileged stage is removed exactly; uninstall repeats safely.
+for stage in useradd setfacl systemctl visudo; do
+  reset_sys; base=$(snapshot)
+  if FAIL_AT=$stage run install "$IN" > "$T/out" 2>&1; then fail "install interrupted at $stage reported success"; fi
+  [ -s "$M/manifest" ] || fail "no manifest after an install interrupted at $stage"
+  run uninstall > "$T/out" 2>&1 || fail "uninstall after $stage interruption failed: $(cat "$T/out")"
+  if [ "$base" != "$(snapshot)" ]; then
+    echo "$base" > "$T/before"; snapshot > "$T/after"
+    fail "leftovers after uninstalling an install interrupted at $stage: $(diff "$T/before" "$T/after" | head -8 | tr '\n' ' ')"
+  fi
+  run uninstall > "$T/out" 2>&1 || fail "a second uninstall failed"
+  grep -q "nothing recorded" "$T/out" || fail "a second uninstall should find nothing"
+done
+pass "installs interrupted at useradd, setfacl, systemctl and visudo are removed exactly; repeat uninstall safe"
 
-# 4. Uninstall refuses while a run lock exists.
-reset_sys
+# 4. A full install, with the clean baseline saved BEFORE it (Astra: the old step 5 reset first).
+reset_sys; base=$(snapshot)
 run install "$IN" > "$T/out" 2>&1 || fail "full install failed: $(cat "$T/out")"
-[ -f "$SYS/opt/everstreet-worker/conformance.mjs" ] || fail "conformance suite not installed"
+for f in conformance.mjs conformance-lib.mjs lifecycle-lock.mjs host-launch.mjs; do
+  [ -f "$SYS/opt/everstreet-worker/$f" ] || fail "$f not installed"
+done
 grep -q "conformance.mjs" "$T/out" || fail "install names the wrong conformance command"
-: > "$SYS/var/lib/everstreet-worker/run.lock"
-if run uninstall > "$T/out" 2>&1; then fail "uninstall ran under a run lock"; fi
-[ -s "$SYS/var/lib/everstreet-worker/manifest" ] || fail "the refused uninstall touched the manifest"
-rm "$SYS/var/lib/everstreet-worker/run.lock"
-pass "uninstall refused under a run lock"
+grep -qx everstreet-worker-host.service "$SYS/state/units" || fail "the unit wasn't enabled"
+pass "full install placed every file and enabled the unit"
 
-# 5. A full install then uninstall leaves the fake root as it started.
-before=$( (reset_sys; snapshot) )
-run uninstall > "$T/out" 2>&1 || fail "uninstall failed: $(cat "$T/out")"
-[ "$before" = "$(snapshot)" ] || fail "leftovers after a full install/uninstall"
-pass "full install and uninstall leave nothing"
-echo "setup-harness: all checks passed (bookkeeping only; real commands unverified)"
+# 5. A removal that can't be confirmed keeps its record and fails; fixing it and repeating finishes.
+if FAIL_AT=userdel run uninstall > "$T/out" 2>&1; then fail "uninstall ignored a failed userdel"; fi
+grep -q "^user " "$M/manifest" || fail "the unconfirmed user removal wasn't kept in the manifest"
+grep -q "could not confirm removal" "$T/out" || fail "no unconfirmed-removal message"
+[ ! -e "$M/run.lock" ] || fail "a failed uninstall left its lock"
+pass "an unconfirmed removal keeps its record and fails"
+
+# 6. Uninstall refuses under a live lifecycle lock and takes over a dead one.
+printf '{"pid":%s,"start":"x","purpose":"run","id":null}\n' "$$" > "$M/run.lock"
+if run uninstall > "$T/out" 2>&1; then fail "uninstall ran under a live lock"; fi
+grep -q "in progress" "$T/out" || fail "no busy message"
+printf '{"pid":999999,"start":"x","purpose":"run","id":null}\n' > "$M/run.lock"
+run uninstall > "$T/out" 2>&1 || fail "uninstall didn't take over a dead lock: $(cat "$T/out")"
+pass "uninstall refuses a live lock and takes over a dead one"
+
+# 7. The install from step 4 is gone exactly: the fake root equals its pre-install baseline.
+[ "$base" = "$(snapshot)" ] || { snapshot > "$T/after"; fail "leftovers after uninstall"; }
+pass "the full install and uninstall leave the fake root exactly as before"
+[ -s "$SYS/state/log" ] && echo "shim calls logged: $(wc -l < "$SYS/state/log")"
+echo "setup-harness: all checks passed (fake root and shims only; real commands unverified)"

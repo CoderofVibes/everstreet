@@ -29,6 +29,7 @@ import {
 import { request } from "node:http";
 import { join } from "node:path";
 import { decodeFrame, encodeFrame } from "./guest/wire.mjs";
+import { lifecycleLock } from "./lifecycle-lock.mjs";
 
 const ROOT = "/opt/everstreet-worker";
 const LOCK = JSON.parse(readFileSync(join(ROOT, "worker.lock.json"), "utf8"));
@@ -115,32 +116,23 @@ async function readinessProblems() {
 
 // ---------- the single-run lock ----------
 
-/** The live run named by the lock, or null; a lock whose process is gone is an orphan. */
-function lockState() {
-  if (!existsSync(RUN_LOCK)) return { kind: "free" };
-  let l;
-  try {
-    l = JSON.parse(readFileSync(RUN_LOCK, "utf8"));
-  } catch {
-    return { kind: "unreadable" };
-  }
-  const alive = (() => {
+// 002e1 (Astra's WorkerImplementationReview follow-up, item 5): one lifecycle lock held across
+// each critical section of run, preflight, cleanup and (in setup.sh) uninstall.
+const startOf = (pid) => readFileSync(`/proc/${pid}/stat`, "utf8").split(" ")[21];
+const lock = lifecycleLock({
+  path: RUN_LOCK,
+  self: { pid: process.pid, start: startOf(process.pid) },
+  // Same process (start time) and still a lifecycle command: never a recycled pid.
+  alive: (h) => {
     try {
-      const stat = readFileSync(`/proc/${l.pid}/stat`, "utf8");
-      const cmd = readFileSync(`/proc/${l.pid}/cmdline`, "utf8");
-      // Same process (start time) and still the launcher: not a recycled pid.
-      return stat.split(" ")[21] === l.start && cmd.includes("host-launch.mjs");
+      const cmd = readFileSync(`/proc/${h.pid}/cmdline`, "utf8");
+      return startOf(h.pid) === h.start && (cmd.includes("host-launch.mjs") || cmd.includes("setup.sh"));
     } catch {
       return false;
     }
-  })();
-  return { kind: alive ? "busy" : "orphan", lock: l };
-}
-
-function takeLock(id) {
-  const start = readFileSync(`/proc/${process.pid}/stat`, "utf8").split(" ")[21];
-  writeFileSync(RUN_LOCK, JSON.stringify({ pid: process.pid, start, id }), { flag: "wx", mode: 0o600 });
-}
+  },
+});
+const BUSY = (h) => ({ ok: false, busy: true, reason: `${h?.purpose ?? "another lifecycle operation"} is in progress` });
 
 /**
  * Kills everything in a job's cgroup and confirms it is empty; only then removes the cgroup and
@@ -181,23 +173,24 @@ async function cleanOrphans(liveId) {
 }
 
 async function preflight() {
-  const s = lockState();
-  if (s.kind === "busy") return out({ ok: false, busy: true, reason: "a check is running" });
-  if (s.kind === "unreadable") return out({ ok: false, reason: "the run lock is unreadable; inspect it before continuing" });
+  // Held for the whole scan: no run can start between "free" and the orphan cleanup.
+  const got = lock.acquire("preflight");
+  if (!got.ok) return out(got.unreadable ? { ok: false, reason: "the lifecycle lock is unreadable; inspect it before continuing" } : BUSY(got.busy));
   const removed = [];
   try {
-    if (s.kind === "orphan") {
-      if (ID.test(s.lock.id ?? "")) {
-        await cleanup(s.lock.id);
-        removed.push(s.lock.id);
-      }
-      rmSync(RUN_LOCK, { force: true });
+    if (got.orphan && ID.test(got.orphan.id ?? "")) {
+      await cleanup(got.orphan.id);
+      removed.push(got.orphan.id);
     }
     removed.push(...(await cleanOrphans(null)));
   } catch (e) {
+    // Unconfirmed: the lock is released (we are alive and done), the evidence stays on disk,
+    // and preflight is not ok, so the platform admits nothing.
+    lock.release();
     return out({ ok: false, cleanup_failed: true, reason: e.message, removed });
   }
   const problems = await readinessProblems();
+  lock.release();
   return out(problems.length ? { ok: false, reason: problems.join("; "), removed } : { ok: true, engine: await engineIdentity(), removed });
 }
 
@@ -258,22 +251,29 @@ async function run() {
     typeof job.bundle !== "string"
   )
     return out({ error: "invalid_job" });
-  const s = lockState();
-  if (s.kind !== "free") return out({ error: "unavailable", detail: s.kind === "busy" ? "a check is running" : "a previous run wasn't cleaned up; preflight first" });
-  const problems = await readinessProblems();
-  if (problems.length) return out({ error: "unavailable", detail: problems.join("; ") });
-  const engine = await engineIdentity();
   const id = jailId(job.check_id, job.attempt);
-  takeLock(id);
+  // The lock first, before readiness: nothing else changes worker state while we run.
+  const got = lock.acquire("run", id);
+  if (!got.ok) return out({ error: "unavailable", detail: got.unreadable ? "the lifecycle lock is unreadable" : "another lifecycle operation is in progress" });
+  if (got.orphan) {
+    lock.release();
+    return out({ error: "unavailable", detail: "a previous run wasn't cleaned up; preflight first" });
+  }
+  const problems = await readinessProblems();
+  if (problems.length) {
+    lock.release();
+    return out({ error: "unavailable", detail: problems.join("; ") });
+  }
+  const engine = await engineIdentity();
   let finished = false;
   const onSignal = async () => {
     if (finished) return;
     finished = true;
     try {
       await cleanup(id);
-      rmSync(RUN_LOCK, { force: true });
+      lock.release();
     } catch {
-      // the lock stays: the next preflight proves the orphan and retries cleanup
+      // the lock stays (its owner is about to exit): the next preflight proves the orphan
     }
     process.exit(130);
   };
@@ -288,7 +288,7 @@ async function run() {
   finished = true;
   try {
     await cleanup(id);
-    rmSync(RUN_LOCK, { force: true });
+    lock.release();
   } catch (e) {
     // Unconfirmed cleanup: the lock and jail stay; the platform admits nothing until a
     // preflight proves the orphan and cleans it.
@@ -384,13 +384,15 @@ const main =
       ? run()
       : verb === "cleanup" && ID.test(process.argv[3] ?? "")
         ? (async () => {
-            if (lockState().kind === "busy" && lockState().lock?.id === process.argv[3])
-              return out({ ok: false, reason: "that run is still live" });
+            const got = lock.acquire("cleanup", process.argv[3]);
+            if (!got.ok) return out({ ok: false, reason: got.busy?.id === process.argv[3] ? "that run is still live" : "another lifecycle operation is in progress" });
             try {
               await cleanup(process.argv[3]);
-              if (lockState().kind === "orphan" && lockState().lock?.id === process.argv[3]) rmSync(RUN_LOCK, { force: true });
+              if (got.orphan && got.orphan.id !== process.argv[3] && ID.test(got.orphan.id ?? "")) await cleanup(got.orphan.id);
+              lock.release();
               out({ ok: true });
             } catch (e) {
+              lock.release();
               out({ ok: false, cleanup_failed: true, reason: e.message });
               process.exitCode = 1;
             }
