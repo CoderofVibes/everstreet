@@ -2,6 +2,9 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Canvas independent review](2026-11-04_CanvasIndependentReview.md) |1007 tests; actual desktop edit/focus/undo/save pass; phone editor covered ->001g1 |001g remains review;001f2 priority next |
+| 2026-11-04 | [Acquisition design review](2026-11-04_AcquisitionDesignReview.md) | Actual terms/review baseline; clear authority, evidence, next action and customer continuity ->001i | Queued after001h; current001g writer uninterrupted |
+| 2026-11-04 | [Home read boundary review](2026-11-04_HomeReadBoundaryReview.md) | Actual delayed-response browser: Ava project summary appears under Bea; direct detail correctly denied; Home false-empty/foundation recovery ->001f2 | Current001g writer uninterrupted; correction queued next |
 | 2026-11-04 | [Discovery repeat and Studio dispatch](2026-11-04_DiscoveryRepeatAndStudioDispatch.md) |988 independent tests; actual availability/keyboard and outage/retry pass; scoped-search boundary reinforced;001g next,003u2/001h queued | Active; see local checkpoint |
 | 2026-11-04 | [Operations design review](2026-11-04_OperationsDesignReview.md) | Actual1440/390 operating UI baseline; data series collapse to same cobalt, chart/overview hierarchy and released identity ->001h | Queued after Studio/evidence correction; sole001f1 writer active |
 | 2026-11-04 | [Legacy disclosure API reproduction](2026-11-04_LegacyDisclosureReproduction.md) | Real granted room/export reveal4 orders,3 delivered,hidden refund uniquely1; finite13-request in-memory probe; source provenance note also overstates configured services | Correction queued;001f1 builder remains sole writer |
