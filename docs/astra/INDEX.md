@@ -2,6 +2,10 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Protected storage accepted](2026-11-04_ProtectedStorageAccepted.md) | Three reproduced corrections independently pass;1181 tests and web build pass atda404a0 | Narrow003v acceptance; Tony approves dedicated worker;002f next then001k/003w |
+| 2026-11-04 | [Application identity boundary](2026-11-04_ApplicationIdentityBoundaryReview.md) | Actual configured-flag routes accept name-only signup and old sessions; preview switch is correctly denied | Concrete003w identity/session-mode acceptance; no deployment or account claim;003v still sole writer |
+| 2026-11-04 | [Protected storage implementation review](2026-11-04_ProtectedStorageImplementationReview.md) | Actual separate SQLite connections admit two objects/48 bytes under one-object/32-byte limits | In-progress003v correction required; sole10846 live; host setup decision pending |
+| 2026-11-04 | [Dedicated worker setup proposal](2026-11-04_WorkerHostSetupProposal.md) | Concrete fresh WSL instance, scoped admin permissions, official downloads and resource/test bounds | Tony approved exact setup;002f queued after003v; installation not yet performed |
 | 2026-11-04 | [Host lifecycle corrections accepted](2026-11-04_HostLifecycleCorrectionsAccepted.md) | Independent exact stale-uninstaller repeat and real Linux lock harness pass at3b881ef | Narrow002e2 acceptance; install serialization and actual worker-host gates remain;003v next |
 | 2026-11-04 | [Protected storage callers](2026-11-04_ProtectedStorageCallerReview.md) |003v checklist covers maintenance context and storage/reference publication gap | Source review only; adapter still queued, sole39663 on002e2 |
 | 2026-11-04 | [Executable Studio composition](2026-11-04_ExecutableStudioCompositionReview.md) | Actual desktop preview below fold and two ambiguous composers;001k canvas correction brief |1440/1280 fit and keyboard comparison observed; preview cleaned up; JOBS row deferred while Claude owns it |

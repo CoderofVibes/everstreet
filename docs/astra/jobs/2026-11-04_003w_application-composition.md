@@ -49,6 +49,9 @@ work usable. An owner sees readiness; customers get a simple actionable unavaila
    See `docs/astra/2026-11-04_WalletIntegrationAlignment.md`: official NEP-413/Wallet Selector
    interface review and concrete account-proof versus registered use-key requirements. Implement
    the missing identity adapter as a bounded sub-job; do not call an unavailable seam complete.
+   Also see `docs/astra/2026-11-04_ApplicationIdentityBoundaryReview.md`: actual routes with
+   localPreview:false still accept name-only signup and an arbitrarily old session. Cover
+   verified mode, preview-to-configured session isolation and server-enforced expiry explicitly.
 
 ## Evidence
 
