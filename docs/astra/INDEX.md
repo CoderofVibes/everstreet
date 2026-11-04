@@ -2,6 +2,9 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Current sale accepted](2026-11-04_CurrentSaleAccepted.md) |1087 tests/build and actual second-sale browser: correct pending progression, old sale History,390 fit |001i1 accepted locally;001j next; broad/live gates remain |
+| 2026-11-04 | [Investor portfolio plan](2026-11-04_PortfolioPlan.md) |005d durable multi-business investor view grounded in current team/receipt boundaries | Queued after core integration/network work;001i1 sole writer |
+| 2026-11-04 | [Acquisition room repeat](2026-11-04_AcquisitionRoomRepeat.md) | Actual Fenn/Ruiz scope grants, digital withholding,390 fit, financial-only DOM and revoked direct URL pass |001i1 sole builder still live; remaining browser/live gates explicit |
 | 2026-11-04 | [Acquisition continuity repeat](2026-11-04_AcquisitionContinuityRepeat.md) | Approved actual browser record/premature refusal/fixture close/seller loss/buyer management/private customer99+result preserved |001i1 pending; Claude ENOTFOUND diagnosed; all live/full milestone gates remain |
 | 2026-11-04 | [Acquisition history review](2026-11-04_AcquisitionHistoryReview.md) | Synthetic pure probe: old applied sale incorrectly completes new sale progression |001i still live; recheck final and correct before acceptance |
 | 2026-11-04 | [Customer adapter plan](2026-11-04_CustomerAdapterPlan.md) | Existing100/20/80 double coverage distinguished from live gaps;003v real durable protection adapter prepared |001i sole writer; M3 and all six milestones remain open |
