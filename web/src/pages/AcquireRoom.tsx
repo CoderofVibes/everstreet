@@ -11,12 +11,15 @@ import { beforeOpening, missingReason, money, partialLabel } from "../finance.ts
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { CashChart, EarnedCostChart, Scroll } from "./FinanceChart.tsx";
+import { RoomPerformance } from "./RoomPerformance.tsx";
 
 const TABS: [string, string][] = [
   ["financials", "Financials"],
   ["costs", "Costs"],
   ["customers", "Customers"],
   ["operations", "Operations and what transfers"],
+  // Job 003u: its own scope; disabled (and says so) unless the seller granted it.
+  ["digital_performance", "Digital performance"],
 ];
 
 function Reproduce({
@@ -552,6 +555,10 @@ export function AcquireRoom({ id }: { id: string }) {
             {room.customers.note}
           </p>
         </section>
+      )}
+
+      {tab === "digital_performance" && room.digital_performance && (
+        <RoomPerformance p={room.digital_performance} />
       )}
 
       {tab === "operations" && room.operations && (

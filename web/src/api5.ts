@@ -162,8 +162,51 @@ export interface BuyerScenario {
   created_at: string;
 }
 
+/** Job 003u: a count shown, or hidden because it is 1 or 2 (or could be worked out). */
+export type Shown = number | "fewer_than_3";
+export interface PerformanceEvidence {
+  as_of: string;
+  state: "not_started" | "recorded";
+  period: { from: number; to: number; months: number; buckets: string };
+  usage: { requested: Shown; split: { key: string; label: string; value: Shown }[] };
+  months: {
+    yyyymm: number;
+    label: string;
+    so_far: boolean;
+    requested: Shown;
+    customers: { calls: Shown; microcents: string };
+    founder: { calls: number; microcents: string; unknown_cost_calls: number };
+  }[];
+  execution: {
+    ran: Shown;
+    usable_result: Shown;
+    not_usable: Shown;
+    undecided_or_unknown: Shown;
+  };
+  current: { total: Shown; groups: { key: string; label: string; value: Shown }[] };
+  cost: {
+    customers: {
+      calls: Shown;
+      microcents: string;
+      unknown_cost_calls: Shown;
+      unknown_held_cents: Shown;
+    };
+    founder: {
+      calls: number;
+      microcents: string;
+      unknown_cost_calls: number;
+      unknown_held_cents: number;
+    };
+  };
+  basis: { usage: string; execution: string; cost: string; current: string; not: string };
+  suppression: string;
+  limits: string[];
+}
+
 export interface Room {
   request: AccessRequest;
+  /** Job 003u: only with the digital performance scope, granted under wording 4 or later. */
+  digital_performance?: PerformanceEvidence;
   business: { name: string; slug: string; family_label: string; tagline: string };
   asking: { cents: number; source: string } | null;
   chain_error: string | null;

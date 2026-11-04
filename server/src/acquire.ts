@@ -15,6 +15,7 @@ import { firstName } from "./bookings.ts";
 import { BOOKS_BASIS, type Books, financialMonth, revenueOf } from "./books.ts";
 import type { Chain } from "./chain.ts";
 import type { Db } from "./db.ts";
+import { type PerformanceEvidence, performanceEvidence } from "./performanceEvidence.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { type Estimate, estimate, type Overrides, type Valuation, withOverrides } from "./value.ts";
 
@@ -67,15 +68,20 @@ export const CATEGORIES = {
   costs: "Every cost line and where it came from",
   customers: "Customer activity in aggregate (no names)",
   operations: "Owner work, helpers, customer promises and what transfers (no balances)",
+  // Job 003u (scope wording 4): its own category; no earlier grant or request can contain it.
+  digital_performance:
+    "Digital service performance in aggregate: customer uses by month and outcome, usable results, work still open, and the runtime cost of serving customers apart from the founder's own tests (no customer names, documents or results)",
 } as const;
 /** The wording a version-1 grant was made under: operations also showed balances. */
 export const CATEGORIES_V1_OPERATIONS = "Owner work, helpers, customer promises and what transfers";
 /**
  * Scope wording versions: 1 operations included balances; 2 balances moved to financials
  * (003p); 3 financials also covers money in and out, owner withdrawals and sale proceeds
- * (003f1). Each grant keeps the scope of the wording it was made under.
+ * (003f1); 4 adds digital_performance as its own category (003u), shown only to a grant made
+ * at version 4 or later that includes it. Each grant keeps the scope of the wording it was made
+ * under.
  */
-export const SCOPE_VERSION = 3;
+export const SCOPE_VERSION = 4;
 
 type BuyerKind = keyof typeof BUYER_KINDS;
 type Intent = keyof typeof INTENTS;
@@ -84,6 +90,10 @@ type Mode = keyof typeof MODES;
 type Openness = keyof typeof OPENNESS;
 type Disclosed = keyof typeof DISCLOSE;
 type Category = keyof typeof CATEGORIES;
+
+/** Job 003u: digital performance is shown only when granted, under scope wording 4 or later. */
+const performanceGranted = (g: { granted: Set<Category>; r: { scope_version: number } }) =>
+  g.granted.has("digital_performance") && g.r.scope_version >= 4;
 
 const RANK: Record<Role, number> = { research: 1, evidence: 2, approve: 3 };
 const FAMILY_LABEL: Record<string, string> = {
@@ -1541,7 +1551,11 @@ export class Acquisitions {
         g.granted.has("operations") || g.granted.has("financials")
           ? await this.operations(g.listing.business_id, f.hours)
           : null;
-      return { f, ops };
+      // Job 003u: read inside the same gate, after the other reads; checked again after them.
+      const perf = performanceGranted(g)
+        ? performanceEvidence(this.db, g.listing.business_id, new Date())
+        : null;
+      return { f, ops, perf };
     });
     if (log)
       this.db
@@ -1549,7 +1563,7 @@ export class Acquisitions {
           "INSERT INTO events (type, subject, actor, payload, at) VALUES ('room.opened', ?, ?, '{}', ?)",
         )
         .run(requestId, viewer.id, now());
-    return this.scopeRoom(g, out.f, out.ops);
+    return this.scopeRoom(g, out.f, out.ops, out.perf);
   }
 
   /**
@@ -1562,6 +1576,7 @@ export class Acquisitions {
     g: ReturnType<Acquisitions["grantFor"]>,
     f: Awaited<ReturnType<Acquisitions["facts"]>>,
     ops: Awaited<ReturnType<Acquisitions["operations"]>> | null,
+    perf: PerformanceEvidence | null = null,
   ) {
     const { r, listing, granted } = g;
     const b = this.biz(listing.business_id);
@@ -1660,6 +1675,9 @@ export class Acquisitions {
       if (legacy)
         room.scope_note = `Granted under the earlier wording "${CATEGORIES_V1_OPERATIONS}", which also showed the contract's balances.`;
     }
+    // Job 003u: only with this category, granted under wording 4 or later; the allowlisted
+    // projection itself (never the owner's operations object).
+    if (perf && performanceGranted(g)) room.digital_performance = perf;
     return room;
   }
 
