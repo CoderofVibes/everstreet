@@ -6,6 +6,12 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { customerHttp, type ResultView, type UseView } from "../customerApi.ts";
 import { pageAuthorizer } from "../customerAuthorizer.ts";
+import {
+  activeCustomerStep,
+  CUSTOMER_STEP_WORD,
+  type CustomerStep,
+  customerSteps,
+} from "../customerView.ts";
 import { type Action, CustomerWorkspace, nextStep } from "../customerWorkspace.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
@@ -60,7 +66,6 @@ const UNIT_WORDS: Record<UseView["units"]["unit"], { label: string; tone: string
   };
 
 const time = (ms: string) => new Date(Number(ms)).toLocaleString();
-const short = (h: string) => (h.length > 14 ? `${h.slice(0, 8)}…${h.slice(-4)}` : h);
 
 function Consent({
   use,
@@ -81,8 +86,8 @@ function Consent({
         </dd>
         <dt>Your document</dt>
         <dd>
-          {use.input.chars.toLocaleString()} characters ·{" "}
-          <span className="mono">sha256 {short(use.input.sha256)}</span>
+          {use.input.chars.toLocaleString()} characters, bound to this request by its fingerprint
+          (under Technical details)
         </dd>
         <dt>Units</dt>
         <dd>Exactly one, charged only if you get a result</dd>
@@ -92,7 +97,13 @@ function Consent({
           <span className="mono">{t.asset}</span>
         </dd>
         <dt>Result kept for</dt>
-        <dd>{t.retention_days} days, readable only by you</dd>
+        <dd>
+          {t.retention_days} days, readable only by you here
+          <div className="muted use-note">
+            How long this product keeps your result for you to open. It isn't a statement about
+            copies kept by any service it uses.
+          </div>
+        </dd>
         <dt>Account</dt>
         <dd className="mono">
           {use.reservation.customer_account} on {t.network}
@@ -111,11 +122,26 @@ function Consent({
             : check.problem}
         </p>
       )}
+      <details className="advanced use-tech">
+        <summary>Technical details</summary>
+        <dl className="use-terms">
+          <dt>Document fingerprint</dt>
+          <dd className="mono">sha256 {use.input.sha256}</dd>
+          <dt>Contract</dt>
+          <dd className="mono">{t.contract}</dd>
+          <dt>Hold number</dt>
+          <dd className="mono">{use.reservation.hold_seq}</dd>
+          <dt>Served until</dt>
+          <dd>{time(use.reservation.serve_until_ms)}</dd>
+          <dt>Settled by</dt>
+          <dd>{time(use.reservation.settle_until_ms)}</dd>
+        </dl>
+      </details>
     </div>
   );
 }
 
-function Result({ r }: { r: ResultView }) {
+export function CustomerResult({ r }: { r: ResultView }) {
   const res = r.result;
   const json = JSON.stringify(res, null, 2);
   const download = () => {
@@ -126,11 +152,21 @@ function Result({ r }: { r: ResultView }) {
     a.click();
     URL.revokeObjectURL(url);
   };
+  const complete = res.outcome === "extracted";
   return (
-    <div>
+    <div className={`use-answer ${complete ? "is-complete" : "is-partial"}`}>
+      {!complete && (
+        <p className="use-answer-warning" role="note">
+          <strong>Not a complete extraction.</strong>{" "}
+          {res.missing.length > 0
+            ? `Missing: ${res.missing.map((k) => res.fields.find((f) => f.key === k)?.label ?? k).join(", ")}. `
+            : "The product couldn't read every required field. "}
+          Don't rely on it without checking your document.
+        </p>
+      )}
       <div className="row" style={{ marginBottom: 12 }}>
-        <span className={`pill ${res.outcome === "extracted" ? "mint" : "caution"}`}>
-          {res.outcome === "extracted"
+        <span className={`pill ${complete ? "mint" : "caution"}`}>
+          {complete
             ? "Every required field found"
             : res.outcome === "incomplete"
               ? "Some fields missing"
@@ -198,29 +234,66 @@ function Result({ r }: { r: ResultView }) {
   );
 }
 
-function ResultArea({ use, result }: { use: UseView | null; result: ResultView | null }) {
-  if (result) return <Result r={result} />;
+function ResultArea({
+  use,
+  result,
+  fields,
+}: {
+  use: UseView | null;
+  result: ResultView | null;
+  fields: string[];
+}) {
+  if (result) return <CustomerResult r={result} />;
   const x = use?.execution;
-  const text = !use
-    ? "Your structured result appears here: each field the product reads, with notes and anything it noticed."
-    : !x
-      ? use.state === "reserved"
-        ? "Reserved. Run it when you're ready."
-        : "Nothing has run yet."
-      : x.state === "running"
-        ? "Running on your document…"
-        : x.result === "available"
-          ? "Your result is ready. Show it when you like: only you can read it."
-          : x.result === "pending"
-            ? "Your result is being saved privately."
-            : x.result === "expired"
-              ? "This result was kept for its retention time and has been removed."
-              : x.state === "unknown"
-                ? "We can't tell whether this run finished. It is never run again automatically, and it isn't charged."
-                : x.state === "cancelled"
-                  ? "Cancelled. Nothing is charged for it."
-                  : "This run didn't produce a result you can use. It isn't charged.";
-  return <p className="use-placeholder">{text}</p>;
+  // Job 001j: nothing has run: a compact placeholder that says what will appear, not a tall blank.
+  if (!x)
+    return (
+      <p className="use-placeholder">
+        {use?.state === "reserved" ? "Reserved. Run it when you're ready." : "Nothing has run yet."}
+        {fields.length > 0 && <> You'll get: {fields.join(", ")}.</>}
+      </p>
+    );
+  const stopped = x.state !== "running" && x.result !== "available" && x.result !== "pending";
+  const text =
+    x.state === "running"
+      ? "Running on your document…"
+      : x.result === "available"
+        ? "Your result is ready. Show it when you like: only you can read it."
+        : x.result === "pending"
+          ? "Your result is being saved privately."
+          : x.result === "expired"
+            ? "This result was kept for its retention time and has been removed."
+            : x.state === "unknown"
+              ? "We can't tell whether this run finished. It is never run again automatically, and it isn't charged."
+              : x.state === "cancelled"
+                ? "Cancelled. Nothing is charged for it."
+                : "This run didn't produce a result you can use. It isn't charged.";
+  return <p className={`use-placeholder${stopped ? " is-stopped" : ""}`}>{text}</p>;
+}
+
+/** Job 001j: the use's steps, each status a word (never colour alone). */
+export function CustomerProgress({
+  steps,
+  active,
+}: {
+  steps: CustomerStep[];
+  active: CustomerStep["key"];
+}) {
+  return (
+    <ol className="use-steps" aria-label="Where this use stands">
+      {steps.map((st) => (
+        <li
+          key={st.key}
+          className={`use-step is-${st.status}`}
+          aria-current={st.key === active ? "step" : undefined}
+        >
+          <span className="use-step-status">{CUSTOMER_STEP_WORD[st.status]}</span>
+          <strong className="use-step-title">{st.title}</strong>
+          <span className="use-step-detail">{st.detail}</span>
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: string }) {
@@ -300,6 +373,10 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   const unit = use ? UNIT_WORDS[use.units.unit] : null;
   const needsDocument = !use || (use.state === "prepared" && s.accepted === null);
   const max = offer?.product.max_chars ?? 0;
+  const fields = offer?.product.fields.map((f) => f.label) ?? [];
+  // Job 001j: one resolution of where this use stands, for the step strip and the page's emphasis.
+  const steps = customerSteps(s);
+  const active = activeCustomerStep(s);
 
   return (
     <div className="page use-page">
@@ -311,21 +388,34 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
         )}
         <h1 className="display">{offer?.product.name ?? "Product"}</h1>
         {offer && (
-          <p className="muted">
-            One unit per use · <span className="mono">{offer.terms.unit_price}</span> base units of{" "}
-            <span className="mono">{offer.terms.asset}</span> · results kept{" "}
-            {offer.terms.retention_days} days for you only
-            {offer.offer_state === "retired" && " · no longer offered for new uses"}
-          </p>
+          <dl className="use-offer-summary">
+            <div>
+              <dt>You give it</dt>
+              <dd>Pasted text, up to {offer.product.max_chars.toLocaleString()} characters</dd>
+            </div>
+            <div>
+              <dt>You get</dt>
+              <dd>{fields.length > 0 ? fields.join(", ") : "Structured fields"}</dd>
+            </div>
+            <div>
+              <dt>Each use</dt>
+              <dd>
+                One unit: <span className="mono">{offer.terms.unit_price}</span> base units of{" "}
+                <span className="mono">{offer.terms.asset}</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Your results</dt>
+              <dd>
+                Kept {offer.terms.retention_days} days, for you only
+                {offer.offer_state === "retired" && " · no longer offered for new uses"}
+              </dd>
+            </div>
+          </dl>
         )}
       </header>
 
-      {s.authorizer?.synthetic && (
-        <p className="notice use-synthetic" role="note">
-          <strong>{s.authorizer.label}.</strong> This is a local preview: authorizations are
-          synthetic test signatures, not a wallet, and nothing happens on a real network.
-        </p>
-      )}
+      <CustomerProgress steps={steps} active={active} />
 
       <div className="use-grid">
         <section className="card use-compose" aria-labelledby="use-compose-title">
@@ -357,11 +447,6 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
                 stored in your browser.
               </small>
             </label>
-          )}
-          {!use && offer && offer.product.fields.length > 0 && (
-            <p className="muted use-note">
-              You'll get: {offer.product.fields.map((f) => f.label).join(", ")}.
-            </p>
           )}
           {use?.state === "prepared" && <Consent use={use} check={s.check} />}
 
@@ -400,6 +485,12 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               )}
           </div>
           <p className="muted use-why">{next.why}</p>
+          {s.authorizer?.synthetic && (
+            <p className="use-provenance" role="note">
+              <strong>{s.authorizer.label}.</strong> Authorizing here makes a synthetic test
+              signature, not a wallet signature, and nothing happens on a real network.
+            </p>
+          )}
           {!use && s.waiting?.request_id && (
             <p className="muted use-note">
               <Link to={`/uses/${s.waiting.request_id}`}>Open the stopped request</Link>
@@ -416,54 +507,53 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
           </div>
         </section>
 
-        <section className="card use-result" aria-labelledby="use-result-title" aria-live="polite">
-          <h2 id="use-result-title">Result</h2>
-          <ResultArea use={use} result={s.result} />
+        <section className="card use-unit" aria-labelledby="use-unit-title">
+          <h2 id="use-unit-title">Your unit</h2>
+          {unit && use ? (
+            <>
+              <span className={`pill ${unit.tone}`}>{unit.label}</span>
+              <p className="use-note">{unit.text}</p>
+              {use.units.source ? (
+                <p className="muted use-note">
+                  {use.units.source.observed.free !== null &&
+                    `${use.units.source.observed.free} units free, ${use.units.source.observed.consumed} used, `}
+                  as read from NEAR block{" "}
+                  <span className="mono">{use.units.source.block.height}</span> at{" "}
+                  {time(use.units.source.block.timestamp_ms)}.
+                </p>
+              ) : (
+                <p className="muted use-note">Not read from the contract yet.</p>
+              )}
+            </>
+          ) : (
+            <p className="muted use-note">Nothing is reserved until you authorize one use.</p>
+          )}
         </section>
 
-        <aside className="use-side">
-          <section className="card" aria-labelledby="use-unit-title">
-            <h2 id="use-unit-title">Your unit</h2>
-            {unit && use ? (
-              <>
-                <span className={`pill ${unit.tone}`}>{unit.label}</span>
-                <p className="use-note">{unit.text}</p>
-                {use.units.source ? (
-                  <p className="muted use-note">
-                    {use.units.source.observed.free !== null &&
-                      `${use.units.source.observed.free} units free, ${use.units.source.observed.consumed} used, `}
-                    as read from NEAR block{" "}
-                    <span className="mono">{use.units.source.block.height}</span> at{" "}
-                    {time(use.units.source.block.timestamp_ms)}.
-                  </p>
-                ) : (
-                  <p className="muted use-note">Not read from the contract yet.</p>
-                )}
-              </>
-            ) : (
-              <p className="muted use-note">Nothing is reserved until you authorize one use.</p>
-            )}
-          </section>
-          <section className="card" aria-labelledby="use-recent-title">
-            <h2 id="use-recent-title">Recent uses</h2>
-            {s.recent.length === 0 ? (
-              <p className="muted use-note">None yet.</p>
-            ) : (
-              <ul className="use-recent">
-                {s.recent.slice(0, 8).map((r) => (
-                  <li key={r.id}>
-                    <Link to={`/uses/${r.id}`}>{r.product.name}</Link>
-                    <span className="muted">
-                      {" "}
-                      · {r.headline.title.toLowerCase()} ·{" "}
-                      {new Date(r.created_at).toLocaleDateString()}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </aside>
+        <section className="card use-result" aria-labelledby="use-result-title" aria-live="polite">
+          <h2 id="use-result-title">{s.result ? "Your result" : "Result"}</h2>
+          <ResultArea use={use} result={s.result} fields={fields} />
+        </section>
+
+        <section className="card use-recent-card" aria-labelledby="use-recent-title">
+          <h2 id="use-recent-title">Recent uses</h2>
+          {s.recent.length === 0 ? (
+            <p className="muted use-note">None yet.</p>
+          ) : (
+            <ul className="use-recent">
+              {s.recent.slice(0, 8).map((r) => (
+                <li key={r.id}>
+                  <Link to={`/uses/${r.id}`}>{r.product.name}</Link>
+                  <span className="muted">
+                    {" "}
+                    · {r.headline.title.toLowerCase()} ·{" "}
+                    {new Date(r.created_at).toLocaleDateString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </div>
   );

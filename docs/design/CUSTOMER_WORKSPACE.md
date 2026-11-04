@@ -98,6 +98,53 @@ and the exact terms.
   three columns on wide screens, two at 1240 px, one at 760 px, with long names and outputs
   wrapping. Motion follows the existing reduced-motion rule.
 
+## Composition and states (job 001j)
+
+Claude, 2026-11-04. Authority: [001j](../astra/jobs/2026-11-04_001j_customer-product-composition.md).
+Baseline: [CustomerCompositionReview](../astra/2026-11-04_CustomerCompositionReview.md) and its
+two screenshots.
+
+**Not changed:** `CustomerWorkspace`, the API, the envelope check, the authorizer, units, retention
+and every recovery rule. This job changes composition and wording. The rules for the active step are
+pure (`web/src/customerView.ts`).
+
+```
+header   business · product · what it does: input → output · each use · results kept
+steps    1 Your document · 2 Review and authorize · 3 Run · 4 Your result   (status in words)
+grid     [ active step: document / review / run / recover, ONE primary action,
+           provenance note ]  [ result ]  [ your unit ]
+                                                       [ recent uses ]
+phone    active step → your unit → result → recent uses (DOM order; no visual reordering)
+```
+
+**The steps (`customerSteps`).** Each step is Completed, Current, Waiting, Stopped or "Needs
+checking", always as a word plus a distinct outline:
+
+| Step | Completed | Current | Stopped / Needs checking |
+|---|---|---|---|
+| Your document | a request exists | no request yet (also: recovering a lost one) | — |
+| Review and authorize | the contract holds one unit (`reserved`) | prepared and checked; or sent and awaiting the contract | Stopped: the browser check failed, or the request was refused, unresolved, cancelled or expired |
+| Run | the run completed | reserved and not run; running (never run twice) | Stopped: failed, cancelled or unknown; or the unit was returned without running |
+| Your result | a complete extraction is shown | a result is ready to show or being saved | Needs checking: an incomplete, refused or unusable answer is shown. Stopped: no result, or removed after retention |
+
+"Completed" for the result means every required field was found (`extracted`). An incomplete or
+refused answer is never styled or worded as success.
+
+**One home per fact:**
+- **Preview provenance:** one short note in the active step card, beside the action it qualifies.
+  The app shell's preview strip stays. The large dark banner is removed.
+- **Offer summary** (header, from the offer only): input is pasted text up to `max_chars`; output
+  is the declared fields; each use is one unit of exact base units of the asset; the result
+  retention.
+- **Review terms:** all kept (product, document, one unit, price, retention, account and network,
+  authorize-by, browser check). Hashes, the contract account, the hold number and the serve/settle
+  deadlines move into an expandable "Technical details"; the browser still computes and checks them.
+- **Retention** is worded as this product's policy for the result you can open here, not a claim
+  about copies kept elsewhere.
+- **Units:** the existing source-qualified states, read with block and time; "not read yet" is not
+  zero.
+- **Empty result:** a compact placeholder naming the declared fields; no 360px blank card.
+
 ## Disposable preview
 
 ```
