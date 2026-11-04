@@ -52,6 +52,7 @@ describe("003r readiness: what is configured, unavailable or unknown, never all 
       metering: "unavailable",
       protection: "unavailable",
       cleanup: "unavailable",
+      maintenance: "unavailable",
       runtime: "unavailable",
       authorization: "unavailable",
       offer: "unknown",

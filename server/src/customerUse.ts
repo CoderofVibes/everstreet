@@ -37,6 +37,7 @@ import {
 import type { Db } from "./db.ts";
 import type { Extraction } from "./extract.ts";
 import type { InvocationRow, ManagedRuntime } from "./invocations.ts";
+import { maintenanceHealth } from "./maintenance.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import type { V3Observations } from "./v3observe.ts";
 import { isAccountId, V3ReadError } from "./v3read.ts";
@@ -839,6 +840,7 @@ export class CustomerUses {
             next: "The operator connects protected storage.",
           },
       this.cleanupItem(businessId),
+      this.maintenanceItem(businessId),
       runtime?.available
         ? {
             key: "runtime",
@@ -928,12 +930,27 @@ export class CustomerUses {
     const deleted = facts.deleted ?? 0;
     const overdue = facts.overdue ?? 0;
     const waiting = overdue > 0 ? ` ${overdue} past retention not yet deleted.` : "";
+    // Job 002d: three separate facts: capability (above), scheduled work actually observed (a
+    // running maintenance heartbeat), and recorded deletions and failures.
+    const h = maintenanceHealth(this.db, businessId, this.now());
+    const failing =
+      h.work.deletions_failing > 0
+        ? ` ${h.work.deletions_failing} deletions failing, retried later.`
+        : "";
+    if (h.worker.state === "running")
+      return {
+        key: "cleanup",
+        label,
+        state: "observed" as const,
+        detail: `${enforced} Background maintenance is running (last heartbeat ${h.worker.heartbeat_at}); ${deleted} deleted so far.${waiting}${failing}`,
+        next: null,
+      };
     if (deleted > 0)
       return {
         key: "cleanup",
         label,
         state: "observed" as const,
-        detail: `${enforced} A retention pass deleted ${deleted}, most recently at ${facts.last}.${waiting} That shows it has run, not that it runs on a schedule.`,
+        detail: `${enforced} A retention pass deleted ${deleted}, most recently at ${facts.last}.${waiting}${failing} That shows it has run, not that it runs on a schedule.`,
         next: null,
       };
     return {
@@ -942,6 +959,51 @@ export class CustomerUses {
       state: "unknown" as const,
       detail: `${enforced} Storage here can delete, but no retention pass is scheduled on this server and none has been recorded.${waiting}`,
       next: "The operator schedules the retention pass; nothing to enter here.",
+    };
+  }
+
+  /**
+   * Job 002d: the background maintenance item. Its worker state is the platform's; its counts are
+   * this business's own obligations. A heartbeat alone isn't presented as everything healthy.
+   */
+  private maintenanceItem(businessId: string) {
+    const h = maintenanceHealth(this.db, businessId, this.now());
+    const w = h.work;
+    const work = [
+      w.reservations_pending && `${w.reservations_pending} reservations awaiting readback`,
+      w.units_waiting && `${w.units_waiting} units waiting to settle`,
+      w.units_unknown && `${w.units_unknown} unit outcomes not yet known`,
+      w.paused_by_authority &&
+        `${w.paused_by_authority} paused: the platform isn't allowed to meter on the contract now`,
+      w.needs_attention && `${w.needs_attention} need attention`,
+    ]
+      .filter(Boolean)
+      .join("; ");
+    const tail = work ? ` ${work}.` : " Nothing waiting for this business.";
+    const label = "Background maintenance";
+    const attention = w.needs_attention > 0 || w.paused_by_authority > 0;
+    if (h.worker.state === "running")
+      return {
+        key: "maintenance",
+        label,
+        state: "observed" as const,
+        detail: `Running: last heartbeat ${h.worker.heartbeat_at}, last pass ${h.worker.last_pass_at ?? "not finished yet"}.${tail} A heartbeat doesn't show every connected service is healthy.`,
+        next: attention ? "Open the affected customer uses; they say what is needed." : null,
+      };
+    if (h.worker.state === "overdue")
+      return {
+        key: "maintenance",
+        label,
+        state: "unknown" as const,
+        detail: `Overdue: the last heartbeat was ${h.worker.heartbeat_at}.${tail}`,
+        next: "The operator checks the maintenance process; customers can still check their own uses.",
+      };
+    return {
+      key: "maintenance",
+      label,
+      state: "unavailable" as const,
+      detail: `${h.worker.state === "stopped" ? "Stopped" : "Not started on this server"}: reservations, units and cleanup advance only when a customer or owner asks.${tail}`,
+      next: "The operator starts background maintenance; nothing to enter here.",
     };
   }
 
@@ -2460,6 +2522,89 @@ export class CustomerUses {
       deleted++;
     }
     return { deleted, failed };
+  }
+
+  // ---------- single-item maintenance operations (job 002d) ----------
+  // A supervisor selects work fairly (maintenance.ts); these re-check every rule themselves and
+  // change state only through the same fenced transitions as the explicit paths above.
+
+  /** Expires one prepared request past its signing time (local; nothing was ever sent). */
+  expirePrepared(id: string): "expired" | "not_due" {
+    const before = this.request(id)?.state;
+    this.expireIfDue(id);
+    return before === "prepared" && this.request(id)?.state === "expired" ? "expired" : "not_due";
+  }
+
+  /** Freezes the unit's intent when decidable, then one leased unit step. */
+  async settleOne(id: string): Promise<string> {
+    if (!this.ensureIntent(id)) return "not_decidable";
+    return this.unitStep(id);
+  }
+
+  /** Deletes one result at or past its retention, under this storage's scheme. */
+  async deleteResult(requestId: string): Promise<"deleted" | "failed" | "not_due"> {
+    const p = this.protection;
+    if (!p?.delete) return "not_due";
+    const x = this.db
+      .prepare(
+        "SELECT result_ref FROM customer_executions WHERE request_id = ? AND result_state = 'stored' AND retention_until_ms <= ? AND result_scheme = ?",
+      )
+      .get(requestId, this.now(), p.scheme) as { result_ref: string } | undefined;
+    if (!x) return "not_due";
+    const ok = await p.delete(x.result_ref).then(
+      () => true,
+      () => false,
+    );
+    if (!ok) return "failed";
+    this.tx(() => {
+      const c = this.db
+        .prepare(
+          "UPDATE customer_executions SET result_state = 'deleted', result_ref = NULL, updated_at = ? WHERE request_id = ? AND result_state = 'stored' AND result_ref = ?",
+        )
+        .run(iso(), requestId, x.result_ref);
+      if (c.changes) this.event(requestId, "result_deleted", {});
+    });
+    return "deleted";
+  }
+
+  /** Deletes one protected input that can never be needed again (the 003n1 rules). */
+  async deleteInput(id: string): Promise<"deleted" | "failed" | "not_due"> {
+    const p = this.protection;
+    if (!p?.delete) return "not_due";
+    const c = this.db
+      .prepare(
+        `SELECT r.input_ref, r.state, r.serve_until_ms, x.invocation_id
+           FROM customer_requests r LEFT JOIN customer_executions x ON x.request_id = r.id
+          WHERE r.id = ? AND r.input_ref IS NOT NULL AND r.input_scheme = ?`,
+      )
+      .get(id, p.scheme) as
+      | { input_ref: string; state: State; serve_until_ms: string; invocation_id: string | null }
+      | undefined;
+    if (!c) return "not_due";
+    const done =
+      ["cancelled", "expired", "refused", "unresolved"].includes(c.state) ||
+      this.now() >= Number(c.serve_until_ms) ||
+      (c.invocation_id !== null && this.runtime?.row(c.invocation_id)?.state !== "running");
+    if (!done) return "not_due";
+    const ok = await p.delete(c.input_ref).then(
+      () => true,
+      () => false,
+    );
+    if (!ok) return "failed";
+    this.tx(() => {
+      const r = this.db
+        .prepare(
+          "UPDATE customer_requests SET input_ref = NULL, input_deleted_at = ?, updated_at = ? WHERE id = ? AND input_ref = ?",
+        )
+        .run(iso(), iso(), id, c.input_ref);
+      if (r.changes) this.event(id, "input_deleted", {});
+    });
+    return "deleted";
+  }
+
+  /** The storage scheme this server deletes under, or null without a deletion capability. */
+  deletionScheme(): string | null {
+    return this.protection?.delete ? this.protection.scheme : null;
   }
 
   // ---------- unit settlement and release (job 003o, design §14) ----------

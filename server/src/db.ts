@@ -585,6 +585,22 @@ CREATE TABLE IF NOT EXISTS customer_settlements (
   evidence TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS customer_settlements_due ON customer_settlements(state, updated_at);
+-- Job 002d: customer maintenance coordination. One lease row per supervisor name (compare-and-
+-- set claim/renew/expiry across processes); one status row per name (heartbeat and the last
+-- pass's safe counts); per-item backoff so failing or undecidable work never blocks the rest.
+CREATE TABLE IF NOT EXISTS maintenance_lease (
+  name TEXT PRIMARY KEY, holder TEXT NOT NULL, gen INTEGER NOT NULL, until_ms INTEGER NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS maintenance_status (
+  name TEXT PRIMARY KEY, holder TEXT, state TEXT NOT NULL CHECK (state IN ('running','stopped')),
+  interval_ms INTEGER NOT NULL, started_ms INTEGER, heartbeat_ms INTEGER, last_pass_ms INTEGER,
+  last_pass TEXT
+) STRICT;
+CREATE TABLE IF NOT EXISTS maintenance_backoff (
+  task TEXT NOT NULL CHECK (task IN ('reserve','settle','result','input')), subject TEXT NOT NULL,
+  failures INTEGER NOT NULL, next_ms INTEGER NOT NULL, code TEXT NOT NULL, updated_ms INTEGER NOT NULL,
+  PRIMARY KEY (task, subject)
+) STRICT;
 CREATE TRIGGER IF NOT EXISTS customer_request_events_no_update BEFORE UPDATE ON customer_request_events
 BEGIN SELECT RAISE(ABORT, 'customer request events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS customer_request_events_no_delete BEFORE DELETE ON customer_request_events

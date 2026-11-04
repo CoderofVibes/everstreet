@@ -776,12 +776,13 @@ export async function customerWorld(
     });
   };
   /** A CustomerUses over the same store and runtime, for the worker-only methods (job 003n). */
-  const service = () =>
+  /** `transform` (job 002d) adjusts the options, e.g. to guard the adapters. */
+  const service = (transform: (o: CustomerUseOptions) => CustomerUseOptions = (o) => o) =>
     new CustomerUses(
       state.store.db,
       state.store,
       new V3Observations(state.store.db, state.store, v3),
-      options(),
+      transform(options()),
       state.runtime,
     );
   const state = {
