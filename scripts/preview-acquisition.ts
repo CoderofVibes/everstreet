@@ -43,7 +43,7 @@ site.get("*", (c) => {
     });
   const html = readFileSync(join(dist, "index.html"), "utf8").replace(
     "<head>",
-    '<head><script src="/__preview/authorizer.js"></script>',
+    '<head><script src="/__preview/label.js"></script><script src="/__preview/authorizer.js"></script>',
   );
   return c.html(html);
 });

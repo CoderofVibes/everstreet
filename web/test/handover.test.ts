@@ -68,9 +68,11 @@ const makeKey = () => `handover-key-${String(++keys).padStart(4, "0")}`;
 
 async function world() {
   const t = new FixtureV3Transport();
+  const v3clock = { now: Date.now() };
   const w = await customerWorld({
     customer: { protection: new SyntheticProtection() },
     v3Transport: t,
+    v3Now: () => v3clock.now,
   });
   const noah = w.person("Noah Fenn");
   w.link(w.f.ava.id, "founder.near");
@@ -96,7 +98,7 @@ async function world() {
         .get(w.f.business) as { n: number }
     ).n,
   });
-  return { w, t, noah, owner, authority };
+  return { w, t, noah, owner, authority, v3clock };
 }
 
 /** One complete customer use through the real API: reserved, run, charged. */

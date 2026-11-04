@@ -36,6 +36,10 @@ window.__everstreetAuthorizer = {
 };
 `;
 
+/** The page-side preview label (job 003s1): data only, no behaviour. JSON-encoded, so it can't break out. */
+export const labelScript = (l: { label: string; detail: string }) =>
+  `// Preview only: a label for the app shell. Never part of the app bundle.\nwindow.__everstreetPreview = ${JSON.stringify(l).replace(/</g, "\\u003c")};\n`;
+
 export type LoseRoute =
   | "prepare"
   | "confirm"
@@ -74,10 +78,26 @@ const ROUTES: Record<LoseRoute, RegExp> = {
  * contract views for the acquisition preview.
  */
 export async function customerPreview(
-  opts: { withOffer?: boolean; v3Transport?: ViewTransport } = {},
+  opts: {
+    withOffer?: boolean;
+    v3Transport?: ViewTransport;
+    /** The v3 observation clock (003s1: the acquisition preview's fixture clock). */
+    v3Now?: () => number;
+    /** The persistent preview label (003s1), shown by the app shell on every page. */
+    label?: { label: string; detail: string };
+  } = {},
 ) {
   const protection = new SyntheticProtection();
-  const w = await customerWorld({ customer: { protection }, v3Transport: opts.v3Transport });
+  const w = await customerWorld({
+    customer: { protection },
+    v3Transport: opts.v3Transport,
+    v3Now: opts.v3Now,
+  });
+  const label = opts.label ?? {
+    label: "Preview only: synthetic customer chain, runtime and signer",
+    detail:
+      "In-memory fictional data and a test key; not testnet evidence. Nothing leaves this computer.",
+  };
   // The synthetic chain and the server follow this computer's clock (plus any preview offset),
   // so freshness and deadlines behave as they would; the chain only ever moves forward.
   const time = { offset: 0 };
@@ -120,6 +140,10 @@ export async function customerPreview(
   });
   site.get("/__preview/authorizer.js", (c) =>
     c.body(AUTHORIZER_SCRIPT, 200, { "content-type": "text/javascript" }),
+  );
+  // Job 003s1: the preview declares itself; the shell shows this on every page.
+  site.get("/__preview/label.js", (c) =>
+    c.body(labelScript(label), 200, { "content-type": "text/javascript" }),
   );
   site.all("/api/*", async (c) => {
     sync();

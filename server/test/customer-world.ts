@@ -726,6 +726,8 @@ export async function customerWorld(
     noProvider?: boolean;
     /** A v3 view transport for owner observations and sale reconciliation (job 003o). */
     v3Transport?: ViewTransport | null;
+    /** The v3 observation clock (job 003s1: a fixture clock in the acquisition preview). */
+    v3Now?: () => number;
   } = {},
 ) {
   // The scripted extractor that passes the release check (fictional documents only).
@@ -751,6 +753,7 @@ export async function customerWorld(
   const v3 = {
     transport: opts.v3Transport ?? null,
     bindings: [{ business_id: f.business, network: "testnet", account: BUSINESS }],
+    ...(opts.v3Now ? { now: opts.v3Now } : {}),
   };
   /** The managed runtime for a store: the founder's own, or (a restart) a new one, recovered. */
   const runtimeFor = (store: Store) => {

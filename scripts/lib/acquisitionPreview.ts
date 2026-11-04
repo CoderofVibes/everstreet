@@ -43,6 +43,9 @@ export const DEAL_CONTROLS: DealControl[] = [
 const INVOICE =
   "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD";
 
+/** The contract tests' T0 (2026-11-02T00:00Z) plus 10 minutes: where the fixture clock starts. */
+export const FIXTURE_START_MS = 1_793_577_600_000 + 10 * 60_000;
+
 /** `gated` uses the contract's Gated fixtures (closing by a closer); otherwise Direct. */
 export async function acquisitionPreview(opts: { gated?: boolean } = {}) {
   const t = new FixtureV3Transport();
@@ -50,7 +53,22 @@ export async function acquisitionPreview(opts: { gated?: boolean } = {}) {
   const GATED_CLOSING = gated ? v3Fixture("gated-closing") : null;
   const GATED_CLOSED = gated ? v3Fixture("gated-closed") : null;
   t.views = gated ? (GATED_CLOSING as Record<string, string>) : V3_PROPOSED;
-  const p = await customerPreview({ withOffer: true, v3Transport: t });
+  // Job 003s1: the sale views are the contract tests' fixtures, whose deal terms (and digest) fix
+  // their times: started at T0 = 2026-11-02T00:00Z, Gated closer deadline T0 + 30 min, offer open
+  // until 2026-11-03T00:00Z. They are read on a FIXTURE CLOCK that starts at T0 + 10 min and runs
+  // at real speed, so the evidence is coherent with its own terms. Customer uses keep this
+  // computer's clock. The terms are never rewritten to fit the wall clock.
+  const started = Date.now();
+  const fixtureClock = () => FIXTURE_START_MS + (Date.now() - started);
+  const p = await customerPreview({
+    withOffer: true,
+    v3Transport: t,
+    v3Now: fixtureClock,
+    label: {
+      label: "Preview only: synthetic sale evidence, customer chain and runtime",
+      detail: `Sale views are the contract tests' fixtures, read on a fixture clock that started at ${new Date(FIXTURE_START_MS).toISOString()}; customer uses run on this computer's clock. Not testnet proof; nothing leaves this computer.`,
+    },
+  });
   const { w } = p;
   // The app's own account records (fixtures): the seller and the buyer named by the deal.
   w.link(w.f.ava.id, "founder.near");
@@ -114,6 +132,7 @@ export async function acquisitionPreview(opts: { gated?: boolean } = {}) {
     summary: () => ({
       ...p.controls.summary(),
       contract_block: t.at.height,
+      fixture_clock: new Date(fixtureClock()).toISOString(),
       intents: w.state.store.db
         .prepare("SELECT id, status, deal_seq, version FROM v3_intents ORDER BY created_at")
         .all(),
@@ -133,5 +152,6 @@ export async function acquisitionPreview(opts: { gated?: boolean } = {}) {
     gated,
     people: p.people,
     controls,
+    fixtureClock,
   };
 }

@@ -310,6 +310,61 @@ export function parseHandovers(raw: unknown): Handover[] {
   });
 }
 
+// ---------- refresh answers (job 003s1) ----------
+
+const RECORDED = [
+  "accepted",
+  "duplicate",
+  "stale",
+  "conflict",
+  "contradictory",
+  "source_changed",
+] as const;
+
+export type RefreshAnswer =
+  | {
+      outcome: (typeof RECORDED)[number];
+      message: string;
+      period: { yyyymm: number; outcome: string } | null;
+      view: SaleEvidence;
+    }
+  | { outcome: "refused"; code: string; message: string };
+
+/**
+ * The finite forms POST .../v3/refresh answers in (server/src/v3observe.ts refresh): a refusal
+ * with a code and no view, or a recording outcome with its period and the owner's view. Anything
+ * else, including a view that doesn't fit its outcome, is malformed.
+ */
+export function parseRefresh(raw: unknown): RefreshAnswer {
+  const a = obj(raw, "refresh");
+  const message = str(a.message, "refresh.message");
+  if (a.outcome === "refused") {
+    if (a.view !== undefined || a.period !== undefined) fail("refresh.refused");
+    return { outcome: "refused", code: str(a.code, "refresh.code"), message };
+  }
+  const outcome = oneOf(a.outcome, RECORDED, "refresh.outcome");
+  const period = nullable(a.period, (p) => {
+    const x = obj(p, "refresh.period");
+    return { yyyymm: int(x.yyyymm, "period.yyyymm"), outcome: str(x.outcome, "period.outcome") };
+  });
+  const view = parseEvidence(a.view);
+  // A recorded reading has an observed view; a conflict leaves the evidence flagged.
+  if ((outcome === "accepted" || outcome === "duplicate") && view.state !== "observed")
+    fail("refresh.view");
+  if (outcome === "conflict" && !view.observed?.flag) fail("refresh.flag");
+  return { outcome, message, period, view };
+}
+
+/**
+ * Whether a contract deadline had passed when the evidence was read (job 003s1). "0" means unset.
+ * It describes the reading only: whether a sale can still be accepted is for the contract to show.
+ */
+export function elapsedAt(deadlineMs: string, observedAt: string): boolean {
+  const at = Date.parse(observedAt);
+  if (!/^[0-9]{1,20}$/.test(deadlineMs) || deadlineMs === "0" || Number.isNaN(at)) return false;
+  return Number(deadlineMs) <= at;
+}
+
 // ---------- the port ----------
 
 export interface HandoverPort {

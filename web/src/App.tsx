@@ -29,6 +29,7 @@ import { PublicPage } from "./pages/PublicPage.tsx";
 import { Start } from "./pages/Start.tsx";
 import { Studio } from "./pages/Studio.tsx";
 import { Value } from "./pages/Value.tsx";
+import { previewLabel } from "./previewLabel.ts";
 import { Link, match, useRouter } from "./router.tsx";
 import { useSession } from "./session.tsx";
 import { Avatar, SignInDialog } from "./ui.tsx";
@@ -258,6 +259,7 @@ function Routes() {
 
 export function App() {
   const { person, environment, ready } = useSession();
+  const [preview] = useState(previewLabel);
   const [counts, setCounts] = useState({ inbox: 0 });
   const { path } = useRouter();
   // biome-ignore lint/correctness/useExhaustiveDependencies: path is a trigger: recount unanswered messages on every navigation
@@ -277,6 +279,14 @@ export function App() {
         </span>
         <span>NEAR testnet only · test dollars, no value</span>
       </div>
+      {preview && (
+        <div className="env-strip preview-strip" role="note">
+          <span>
+            <strong>{preview.label}</strong>
+            {preview.detail && ` · ${preview.detail}`}
+          </span>
+        </div>
+      )}
       <div className="shell">
         <nav className="rail" aria-label="Main">
           <Link to="/" className="wordmark">

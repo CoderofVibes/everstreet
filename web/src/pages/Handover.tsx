@@ -4,8 +4,9 @@
 // each participant's own receipts. Nothing here signs, pays or closes a sale on NEAR.
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { APPLY_EFFECTS, Handovers, OwnerHandover } from "../handover.ts";
+import { APPLY_EFFECTS, Handovers, OwnerHandover, reviewProblem } from "../handover.ts";
 import {
+  elapsedAt,
   grouped,
   type Handover,
   handoverHttp,
@@ -98,7 +99,28 @@ function DealTerms({ d, asset, ev }: { d: ObservedDeal; asset: string; ev: SaleE
             .join(" and ") || "nobody yet"}
         </dd>
         <dt>Offer open until</dt>
-        <dd>{msDate(d.expires_at_ms) ?? "not set"}</dd>
+        <dd>
+          {msDate(d.expires_at_ms) ?? "not set"}
+          {o && elapsedAt(d.expires_at_ms, o.observed_at) && (
+            <div className="error-text" style={{ fontSize: 13 }}>
+              Already passed when this was read. That doesn't show how the sale ended: only a later
+              reading of the contract's outcome does, and acceptance may no longer be possible.
+            </div>
+          )}
+        </dd>
+        {d.state === "closing" && (
+          <>
+            <dt>Closer's deadline</dt>
+            <dd>
+              {msDate(d.deadline_ms) ?? "not set"}
+              {o && elapsedAt(d.deadline_ms, o.observed_at) && (
+                <div className="error-text" style={{ fontSize: 13 }}>
+                  Already passed when this was read; read again for the outcome.
+                </div>
+              )}
+            </dd>
+          </>
+        )}
         <dt>How it closes</dt>
         <dd>
           {o?.close_mode === "gated"
@@ -229,6 +251,7 @@ export function HandoverWorkspace({ id }: { id: string }) {
   const deal = o?.deal ?? null;
   const busy = s.busy !== null;
   const locked = busy || s.access === "unconfirmed";
+  const problem = reviewProblem(ev);
   const recordedThis = deal
     ? s.intents.some(
         (i) =>
@@ -317,7 +340,12 @@ export function HandoverWorkspace({ id }: { id: string }) {
             <>
               <h3 style={{ fontSize: 16, marginTop: 16 }}>Sale in progress</h3>
               <DealTerms d={deal} asset={o.asset} ev={ev} />
-              {!recordedThis && !s.reviewing && (
+              {!recordedThis && problem && (
+                <p className="notice" role="note">
+                  {problem} The terms above are shown as last read, for reference.
+                </p>
+              )}
+              {!recordedThis && !s.reviewing && !problem && (
                 <button
                   type="button"
                   className="btn btn-primary"
@@ -347,7 +375,7 @@ export function HandoverWorkspace({ id }: { id: string }) {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={locked}
+              disabled={locked || problem !== null}
               onClick={() => void c.record()}
             >
               {s.busy === "record" ? "Recording…" : "Record this exact version"}

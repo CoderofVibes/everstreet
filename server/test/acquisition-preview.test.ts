@@ -4,7 +4,8 @@
 // is applied only through the app's reconciliation; no control writes ownership.
 
 import { describe, expect, it } from "vitest";
-import { acquisitionPreview } from "../../scripts/lib/acquisitionPreview.ts";
+import { acquisitionPreview, FIXTURE_START_MS } from "../../scripts/lib/acquisitionPreview.ts";
+import { customerPreview, labelScript } from "../../scripts/lib/customerPreview.ts";
 import type { Json } from "./customer-world.ts";
 
 const INVOICE =
@@ -26,6 +27,38 @@ async function browser(p: Awaited<ReturnType<typeof acquisitionPreview>>, person
     return { status: res.status, body: (await res.json().catch(() => ({}))) as Json };
   };
 }
+
+describe("003s1 the preview qualifies itself and reads on a coherent fixture clock", () => {
+  it("serves an unmistakable label; the reading is before the deal's own deadline; terms unchanged", async () => {
+    const p = await acquisitionPreview();
+    const label = await (
+      await p.site.fetch(new Request("http://preview/__preview/label.js"))
+    ).text();
+    expect(label).toContain("window.__everstreetPreview");
+    expect(label).toMatch(/Preview only: synthetic sale evidence, customer chain and runtime/);
+    expect(label).toMatch(/fixture clock that started at 2026-11-02T00:10:00\.000Z/);
+    expect(label).not.toMatch(/sign|key|seed/i);
+    const ava = await browser(p, p.people.ava);
+    const biz = `/api/businesses/${p.businessId}`;
+    await ava(`${biz}/v3/refresh`, "POST", {});
+    const ev = (await ava(`${biz}/v3`)).body;
+    const at = Date.parse(ev.observed_at);
+    expect(at).toBeGreaterThanOrEqual(FIXTURE_START_MS);
+    expect(at).toBeLessThan(Number(ev.control.live_deal.expires_at_ms));
+    expect(ev.freshness).toBe("fresh");
+    // The digest-covered terms are the contract fixture's own.
+    expect(ev.control.live_deal).toMatchObject({
+      digest: "aa53a9ad33a13ba3e609344b36591db8339482e852a6044a52d1cbda5b68dda4",
+      expires_at_ms: "1793664000000",
+      price: "300000000000000000000",
+    });
+    // The customer preview labels itself too.
+    const c = await customerPreview();
+    const cl = await (await c.site.fetch(new Request("http://preview/__preview/label.js"))).text();
+    expect(cl).toMatch(/Preview only: synthetic customer chain, runtime and signer/);
+    expect(labelScript({ label: "</script><b>", detail: "" })).not.toContain("</script><b>");
+  });
+});
 
 describe("003s acquisition preview: record → outcome → actual reconciliation → first shift", () => {
   it("Direct: proposed, accepting, a lost record and a lost reconcile reply, closed, applied once", async () => {

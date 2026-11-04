@@ -20,7 +20,9 @@ import {
   parseIntent,
   parseIntents,
   parseReconcile,
+  parseRefresh,
   type ReconcileAnswer,
+  type RefreshAnswer,
   type SaleEvidence,
 } from "./handoverApi.ts";
 
@@ -57,6 +59,25 @@ export const APPLY_EFFECTS = [
 
 const sameDeal = (a: ObservedDeal | null, b: { seq: string; version: number; digest: string }) =>
   a !== null && a.seq === b.seq && a.version === b.version && a.digest === b.digest;
+
+/**
+ * Job 003s1: why the current reading can't be the basis of a new record, or null if it can. The
+ * terms stay visible either way; only the action is withheld. A flagged reading (the backend
+ * refuses it too), a stale one (older than its freshness window: read again first), and a chain
+ * owner that doesn't map to this business's owner here are disqualifying.
+ */
+export function reviewProblem(ev: SaleEvidence | null): string | null {
+  const o = ev?.observed;
+  if (!o) return "Nothing has been read from the contract yet.";
+  if (!o.deal) return "The reading shows no sale in progress.";
+  if (o.flag)
+    return `This reading is flagged (${o.flag.code}): ${o.flag.message} It can't be recorded from.`;
+  if (o.freshness === "stale")
+    return "This reading is older than its freshness window. Read the contract again before recording.";
+  if (o.owner_match !== "matches")
+    return "The contract's owner account doesn't map to this business's owner here, so this can't be recorded.";
+  return null;
+}
 
 // ---------- owner ----------
 
@@ -199,7 +220,7 @@ export class OwnerHandover {
     const deal = evidence.observed?.deal ?? null;
     // Same seq, version and contract digest means the same terms (revise_sale raises the version);
     // acceptance and escrow are progress, shown as now observed.
-    const reviewing = r && deal && sameDeal(deal, r) ? deal : null;
+    const reviewing = r && deal && sameDeal(deal, r) && !reviewProblem(evidence) ? deal : null;
     this.set({ status: "ready", access: "confirmed", evidence, intents, reviewing });
   }
 
@@ -285,34 +306,47 @@ export class OwnerHandover {
   refreshEvidence() {
     if (this.paused()) return Promise.resolve();
     return this.act("refresh", async (gen) => {
-      const answer = await this.port.refresh(this.opts.businessId);
-      const outcome = (answer as { outcome?: unknown })?.outcome;
-      const message = (answer as { message?: unknown })?.message;
-      if (typeof outcome !== "string" || typeof message !== "string")
-        throw new MalformedAnswer("The refresh answer wasn't readable.");
+      const raw = await this.port.refresh(this.opts.businessId);
+      let answer: RefreshAnswer;
+      try {
+        answer = parseRefresh(raw);
+      } catch {
+        // 003s1: not the refresh's actual form. Nothing shown is replaced; reading again is safe.
+        if (gen === this.generation)
+          this.set({
+            notice: {
+              tone: "warn",
+              code: "refresh_malformed",
+              message:
+                "The read's answer wasn't in the expected form, so nothing shown here changed. You can read again.",
+            },
+          });
+        return;
+      }
       await this.load(gen);
       if (gen !== this.generation) return;
-      const ok = outcome === "accepted" || outcome === "duplicate";
+      const ok = answer.outcome === "accepted" || answer.outcome === "duplicate";
       this.set({
-        notice: { tone: ok ? "ok" : "warn", code: `refresh_${outcome}`, message },
+        notice: {
+          tone: ok ? "ok" : "warn",
+          code: `refresh_${answer.outcome}`,
+          message: answer.message,
+        },
       });
     });
   }
 
-  /** Starts reviewing the live deal exactly as observed now. */
+  /** Starts reviewing the live deal exactly as observed now, if that reading can be used. */
   review() {
-    const deal = this.state.evidence?.observed?.deal ?? null;
-    if (!deal) {
+    const problem = reviewProblem(this.state.evidence);
+    if (problem) {
       this.set({
-        notice: {
-          tone: "warn",
-          code: "no_live_deal",
-          message: "The recorded evidence shows no sale in progress.",
-        },
+        reviewing: null,
+        notice: { tone: "warn", code: "evidence_disqualified", message: problem },
       });
       return;
     }
-    this.set({ reviewing: deal, notice: null });
+    this.set({ reviewing: this.state.evidence?.observed?.deal ?? null, notice: null });
   }
 
   /** Records the reviewed deal version. While a record is unanswered, only it may be resent. */
@@ -326,6 +360,14 @@ export class OwnerHandover {
           message:
             "An earlier record request wasn't answered. Recover it first: it's the same request, so nothing is recorded twice.",
         },
+      });
+      return Promise.resolve();
+    }
+    const problem = reviewProblem(this.state.evidence);
+    if (problem) {
+      this.set({
+        reviewing: null,
+        notice: { tone: "warn", code: "evidence_disqualified", message: problem },
       });
       return Promise.resolve();
     }

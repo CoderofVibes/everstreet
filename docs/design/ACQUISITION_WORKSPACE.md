@@ -120,6 +120,33 @@ most once and answers `already`.
 - **Not proven:** a live sale, wallet or payment, or a real endpoint's chain identity. This is
   not all of M3.
 
+## Qualified evidence (job 003s1)
+
+- **When a reading can be recorded.** `reviewProblem(evidence)` decides whether the current
+  reading can back a new record. These disqualify it:
+  - no reading;
+  - no live deal;
+  - a **flag** (the backend refuses these as well);
+  - a **stale** reading, older than the 10-minute freshness window: read the contract again
+    first;
+  - a chain owner that doesn't map to this business's owner here.
+  
+  The terms stay visible "as last read, for reference", with the reason. Review and Record are
+  withheld, and a held review is dropped on reload. An unanswered record can still be recovered
+  as the same request; the server decides.
+- **A re-read of the same block** is answered `duplicate` and keeps its original reading time. A
+  stale reading becomes current only from a newer block.
+- **Refresh answers are parsed strictly** (`parseRefresh`). Only two forms are accepted:
+  - `refused` with a code and no view;
+  - a recording outcome (accepted, duplicate, stale, conflict, contradictory or source_changed)
+    with its period and a valid view. The view must be observed for accepted/duplicate, and
+    flagged for a conflict.
+  
+  Anything else is `refresh_malformed`: retryable, and the evidence shown is not replaced.
+- **Deadlines are labelled against the reading.** The offer deadline (and a Gated closer's
+  deadline) is marked "already passed when this was read" when it was. That says nothing about
+  how the sale ended; only a later reading of the outcome does.
+
 ## Disposable preview
 
 ```
@@ -140,3 +167,21 @@ with a fictional business, one completed customer use and the synthetic page sig
 
 People switch with the acting-context menu. The scenario is driven without a listener by
 `server/test/acquisition-preview.test.ts`.
+
+**Provenance and clock (003s1).**
+- **Preview label.** Both previews serve `/__preview/label.js`, which sets
+  `window.__everstreetPreview`. The app shell then shows a persistent amber strip:
+  - here, "Preview only: synthetic sale evidence, customer chain and runtime";
+  - in the customer preview, "…synthetic customer chain, runtime and signer".
+  
+  The app never sets it. It changes no behaviour and holds no key or signer.
+- **Fixture clock.** The sale views are the contract tests' fixtures, and their digest-covered
+  terms fix their times:
+  - T0 = 2026-11-02T00:00Z;
+  - Gated closer deadline T0 + 30 min;
+  - offer open until 2026-11-03T00:00Z.
+  
+  They are read on a **fixture clock** that starts at T0 + 10 min and runs at real speed, so the
+  readings are coherent with their own terms. The label states this. Customer uses keep this
+  computer's clock. No fixture term was rewritten. After 20 minutes of a Gated preview, the
+  closer's deadline correctly reads as passed.
