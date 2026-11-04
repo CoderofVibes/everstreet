@@ -247,6 +247,15 @@ retain stale inspection after release retirement and inconclusive ownership rech
 use offers new preparation before guarded window ends.003r1 required, then003s v3 acquisition
 workspace. Synthetic preview only, no live transaction/provider evidence; six milestones open.
 
+November4 at61aa594: independent747 tests/62files/lint/types and web build pass.003s browser
+records exact deal with lost reply/recovery; buyer applies closed fixture with lost reply then
+receives already-applied; seller sees receipt only; customer result and recorded99free/1used
+remain accessible. Actual app reconciliation, separate synthetic contract/customer sources;
+no live purchase or fullM3 claim. Buyer desktop/seller390 fit.003s1 corrects preview clock/labels
+and source-reviewed flag/refresh handling.001b reorganizes studio/navigation around existing
+capabilities.003r1 dedicated browser repeat and full keyboard/Gated browser review remain pending.
+All six milestones remain open.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.
