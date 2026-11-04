@@ -3259,3 +3259,261 @@ fn customer_readback_matches_server_fixture() {
     let actual = serde_json::to_string_pretty(&serde_json::Value::Object(out)).unwrap() + "\n";
     fixture("customer-readback", include_str!("../../../server/test/fixtures/v3/customer-readback.json"), actual);
 }
+
+// =====================================================================================
+// 003l1: authority and signing facts the customer-use runtime relies on, through the actual
+// methods. Synthetic keys (seed 1) only; no contract behaviour changes. These pin what the
+// contract does, including where it is weaker than an app policy would want: the owner meters
+// without any grant, and a Gated close accepts METERING for any account.
+// =====================================================================================
+
+#[test]
+fn c01_the_owner_meters_without_any_grant() {
+    for make in MODES {
+        // Before any sale: the owner is not an operator, yet opens and settles.
+        let (mut w, k) = happy_in(make());
+        assert!(!w.b.get_control().operators.iter().any(|(a, _, _)| a == &id(FOUNDER)));
+        let (a, s) = w.std_auth(CARA, &k, 3, 2);
+        assert_eq!(w.call(FOUNDER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+        let u = w.uses(CARA, &k, 3, 0..1);
+        all(&w.call(FOUNDER, 0, |b| b.settle_hold(id(CARA), 1, 3, u, true)), "charged", 1);
+        assert_eq!(w.ent(CARA).consumed.0, 21);
+    }
+    // A Direct sale with no grant: the platform's operator, the former owner and a stranger lose
+    // authority before the deadline, but the new owner keeps it. "Nobody can settle" is false.
+    let (mut w, k) = happy();
+    w.open(CARA, &k, 3, 2);
+    w.sell(FOUNDER, BUYER, 100 * P, &[]);
+    assert!(w.b.get_control().operators.is_empty());
+    let u = w.uses(CARA, &k, 3, 0..2);
+    for who in [METER, FOUNDER, STRANGER] {
+        w.refuse(who, 0, "E_NOT_OPERATOR", |b| b.settle_hold(id(CARA), 1, 3, u.clone(), false));
+        w.refuse(who, 0, "E_NOT_OPERATOR", |b| b.release_hold(id(CARA), 1, 3));
+    }
+    all(&w.call(BUYER, 0, |b| b.settle_hold(id(CARA), 1, 3, u, true)), "charged", 2);
+    let e = w.ent(CARA);
+    assert_eq!((e.consumed.0, e.free.0, e.last_hold_seq, e.last_hold_used), (22, 78, 3, 0b11));
+    // The new owner also opens the next hold under the customer's own signature.
+    let (a, s) = w.std_auth(CARA, &k, 4, 1);
+    assert_eq!(w.call(BUYER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+}
+
+#[test]
+fn c02_a_gated_close_accepts_metering_for_any_account() {
+    let (mut w, k) = happy_in(W::gated());
+    // SUPPORT alone is refused: a Gated close needs some METERING grant...
+    let t = w.terms(BUYER, 100 * P, &[(METER, SUPPORT)]);
+    w.refuse(FOUNDER, NEAR, "successor METERING", |b| b.propose_sale(t));
+    // ...but any account will do: here one unrelated to the platform's operators.
+    w.open(CARA, &k, 3, 2);
+    w.sell(FOUNDER, BUYER, 100 * P, &[(STRANGER, METERING), (METER, SUPPORT)]);
+    assert_eq!(w.b.get_control().operators, vec![(id(STRANGER), METERING, 2), (id(METER), SUPPORT, 2)]);
+    let u = w.uses(CARA, &k, 3, 0..2);
+    for who in [METER, METER2, FOUNDER] {
+        w.refuse(who, 0, "E_NOT_OPERATOR", |b| b.settle_hold(id(CARA), 1, 3, u.clone(), false));
+    }
+    all(&w.call(STRANGER, 0, |b| b.settle_hold(id(CARA), 1, 3, u, true)), "charged", 2);
+    // The new owner, not an operator, is admitted as well.
+    let (a, s) = w.std_auth(CARA, &k, 4, 1);
+    assert_eq!(w.call(BUYER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+}
+
+#[test]
+fn c03_a_live_deal_does_not_pause_metering() {
+    for make in MODES {
+        let (mut w, k) = happy_in(make());
+        // An offer may stay open 30 days; metering continues through accepting.
+        let mut t = w.terms(BUYER, 100 * P, &[(METER, METERING)]);
+        t.expires_at_ms = U64(w.now + 30 * DAY);
+        funded_and_buyer_accepted(&mut w, t);
+        w.now += 29 * DAY;
+        assert_eq!(w.deal().state, "accepting");
+        assert_eq!(w.open(CARA, &k, 3, 2), "opened");
+        let u = w.uses(CARA, &k, 3, 0..1);
+        all(&w.settle(CARA, 3, u, false), "charged", 1);
+        let seq = if is_gated(&w) {
+            // ...and through closing, until the close order lands.
+            assert_eq!(w.accept(FOUNDER), "closing");
+            assert_eq!(w.deal().state, "closing");
+            let u = w.uses(CARA, &k, 3, 1..2);
+            all(&w.settle(CARA, 3, u, true), "charged", 1);
+            assert_eq!(w.open(CARA, &k, 4, 1), "opened");
+            let o = w.order();
+            w.neutral(CLOSER, 0, |b| b.close_sale(o));
+            4
+        } else {
+            assert_eq!(w.accept(FOUNDER), "closed");
+            3
+        };
+        // The same account, granted METERING again, settles at the new generation.
+        assert_eq!(w.b.get_control().operators, vec![(id(METER), METERING, 2)]);
+        let slot = if seq == 4 { 0 } else { 1 };
+        let u = vec![w.use_(CARA, &k, seq, slot, 0)];
+        all(&w.settle(CARA, seq, u, true), "charged", 1);
+        assert_eq!(w.ent(CARA).consumed.0, if seq == 4 { 23 } else { 22 });
+    }
+}
+
+#[test]
+fn c04_what_identifies_a_hold() {
+    let (mut w, k) = happy();
+    let reg = w.ent(CARA).reg_id.0;
+    // Two devices sign different HoldAuths for the same next sequence.
+    let (a1, s1) = w.auth(CARA, &k, reg, 3, 1, w.now + 20 * MIN, 0, 1);
+    let (a2, s2) = w.auth(CARA, &k, reg, 3, 2, w.now + 25 * MIN, 0, 1);
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a2.clone(), s2.clone())), "opened");
+    // The exact one again is "already"; the other can never open (its sequence is used).
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a2.clone(), s2.clone())), "already");
+    w.refuse(METER, 0, "E_HOLD_SEQ_USED", |b| b.open_hold(id(CARA), 1, a1.clone(), s1.clone()));
+    // While active, the view names the hold exactly.
+    let e = w.ent(CARA);
+    assert_eq!((e.hold_seq, e.hold_units, e.serve_until_ms.0, e.hold_key_slot, e.hold_key_epoch), (3, 2, w.now + 25 * MIN, 0, 1));
+    // Once closed, only the sequence, bitmap, count and root remain: which HoldAuth opened it
+    // is no longer readable, and neither one can open again.
+    w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 3));
+    let e = w.ent(CARA);
+    assert_eq!((e.hold_active, e.hold_units, e.serve_until_ms.0, e.last_hold_seq, e.last_hold_used), (false, 0, 0, 3, 0));
+    w.refuse(METER, 0, "E_HOLD_SEQ_USED", |b| b.open_hold(id(CARA), 1, a2.clone(), s2.clone()));
+    w.refuse(METER, 0, "E_HOLD_SEQ_USED", |b| b.open_hold(id(CARA), 1, a1, s1));
+    // A HoldAuth expires for good: from serve_until - 60 s it can never be accepted.
+    let (a, s) = w.auth(CARA, &k, reg, 4, 1, w.now + 20 * MIN, 0, 1);
+    w.now += 20 * MIN - MIN + 1;
+    w.refuse(METER, 0, "E_EXPIRED", |b| b.open_hold(id(CARA), 1, a.clone(), s.clone()));
+    // Revocation mid-hold: serving ends now, the exact resend is no longer "already", and a use
+    // the customer already signed still settles until settle_until.
+    let (a, s) = w.std_auth(CARA, &k, 4, 2);
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a.clone(), s.clone())), "opened");
+    let signed = w.uses(CARA, &k, 4, 0..1);
+    w.now += MIN;
+    w.call(CARA, 1, |b| b.revoke_key(1, 0));
+    let e = w.ent(CARA);
+    assert_eq!((e.serve_until_ms.0, e.key_states[0], e.key_epochs[0]), (w.now, 2, 2));
+    w.refuse(METER, 0, "E_HOLD_SEQ_USED", |b| b.open_hold(id(CARA), 1, a, s));
+    all(&w.settle(CARA, 4, signed, true), "charged", 1);
+    let (a, s) = w.std_auth(CARA, &k, 5, 1);
+    w.refuse(METER, 0, "E_KEY", |b| b.open_hold(id(CARA), 1, a, s));
+}
+
+/// Borsh by hand, as a client that does not link borsh would write it: a string is a u32 LE
+/// length then its bytes; integers are little-endian; a fixed array has no length prefix.
+fn borsh_str(out: &mut Vec<u8>, s: &str) {
+    out.extend((s.len() as u32).to_le_bytes());
+    out.extend(s.as_bytes());
+}
+
+#[test]
+fn customer_signing_matches_server_fixture() {
+    let k = key(1);
+    let mut w = W::new();
+    w.shell(CARA, CARA);
+    assert_eq!(w.buy(CARA, 100, 1, Some((0, &k))), 0);
+    let reg = w.ent(CARA).reg_id.0;
+    let serve_until = w.now + 20 * MIN;
+
+    // The hold preimage, written by hand, hashes to exactly hold_message.
+    let mut hold_pre = Vec::new();
+    borsh_str(&mut hold_pre, HOLD_DOMAIN);
+    borsh_str(&mut hold_pre, BIZ);
+    hold_pre.extend(1u32.to_le_bytes());
+    borsh_str(&mut hold_pre, CARA);
+    hold_pre.extend(reg.to_le_bytes());
+    hold_pre.push(0);
+    hold_pre.extend(1u32.to_le_bytes());
+    hold_pre.extend(1u32.to_le_bytes());
+    hold_pre.push(1);
+    hold_pre.extend(serve_until.to_le_bytes());
+    let hold_hash = hold_message(&id(BIZ), 1, &id(CARA), reg, 0, 1, 1, 1, serve_until);
+    assert_eq!(env::sha256_array(&hold_pre), hold_hash);
+    let auth = HoldAuth { hold_seq: 1, units: 1, serve_until_ms: U64(serve_until), key_slot: 0, key_epoch: 1 };
+    // The key signs the 32-byte digest, not the preimage.
+    let wrong = hex::encode(k.sign(&hold_pre).to_bytes());
+    w.refuse(METER, 0, "E_SIG", |b| b.open_hold(id(CARA), 1, auth.clone(), wrong));
+    let hold_sig = hex::encode(k.sign(&hold_hash).to_bytes());
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, auth, hold_sig.clone())), "opened");
+
+    // The use preimage likewise hashes to use_message, and the contract charges it.
+    let f = fp(1, 0, 0);
+    let mut use_pre = Vec::new();
+    borsh_str(&mut use_pre, USE_DOMAIN);
+    borsh_str(&mut use_pre, BIZ);
+    use_pre.extend(1u32.to_le_bytes());
+    borsh_str(&mut use_pre, CARA);
+    use_pre.extend(reg.to_le_bytes());
+    use_pre.push(0);
+    use_pre.extend(1u32.to_le_bytes());
+    use_pre.extend(1u32.to_le_bytes());
+    use_pre.push(0);
+    use_pre.extend(f);
+    let use_hash = use_message(&id(BIZ), 1, &id(CARA), reg, 0, 1, 1, 0, &f);
+    assert_eq!(env::sha256_array(&use_pre), use_hash);
+    let use_sig = hex::encode(k.sign(&use_hash).to_bytes());
+    let u = UseInput { slot: 0, fingerprint: hex::encode(f), sig: use_sig.clone() };
+    let charged = w.settle(CARA, 1, vec![u], true);
+    all(&charged, "charged", 1);
+
+    // Closed roots: borsh(Vec<(u8, [u8; 32])>) is a u32 count then 33 bytes per used slot.
+    let root_pre = |used: &[(u8, [u8; 32])]| {
+        let mut v = (used.len() as u32).to_le_bytes().to_vec();
+        for (s, f) in used {
+            v.push(*s);
+            v.extend(f);
+        }
+        v
+    };
+    let one = [(0u8, f)];
+    assert_eq!(env::sha256_array(root_pre(&one)), closed_hold_root(&one));
+    assert_eq!(w.ent(CARA).last_hold_root, hex::encode(closed_hold_root(&one)));
+    // A three-unit hold with slots 0 and 2 used: the root covers exactly the used slots, in order.
+    assert_eq!(w.open(CARA, &k, 2, 3), "opened");
+    let partial = [(0u8, fp(2, 0, 0)), (2u8, fp(2, 2, 0))];
+    let u = vec![w.use_(CARA, &k, 2, 2, 0), w.use_(CARA, &k, 2, 0, 0)];
+    all(&w.settle(CARA, 2, u, true), "charged", 2);
+    let e = w.ent(CARA);
+    assert_eq!((e.last_hold_used, e.last_hold_charged), (0b101, 2));
+    assert_eq!(e.last_hold_root, hex::encode(closed_hold_root(&partial)));
+    assert_eq!(env::sha256_array(root_pre(&partial)), closed_hold_root(&partial));
+    // A hold released with nothing charged: the root of the empty list.
+    assert_eq!(w.open(CARA, &k, 3, 1), "opened");
+    w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 3));
+    let empty_root = w.ent(CARA).last_hold_root;
+    assert_eq!(empty_root, hex::encode(env::sha256_array([0u8; 4])));
+
+    // Objects keyed by slot (in slot order), not arrays, so the committed file is the same under
+    // the repository's JSON formatter.
+    let pair = |used: &[(u8, [u8; 32])]| {
+        serde_json::Value::Object(used.iter().map(|(s, f)| (s.to_string(), serde_json::json!(hex::encode(f)))).collect())
+    };
+    let out = serde_json::json!({
+        "note": "Produced by contracts/business-v3 tests.rs customer_signing_matches_server_fixture with the synthetic test key seed 1. Not a wallet signature.",
+        "business": BIZ,
+        "plan_id": 1,
+        "customer": CARA,
+        "reg_id": reg.to_string(),
+        "key_slot": 0,
+        "key_epoch": 1,
+        "public_key_hex": pk(&k),
+        "hold": {
+            "hold_seq": 1,
+            "units": 1,
+            "serve_until_ms": serve_until.to_string(),
+            "preimage_hex": hex::encode(&hold_pre),
+            "message_hex": hex::encode(hold_hash),
+            "signature_hex": hold_sig,
+            "open_hold": "opened",
+        },
+        "use": {
+            "hold_seq": 1,
+            "slot": 0,
+            "fingerprint_hex": hex::encode(f),
+            "preimage_hex": hex::encode(&use_pre),
+            "message_hex": hex::encode(use_hash),
+            "signature_hex": use_sig,
+            "settle_hold": charged.join(","),
+        },
+        "closed_root_one": { "hold_seq": 1, "used": pair(&one), "preimage_hex": hex::encode(root_pre(&one)), "root_hex": hex::encode(closed_hold_root(&one)) },
+        "closed_root_partial": { "hold_seq": 2, "units": 3, "used_bitmap": 5, "used": pair(&partial), "preimage_hex": hex::encode(root_pre(&partial)), "root_hex": hex::encode(closed_hold_root(&partial)) },
+        "closed_root_empty": { "hold_seq": 3, "used": pair(&[]), "root_hex": empty_root },
+    });
+    let actual = serde_json::to_string_pretty(&out).unwrap() + "\n";
+    fixture("customer-signing", include_str!("../../../server/test/fixtures/v3/customer-signing.json"), actual);
+}

@@ -1,252 +1,414 @@
-# Customer use across the runtime and a sale (job 003l)
+# Customer use across the runtime and a sale (jobs 003l, 003l1)
 
-Claude, 2026-11-03. Authority: [003l](../astra/jobs/2026-11-03_003l_customer-use-protocol.md).
-This builds on [BUSINESS_V3_CORE.md](BUSINESS_V3_CORE.md), [BUSINESS_V3_SALE.md](BUSINESS_V3_SALE.md)
-and [V3_RECONCILIATION.md](V3_RECONCILIATION.md), and on the server runtime
-(`server/src/invocations.ts`).
+Claude, 2026-11-03. Authority: [003l](../astra/jobs/2026-11-03_003l_customer-use-protocol.md),
+corrected under [003l1](../astra/jobs/2026-11-03_003l1_customer-protocol-corrections.md) after
+Astra's [review](../astra/2026-11-03_CustomerProtocolReview.md). Builds on
+[BUSINESS_V3_CORE.md](BUSINESS_V3_CORE.md), [BUSINESS_V3_SALE.md](BUSINESS_V3_SALE.md),
+[V3_OBSERVATIONS.md](V3_OBSERVATIONS.md) and [V3_RECONCILIATION.md](V3_RECONCILIATION.md).
 
-**This is a design.** No customer admission is implemented. The readback fixtures it relies on are
-produced by the contract (§9). The live prerequisites in §10 are not met. Nothing here claims
-production authentication, signing or uninterrupted service.
+## 0. What this document is
 
-## 1. What the contract enforces (read from source)
+- **Verified facts** (marked **[V]**) are read from `contracts/business-v3/src/lib.rs` and pinned by
+  keyless unit tests that call the actual methods. Each names its test.
+- **Proposed behaviour** (marked **[P]**) is the app protocol. §8 lists what job 003m builds; the
+  rest is for later jobs.
+- **Authorization.** Tony has already authorized building this locally: tables, routes, injected
+  adapters and tests. No routine design approval is needed. Live wallet sign-in, operator key
+  custody, transaction signing, deployment, live endpoints or providers, real tokens and spending
+  stay forbidden until Tony says yes in chat. Every live dependency is unconfigured and disabled.
 
-| Step | Who may | Contract fact |
-|---|---|---|
-| Buy units | Anyone paying through the token (`ft_on_transfer` `buy`). Paying grants no authority. | `free += units`, `ent_free_value += value` |
-| Install a use-key | **Only the customer's own account** (`own_entitlement`; a sponsor cannot), 1 yoctoNEAR | Key slot 0–3 and `epoch + 1`. Weak ed25519 keys are refused. |
-| Open a hold | A METERING operator **of the current generation**, or the owner (`require_metering`) | Needs a **customer-signed** `HoldAuth` over `(business-hold/v1, business, plan, customer, reg_id, key_slot, key_epoch, hold_seq, units, serve_until)`. `hold_seq` must be exactly the next one; the key must be active at that epoch. Units move from free to held. |
-| Charge uses | The same operator rule | Each use is **customer-signed** over `(business-use/v1, …, hold_seq, slot, fingerprint)`. The whole batch is checked first. The same fingerprint again gives `already`; a different one in a used slot is `E_CONFLICT`. Allowed until `settle_until = serve_until + settle_grace`. |
-| Release a hold | The operator any time; **anyone** after `settle_until` | Uncharged units return to free; `last_hold = {seq, used, charged, root}` |
-| Revoke a key | The customer | `serve_until = min(serve_until, now)` for its hold. Signed uses still settle until `settle_until`. |
-| Readback | Views | `get_plan`, `get_entitlement` (public: keys, fingerprints of the active hold) and `check_use` |
-
-**Across a sale** (`finalize`): every operator slot is cleared, and only the deal's grants are
-installed at the new generation. Test `g02` shows this:
-
-- **A successor METERING grant exists.** It settles a hold that was open across the close, and the
-  old operator gets `E_NOT_OPERATOR`.
-- **No grant** (possible in Direct mode only). Nobody can settle; after `settle_until` anyone
-  releases, and the units return.
-
-Test `g01` runs 100/20/80 across an actual close: the successor operator serves the same customer
-with the customer's **own** key, and the former owner has no owner authority.
-
-## 2. Mappings and authority (no caller chooses them)
-
-| Mapping | Source |
+| 003l1 point | Where |
 |---|---|
-| Person to customer chain account | `chain_accounts` (person, unique), the app's own account records. A customer-supplied account is never trusted. |
-| Business to contract | The operator binding (`V3Options.bindings`) |
-| Product to plan and release | A new `customer_offers` row: `(business_id, plan_id, project_id, release_id)`, written by the owner and immutable per release |
-| The plan itself | `get_plan(plan_id)`, read at a pinned block. `created_generation` is noted. |
+| 1, 2: owner authority and any-account METERING | §1 |
+| 3: accepting/closing, no blanket freeze | §6 |
+| 4: prepare before sign; canonical bytes; network binding | §3, §4 |
+| 5: reservation identity | §5 |
+| 6: closed roots and the limits of expiry | §7 |
+| 7: dispatch is at most once | §7 |
+| 8: revocation latency | §6, §7 |
+| 9: protection and retention seams | §3.4 |
+| 10: one state table, interruptions | §5.3, §9 |
 
-**Owner trials and customer use are different purposes.**
+## 1. Authority as the contract enforces it [V]
 
-- Owner trials stay as today: the purpose is `trial`, fenced on the owner epoch (`answerFor`).
-- Customer use is a new purpose, `customer_use`. It is admitted only for the mapped customer of
-  an entitlement, on a released `customer_offers` row.
-- The customer's result is retrieved by **customer authorization**, never the owner epoch. A
-  later owner can't read it, and neither can the seller after a sale.
+| Act | Who may | Source; test |
+|---|---|---|
+| Install or revoke a use-key, pause, skip a hold sequence | The customer's own account only (`own_entitlement`), 1 yoctoNEAR | `install_key`, `revoke_key`, `skip_hold_seq`, `set_paused` |
+| Open a hold, charge uses | **The current owner**, or an account holding METERING **at the current generation** (`require_metering`, lib.rs:2302) | `c01`, `c02`, `g02` |
+| Release a hold | The same, before `settle_until`; **anyone** after it | `release_hold`; `g02` |
+| A Gated close | Terms must include **some** METERING grant, to **any account** (`validate_terms`) | `c02` |
 
-**The new owner never inherits customer keys.** Keys are the customer's: public on chain, private
-on the customer's side. The operator account signs only `open_hold`, `settle_hold` and
-`release_hold`. It never signs a customer's `HoldAuth` or `UseAuth`.
+**Facts that change the 003l design:**
 
-## 3. Request identity and fingerprints
+1. **The owner meters without any grant** (`c01`). Before a sale, the owner (not an operator)
+   opens and settles. After a Direct sale with no grant, the platform's operator, the former owner
+   and a stranger are refused (`E_NOT_OPERATOR`), but **the new owner settles and opens holds**.
+   So "nobody can settle" is false. With no successor grant, *the platform* loses authority. The
+   business does not.
+2. **A Gated close accepts METERING for an unrelated account** (`c02`). A grant of only SUPPORT is
+   refused. `stranger.near` with METERING is accepted, closes, and settles a hold open across the
+   close; the platform's `meter.near` (SUPPORT only) and `meter2.near` are refused. **Platform
+   identity is an app policy, not a contract guarantee.**
+3. **A live deal never pauses metering** (`c03`). An offer can stay open 30 days (`MAX_OFFER_MS`).
+   At day 29 in `accepting`, and through `closing` in Gated mode, the current operator opens and
+   settles. After the close the same account, granted again, settles at generation 2.
+4. **Already-signed uses outlive revocation** (`c04`). `revoke_key` sets `serve_until = min(serve_until, now)`
+   and raises the key epoch. A use signed before the revoke still settles until `settle_until`.
+   After the revoke, a HoldAuth at the old epoch gets `E_KEY`.
 
-A customer request is `customer_requests.id`, keyed by `(customer person, idempotency_key)`. Its
-**fingerprint** is the 32 bytes the customer signs:
+**Customer keys never pass to an owner.** A use-key is the customer's: public on chain, private
+on the customer's device. Operators and owners submit transactions. Only the customer's key signs
+a `HoldAuth` or a `UseAuth`. **The server never holds a customer's private key.**
+
+## 2. Mappings (no caller chooses them) [P]
+
+| Mapping | Trusted source |
+|---|---|
+| Person → customer chain account | `chain_accounts` (`owner_kind = 'person'`). A body never names an account. This local mapping is **not wallet authentication**; production needs wallet sign-in (§10). |
+| Business → contract | The operator binding (`V3Options.bindings`: network, account). |
+| Offer → release and plan | A `customer_offers` row (§8.1), immutable except retirement, created by the owner under the control-epoch fence. It stays with the business through a sale. |
+| Platform metering identity | Operator configuration (`operatorAccount`). Never a contract fact (§1.2). |
+
+**Customer records follow the customer, not the owner.** Every request row carries the
+customer's `person_id` and chain account. Only that person reads it. A seller, a buyer who
+becomes owner, or another customer gets **404**, before and after a sale. Owner trials keep their
+own purpose (`trial`) and their owner-epoch fence (`answerFor`), unchanged.
+
+## 3. Preparation before signing [P]
+
+A customer never signs bytes the server has not first persisted. The order is fixed:
+
+1. **Prepare** (`POST /api/customer/offers/:offer/prepare`). The server reads `get_control`,
+   `get_plan` and `get_entitlement` at **one pinned final block** (with its timestamp), outside any
+   transaction. In one transaction it then:
+   - checks idempotency;
+   - allocates the hold sequence (§5.1);
+   - draws a fresh 32-byte salt and a request id;
+   - computes the fingerprint and the two contract messages (§4);
+   - persists everything, with expirations;
+   - returns the **signing envelope**.
+2. **Client check.** The client recomputes every preimage from the envelope's plain fields, checks
+   the public key is its own key for this network, business and plan, and shows the consent (§3.3).
+   If anything differs, it does not sign.
+3. **Sign.** The client signs the two 32-byte **digests**, not the preimages (§4). One unit, one
+   slot (§5.1).
+4. **Confirm** (`POST /api/customer/uses/:id/confirm`) with the envelope digest and both
+   signatures. The server verifies them against the **stored** public key and the **stored**
+   digests, then persists the exact `open_hold` payload before any submission (§5).
+
+### 3.1 The envelope
+
+`version` is `customer-sign-envelope/v1`. Integers up to u32 are JSON numbers; u64 and u128 are
+canonical decimal strings (no sign, no leading zeros); bytes are lowercase hex.
 
 ```
-fingerprint = sha256( "everstreet-use/v1" || request_id || business || plan_id || reg_id
-                       || hold_seq || slot || release_id || sha256(input) || salt )
+{ version, request_id, offer_id, release_id, artifact_digest,
+  network, business_account, plan_id, customer_account, reg_id,
+  key_slot, key_epoch, public_key,
+  hold:   { hold_seq, units: 1, serve_until_ms, preimage_hex, message_hex },
+  use:    { slot: 0, fingerprint_hex, preimage_hex, message_hex },
+  commitment: { input_sha256, salt_hex, fingerprint_preimage_hex },
+  consent: { unit_price, asset, units: 1, retention_days, sign_by_ms, accept_by_ms },
+  envelope_digest }
 ```
 
-- `salt` is 32 random bytes per request, kept server-side. Without it, the public fingerprint in
-  `get_entitlement.hold_slots` would be a guessable hash of possibly personal input.
-- The raw input is never published. On chain there is only the salted fingerprint.
+`envelope_digest` is sha256 over the §4 encoding of every field above, in order, except itself.
+The salt appears **only** in this customer's own envelope. It never appears in events, logs,
+listings or owner responses.
 
-**Exact binding.** One request is one `(reg_id, hold_seq, slot)`, at most once. A different input
-can never reuse a slot: the contract's `E_CONFLICT` and readback `conflict` both refuse it.
+### 3.2 Expirations
 
-**Output.** It belongs to the customer:
+| Name | Clock | Rule |
+|---|---|---|
+| `serve_until_ms` | chain | Pinned block timestamp plus the serve window (configurable, default 10 min, never above `plan.hold_ttl_ms`). |
+| `accept_by_ms` | chain | `serve_until_ms − 60 000` (`MIN_SERVE_MS`). **[V]** After it, no block can accept this HoldAuth (`c04`: `E_EXPIRED` at `serve_until − 60 s + 1 ms`). |
+| `sign_by_ms` | server | `accept_by_ms` minus a submit margin (default 2 min). Covers skew between the server clock and block time. A confirm after it is refused, and nothing is submitted. |
 
-- stored encrypted at rest, and readable by the customer's session only;
-- kept for the product's stated retention, with a default of 30 days, after which it is deleted;
-- **not disclosed to a successor owner** unless the product promise says so, and not in this slice.
+Every *proof* of expiry uses **block timestamps** from a pinned read (§5.2), never the server
+clock. Policy cut-offs use the server clock with margins.
 
-## 4. States (all intent persisted before any side effect)
+### 3.3 What the customer consents to
 
-`customer_uses.state` takes these values:
+The client shows, from the envelope:
+- the business account and network;
+- the product, by offer and release;
+- the price of one unit, as exact base units of the named asset;
+- that one unit is held until `serve_until`;
+- that one use of the input whose sha256 is shown is authorized;
+- the result's retention.
 
-```
-accepted ─► reserve_requested ─► reserved ─► dispatched ─► result_recorded ─► settle_requested ─► settled
-               │       ▲            │            │               │                  │       ▲
-               ▼       │            ▼            ▼               ▼                  ▼       │
-       reserve_unknown─┘     released_unused  dispatch_failed   result_failed  settle_unknown─┘
-                                                                                     │
-                                                                                     ▼
-                                                                         unsettled_after_deadline
-```
+**The signed UseAuth authorizes one charge of one unit for this request.** The platform commits to
+submit it only after a validated result. The contract cannot check delivery, so this is a stated
+trust bound, limited to one unit per request.
+
+### 3.4 Private input, protection and retention
+
+- Prepare takes the input, records its sha256 and length, and **stores no plaintext**.
+- With an injected `InputProtection` (`protect(bytes) → ref`, `open(ref)`, `erase(ref)`), it
+  stores the opaque ref.
+- Without one, it stores nothing. A later dispatch must then receive the same input again, and
+  checks it against the digest.
+- **There is no plaintext fallback in any environment.** Test doubles are labelled synthetic.
+- Retention is configurable per offer (default 30 days for results, in a later job). Prepared and
+  terminal request rows are bounded per person (§8.4). Erasure and encryption at rest are seams,
+  not claims: neither exists until a protection implementation is configured.
+
+## 4. Canonical bytes [V for the contract messages, P for the app's]
+
+**Encoding.** This is borsh's encoding, written by hand so a client needs no library:
+- a string is a u32 little-endian byte length, then its UTF-8 bytes;
+- integers are little-endian at their exact width;
+- a fixed byte array has **no** length prefix;
+- a list is a u32 count, then its items.
+
+Never bare concatenation.
+
+| Message | Fields, in order | Signed bytes |
+|---|---|---|
+| Hold **[V]** | `"business-hold/v1"`, business str, plan u32, customer str, reg_id u64, key_slot u8, key_epoch u32, hold_seq u32, units u8, serve_until_ms u64 | sha256 of that preimage |
+| Use **[V]** | `"business-use/v1"`, business str, plan u32, customer str, reg_id u64, key_slot u8, key_epoch u32, hold_seq u32, slot u8, fingerprint [32] | sha256 of that preimage |
+| Fingerprint [P] | `"customer-use-fingerprint/v1"`, network str, business str, plan u32, customer str, reg_id u64, key_slot u8, key_epoch u32, hold_seq u32, slot u8, request_id str, offer_id str, release_id str, artifact_digest [32], input_sha256 [32], salt [32] | none: the fingerprint is the sha256 |
+| Envelope [P] | `"customer-sign-envelope/v1"`, then §3.1's fields in order | none: the digest identifies the envelope |
+
+**Evidence.** `customer_signing_matches_server_fixture` builds both contract preimages by hand,
+asserts their sha256 equals `hold_message`/`use_message`, and shows that a signature over the
+preimage is refused (`E_SIG`) while one over the digest opens the hold and charges the use. Its
+output, `server/test/fixtures/v3/customer-signing.json`, is verified in
+`server/test/customer-signing.test.ts` with `node:crypto` ed25519. The keys are synthetic (seed 1).
+
+**Network binding.** The contract's messages do **not** name a network **[V]**. The app binds it
+in three ways:
+- the fingerprint includes the network, so every signed use commits to it;
+- the envelope names it;
+- the client generates **one use-key per (network, business account, plan)** and never installs
+  it elsewhere, so a signature cannot verify on another network.
+
+The HoldAuth has no free field, so its network binding is the key policy alone. This is stated,
+not hidden.
+
+## 5. Reservation [P, with V rules]
+
+### 5.1 Allocation
+
+- **One unit and one slot per request.** One hold per entitlement can be active **[V]**
+  (`E_HOLD_ACTIVE`), and the next hold must be exactly `hold_seq + 1` **[V]**. The first
+  implementation therefore runs one request at a time per (customer, plan). That limits
+  throughput, and the limit is stated.
+- **One allocation at a time.** A request takes `hold_seq = observed hold_seq + 1`. At most one
+  local allocation per (network, contract, plan, customer account, reg_id) is open. Requests
+  racing for it get one winner; the other gets `409 use_in_progress`. The same idempotency key
+  returns the same preparation.
+- **When an allocation frees.** It frees only when its own outcome allows reuse:
+  - proven refused (§5.2);
+  - unresolved, with the sequence observed past ours;
+  - or a preparation cancelled or expired, once `accept_by_ms` has passed.
+
+  Before that, the customer could still hold a valid signature for that sequence.
+- **No new hold after a lost answer.** A lost response never creates a new hold: an unknown stays
+  attached to its own sequence.
+- **Local locks are not chain locks.** Another wallet or operator can still use the sequence. That
+  shows up as an explicit conflict in readback, never as a silent success.
+
+### 5.2 Exact identity (the decision table)
+
+Every decision uses one pinned read of `get_entitlement` at block B, taken with B's timestamp
+`T_B`. Expected values come from the persisted preparation:
+- `reg_id`;
+- `key_slot`, `key_epoch` and `public_key`;
+- `hold_seq`;
+- `units = 1`;
+- `serve_until_ms`;
+- `settle_until_ms = serve_until_ms + plan.settle_grace_ms`.
+
+A read at a block **below** the reservation's newest evidence block is stale, and is ignored.
+These rows are checked in order:
+
+| # | Readback | Decision | Why it is sound **[V]** |
+|---|---|---|---|
+| 1 | No entitlement, or another `reg_id` | `unresolved: registration_changed` | Our messages name the old `reg_id`, so they can never open again. Whether they opened before an unregister is not readable. |
+| 2 | Active, with every expected field equal (seq, units, key slot, key epoch, serve_until, settle_until) | `reserved`; serving only while the key at our slot is still active at our epoch | Each (slot, epoch) names one key forever: the epoch rises on every install and revoke. The public key was matched at that epoch when we prepared. Equal fields mean the signed message is ours. |
+| 3 | Active, seq, units, key slot, key epoch and settle_until equal, `serve_until < ours`, and the key's epoch now above ours | `reserved`, serving ended (`key_revoked`) | Only `revoke_key` lowers `serve_until` (`c04`). Signed uses still settle. Nothing new is dispatched. |
+| 4 | Active, `hold_seq == ours`, any other field different | `refused: superseded` | One sequence opens at most once (`E_HOLD_SEQ_USED`, `c04`), so ours never opened and never will. |
+| 5 | `hold_seq < ours − 1` | `unknown: inconsistent` | Allocation read `hold_seq = ours − 1`, and the sequence never falls. This is evidence of a different source; it is flagged and never resolved. |
+| 6 | `hold_seq == ours − 1`, and the key at our slot is at a different epoch | `refused: key_changed` | The contract needs `k.epoch == auth.key_epoch`, and epochs only rise. |
+| 7 | `hold_seq == ours − 1`, and `T_B > accept_by_ms` | `refused: expired_unopened` | No later block can accept it (`c04`). Block timestamps rise from block to block (§11, assumption A1). |
+| 8 | `hold_seq == ours − 1`, otherwise | still pending: resend the **exact** stored payload, if attempts remain | The identical HoldAuth either opens once or answers `already` (`c04`). It never opens a second hold. |
+| 9 | `hold_seq ≥ ours`, not row 2, 3 or 4 | `unresolved: sequence_used` (with the readback's last-hold fields) | Once closed, only seq, bitmap, count and root remain (`c04`). Which HoldAuth opened it is not readable. |
+
+**Rules over the table:**
+- **No fresh hold.** Rows 1, 5 and 9 never authorize a fresh hold automatically. The customer sees
+  "we can't tell whether this reservation opened", and may start a **new** request (new id, next
+  sequence) explicitly.
+- **Everstreet's own actions.** Everstreet never submits a use for a request that was not
+  `reserved` and dispatched. A row-9 request can say "no charge was submitted by Everstreet for
+  this request". That is a fact about our own event log. It is not a chain proof of "uncharged".
+- **What the writer says is not evidence.** A writer's answer (`opened`, `already`, a refusal, a
+  timeout) is recorded as an event. Only the table moves the state.
+- **Transient refusals** keep the request pending (row 8) until `accept_by_ms`:
+  - `E_NOT_OPERATOR`, meaning platform authority was lost (§6);
+  - `E_PAUSED`;
+  - `E_DAILY_CAP`;
+  - `E_UNITS`, meaning no free unit;
+  - `E_HOLD_ACTIVE`, meaning another hold is open.
+
+### 5.3 States
 
 | State | Means | Leaves by |
 |---|---|---|
-| `accepted` | The request, input digest and salt are stored, and the customer's signed `UseAuth` is checked locally | A reservation is needed, or the open hold has a free slot |
-| `reserve_requested` | An `open_hold` transaction is intended, with its customer-signed `HoldAuth` | The hold is confirmed or unknown |
-| `reserve_unknown` | No answer arrived | Readback: `get_entitlement.hold_active && hold_seq == ours` means `reserved`; `last_hold.seq == ours` means it closed; otherwise retry the **same** `HoldAuth` (`open_hold` answers `already` only with a valid signature) |
-| `reserved` | The hold is observed active at a pinned block, and the slot is assigned | Dispatch |
-| `dispatched` | The provider call was sent. **Only after `reserved`.** | A result or a failure |
-| `result_recorded` / `result_failed` | A validated deterministic result, or a refusal, timeout or invalid output | A settle is intended **only** for a successful extraction |
-| `settle_requested` | `settle_hold` with this use is intended | Confirmed or unknown |
-| `settle_unknown` | No answer arrived | `check_use`: `charged` means `settled`; `unused` (hold active) means resend the **same** signed use; `closed` means recompute the root from our submitted fingerprints (§9: `closed` alone doesn't say whose fingerprint), and if ours is in the root it's `settled`, otherwise `unsettled_after_deadline`; `conflict` means fail closed and flag it |
-| `released_unused` | The slot was never charged, and the hold was released | Terminal; the units are back to free |
-| `unsettled_after_deadline` | The service was delivered, but the deadline passed without a charge | Terminal: the business absorbs it. **No retry charges again**, since the contract forbids it after `settle_until`. |
+| `prepared` | The envelope is persisted; signatures are awaited | confirm → `reserve_requested`; cancel → `cancelled`; server clock past `sign_by_ms` → `expired` |
+| `reserve_requested` | Signatures verified; the exact `open_hold` payload persisted; nothing submitted yet | A leased submission → `reserve_unknown` |
+| `reserve_unknown` | At least one submission; no decisive readback yet | Table rows 2–9 |
+| `reserved` | Row 2 or 3 at a pinned block; the block and the matched fields are recorded | Later jobs (dispatch, settle, release) |
+| `refused` | Rows 4, 6 or 7: this authorization did not and cannot open a hold | Terminal |
+| `unresolved` | Rows 1, 5 or 9: readback can't attribute the sequence | Terminal for automation; visible to the customer |
+| `cancelled`, `expired` | Never confirmed | Terminal |
 
-The rules:
+**Leases and events:**
+- **CAS lease.** Each submission or readback step claims a lease by compare-and-swap: it raises
+  `lease_gen` and sets `lease_until`. It applies its result only if `lease_gen` is unchanged.
+- **Stale workers.** A stale worker's result is discarded. It can never overwrite a newer state.
+- **Events.** Events are append-only and bounded per request. They carry codes, blocks and
+  attempts; never the salt, signatures or input.
+- **No remote awaits inside SQLite.** Each step commits its intent, awaits outside any
+  transaction, then commits its outcome under the CAS.
 
-- **No awaits inside SQLite.** No remote call is ever awaited inside a SQLite transaction. Each
-  step commits its intent, then calls, then commits the outcome.
-- **One charge per logical request.** A logical request never dispatches twice, because
-  `dispatched` is a guarded transition, and never charges twice, because the slot is fixed and the
-  contract answers `already`.
-- **When replay can't be proven:**
-  - after `settle_until`, a `closed` readback with a root we can't match: we report `unknown` and
-    never guess;
-  - a lost provider response after `dispatched`: the provider may have run, so the state is
-    `result_failed` with `outcome_unknown`. No settle, and no automatic redispatch.
+## 6. A sale, or a revocation, while customers are being served [P]
 
-## 5. Consent and signing
-
-- **Consent.** The customer agrees per offer (plan, release, price, retention) before their key is
-  installed.
-- **The key.** The customer's key is generated and held **by the customer**: a browser WebCrypto
-  ed25519 key, or their wallet. `install_key` needs the customer's **own NEAR account** to sign:
-  a wallet transaction.
-- **Signing holds and uses.**
-  - `HoldAuth` is signed per hold. The client shows the units, `serve_until` and the plan.
-  - `UseAuth` is signed per use, over the fingerprint the server computed and returned to the
-    client before dispatch.
-- **Checks before dispatch:** the key's state and epoch from `get_entitlement`, the hold's
-  `serve_until`, `hold_seq` monotonicity, and the per-key daily cap. All of them are re-verified by
-  the contract.
-- **Revocation.** Revoking the key stops new serving. Already-signed uses settle until
-  `settle_until`. `skip_hold_seq` invalidates a signed but unsubmitted `HoldAuth`.
-- **Test keys are not production keys.** The fixtures use test signing keys (`SigningKey` seed 1).
-  They are not a wallet signature and don't stand in for production authentication.
-
-## 6. Costs and units
-
-There are two ledgers, never merged:
-
-- **Provider cost.** This is the existing `runtime_invocations` reservation and charge, in exact
-  microcents, with `usage_state` `final`, `partial` or `unknown`.
-- **Customer units.** These are contract holds and charges.
-
-The rules:
-
-- A charge to the customer happens only for `result_recorded` with a successful deterministic
-  extraction. It never happens because tokens were used.
-- A failed, refused or unknown provider result charges no units: the slot stays unused, and the
-  hold releases it.
-- Model quality, from evaluations, is separate from deterministic validity, which comes from the
-  schema validator.
-- A lost settlement reply never yields a free retry: the same signed use is resent, and the
-  contract answers `already`.
-
-## 7. A sale while a use is pending
+**There is no blanket freeze.** An offer may stay open 30 days **[V]**, so pausing service for
+`accepting` would be wrong. Service follows authority:
 
 | Situation | Behaviour |
 |---|---|
-| A successor METERING grant to **the platform's operator account** is in the deal terms | Holds and uses continue. After the close that same account is the operator at `generation + 1` and settles them (`g02`). This is the only uninterrupted path. |
-| A grant to a **different** operator | The platform's settles fail with `E_NOT_OPERATOR` from the close receipt on. The successor's operator must settle; the platform stops dispatching new uses for that business at the observed close. |
-| **No** METERING grant (Direct only) | Nothing can settle after the close. Pending uses become `unsettled_after_deadline` (the business absorbs them) or `released_unused`. The release happens after `settle_until` (≤ 1 hour + TTL), and the units return to the customer. |
-| Between the close receipt and the app observing it | The window in which a dispatch could be unbillable. Remedy: before dispatch, re-read control at a pinned block. Gated mode closes only by a closer order after Closing starts, so a **freeze** (no new holds while a deal is `closing`) bounds it. Direct mode has no such warning. |
+| The live deal's grants give **the configured platform account** METERING | Service continues through accepting, closing and the close (`c03`). |
+| The grants exclude it | New preparations continue, with the consent saying the business is under offer. At the close, the platform's submissions start failing with `E_NOT_OPERATOR`. Open holds stay settleable by the new owner (§1.1) or a successor operator. Nothing the platform has not settled is charged by the platform. Each open hold's exposure is bounded by its `settle_until` (≤ serve window + grace). |
+| After a close without platform METERING | Admission fails closed (`operator_not_authorized`), read from pinned control. **Recovery:** the new owner calls `appoint_operator(platform, METERING)`; the next pinned read admits again. Holds still before their `settle_until` become settleable again. |
+| Unknown authority (no read, stale read, incoherent read) | Fails closed. Nothing is prepared or submitted. |
 
-**A bounded remedy, proposed for the next job.**
+**Limits:**
+- **A pinned read can be overtaken.** A close or a revocation can land in the next block, so no
+  pinned read before dispatch eliminates the race. The protocol bounds it:
+  - each request holds one unit;
+  - its hold ends at `serve_until`;
+  - a lost authority shows as a refused or unknown settle, not as a fabricated charge.
+- **Revocation is seen with latency.** The latency is the time to the next pinned read plus
+  finality. Admission (later job) dispatches only on a read younger than a configured age, and
+  only with at least the provider's maximum duration left before `serve_until`.
 
-1. While a deal is `accepting` or `closing`, admission refuses new holds for that business, so no
-   new reservation is made under an outgoing operator.
-2. Uses already reserved settle before the close, or under the successor grant.
-3. A deal's terms must include the platform's METERING account for managed products. In Gated mode
-   that is enforced by `validate_terms`; in Direct mode the app checks it before recording the
-   intent.
+## 7. After reservation (for the later jobs) [P]
 
-This makes interruption **bounded and visible**, not zero. A Direct close with no grant still
-stops settlement.
+- **Dispatch is at most once.** `dispatched` is committed, under the lease, **before** the
+  provider is called, and automation never calls it a second time.
+  - A crash or lost reply after that commit is `outcome_unknown`. The provider may have run.
+  - There is no automatic redispatch. Where a provider offers an idempotency key, the request id
+    is used; this is not a promise of exactly-once execution.
+  - A stale worker's late result is kept as an event, never applied.
+- **What the settle readback shows** (`check_use` plus the closed-hold fields):
 
-## 8. Workers
+  | Readback | Meaning |
+  |---|---|
+  | `charged` (hold active) | **Positive proof** of our charge |
+  | `unused` | Not charged yet; resend the same signed use before `settle_until` |
+  | `conflict` | Another fingerprint holds the slot. Flagged, never resolved |
+  | `closed` | Only a **root recomputed from the complete ordered list of used slots** decides (`(slot, fingerprint)` for every set bit of `last_hold_used`, including other requests' and devices'). With a one-unit hold the list is only ours, so the bitmap plus our fingerprint give the exact root (`customer_signing_matches_server_fixture`: one-slot, partial and empty roots). |
 
-- **A reconcile worker.** It leases rows in `*_requested` or `*_unknown` states, with a lease of
-  30 s and at most 25 rows a pass. It resolves them only by pinned-block readback
-  (`get_entitlement`, `check_use`).
-- **Stale or conflicting evidence** (the observation rules in V3_OBSERVATIONS.md) leaves the row
-  unknown. It never releases credit or grants access.
-- **Idempotency.** Every chain call reuses its stored signed payload, so a crash or restart resends
-  the same bytes.
-- **No retry loop.** The number of attempts is bounded, and after that the row stays `unknown` and
-  visible.
+  `closed` alone says the same thing for any fingerprint, as the 003l fixture showed.
+- **When the root can't be matched.** With missing history or a root mismatch, the outcome stays
+  **unknown**, never `unsettled_after_deadline`.
+- **Expiry proves nothing about charges.** Expiry alone never proves a use was not charged before
+  the hold closed. The four outcomes stay distinct:
+  - positive charge (`charged`, or a matching root with our bit set);
+  - proven unused (a matching root without our bit, or `released` with our bit clear and the
+    complete list known);
+  - conflict;
+  - unavailable history.
 
-## 9. Contract-produced readback fixtures
+## 8. Job 003m: what is built now [P]
 
-`server/test/fixtures/v3/customer-readback.json` is produced by the new contract unit test
-`customer_readback_matches_server_fixture`, through actual methods. Each value is the contract's
-JSON.
+### 8.1 Tables
 
-| Key | State | Shows |
+| Table | Holds |
+|---|---|
+| `customer_offers` | id, business, release, project, artifact digest, network, contract account, plan id, a plan snapshot read at a recorded pinned block, retention days, state `active`/`retired`, created by, owner epoch, idempotency. Immutable but for retirement. |
+| `customer_requests` | id, person (the customer), customer account, offer, idempotency key, request hash, input sha256 and length, protected-input ref or null, salt, entitlement identity (network, account, plan, reg_id, key slot, epoch, public key), hold_seq, serve_until, settle_until, accept_by, sign_by, the fingerprint, both messages, the envelope digest, the signatures (after confirm), state, reason, lease gen and until, attempts, last evidence block, timestamps. Unique on (person, idempotency key). One open allocation per entitlement (partial unique index). |
+| `customer_request_events` | Append-only: request, sequence, kind, code, block, lease gen, time. |
+
+### 8.2 Injected options (`AppOptions.customer`)
+
+All are null by default, which answers `503 customer_use_unavailable` and has no side effects.
+
+- `reader`: reads `get_control`, `get_plan` and `get_entitlement` at one pinned final block, with
+  that block's timestamp.
+- `writer`: submits `open_hold` with a stored payload and answers what the endpoint said. It has
+  no signing code; tests inject a fixture-backed double.
+- `operatorAccount`, `protection`, the windows, the margins and the bounds.
+- Nothing is wired in `main.ts`, and no worker starts by itself.
+
+### 8.3 Routes
+
+| Route | Caller | Does |
 |---|---|---|
-| `plan_1` | The plan | Unit price 50 000, hold TTL 30 min, settle grace 10 min |
-| `funded_100.entitlement` | 100 bought, key installed | free 100, key slot 0 active at epoch 1 |
-| `consumed_20.entitlement` | Two holds of 10, settled and closed | free 80, consumed 20, `last_hold` 2 with root |
-| `consumed_20.check_use.closed_hold` / `…_altered` | Closed hold 2, slot 3, the real fingerprint and an altered one | **Both** answer `closed`, `slot_used: true`, with the same root. Only recomputing the root from our submitted fingerprints tells them apart. |
-| `consumed_20.check_use.unknown_hold` | Hold 9 | `unknown_hold` |
-| `active_hold.entitlement` | Hold 3 open, 4 charged | `hold_slots` lists the four fingerprints **publicly**, which is why they are salted (§3) |
-| `active_hold.check_use.charged` / `altered_fingerprint` / `unused_slot` | | `charged`, `conflict`, `unused` |
-| `active_hold.settle_replay` | The same signed use resent | `["already"]`; charged stays 4 |
-| `released_after_deadline.*` | Released by a stranger after `settle_until` | free 76, consumed 24. The charged slot is `closed`/true; the unused slot is `closed`/false. |
-| `after_sale.entitlement` / `after_sale.control` | 100/20/80, then an actual sale with a successor METERING grant | The customer's record is unchanged: 80 free and 20 consumed. The owner is the buyer at generation 2, with `meter2` as operator. |
+| `POST /api/businesses/:id/customer-offers` | Owner (epoch fence before and after the plan read) | Creates an offer for an active release and an existing plan |
+| `GET /api/businesses/:id/customer-offers` | Owner | Lists offers. No customer data. |
+| `POST /api/businesses/:id/customer-offers/:offer/retire` | Owner (fenced) | Retires an offer |
+| `POST /api/customer/offers/:offer/prepare` | Customer | §3; returns the envelope |
+| `GET /api/customer/uses/:id` | That customer only | Status, with the envelope while `prepared` |
+| `POST /api/customer/uses/:id/confirm` | That customer | Verifies and persists, then one leased submission step if a writer exists |
+| `POST /api/customer/uses/:id/cancel` | That customer | From `prepared` only |
+| `POST /api/customer/uses/:id/reconcile` | That customer | One bounded readback/resend step |
 
-The test keys are fixtures (`SigningKey` seed 1). Nothing here is a wallet signature.
+A `reconcileDue(limit)` method serves a later worker.
 
-## 10. Expected states for interruptions
+### 8.4 Bounds
+
+- Input of at most 20 000 characters.
+- At most 20 non-terminal requests per person, and 200 kept in total.
+- Five submissions per request, and 50 events.
+- Bounded reader and writer timeouts.
+- Every test double has its own finite ceiling.
+
+## 9. Interruptions (one table, consistent with §5.3) [P]
 
 | Interruption | Expected |
 |---|---|
-| Lost `open_hold` reply | `reserve_unknown`, then readback: active means `reserved`; otherwise the same `HoldAuth` is resent. Never a second hold. |
-| Restart after `dispatched`, before the result | `result_failed` with `outcome_unknown`. No settle, no redispatch, and the slot stays unused. |
-| Lost `settle_hold` reply | `settle_unknown`, then `check_use`: `charged` means settled; `unused` means resend; `closed` means check the root |
-| A settle that arrives after `settle_until` | The contract gives `E_EXPIRED`; the use is `unsettled_after_deadline` |
-| The customer revokes their key mid-hold | Serving stops at once. Signed uses settle until `settle_until`. |
-| A sale with a platform successor grant | Continues |
-| A sale without one | §7. Visible as `unsettled` or `released`. |
-| The seller's private owner-trial reply, in flight across the sale | Denied, by the existing owner-epoch fence |
-| The customer retrieves a result after a sale | Allowed, by customer authorization. The new owner can't read it. |
+| Lost prepare reply | The same idempotency key returns the same preparation; a new key gets `409 use_in_progress` |
+| Same key, different input or offer | `409 idempotency_conflict`; nothing changes |
+| Confirm after `sign_by_ms` | `409 preparation_expired`; nothing submitted |
+| Wrong signature, key, epoch, sequence, slot or deadline | `422 signature_invalid`, because every signature is checked against the stored digests and key |
+| Lost `open_hold` reply | `reserve_unknown` → §5.2. An exact match is `reserved`; still pending means the exact resend; never a second hold. |
+| Restart mid-submission | The lease expires; the next step resends the identical payload |
+| Two workers | One lease wins; the stale result is discarded |
+| The customer revokes before the open | Row 6, `refused: key_changed` |
+| The customer revokes after the open | Row 3, `reserved` with serving ended |
+| An external hold or skip advances the sequence | Rows 4 or 9; never a fresh automatic hold |
+| A sale while a request is open | The customer's request and its entitlement identity are unchanged. Former and new owners get 404. Admission follows §6. |
+| No reader or writer configured | `503 customer_use_unavailable`; no rows, no calls |
 
-**Live prerequisites not met** (each a later, separately authorized job):
+## 10. Live prerequisites not met
 
-1. **Customer wallet sign-in**, to call `install_key` from the customer's own NEAR account, and
-   client-side ed25519 signing of `HoldAuth` and `UseAuth`.
-2. **Operator transaction signing**: a platform METERING account key, and its custody.
-   Unauthorized now.
-3. **A live testnet endpoint**, with verified chain identity (V3_OBSERVATIONS.md §8).
-4. **A real FT** for purchases. Gas and storage costs are measured only in the unit VM.
-5. **Encrypted output storage**, with a deletion job.
+Each needs Tony's explicit yes:
+1. Wallet sign-in, so a person proves their chain account. `install_key` is signed from that
+   account, and use-keys are generated client-side.
+2. Platform METERING operator key custody, and transaction signing.
+3. A live testnet endpoint with verified chain identity (V3_OBSERVATIONS.md §8), and a reader that
+   returns block timestamps.
+4. A real fungible token.
+5. An input and result protection implementation, with deletion.
 
-## 11. Bounded implementation proposal (next job, after review)
+## 11. Assumptions to check before any live use
 
-1. **Tables:**
-   - `customer_offers`;
-   - `customer_uses`: the states in §4, the fingerprint, salt, signed payloads, and the
-     reservation and settlement block references;
-   - `customer_use_events` (append-only).
-2. **Admission.** A `CustomerAdmission` alongside the existing owner-trial `Admission`, without
-   relaxing `answerFor`. Purpose `customer_use`.
-3. **A transport interface** with no signing implementation. `ChainWriter.openHold`,
-   `settleHold` and `releaseHold` are behind an interface whose only implementation is a test
-   double driving the **unit-VM contract**, or failing with `unavailable` in the app.
-4. **API:** `POST /api/customer/offers/:id/uses` (accepted, given the signed `UseAuth`), and
-   `GET .../uses/:id` (the customer's own result).
-5. **Tests:** every row of §10 against the readback fixtures and the state machine. No live call.
+- **A1.** NEAR block timestamps rise strictly from block to block, so a pinned block's timestamp
+  bounds every later block. It is used only in row 7. It must be confirmed against nearcore's
+  header validation before live use; until then, row 7 holds only for the synthetic transport.
+- **A2.** `get_entitlement` is read at a final block. A non-final read is refused by the reader.
 
-Not in that job: wallet sign-in, operator key custody, a live endpoint, and payments with a real
-FT. Each needs Tony's authorization.
+## 12. Contract-produced fixtures
+
+| File | Produced by | Shows |
+|---|---|---|
+| `customer-readback.json` | `customer_readback_matches_server_fixture` (003l) | Entitlement and `check_use` at funded, consumed, active, released and after-sale states |
+| `customer-signing.json` | `customer_signing_matches_server_fixture` (003l1) | Hand-encoded preimages, the digests, signatures that the contract accepts, and one-slot, partial and empty closed roots |
+
+The authority facts come from `c01`–`c04` (003l1), with `g01`/`g02` (003g).
+
+All signatures come from a synthetic test key (seed 1). None is a wallet signature, and no fixture
+executes a real transaction.
