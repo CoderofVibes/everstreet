@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Helper read accepted](2026-11-04_HelperReadAccepted.md) |1069 checks/build; actual revoked/outage/regrant/scope/sale/outsider/phone/keyboard pass |005b accepted locally;001h1 next; all live/full milestones open |
+| 2026-11-04 | [Books recovery review](2026-11-04_BooksRecoveryReview.md) | Actual initial503/retry and404 clearing pass; cached503 hides failure and period mismatch ->001h1 |005b sole writer; correction before001i; broad/live gates open |
 | 2026-11-04 | [Operating workspace review](2026-11-04_OperatingWorkspaceReview.md) |1047 checks; actual charts/drafts/identity/keyboard/empty; phone overflow found and CSS corrected |001h partial review;005b next; broad/live gates open |
 | 2026-11-04 | [Operating network plan](2026-11-04_OperatingNetworkPlan.md) | Source-grounded005c expert profile/request/delivery workflow; M2 isolation gaps retained |001h sole builder live;005c queued after UI/004b |
 | 2026-11-04 | [Helper read authority](2026-11-04_HelperReadAuthorityReview.md) | Actual revoked helper GET returns private inquiry; normal account switch safely leaves page |005b queued after active001h; no duplicate writer |
