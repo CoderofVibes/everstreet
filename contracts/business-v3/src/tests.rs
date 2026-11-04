@@ -3179,4 +3179,10 @@ fn serialized_views_match_server_fixtures() {
     assert_eq!(g.accept(BUYER), "accepted");
     assert_eq!(g.accept(FOUNDER), "closing");
     fixture("gated-closing", include_str!("../../../server/test/fixtures/v3/gated-closing.json"), views_json(&g));
+    // Job 003k1: the configured closer finalizes with the exact order: closed, generation 2.
+    let o = g.order();
+    g.neutral(CLOSER, 0, |b| b.close_sale(o));
+    let c = g.b.get_control();
+    assert_eq!((c.owner, c.generation, c.live_deal.is_none()), (id(BUYER), 2, true));
+    fixture("gated-closed", include_str!("../../../server/test/fixtures/v3/gated-closed.json"), views_json(&g));
 }

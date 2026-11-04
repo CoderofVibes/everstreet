@@ -319,15 +319,20 @@ export class V3Intents {
 
     // 2. Decide.
     const decision = this.decide(first, s);
-    if (decision.state === "ended") {
+    if (decision.state === "ended" || decision.state === "superseded") {
+      const status = decision.state;
       this.store.tx(() =>
         this.db
           .prepare(
-            "UPDATE v3_intents SET status = 'ended', result = ?, updated_at = ? WHERE id = ? AND status = 'recorded'",
+            "UPDATE v3_intents SET status = ?, result = ?, updated_at = ? WHERE id = ? AND status = 'recorded'",
           )
-          .run(JSON.stringify({ outcome: decision.code, block: s.block }), now(), first.id),
+          .run(status, JSON.stringify({ outcome: decision.code, block: s.block }), now(), first.id),
       );
-      return answer("ended", decision.code);
+      // The answer follows what is actually stored, whichever call reached it first.
+      const stored = (this.row(businessId, intentId) as IntentRow).status;
+      const state: ReconcileState =
+        stored === "applied" ? "already" : stored === "recorded" ? status : stored;
+      return answer(state, decision.code);
     }
     if (decision.state !== "apply") return answer(decision.state, decision.code);
 
@@ -442,7 +447,7 @@ export class V3Intents {
     r: IntentRow,
     s: CoreSnapshot,
   ):
-    | { state: "pending" | "unavailable" | "conflict" | "ended"; code: string }
+    | { state: "pending" | "unavailable" | "conflict" | "ended" | "superseded"; code: string }
     | { state: "apply"; outcome: OutcomeV3 } {
     const seq = r.deal_seq;
     const live = s.control.live_deal;
@@ -452,16 +457,27 @@ export class V3Intents {
       return this.obs.inHistoryGap(r.business_id, seq, s)
         ? { state: "unavailable", code: "history_gap" }
         : { state: "pending", code: "no_outcome" };
-    if (o.status !== "closed") return { state: "ended", code: o.status };
+    // Job 003k1: the outcome's identity is compared before ANY terminal state. Versions only rise
+    // while a deal is live (revise_sale), so an outcome at a later version means the recorded
+    // version was revised away and that later version ended or closed: this intent is
+    // superseded, never "ended" or "applied" by another version's outcome. An earlier version, or
+    // the same version with another digest, party or price, contradicts the contract: conflict.
     const terms = JSON.parse(r.terms) as { price: string };
+    if (o.version > r.version) return { state: "superseded", code: `revised_then_${o.status}` };
     if (
       o.version !== r.version ||
       o.digest !== r.digest ||
       o.seller !== r.seller_account ||
       o.buyer !== r.buyer_account ||
-      o.price !== terms.price ||
-      o.generation_after !== r.expected_generation + 1
+      o.price !== terms.price
     )
+      return { state: "conflict", code: "outcome_mismatch" };
+    if (o.status !== "closed")
+      // terminate keeps the generation: an exact ended outcome names the expected one.
+      return o.generation_after === r.expected_generation
+        ? { state: "ended", code: o.status }
+        : { state: "conflict", code: "outcome_mismatch" };
+    if (o.generation_after !== r.expected_generation + 1)
       return { state: "conflict", code: "outcome_mismatch" };
     const c = s.control;
     if (c.generation < o.generation_after) return { state: "pending", code: "control_behind" };

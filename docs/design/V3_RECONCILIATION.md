@@ -98,8 +98,10 @@ ids.
    | The target `seq` is the live deal (proposed, accepting or closing) | `pending` |
    | No outcome for `seq`, and the history has a gap that covers it | `unavailable` (no guess) |
    | No outcome for `seq` otherwise | `pending` |
-   | An outcome that is `cancelled`, `expired` or `aborted` | `ended`; the intent becomes `ended` |
-   | A `closed` outcome whose version, digest, seller, buyer, price or `generation_after` differ | `conflict` |
+   | An outcome at a **later** version than the intent (the recorded version was revised away, then that version ended or closed) | `superseded`, code `revised_then_<status>`; the intent becomes `superseded` (job 003k1) |
+   | An outcome at an earlier version, or at the same version with another digest, seller, buyer or price | `conflict`; the intent stays `recorded` |
+   | An exactly matching `cancelled`, `expired` or `aborted` outcome, with `generation_after = expected_generation` | `ended`; the intent becomes `ended` |
+   | An exactly matching `closed` outcome whose `generation_after ≠ expected_generation + 1` | `conflict` |
    | Current control generation is above `generation_after`, or the owner isn't the buyer | `conflict` (a newer, unmatched transfer) |
    | Current control generation is below `generation_after` | `pending` |
    | The buyer or seller mapping changed since the intent | `conflict` |
@@ -124,6 +126,10 @@ ids.
 
    Never touched: projects, revisions, releases, imports, customer records and entitlements.
    External accounts and runtime readiness are not marked complete.
+
+Identity is compared before any terminal state. A terminal answer (`ended`, `superseded`) is
+read back from the stored status after its compare-and-set, so concurrent calls agree on what is
+actually recorded.
 
 **Retries, concurrency and restarts converge.** Two calls can both read, but only one wins the
 compare-and-set; the other answers `already`. A lost reply after the commit is answered `already`

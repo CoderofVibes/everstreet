@@ -11,6 +11,7 @@ import { openSeatProvider } from "../src/bookings.ts";
 import type { Control } from "../src/chain.ts";
 import { openDb } from "../src/db.ts";
 import { Store } from "../src/store.ts";
+import type { V3Options } from "../src/v3observe.ts";
 import { FakeChain } from "./fake-chain.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: tests read deep response fields
@@ -93,19 +94,24 @@ export class GatedChain extends FakeChain {
   }
 }
 
-export function world() {
+/**
+ * `store` and `v3` are optional (job 003k1): a test can create a business in a store first and
+ * then build the app with a v3 binding for it, since bindings are fixed when the app is made.
+ */
+export function world(opts: { store?: Store; v3?: V3Options } = {}) {
   const openseat = new OpenSeat({
     dbPath: ":memory:",
     authority: new TestDoubleAuthority("o.test", "o.test"),
   });
   const http = openSeatApp(openseat);
   const chain = new GatedChain();
-  const store = new Store(openDb(":memory:"));
+  const store = opts.store ?? new Store(openDb(":memory:"));
   const app = everstreetApi(store, {
     localPreview: true,
     environment: "test",
     bookingProvider: openSeatProvider((p, i) => Promise.resolve(http.request(p, i))),
     chain,
+    v3: opts.v3,
   });
   const as =
     (cookie: string) =>
@@ -126,7 +132,7 @@ export function world() {
     const call = as((res.headers.get("set-cookie") ?? "").split(";")[0] ?? "");
     return Object.assign(call, { id: ((await res.clone().json()) as Json).person.id as string });
   };
-  return { chain, store, app, join };
+  return { chain, store, app, join, as };
 }
 
 /** A fictional business with payments on, a buying team with access, and an open, funded deal. */

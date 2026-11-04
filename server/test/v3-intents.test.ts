@@ -29,6 +29,9 @@ const fixture = (name: string) =>
   >;
 const ACCEPTING = fixture("direct-accepting"); // contract fixture
 const CLOSED = fixture("direct-closed"); // contract fixture
+const GATED_CLOSING = fixture("gated-closing"); // contract fixture
+const GATED_CLOSED = fixture("gated-closed"); // contract fixture (job 003k1: close_sale by closer)
+const GATED_DIGEST = "7faea8cb1653036f5951ebaeaf69f8ccac4d99fc0f456f4ebf7159a8e4398a75";
 const DIGEST = "aa53a9ad33a13ba3e609344b36591db8339482e852a6044a52d1cbda5b68dda4";
 const ACCOUNT = "studio.biz.testnet";
 
@@ -448,8 +451,18 @@ describe("003k reconciliation applies only an exact, coherent close", () => {
 
   it("a closed outcome that differs in version, digest, party, price or generation changes nothing", async () => {
     // Synthetic, each coherent: one field of the contract fixture's outcome (and control) changed.
+    // A later version (revised, then closed) supersedes the v1 intent instead (job 003k1); it
+    // still changes no authority.
+    const revised = world();
+    const rid = await withIntent(revised);
+    const rbefore = authority(revised);
+    revised.transport.next(edit(CLOSED, "get_outcomes", (os) => (os[0].version = 2)));
+    expect((await reconcile(revised.n, revised.bid, rid)).body).toMatchObject({
+      state: "superseded",
+      code: "revised_then_closed",
+    });
+    expect(authority(revised)).toEqual(rbefore);
     const cases: [string, Record<string, string>][] = [
-      ["version", edit(CLOSED, "get_outcomes", (os) => (os[0].version = 2))],
       ["digest", edit(CLOSED, "get_outcomes", (os) => (os[0].digest = "c".repeat(64)))],
       ["price", edit(CLOSED, "get_outcomes", (os) => (os[0].price = "299000000000000000000"))],
       [
@@ -649,5 +662,272 @@ describe("003k evidence that can't grant authority", () => {
     const late = await sellersRead;
     expect(late.status).toBe(404);
     expect(late.text).not.toContain("treasury");
+  });
+});
+
+// ---------- 003k1: exact outcome identity before any terminal state ----------
+
+/** Synthetic, coherent (Astra's corrected probe): deal 1 was revised and then ended unsold. */
+const endedOtherVersion = (status: string) =>
+  edit(
+    edit(CLOSED, "get_outcomes", (os) => {
+      os[0].status = status;
+      os[0].version = 2;
+      os[0].digest = "f".repeat(64);
+      os[0].generation_after = 1;
+    }),
+    "get_control",
+    (c) => {
+      c.owner = "founder.near";
+      c.generation = 1;
+      c.operators = [["meter.near", 1, 1]];
+    },
+  );
+
+/** Synthetic, coherent: deal 1 at version 1 ended unsold, with one identity field changed. */
+const endedSameVersion = (status: string, f: (o: Json) => void) =>
+  edit(
+    edit(CLOSED, "get_outcomes", (os) => {
+      os[0].status = status;
+      os[0].generation_after = 1;
+      f(os[0]);
+    }),
+    "get_control",
+    (c) => {
+      c.owner = "founder.near";
+      c.generation = 1;
+      c.operators = [["meter.near", 1, 1]];
+    },
+  );
+
+describe("003k1 a terminal state is only claimed for the exact recorded deal", () => {
+  it("Astra's reproduction: a revised deal that was then cancelled never marks the v1 intent ended", async () => {
+    const w = world();
+    const id = await withIntent(w);
+    const before = authority(w);
+    w.transport.next(endedOtherVersion("cancelled"));
+    const r = (await reconcile(w.m, w.bid, id)).body;
+    expect(r.state).not.toBe("ended");
+    expect(r).toMatchObject({
+      state: "superseded",
+      code: "revised_then_cancelled",
+      receipt: { status: "superseded", deal: { version: 1, digest: DIGEST } },
+    });
+    expect(authority(w)).toEqual(before);
+    // The stored state and every later answer agree.
+    expect((await reconcile(w.m, w.bid, id)).body).toMatchObject({
+      state: "superseded",
+      receipt: { status: "superseded" },
+    });
+  });
+
+  it("expired and aborted after a revision are the same: superseded, never the recorded terms' outcome", async () => {
+    for (const status of ["expired", "aborted"]) {
+      const w = world();
+      const id = await withIntent(w);
+      w.transport.next(endedOtherVersion(status));
+      expect((await reconcile(w.m, w.bid, id)).body).toMatchObject({
+        state: "superseded",
+        code: `revised_then_${status}`,
+      });
+    }
+  });
+
+  it("an ended outcome at the same version but another digest, price or party is a conflict, not an ending", async () => {
+    const cases: [string, (o: Json) => void][] = [
+      ["digest", (o) => (o.digest = "f".repeat(64))],
+      ["price", (o) => (o.price = "299000000000000000000")],
+      ["seller", (o) => (o.seller = "someone.near")],
+      ["buyer", (o) => (o.buyer = "someone.near")],
+    ];
+    for (const status of ["cancelled", "expired", "aborted"])
+      for (const [what, f] of cases) {
+        const w = world();
+        const id = await withIntent(w);
+        w.transport.next(endedSameVersion(status, f));
+        const r = (await reconcile(w.m, w.bid, id)).body;
+        expect(r, `${status}/${what}`).toMatchObject({
+          state: "conflict",
+          code: "outcome_mismatch",
+          receipt: { status: "recorded" },
+        });
+      }
+  });
+
+  it("the genuine matching cancelled outcome still ends the intent", async () => {
+    const w = world();
+    const id = await withIntent(w);
+    w.transport.next(endedSameVersion("cancelled", () => {}));
+    expect((await reconcile(w.m, w.bid, id)).body).toMatchObject({
+      state: "ended",
+      code: "cancelled",
+      receipt: { status: "ended" },
+    });
+  });
+});
+
+describe("003k1 Gated close, multiple intents, and the stored format", () => {
+  it("a Gated close by the configured closer (contract fixtures) reconciles once through the API", async () => {
+    const t = new Transport();
+    t.views = GATED_CLOSING;
+    const w = world({ transport: t });
+    await w.m(`/api/businesses/${w.bid}/v3/refresh`, "POST");
+    const made = await w.m(`/api/businesses/${w.bid}/v3/intents`, "POST", {
+      ...INTENT,
+      digest: GATED_DIGEST,
+    });
+    expect(made.status).toBe(201);
+    expect(made.body.intent.terms).toMatchObject({ close_mode: "gated", closer: "closer.near" });
+    const id = made.body.intent.id as string;
+    const before = authority(w);
+    w.transport.next(GATED_CLOSING);
+    expect((await reconcile(w.n, w.bid, id)).body).toMatchObject({
+      state: "pending",
+      code: "deal_closing",
+    });
+    w.transport.next(GATED_CLOSED);
+    expect((await reconcile(w.n, w.bid, id)).body).toMatchObject({
+      state: "applied",
+      receipt: { target_generation: 2, outcome_control_seq: "8" },
+    });
+    expect(authority(w)).toEqual({
+      owner: w.noah.id,
+      history: before.history + 1,
+      sold: before.sold + 1,
+    });
+  });
+
+  it("two intents (before and after a revision), reconciled concurrently: one applied, the other superseded, stably", async () => {
+    const w = world();
+    const a = await withIntent(w); // version 1, from the contract fixture
+    // Synthetic, coherent: the seller revised the terms (version 2), clearing both acceptances.
+    const revisedDigest = "e".repeat(64);
+    const revised = edit(ACCEPTING, "get_control", (c) => {
+      c.control_seq = "7";
+      c.live_deal.version = 2;
+      c.live_deal.digest = revisedDigest;
+      c.live_deal.state = "proposed";
+      c.live_deal.seller_accepted = false;
+      c.live_deal.buyer_accepted = false;
+    });
+    w.transport.next(revised);
+    expect((await w.m(`/api/businesses/${w.bid}/v3/refresh`, "POST")).body.outcome).toBe(
+      "accepted",
+    );
+    const b = (
+      await w.m(`/api/businesses/${w.bid}/v3/intents`, "POST", {
+        idempotency_key: "intent-key-0002",
+        deal_seq: "1",
+        version: 2,
+        digest: revisedDigest,
+      })
+    ).body.intent.id as string;
+    // Synthetic, coherent: version 2 then closed.
+    const closedV2 = edit(
+      edit(CLOSED, "get_outcomes", (os) => {
+        os[0].version = 2;
+        os[0].digest = revisedDigest;
+        os[0].control_seq = "8";
+      }),
+      "get_control",
+      (c) => (c.control_seq = "8"),
+    );
+    w.transport.next(closedV2);
+    const before = authority(w);
+    const [ra, rb] = await Promise.all([reconcile(w.m, w.bid, a), reconcile(w.n, w.bid, b)]);
+    expect(rb.body.state).toBe("applied");
+    expect(ra.body).toMatchObject({ state: "superseded", receipt: { status: "superseded" } });
+    for (let i = 0; i < 2; i++) {
+      expect((await reconcile(w.m, w.bid, a)).body).toMatchObject({
+        state: "superseded",
+        receipt: { status: "superseded" },
+      });
+      expect((await reconcile(w.n, w.bid, b)).body).toMatchObject({
+        state: "already",
+        receipt: { status: "applied" },
+      });
+    }
+    expect(authority(w)).toEqual({
+      owner: w.noah.id,
+      history: before.history + 1,
+      sold: before.sold + 1,
+    });
+    expect(w.count("SELECT COUNT(*) AS n FROM ownership WHERE v3_intent_id = ?", b)).toBe(1);
+    expect(w.count("SELECT COUNT(*) AS n FROM ownership WHERE v3_intent_id = ?", a)).toBe(0);
+  });
+
+  it("concurrent reconciles of one ending intent agree on the stored terminal state", async () => {
+    const w = world();
+    const id = await withIntent(w);
+    w.transport.next(endedSameVersion("expired", () => {}));
+    const rs = await Promise.all([
+      reconcile(w.m, w.bid, id),
+      reconcile(w.n, w.bid, id),
+      reconcile(w.m, w.bid, id),
+    ]);
+    for (const r of rs)
+      expect(r.body).toMatchObject({ state: "ended", receipt: { status: "ended" } });
+  });
+
+  it("an older database gains ownership.v3_intent_id as a nullable column, keeps its rows, and enforces one entry per intent", async () => {
+    const path = join(here, `v3-migrate-${process.pid}-${Date.now()}.db`);
+    const open: { close(): void }[] = [];
+    try {
+      // A database as earlier versions created it: ownership without v3_intent_id, with rows.
+      const { DatabaseSync } = await import("node:sqlite");
+      const old = new DatabaseSync(path);
+      open.push(old);
+      old.exec(`CREATE TABLE ownership (
+        id INTEGER PRIMARY KEY, business_id TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL,
+        buyer_id TEXT, deal_id TEXT, generation INTEGER, tx TEXT, at TEXT NOT NULL) STRICT`);
+      old.exec(
+        "INSERT INTO ownership (business_id, from_id, to_id, deal_id, generation, at) VALUES ('b1', 'p1', 'p2', 'd1', 2, '2026-11-01'), ('b1', 'p2', 'p1', NULL, NULL, '2026-11-02')",
+      );
+      old.close();
+      open.length = 0;
+      for (let i = 0; i < 2; i++) {
+        // Twice: the upgrade is idempotent.
+        const db = openDb(path);
+        open.push(db);
+        const cols = (
+          db.prepare("PRAGMA table_info(ownership)").all() as { name: string; notnull: number }[]
+        ).filter((c) => c.name === "v3_intent_id");
+        expect(cols).toEqual([expect.objectContaining({ name: "v3_intent_id", notnull: 0 })]);
+        expect(db.prepare("SELECT deal_id, v3_intent_id FROM ownership ORDER BY id").all()).toEqual(
+          [
+            { deal_id: "d1", v3_intent_id: null },
+            { deal_id: null, v3_intent_id: null },
+          ],
+        );
+        const idx = db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'ownership' ORDER BY name",
+          )
+          .all() as { name: string }[];
+        expect(idx.map((x) => x.name)).toEqual(
+          expect.arrayContaining(["ownership_once_per_deal", "ownership_once_per_v3_intent"]),
+        );
+        db.close();
+        open.length = 0;
+      }
+      // The unique index refuses a second entry for one intent (foreign keys off to isolate it).
+      const db = openDb(path);
+      open.push(db);
+      db.exec("PRAGMA foreign_keys = OFF");
+      const add = () =>
+        db
+          .prepare(
+            "INSERT INTO ownership (business_id, from_id, to_id, at, v3_intent_id) VALUES ('b1', 'p1', 'p2', 'x', 'i1')",
+          )
+          .run();
+      add();
+      expect(add).toThrow(/UNIQUE/);
+    } finally {
+      for (const d of open)
+        try {
+          d.close();
+        } catch {}
+      for (const s of ["", "-wal", "-shm"]) rmSync(`${path}${s}`, { force: true });
+    }
   });
 });
