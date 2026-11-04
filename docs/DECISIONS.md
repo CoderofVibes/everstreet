@@ -1,4 +1,14 @@
 # Decision log
+## 2026-11-04 · Continuous development approved
+
+Tony: "Sounds great, do it!" approving continuous work with the same checkpoint verifications.
+The continuous Goal is active and the 45-minute continuation automation is paused. Work proceeds
+between bounded jobs without a timer: one Claude writer, independent review, concrete corrections,
+local commits and durable checkpoints. Capacity/reset and resource limits remain in force; no
+new spending or external-release authority. All six milestones and the approved UI direction stay
+in scope. Do not restart the timer alongside an active writer. The full creative walkthrough remains
+after buildout; ordinary implementation/design decisions do not require repeated approval.
+
 ## 2026-11-04 · Everstreet UI direction approved; implementation resumed
 
 Tony: "Can you remember all of this and start to implement it please? I like everything you just
