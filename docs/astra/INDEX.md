@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Studio draft lifetime review](2026-11-04_StudioDraftLifetimeReview.md) | Actual deferred response overwrites newer remount draft and restores text after forget | In-progress001k1 correction required; sole93559; worker approval already exercised, no new setup |
 | 2026-11-04 | [Executable canvas browser review](2026-11-04_ExecutableCanvasBrowserReview.md) | Actual1440/1280/390 composition, focus, recovery and generated/current separation pass; both route drafts disappear |001k remains review; reproduced001k1 correction next, then003w; previews stopped |
 | 2026-11-04 | [Worker conformance review](2026-11-04_WorkerConformanceReview.md) | Actual13/15 suite at8c8599a; memory/orphan gates and boot defect remain; host stopped |002f1 correction brief queued (JOBS row deferred while001k owns it);95764 check passes1181+1skip;001k active then003w |
 | 2026-11-04 | [Protected storage accepted](2026-11-04_ProtectedStorageAccepted.md) | Three reproduced corrections independently pass;1181 tests and web build pass atda404a0 | Narrow003v acceptance; Tony approves dedicated worker;002f next then001k/003w |
