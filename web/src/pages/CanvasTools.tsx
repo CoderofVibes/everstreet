@@ -274,6 +274,16 @@ function SelectionEditor({
   );
 }
 
+/**
+ * Job 001g1: move focus to an element and make sure it can be seen. `nearest` scrolls only as far
+ * as needed and honours the studio's scroll margins, so it lands clear of the sticky site header.
+ */
+export function reveal(el: HTMLElement | null) {
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  el.scrollIntoView({ block: "nearest" });
+}
+
 export interface SaveControls {
   dirty: boolean;
   busy: boolean;
@@ -313,7 +323,7 @@ export function ContextTools({
     const el = document.getElementById(elementDomId(selection));
     if (!el) return;
     e.preventDefault();
-    el.focus();
+    reveal(el);
   };
   let body: ReactNode;
   if (mode === "try")
@@ -394,7 +404,7 @@ export function ContextTools({
               // Back to the element in the stage, so focus isn't lost with this button.
               const back = elementDomId(selection);
               onSelect(null);
-              window.setTimeout(() => document.getElementById(back)?.focus(), 0);
+              window.setTimeout(() => reveal(document.getElementById(back)), 0);
             }}
           >
             Done

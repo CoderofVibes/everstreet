@@ -60,6 +60,7 @@ import {
   BRIEF_FIELD_ID,
   ContextTools,
   FIRST_ID,
+  reveal,
   type SaveControls,
   TOOLS_ID,
 } from "./CanvasTools.tsx";
@@ -1010,11 +1011,7 @@ export function ProductStudio({ id }: { id: string }) {
 
   /** Focus an element once the view, mode and selection just set have rendered. */
   const focusSoon = (elementId: string) =>
-    window.setTimeout(() => {
-      const el = document.getElementById(elementId);
-      el?.focus();
-      el?.scrollIntoView({ block: "nearest" });
-    }, 0);
+    window.setTimeout(() => reveal(document.getElementById(elementId)), 0);
 
   /**
    * Job 001g: select an element; its tools appear and focus moves to their first control (on a

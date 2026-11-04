@@ -507,7 +507,9 @@ textarea.input { min-height: 88px; resize: vertical; line-height: 1.5; }
 .ps-side { background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
 .ps-side-scroll { padding: 16px; overflow-y: auto; flex: 1; }
 .ps-side .seg { margin: 0 0 14px; }
-.ps-savebar { border-top: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 8px; background: var(--surface); position: sticky; bottom: 0; }
+/* Job 001g1: the save bar is in normal flow at the end of the context tools, never sticky: as a
+   sticky footer it covered the focused editor on phones once the tools became static. */
+.ps-savebar { border-top: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 8px; background: var(--surface); }
 .seg { display: inline-flex; background: var(--canvas); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 2px; gap: 2px; }
 .seg button { border: 0; background: none; border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-3); }
 .seg button[aria-pressed="true"], .seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); }
@@ -696,9 +698,20 @@ details.advanced[open] > summary { margin-bottom: 8px; }
 /* A local dark surface for the product, the one dark area in the studio. */
 .ps-stage { background: var(--ink); border-radius: var(--radius-xl); padding: 28px; box-shadow: inset 0 0 0 1px var(--ink-line); }
 .ps-stage.editing { background-image: radial-gradient(rgba(175, 194, 255, 0.14) 1px, transparent 1px); background-size: 18px 18px; }
+/* Job 001g1: the site header is sticky too, so anything the studio keeps in view (the tools card,
+   and focus moved into the tools or back to the stage) stays below it: about 104 px on desktop,
+   about 125 px for the compact two-row header. */
+.ps { --studio-clear-top: 116px; }
+@media (max-width: 980px) {
+  .ps { --studio-clear-top: 136px; }
+}
 .ctx-tools {
-  position: sticky; top: 12px; display: flex; flex-direction: column; min-width: 0; max-height: calc(100vh - 24px);
+  position: sticky; top: var(--studio-clear-top); display: flex; flex-direction: column; min-width: 0;
+  max-height: calc(100vh - var(--studio-clear-top) - 12px);
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+}
+.ctx-tools :is(input, select, textarea, button), .pick, .ps-canvas .tab {
+  scroll-margin-top: var(--studio-clear-top); scroll-margin-bottom: 16px;
 }
 .ctx-tools:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 .ctx-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
@@ -739,7 +752,10 @@ details.advanced[open] > summary { margin-bottom: 8px; }
 .pick-title .pick-value { font-family: var(--display); font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
 @container canvas (max-width: 880px) {
   .ps-work { grid-template-columns: minmax(0, 1fr); }
+  /* Job 001g1: below the stage the tools are ordinary page content: heading, editor, then the
+     save bar, all in flow; nothing scrolls inside them, so focus scrolls the page itself. */
   .ctx-tools { position: static; max-height: none; }
+  .ctx-body { overflow: visible; }
   .ps-stage { padding: 16px; }
 }
 @container canvas (max-width: 480px) {

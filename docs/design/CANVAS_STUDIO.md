@@ -120,6 +120,11 @@ changes. The Versions view says the released build doesn't change.
   - The companion is opt-in (**Companion** button, still mounted).
   - The view tabs scroll.
   - The stage comes first and the tools sit right under it. Selecting moves focus there.
+- **The save bar (001g1):** it is never sticky; it sits in normal flow at the end of the tools.
+  On wide screens the tools card is sticky below the sticky site header (`--studio-clear-top`),
+  and its body scrolls inside it. Below the stage the tools are ordinary page content. Focus
+  moved into the tools or back to the stage lands clear of the header (scroll margins, and
+  `reveal` scrolls only as far as needed).
 - **Reduced motion:** no transitions beyond the existing global rule. Nothing animates to imply a
   run or a pass.
 - **Zoom:** the tools column becomes a stack under the stage through the same container query.
