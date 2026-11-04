@@ -347,7 +347,7 @@ CREATE TABLE IF NOT EXISTS runtime_invocations (
   id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
   project_id TEXT NOT NULL REFERENCES product_projects(id),
   artifact_job TEXT NOT NULL REFERENCES build_jobs(id), artifact_digest TEXT NOT NULL, release_id TEXT,
-  purpose TEXT NOT NULL CHECK (purpose IN ('trial','evaluation','release')),
+  purpose TEXT NOT NULL CHECK (purpose IN ('trial','evaluation','release','customer_use')),
   eval_run TEXT, eval_case TEXT,
   requested_by TEXT NOT NULL REFERENCES people(id), owner_id TEXT NOT NULL, owner_generation INTEGER NOT NULL,
   idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, input_sha TEXT NOT NULL, input_chars INTEGER NOT NULL,
@@ -560,6 +560,18 @@ CREATE TABLE IF NOT EXISTS customer_request_events (
   kind TEXT NOT NULL, code TEXT, block TEXT, lease_gen INTEGER, at TEXT NOT NULL,
   PRIMARY KEY (request_id, seq)
 ) STRICT;
+-- Job 003n: one execution per reserved customer request, one-to-one with its customer_use
+-- invocation. The invocation keeps cost only; the result exists only behind the protection seam.
+CREATE TABLE IF NOT EXISTS customer_executions (
+  request_id TEXT PRIMARY KEY REFERENCES customer_requests(id),
+  invocation_id TEXT NOT NULL UNIQUE REFERENCES runtime_invocations(id),
+  person_id TEXT NOT NULL REFERENCES people(id), admission TEXT NOT NULL,
+  input_source TEXT NOT NULL CHECK (input_source IN ('protected','resubmitted')),
+  result_state TEXT NOT NULL CHECK (result_state IN ('pending','stored','none','unavailable','deleted')),
+  result_ref TEXT, result_scheme TEXT, result_outcome TEXT, retention_until_ms INTEGER,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS customer_executions_retention ON customer_executions(result_state, retention_until_ms);
 CREATE TRIGGER IF NOT EXISTS customer_request_events_no_update BEFORE UPDATE ON customer_request_events
 BEGIN SELECT RAISE(ABORT, 'customer request events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS customer_request_events_no_delete BEFORE DELETE ON customer_request_events
@@ -641,6 +653,42 @@ export function openDb(path: string) {
   db.exec(
     "CREATE UNIQUE INDEX IF NOT EXISTS ownership_once_per_v3_intent ON ownership(v3_intent_id) WHERE v3_intent_id IS NOT NULL",
   );
+  // Job 003n: the purpose `customer_use`. SQLite cannot change a CHECK, so a runtime table from
+  // before is rebuilt once, keeping every row and column (runtime_usage keeps its references).
+  const runtimeSql = (
+    db
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'runtime_invocations'",
+      )
+      .get() as { sql: string } | undefined
+  )?.sql;
+  if (runtimeSql && !runtimeSql.includes("'customer_use'")) {
+    const cols = [...columns("runtime_invocations")].join(", ");
+    const next = runtimeSql
+      .replace(/CREATE TABLE ("?)runtime_invocations\1/, "CREATE TABLE runtime_invocations_next")
+      .replace("'trial','evaluation','release'", "'trial','evaluation','release','customer_use'");
+    if (!next.includes("'customer_use'") || !next.includes("runtime_invocations_next"))
+      throw new Error("runtime_invocations could not be upgraded for customer use");
+    db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      db.exec("BEGIN IMMEDIATE");
+      db.exec(next);
+      db.exec(
+        `INSERT INTO runtime_invocations_next (${cols}) SELECT ${cols} FROM runtime_invocations`,
+      );
+      db.exec("DROP TABLE runtime_invocations");
+      db.exec("ALTER TABLE runtime_invocations_next RENAME TO runtime_invocations");
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS runtime_invocations_project ON runtime_invocations(project_id, created_at)",
+      );
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      db.exec("PRAGMA foreign_keys = ON");
+    }
+  }
   // Job 002b: a second intent (`propose`) and a reference to the message a job answers.
   // SQLite cannot change a CHECK, so a table from before is rebuilt once, keeping every row.
   const sql = (

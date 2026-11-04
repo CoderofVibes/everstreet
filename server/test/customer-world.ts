@@ -22,15 +22,19 @@ import {
   sha256,
   sha256Hex,
 } from "../src/customerSigning.ts";
-import type {
-  CustomerChainWriter,
-  CustomerUseOptions,
-  InputProtection,
-  WriterAnswer,
+import {
+  type CustomerChainWriter,
+  type CustomerUseOptions,
+  CustomerUses,
+  type InputProtection,
+  type WriterAnswer,
 } from "../src/customerUse.ts";
+import { ManagedRuntime, type RuntimeOptions } from "../src/invocations.ts";
+import { RuntimeFailure } from "../src/runtime.ts";
 import type { Store } from "../src/store.ts";
+import { V3Observations } from "../src/v3observe.ts";
 import type { BlockRef } from "../src/v3read.ts";
-import { correct, runtimeWorld, ScriptedRuntime } from "./runtime-world.ts";
+import { type Answer, correct, runtimeWorld, ScriptedRuntime } from "./runtime-world.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: fixture JSON is read field by field
 export type Json = Record<string, any>;
@@ -317,7 +321,12 @@ export class FixtureReader implements CustomerViewTransport {
     }
     return b;
   }
+  /** Runs once before the next view answers (job 003n: something lands during the read). */
+  duringRead: (() => void) | null = null;
   async view(input: { method: string; args: Record<string, unknown>; block: BlockRef }) {
+    const during = this.duringRead;
+    this.duringRead = null;
+    during?.();
     const s = this.scripted;
     if (s && input.method in s.views)
       return { result: JSON.stringify(s.views[input.method]), block: input.block };
@@ -411,11 +420,64 @@ export class FixtureWriter implements CustomerChainWriter {
 export class SyntheticProtection implements InputProtection {
   readonly scheme = "synthetic-test-only";
   kept = new Map<string, Buffer>();
-  async protect(input: { request_id: string; bytes: Buffer }) {
-    const ref = `ref-${this.kept.size + 1}`;
+  kinds = new Map<string, string>();
+  calls = 0;
+  /** The next this-many protect calls fail (job 003n). */
+  failProtect = 0;
+  deleted: string[] = [];
+  private n = 0;
+  async protect(input: { request_id: string; kind?: string; bytes: Buffer }) {
+    if (++this.calls > 100) throw new Error("synthetic protection ceiling reached");
+    if (this.failProtect > 0) {
+      this.failProtect--;
+      throw new Error("synthetic protection failure");
+    }
+    const ref = `ref-${++this.n}`;
     this.kept.set(ref, input.bytes);
+    this.kinds.set(ref, input.kind ?? "input");
     return ref;
   }
+  async load(ref: string) {
+    const b = this.kept.get(ref);
+    if (!b) throw new Error("no such reference");
+    return b;
+  }
+  async delete(ref: string) {
+    this.kept.delete(ref);
+    this.deleted.push(ref);
+  }
+}
+
+/**
+ * A provider script held at a gate until opened (job 003n). `abortable` rejects on the abort
+ * signal like a real transport; otherwise it answers late, ignoring a cancellation.
+ */
+export function heldScript(answer: () => Promise<Answer>, abortable = false) {
+  let open: () => void = () => {};
+  let arrive: () => void = () => {};
+  const release = new Promise<void>((r) => {
+    open = r;
+  });
+  const entered = new Promise<void>((r) => {
+    arrive = r;
+  });
+  const script = async (_req: unknown, signal: AbortSignal): Promise<Answer> => {
+    arrive();
+    if (abortable)
+      await Promise.race([
+        release,
+        new Promise<never>((_, reject) =>
+          signal.addEventListener(
+            "abort",
+            () => reject(new RuntimeFailure("Stopped", "cancelled", null)),
+            { once: true },
+          ),
+        ),
+      ]);
+    else await release;
+    return answer();
+  };
+  return { script, open, entered };
 }
 
 /**
@@ -472,10 +534,15 @@ export async function customerWorld(
     customer?: Partial<CustomerUseOptions>;
     noReader?: boolean;
     noWriter?: boolean;
+    /** The runtime's options (job 003n), e.g. a short time limit. */
+    runtime?: RuntimeOptions;
+    /** No runtime provider in the customer app (job 003n). */
+    noProvider?: boolean;
   } = {},
 ) {
   // The scripted extractor that passes the release check (fictional documents only).
-  const rw = runtimeWorld(new ScriptedRuntime(correct), {}, { dbPath: opts.dbPath });
+  const provider = new ScriptedRuntime(correct);
+  const rw = runtimeWorld(provider, opts.runtime ?? {}, { dbPath: opts.dbPath });
   const f = await rw.founder("Ava Chen");
   await rw.release(f);
   const release = rw.store.db
@@ -493,17 +560,45 @@ export async function customerWorld(
     now: () => clock.now,
     ...opts.customer,
   });
-  const make = (store: Store) =>
-    everstreetApi(store, {
+  const v3 = {
+    transport: null,
+    bindings: [{ business_id: f.business, network: "testnet", account: BUSINESS }],
+  };
+  /** The managed runtime for a store: the founder's own, or (a restart) a new one, recovered. */
+  const runtimeFor = (store: Store) => {
+    if (store === rw.store && !opts.noProvider) return rw.runtime;
+    const r = new ManagedRuntime(store.db, store, opts.noProvider ? null : provider, {
+      ceilingCents: 1_000,
+      ...opts.runtime,
+    });
+    r.recover();
+    return r;
+  };
+  const make = (store: Store, runtime = runtimeFor(store)) => {
+    state.runtime = runtime;
+    return everstreetApi(store, {
       localPreview: true,
       environment: "test",
-      v3: {
-        transport: null,
-        bindings: [{ business_id: f.business, network: "testnet", account: BUSINESS }],
-      },
+      v3,
       customer: options(),
+      runtime,
     });
-  const state = { store: rw.store, app: make(rw.store) };
+  };
+  /** A CustomerUses over the same store and runtime, for the worker-only methods (job 003n). */
+  const service = () =>
+    new CustomerUses(
+      state.store.db,
+      state.store,
+      new V3Observations(state.store.db, state.store, v3),
+      options(),
+      state.runtime,
+    );
+  const state = {
+    store: rw.store,
+    runtime: rw.runtime,
+    app: null as unknown as ReturnType<typeof everstreetApi>,
+  };
+  state.app = make(rw.store);
   let tokens = 0;
   const sessionFor = (personId: string) => {
     const token = `test-session-${++tokens}-${personId}`;
@@ -577,6 +672,9 @@ export async function customerWorld(
     offer,
     signed,
     sign1,
+    provider,
+    service,
+    runtimeFor,
   };
 }
 

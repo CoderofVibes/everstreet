@@ -20,7 +20,11 @@ import {
 } from "./runtime.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 
-export type Purpose = "trial" | "evaluation" | "release";
+/**
+ * `customer_use` (job 003n) is a customer's execution of a released product: business cost
+ * history only. Owner routes never return it, and its output is never stored on the record.
+ */
+export type Purpose = "trial" | "evaluation" | "release" | "customer_use";
 export type InvocationState = "running" | "completed" | "failed" | "cancelled" | "unknown";
 
 export interface InvocationRow {
@@ -421,66 +425,27 @@ export class ManagedRuntime {
         const epoch = this.ownerEpoch(project.business_id);
         if (epoch.owner_id !== project.owner_id)
           throw new HttpError(404, "No such product project");
-        const limit = this.db
-          .prepare("SELECT limit_cents FROM runtime_budgets WHERE business_id = ?")
-          .get(project.business_id) as { limit_cents: number } | undefined;
-        if (!limit) throw new HttpError(409, "Set a runtime budget for this business first");
-        const mine = this.committed(project.business_id);
-        if (mine.held + mine.charged + worst > limit.limit_cents)
-          throw new HttpError(
-            409,
-            `Not enough runtime budget: a request reserves up to ${worst} cents and ${Math.max(0, limit.limit_cents - mine.held - mine.charged)} are available`,
-          );
-        const all = this.committed(null);
-        if (all.held + all.charged + worst > (this.ceilingCents ?? 0))
-          throw new HttpError(
-            409,
-            "The platform's overall limit for running products has been reached. Nothing was sent.",
-          );
-        const running = (
-          this.db
-            .prepare(
-              "SELECT COUNT(*) AS n FROM runtime_invocations WHERE business_id = ? AND state = 'running'",
-            )
-            .get(project.business_id) as { n: number }
-        ).n;
-        if (running >= RUNTIME_LIMITS.concurrency)
-          throw new HttpError(
-            409,
-            `At most ${RUNTIME_LIMITS.concurrency} requests run at once; wait for one to finish`,
-          );
-        const t = this.iso();
-        this.db
-          .prepare(
-            `INSERT INTO runtime_invocations (id, business_id, project_id, artifact_job, artifact_digest, release_id, purpose, eval_run, eval_case, requested_by, owner_id, owner_generation, idempotency_key, fingerprint, input_sha, input_chars, provider, provider_config, validator, pricing, state, reserved_cents, dispatched_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
-          )
-          .run(
-            id,
-            project.business_id,
-            project.id,
-            artifact.job_id,
-            artifact.digest,
-            release?.id ?? null,
-            purpose,
-            evalRef?.run ?? null,
-            evalRef?.case ?? null,
-            viewer.id,
-            epoch.owner_id,
-            epoch.generation,
-            key,
-            fingerprint,
-            inputSha,
-            text.length,
-            this.provider?.id ?? "none",
-            config,
-            EXTRACT_VALIDATOR,
-            JSON.stringify(pricing),
-            worst,
-            t,
-            t,
-          );
-        this.ledger(id, "reservation", worst, "Worst case at the fixed runtime limits");
+        this.reserveChecks(project.business_id, worst);
+        this.insertRunning({
+          id,
+          business_id: project.business_id,
+          project_id: project.id,
+          artifact_job: artifact.job_id,
+          artifact_digest: artifact.digest,
+          release_id: release?.id ?? null,
+          purpose,
+          eval_run: evalRef?.run ?? null,
+          eval_case: evalRef?.case ?? null,
+          requested_by: viewer.id,
+          epoch,
+          key,
+          fingerprint,
+          input_sha: inputSha,
+          input_chars: text.length,
+          config,
+          pricing: JSON.stringify(pricing),
+          worst,
+        });
       });
     } catch (e) {
       if (e instanceof Error && /UNIQUE/.test(e.message)) {
@@ -495,11 +460,238 @@ export class ManagedRuntime {
     return { invocation: made, created: true, done };
   }
 
+  /**
+   * The runtime's own admission checks, inside the caller's transaction: the business's budget,
+   * the operator's overall ceiling and the concurrency limit, all for the worst case.
+   */
+  private reserveChecks(businessId: string, worst: number) {
+    const limit = this.db
+      .prepare("SELECT limit_cents FROM runtime_budgets WHERE business_id = ?")
+      .get(businessId) as { limit_cents: number } | undefined;
+    if (!limit)
+      throw new HttpError(
+        409,
+        "Set a runtime budget for this business first",
+        this.coded("no_budget"),
+      );
+    const mine = this.committed(businessId);
+    if (mine.held + mine.charged + worst > limit.limit_cents)
+      throw new HttpError(
+        409,
+        `Not enough runtime budget: a request reserves up to ${worst} cents and ${Math.max(0, limit.limit_cents - mine.held - mine.charged)} are available`,
+        this.coded("budget_exhausted"),
+      );
+    const all = this.committed(null);
+    if (all.held + all.charged + worst > (this.ceilingCents ?? 0))
+      throw new HttpError(
+        409,
+        "The platform's overall limit for running products has been reached. Nothing was sent.",
+        this.coded("ceiling_reached"),
+      );
+    const running = (
+      this.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM runtime_invocations WHERE business_id = ? AND state = 'running'",
+        )
+        .get(businessId) as { n: number }
+    ).n;
+    if (running >= RUNTIME_LIMITS.concurrency)
+      throw new HttpError(
+        409,
+        `At most ${RUNTIME_LIMITS.concurrency} requests run at once; wait for one to finish`,
+        this.coded("concurrency_limit"),
+      );
+  }
+
+  /** Codes only on the customer path (job 003n), so existing trial answers stay as they were. */
+  private codes = false;
+  private coded(code: string) {
+    return this.codes ? code : undefined;
+  }
+
+  /** The dispatch intent: a running record and its worst-case reservation, in one transaction. */
+  private insertRunning(v: {
+    id: string;
+    business_id: string;
+    project_id: string;
+    artifact_job: string;
+    artifact_digest: string;
+    release_id: string | null;
+    purpose: Purpose;
+    eval_run: string | null;
+    eval_case: string | null;
+    requested_by: string;
+    epoch: { owner_id: string; generation: number };
+    key: string;
+    fingerprint: string;
+    input_sha: string;
+    input_chars: number;
+    config: string;
+    pricing: string;
+    worst: number;
+  }) {
+    const t = this.iso();
+    this.db
+      .prepare(
+        `INSERT INTO runtime_invocations (id, business_id, project_id, artifact_job, artifact_digest, release_id, purpose, eval_run, eval_case, requested_by, owner_id, owner_generation, idempotency_key, fingerprint, input_sha, input_chars, provider, provider_config, validator, pricing, state, reserved_cents, dispatched_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
+      )
+      .run(
+        v.id,
+        v.business_id,
+        v.project_id,
+        v.artifact_job,
+        v.artifact_digest,
+        v.release_id,
+        v.purpose,
+        v.eval_run,
+        v.eval_case,
+        v.requested_by,
+        v.epoch.owner_id,
+        v.epoch.generation,
+        v.key,
+        v.fingerprint,
+        v.input_sha,
+        v.input_chars,
+        this.provider?.id ?? "none",
+        v.config,
+        EXTRACT_VALIDATOR,
+        v.pricing,
+        v.worst,
+        t,
+        t,
+      );
+    this.ledger(v.id, "reservation", v.worst, "Worst case at the fixed runtime limits");
+  }
+
+  /**
+   * The release a customer offer serves, if it can serve now: still the project's active
+   * release, under the model, checks and policy it was released with, with this exact artifact.
+   */
+  releaseFor(projectId: string, releaseId: string, artifactDigest: string) {
+    const r = this.db
+      .prepare(
+        "SELECT id, artifact_job, provider_config, validator, policy FROM runtime_releases WHERE id = ? AND project_id = ? AND state = 'active'",
+      )
+      .get(releaseId, projectId) as
+      | {
+          id: string;
+          artifact_job: string;
+          provider_config: string;
+          validator: string;
+          policy: string;
+        }
+      | undefined;
+    if (!r) return { ok: false as const, code: "release_not_active" };
+    if (
+      r.provider_config !== this.configNow() ||
+      r.validator !== EXTRACT_VALIDATOR ||
+      r.policy !== RELEASE_POLICY
+    )
+      return { ok: false as const, code: "release_needs_recheck" };
+    const artifact = this.artifact(projectId, r.artifact_job);
+    if (artifact.digest !== artifactDigest) return { ok: false as const, code: "artifact_changed" };
+    return { ok: true as const, release: r, artifact };
+  }
+
+  /**
+   * Job 003n: dispatches one customer execution (purpose `customer_use`). The caller has already
+   * authorized the customer and read fresh chain evidence; `inTx` rechecks its own state and
+   * records the execution inside the same transaction as the reservation and the intent. The
+   * owner admission is not used (customers aren't owners), and nothing here reads an owner's
+   * trial. `sink` receives the validated result after the record is finished, to protect it;
+   * the result is never written to the business's record.
+   */
+  startCustomer(ctx: {
+    business_id: string;
+    project_id: string;
+    release_id: string;
+    artifact_job: string;
+    artifact_digest: string;
+    spec: ExtractionSpec;
+    text: string;
+    request_id: string;
+    person_id: string;
+    inTx: (invocationId: string) => void;
+    sink: (row: InvocationRow, result: Extraction) => Promise<void>;
+  }): { invocation: InvocationRow; created: boolean; done: Promise<InvocationRow> } {
+    const availability = this.availability();
+    if (!availability.available || !this.provider)
+      throw new HttpError(503, availability.reason, "runtime_unavailable");
+    const key = `customer-${ctx.request_id}`;
+    const inputSha = sha(ctx.text);
+    const fingerprint = sha(
+      JSON.stringify(["customer_use", ctx.release_id, inputSha, ctx.request_id]),
+    );
+    const existing = () =>
+      this.db
+        .prepare("SELECT * FROM runtime_invocations WHERE project_id = ? AND idempotency_key = ?")
+        .get(ctx.project_id, key) as InvocationRow | undefined;
+    const found = existing();
+    if (found) return { invocation: found, created: false, done: this.settled(found.id) };
+    const worst = this.worstCents();
+    const config = runtimeConfig(this.provider);
+    const pricing = JSON.stringify(this.provider.pricing());
+    const id = randomUUID();
+    try {
+      this.codes = true;
+      this.store.tx(() => {
+        if (existing()) return;
+        this.reserveChecks(ctx.business_id, worst);
+        this.insertRunning({
+          id,
+          business_id: ctx.business_id,
+          project_id: ctx.project_id,
+          artifact_job: ctx.artifact_job,
+          artifact_digest: ctx.artifact_digest,
+          release_id: ctx.release_id,
+          purpose: "customer_use",
+          eval_run: null,
+          eval_case: null,
+          requested_by: ctx.person_id,
+          epoch: this.ownerEpoch(ctx.business_id),
+          key,
+          fingerprint,
+          input_sha: inputSha,
+          input_chars: ctx.text.length,
+          config,
+          pricing,
+          worst,
+        });
+        ctx.inTx(id);
+      });
+    } catch (e) {
+      if (e instanceof Error && /UNIQUE/.test(e.message)) {
+        const raced = existing();
+        if (raced) return { invocation: raced, created: false, done: this.settled(raced.id) };
+      }
+      throw e;
+    } finally {
+      this.codes = false;
+    }
+    const made = existing() as InvocationRow;
+    if (made.id !== id) return { invocation: made, created: false, done: this.settled(made.id) };
+    const done = this.run(made, ctx.spec, ctx.text, ctx.sink);
+    return { invocation: made, created: true, done };
+  }
+
+  /** Cancels a running customer execution by its invocation (the customer path checks the caller). */
+  cancelCustomer(invocationId: string) {
+    const r = this.row(invocationId);
+    if (r?.purpose !== "customer_use" || r.state !== "running") return;
+    if (!r.cancel_requested_at)
+      this.db
+        .prepare("UPDATE runtime_invocations SET cancel_requested_at = ? WHERE id = ?")
+        .run(this.iso(), invocationId);
+    this.active.get(invocationId)?.("cancelled");
+  }
+
   /** Runs the request and returns the final record. The input exists only in this call. */
   private async run(
     row: InvocationRow,
     spec: ExtractionSpec,
     text: string,
+    sink?: (row: InvocationRow, result: Extraction) => Promise<void>,
   ): Promise<InvocationRow> {
     const provider = this.provider as RuntimeProvider;
     const controller = new AbortController();
@@ -525,14 +717,29 @@ export class ManagedRuntime {
         controller.signal,
       );
       const result = validateExtraction(spec, output);
+      // Job 003n: a customer's late answer after a cancellation is neither stored nor delivered;
+      // its usage is still accounted.
+      const late =
+        row.purpose === "customer_use" &&
+        (why !== null || Boolean(this.row(row.id)?.cancel_requested_at));
       this.store.tx(() =>
-        this.finish(this.row(row.id) as InvocationRow, "completed", result, {
-          failureClass: null,
-          detail: null,
-          usage,
-          elapsed: this.now() - started,
-        }),
+        this.finish(
+          this.row(row.id) as InvocationRow,
+          late ? "cancelled" : "completed",
+          late ? null : result,
+          {
+            failureClass: late ? "cancelled" : null,
+            detail: late ? "Cancelled; the answer that arrived afterwards was not kept" : null,
+            usage,
+            elapsed: this.now() - started,
+          },
+        ),
       );
+      if (sink && !late) {
+        const finished = this.row(row.id) as InvocationRow;
+        // The sink protects and records the result; it handles its own failures.
+        if (finished.state === "completed") await sink(finished, result).catch(() => {});
+      }
     } catch (e) {
       const f =
         e instanceof RuntimeFailure
@@ -613,7 +820,8 @@ export class ManagedRuntime {
         result?.outcome ?? null,
         info.failureClass,
         info.detail ? plain(info.detail, 500) : null,
-        result ? JSON.stringify(result) : null,
+        // A customer's result is never stored on the business's record (job 003n).
+        result && row.purpose !== "customer_use" ? JSON.stringify(result) : null,
         usageState,
         u?.inputTokens ?? 0,
         u?.outputTokens ?? 0,
@@ -666,7 +874,8 @@ export class ManagedRuntime {
 
   owned(viewer: Person, id: string) {
     const r = this.row(id);
-    if (!r) throw new HttpError(404, "No such request");
+    // A customer's execution is never an owner's record to read or cancel (job 003n).
+    if (!r || r.purpose === "customer_use") throw new HttpError(404, "No such request");
     // Authorized on every read, including direct links: the business's current owner only.
     this.project(viewer, r.project_id, r.purpose);
     return r;
@@ -680,7 +889,7 @@ export class ManagedRuntime {
     const p = this.project(viewer, projectId);
     const rows = this.db
       .prepare(
-        "SELECT * FROM runtime_invocations WHERE project_id = ? AND purpose <> 'evaluation' ORDER BY created_at DESC, rowid DESC LIMIT 50",
+        "SELECT * FROM runtime_invocations WHERE project_id = ? AND purpose NOT IN ('evaluation','customer_use') ORDER BY created_at DESC, rowid DESC LIMIT 50",
       )
       .all(p.id) as unknown as InvocationRow[];
     return {

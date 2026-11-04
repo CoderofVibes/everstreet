@@ -79,8 +79,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const opportunities = new Opportunities(store.db, store, community, products);
   const v3 = new V3Observations(store.db, store, options.v3);
   const v3Intents = new V3Intents(store.db, store, v3);
-  const customerUses = new CustomerUses(store.db, store, v3, options.customer);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
+  const customerUses = new CustomerUses(store.db, store, v3, options.customer, runtime);
   const evaluations = new Evaluations(store.db, store, runtime);
   const releases = new Releases(store.db, store, runtime, evaluations);
   const books = new Books(store.db, store, options.chain ?? null);
@@ -279,6 +279,16 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.post("/api/customer/uses/:id/reconcile", async (c) =>
     c.json(await customerUses.reconcile(me(c), c.req.param("id"))),
+  );
+  // Job 003n: executing a reserved request, and the customer's own private result.
+  app.post("/api/customer/uses/:id/execute", async (c) =>
+    c.json(await customerUses.execute(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/customer/uses/:id/execution/cancel", (c) =>
+    c.json(customerUses.cancelExecution(me(c), c.req.param("id"))),
+  );
+  app.get("/api/customer/uses/:id/result", async (c) =>
+    c.json(await customerUses.result(me(c), c.req.param("id"))),
   );
 
   // ---------- product studio: digital product projects and their revisions ----------

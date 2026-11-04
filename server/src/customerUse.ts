@@ -34,6 +34,8 @@ import {
   verifiesEd25519,
 } from "./customerSigning.ts";
 import type { Db } from "./db.ts";
+import type { Extraction } from "./extract.ts";
+import type { InvocationRow, ManagedRuntime } from "./invocations.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import type { V3Observations } from "./v3observe.ts";
 import { isAccountId, V3ReadError } from "./v3read.ts";
@@ -68,10 +70,21 @@ export interface CustomerChainWriter {
   }): Promise<WriterAnswer>;
 }
 
-/** Protects a customer's input at rest (§3.4). Without one, no input is stored at all. */
+/**
+ * Protects a customer's input and result at rest (§3.4, §13.5). Without one, no input is stored
+ * at all and nothing can be executed: there is no plaintext fallback. `load` and `delete` are
+ * needed only for execution and retention (job 003n).
+ */
 export interface InputProtection {
   readonly scheme: string;
-  protect(input: { person_id: string; request_id: string; bytes: Buffer }): Promise<string>;
+  protect(input: {
+    person_id: string;
+    request_id: string;
+    kind?: "input" | "result";
+    bytes: Buffer;
+  }): Promise<string>;
+  load?(ref: string): Promise<Buffer>;
+  delete?(ref: string): Promise<void>;
 }
 
 export interface CustomerUseOptions {
@@ -88,6 +101,8 @@ export interface CustomerUseOptions {
   readTimeoutMs?: number;
   writeTimeoutMs?: number;
   maxSubmissions?: number;
+  /** Time left before serve_until, beyond the runtime's own limit, to admit an execution. */
+  executionMarginMs?: number;
   now?: () => number;
 }
 
@@ -260,6 +275,7 @@ export class CustomerUses {
   private readonly readTimeoutMs: number;
   private readonly writeTimeoutMs: number;
   private readonly maxSubmissions: number;
+  private readonly executionMarginMs: number;
   private readonly now: () => number;
 
   constructor(
@@ -267,7 +283,10 @@ export class CustomerUses {
     private readonly store: Store,
     private readonly v3: V3Observations,
     opts: CustomerUseOptions = { reader: null, writer: null, operatorAccount: null },
+    /** The managed runtime that executes reserved requests (job 003n); null: not available. */
+    private readonly runtime: ManagedRuntime | null = null,
   ) {
+    this.executionMarginMs = positive(opts.executionMarginMs, 60_000, "executionMarginMs");
     this.reader = opts.reader;
     this.writer = opts.writer;
     this.operator = opts.operatorAccount;
@@ -589,6 +608,7 @@ export class CustomerUses {
       input: { sha256: r.input_sha, chars: r.input_chars, retained: r.input_ref !== null },
       evidence: r.evidence ? (JSON.parse(r.evidence) as Record<string, unknown>) : null,
       submissions: r.submissions,
+      execution: this.executionView(this.execution(r.id)),
       envelope:
         r.state === "prepared"
           ? { ...(JSON.parse(r.envelope) as Envelope), envelope_digest: r.envelope_digest }
@@ -641,6 +661,9 @@ export class CustomerUses {
     if (prior) {
       if (prior.request_hash !== hash)
         bad(409, "That key was used for a different request", "idempotency_conflict");
+      // A retry carries the same input (the hash proves it): if protecting it failed or never
+      // finished the first time, it is protected now, once (003n).
+      await this.protectInput(viewer.id, prior.id, text);
       return { created: false, ...this.status(viewer, prior.id) };
     }
     if (o.state !== "active") bad(409, "This offer was withdrawn", "offer_retired");
@@ -866,20 +889,42 @@ export class CustomerUses {
       this.event(id, "prepared", { block: read.block.height });
       return id;
     });
-    if (created === id && this.protection) {
-      // Outside the transaction: the protected copy, then its reference. No plaintext fallback.
-      const ref = await this.protection.protect({
-        person_id: viewer.id,
+    // Outside the transaction: the protected copy, then its reference. No plaintext fallback.
+    await this.protectInput(viewer.id, created, text);
+    return { created: created === id, ...this.status(viewer, created) };
+  }
+
+  /**
+   * Protects a request's input once (003n). A failure leaves no reference and is retried by the
+   * next same-key prepare; two attempts racing keep the first reference and delete the other, so
+   * nothing is orphaned or protected twice. Terminal requests are not protected again.
+   */
+  private async protectInput(personId: string, id: string, text: string) {
+    const p = this.protection;
+    const r = this.request(id);
+    if (!p || !r || r.input_ref !== null) return;
+    if (!["prepared", "reserve_requested", "reserve_unknown", "reserved"].includes(r.state)) return;
+    let ref: string;
+    try {
+      ref = await p.protect({
+        person_id: personId,
         request_id: id,
+        kind: "input",
         bytes: Buffer.from(text, "utf8"),
       });
-      this.tx(() =>
-        this.db
-          .prepare("UPDATE customer_requests SET input_ref = ?, input_scheme = ? WHERE id = ?")
-          .run(ref, this.protection?.scheme ?? null, id),
-      );
+    } catch {
+      this.tx(() => this.event(id, "input_protect_failed", {}));
+      return;
     }
-    return { created: created === id, ...this.status(viewer, created) };
+    const kept = this.tx(
+      () =>
+        this.db
+          .prepare(
+            "UPDATE customer_requests SET input_ref = ?, input_scheme = ? WHERE id = ? AND input_ref IS NULL",
+          )
+          .run(ref, p.scheme, id).changes === 1,
+    );
+    if (!kept) await p.delete?.(ref).catch(() => {});
   }
 
   cancel(viewer: Person, id: string) {
@@ -1230,4 +1275,337 @@ export class CustomerUses {
     finish();
     return "resent";
   }
+
+  // ---------- execution of a reserved request (job 003n, design §13) ----------
+
+  private execution(id: string) {
+    return this.db
+      .prepare("SELECT * FROM customer_executions WHERE request_id = ?")
+      .get(id) as unknown as ExecutionRow | undefined;
+  }
+
+  /** The customer's view of an execution: outcome and result availability, never cost or text. */
+  private executionView(x: ExecutionRow | undefined) {
+    if (!x) return null;
+    const inv = this.runtime?.row(x.invocation_id);
+    const state = inv?.state ?? "unknown";
+    const expired = x.retention_until_ms !== null && this.now() > x.retention_until_ms;
+    const result =
+      state === "running"
+        ? "pending"
+        : x.result_state === "stored"
+          ? expired
+            ? "expired"
+            : "available"
+          : x.result_state === "deleted"
+            ? "expired"
+            : x.result_state === "pending"
+              ? state === "completed"
+                ? "unavailable"
+                : "none"
+              : x.result_state;
+    return {
+      state,
+      outcome: inv?.outcome ?? null,
+      // A validated, complete extraction: not a judgement of the model's quality.
+      fulfilled: state === "completed" && inv?.outcome === "extracted",
+      failure: inv?.failure_class ? inv.failure_class : null,
+      usage_state: inv?.usage_state ?? "unknown",
+      result,
+      retention_until_ms: x.retention_until_ms === null ? null : String(x.retention_until_ms),
+      input_source: x.input_source,
+      unit: "reserved_awaiting_settlement" as const,
+      unit_note:
+        "Your unit stays reserved on the contract until it is settled; nothing here charged or returned it.",
+      started_at: x.created_at,
+    };
+  }
+
+  /**
+   * Runs a reserved request once (§13.2). Every check before the dispatch transaction is free:
+   * nothing is reserved or sent unless the fresh chain evidence, the release, the input and the
+   * runtime's own budget, ceiling and concurrency all allow it.
+   */
+  async execute(viewer: Person, id: string, input: Record<string, unknown>) {
+    const r = this.own(viewer, id);
+    if (this.execution(id)) return this.status(viewer, id); // never dispatched twice
+    const runtime = this.runtime;
+    if (!runtime || !this.reader || !this.operator) unavailable();
+    const availability = runtime.availability();
+    if (!availability.available) bad(503, availability.reason, "runtime_unavailable");
+    const p = this.protection;
+    if (!p?.load || !p.delete)
+      bad(
+        503,
+        "Results can't be kept privately on this server, so nothing was run.",
+        "protection_unavailable",
+      );
+    if (r.state !== "reserved") bad(409, "Only a reserved request can run", "not_reserved");
+    if (r.conflict)
+      bad(409, "This request's evidence conflicts; it can't run", "evidence_conflict");
+    this.writerFits(r);
+    const o = this.offer(r.offer_id) as OfferRow;
+    if (o.state !== "active") bad(409, "This offer was withdrawn", "offer_retired");
+    this.binding(o);
+    const rel = runtime.releaseFor(o.project_id, o.release_id, o.artifact_digest);
+    if (!rel.ok) bad(409, "The released product can't serve this request now", rel.code);
+    // The input: resubmitted, or the protected copy. Never run without it, never another one.
+    let text: string;
+    let source: "protected" | "resubmitted";
+    if (typeof input.input === "string") {
+      text = input.input;
+      source = "resubmitted";
+    } else if (r.input_ref) {
+      const bytes = await p.load(r.input_ref).catch(() => null);
+      if (!bytes)
+        bad(503, "Your saved document couldn't be read; send it again", "input_unavailable");
+      text = bytes.toString("utf8");
+      source = "protected";
+    } else bad(409, "Send the same document again to run it", "input_needed");
+    if (sha256Hex(Buffer.from(text, "utf8")) !== r.input_sha || text.length !== r.input_chars)
+      bad(409, "That isn't the document this request was prepared for", "input_mismatch");
+    if (text.length > Math.min(rel.artifact.spec.input.max_chars, LIMITS.inputChars))
+      bad(409, "This product reads less text than this document", "input_too_long");
+    // The local control epoch before the await: a change while reading fences the dispatch.
+    const epoch = runtime.ownerEpoch(o.business_id);
+    const read = await readCustomerViews(
+      this.reader,
+      r,
+      {
+        control: true,
+        plan: o.plan_id,
+        entitlement: { customer: r.customer_account, plan_id: o.plan_id },
+      },
+      this.readTimeoutMs,
+    ).catch(readFailed);
+    const cur = this.own(viewer, id); // the caller, again, after the await
+    const e = read.entitlement ?? null;
+    const next = markOf(read.block, e);
+    const { mark: prev, digestKnown } = this.markFor(cur);
+    const problem = evidenceProblem(digestKnown ? prev : { ...prev, digest: next.digest }, next);
+    if (problem === "stale")
+      bad(503, "The contract answered from an older block; nothing was run", "evidence_stale");
+    const sticky = (reason: string): never => {
+      this.tx(() => {
+        const c = this.db
+          .prepare(
+            "UPDATE customer_requests SET conflict = ?, updated_at = ? WHERE id = ? AND conflict IS NULL",
+          )
+          .run(JSON.stringify({ reason, block: read.block, against: prev }), iso(), id);
+        if (c.changes)
+          this.event(id, "evidence_conflict", { code: reason, block: read.block.height });
+      });
+      bad(409, "This request's evidence conflicts; it can't run", "evidence_conflict");
+    };
+    if (problem !== null) sticky(problem);
+    const control = read.control as NonNullable<typeof read.control>;
+    if (!platformMeters(control, this.operator))
+      bad(
+        409,
+        "Everstreet can't currently serve this business's customers",
+        "operator_not_authorized",
+      );
+    if (!read.plan || JSON.stringify(read.plan) !== o.plan)
+      bad(409, "The contract's plan differs from the offer", "plan_changed");
+    const d = decideReservation(
+      {
+        reg_id: cur.reg_id,
+        key_slot: cur.key_slot,
+        key_epoch: cur.key_epoch,
+        hold_seq: cur.hold_seq,
+        units: cur.units,
+        serve_until_ms: cur.serve_until_ms,
+        settle_until_ms: cur.settle_until_ms,
+        accept_by_ms: cur.accept_by_ms,
+      },
+      e,
+      read.block.timestamp_ms,
+    );
+    if (d.kind === "inconsistent") sticky(`decision_${d.reason.replace(/\W+/g, "_")}`);
+    if (d.kind !== "reserved" || !d.serving)
+      bad(
+        409,
+        "The contract doesn't show your hold serving now; nothing was run",
+        `not_serving_${"reason" in d && d.reason ? d.reason : d.kind}`,
+      );
+    const hold = e as EntitlementV3;
+    if ((hold.hold_used & 1) !== 0 || hold.hold_slots[0] !== null)
+      bad(409, "Your hold's use was already recorded; nothing was run", "slot_used");
+    const left = BigInt(hold.serve_until_ms) - BigInt(read.block.timestamp_ms);
+    if (left < BigInt(runtime.timeoutMs + this.executionMarginMs))
+      bad(409, "Too little time is left on your hold to run it safely", "not_enough_time");
+    const admission = JSON.stringify({
+      block: read.block,
+      row: d.row,
+      serve_until_ms: hold.serve_until_ms,
+      operator: this.operator,
+      generation: control.generation,
+    });
+    const started = runtime.startCustomer({
+      business_id: o.business_id,
+      project_id: o.project_id,
+      release_id: o.release_id,
+      artifact_job: rel.artifact.job_id,
+      artifact_digest: o.artifact_digest,
+      spec: rel.artifact.spec,
+      text,
+      request_id: id,
+      person_id: viewer.id,
+      // Inside the dispatch transaction: everything the await could have changed, again.
+      inTx: (invocationId) => {
+        const now = this.request(id) as RequestRow;
+        if (now.state !== "reserved" || now.conflict)
+          bad(409, "This request changed while it was being checked", "not_reserved");
+        const offer = this.offer(o.id) as OfferRow;
+        if (offer.state !== "active") bad(409, "This offer was withdrawn", "offer_retired");
+        if (!this.releaseActive(offer))
+          bad(409, "This release isn't the active one", "release_not_active");
+        this.binding(offer);
+        this.writerFits(now);
+        const ep = runtime.ownerEpoch(o.business_id);
+        if (ep.owner_id !== epoch.owner_id || ep.generation !== epoch.generation)
+          bad(
+            409,
+            "Control of this business changed while this was checked; nothing was run",
+            "control_changed",
+          );
+        const t = iso();
+        this.db
+          .prepare(
+            `INSERT INTO customer_executions (request_id, invocation_id, person_id, admission, input_source, result_state, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+          )
+          .run(id, invocationId, viewer.id, admission, source, t, t);
+        // The fresh read is accepted evidence: later reads are fenced against it.
+        this.db
+          .prepare(
+            "UPDATE customer_requests SET evidence_mark = ?, evidence_height = ? WHERE id = ?",
+          )
+          .run(JSON.stringify(next), read.block.height, id);
+        this.event(id, "execution_dispatched", { block: read.block.height });
+      },
+      sink: (row, result) => this.keepResult(id, viewer.id, o.retention_days, row, result),
+    });
+    if (started.created) await started.done;
+    return this.status(viewer, id); // checks the caller once more
+  }
+
+  /** Protects a finished execution's validated result and records it (§13.2 step 6). */
+  private async keepResult(
+    id: string,
+    personId: string,
+    retentionDays: number,
+    _row: InvocationRow,
+    result: Extraction,
+  ) {
+    const p = this.protection as InputProtection;
+    try {
+      const ref = await p.protect({
+        person_id: personId,
+        request_id: id,
+        kind: "result",
+        bytes: Buffer.from(JSON.stringify(result), "utf8"),
+      });
+      const kept = this.tx(
+        () =>
+          this.db
+            .prepare(
+              "UPDATE customer_executions SET result_state = 'stored', result_ref = ?, result_scheme = ?, result_outcome = ?, retention_until_ms = ?, updated_at = ? WHERE request_id = ? AND result_state = 'pending'",
+            )
+            .run(ref, p.scheme, result.outcome, this.now() + retentionDays * 86_400_000, iso(), id)
+            .changes === 1,
+      );
+      if (!kept) await p.delete?.(ref).catch(() => {});
+    } catch {
+      this.tx(() => {
+        this.db
+          .prepare(
+            "UPDATE customer_executions SET result_state = 'unavailable', updated_at = ? WHERE request_id = ? AND result_state = 'pending'",
+          )
+          .run(iso(), id);
+        this.event(id, "result_protect_failed", {});
+      });
+    }
+  }
+
+  /** The customer's own result, through the protection seam, while it is retained. */
+  async result(viewer: Person, id: string) {
+    this.own(viewer, id);
+    const x = this.execution(id);
+    if (!x) bad(404, "Nothing has run for this request", "no_result");
+    if (
+      x.result_state === "deleted" ||
+      (x.retention_until_ms !== null && this.now() > x.retention_until_ms)
+    )
+      bad(409, "This result is past its retention and is no longer kept", "result_expired");
+    if (x.result_state !== "stored" || !x.result_ref)
+      bad(409, "There is no kept result for this request", "no_result");
+    const p = this.protection;
+    if (!p?.load) bad(503, "Results can't be read on this server", "protection_unavailable");
+    const bytes = await p.load(x.result_ref).catch(() => null);
+    if (!bytes) bad(503, "The result couldn't be read just now", "result_unavailable");
+    this.own(viewer, id); // the caller, again, after the await
+    return {
+      result: JSON.parse(bytes.toString("utf8")) as Extraction,
+      outcome: x.result_outcome,
+      retention_until_ms: String(x.retention_until_ms),
+    };
+  }
+
+  cancelExecution(viewer: Person, id: string) {
+    this.own(viewer, id);
+    const x = this.execution(id);
+    if (!x) bad(404, "Nothing is running for this request", "no_execution");
+    this.runtime?.cancelCustomer(x.invocation_id);
+    return this.status(viewer, id);
+  }
+
+  /** Deletes results past their retention through the seam, a bounded number at a time. */
+  async expireResults(limit: number = LIMITS.duePerPass) {
+    const n = Math.max(1, Math.min(LIMITS.duePerPass, Math.floor(limit)));
+    const p = this.protection;
+    if (!p?.delete) return { deleted: 0, failed: 0 };
+    const due = this.db
+      .prepare(
+        "SELECT request_id, result_ref FROM customer_executions WHERE result_state = 'stored' AND retention_until_ms < ? ORDER BY retention_until_ms LIMIT ?",
+      )
+      .all(this.now(), n) as { request_id: string; result_ref: string }[];
+    let deleted = 0;
+    let failed = 0;
+    for (const d of due) {
+      const ok = await (p.delete as (ref: string) => Promise<void>)(d.result_ref).then(
+        () => true,
+        () => false,
+      );
+      if (!ok) {
+        failed++;
+        continue;
+      }
+      this.tx(() => {
+        this.db
+          .prepare(
+            "UPDATE customer_executions SET result_state = 'deleted', result_ref = NULL, updated_at = ? WHERE request_id = ? AND result_state = 'stored'",
+          )
+          .run(iso(), d.request_id);
+        this.event(d.request_id, "result_deleted", {});
+      });
+      deleted++;
+    }
+    return { deleted, failed };
+  }
+}
+
+interface ExecutionRow {
+  request_id: string;
+  invocation_id: string;
+  person_id: string;
+  admission: string;
+  input_source: "protected" | "resubmitted";
+  result_state: "pending" | "stored" | "none" | "unavailable" | "deleted";
+  result_ref: string | null;
+  result_scheme: string | null;
+  result_outcome: string | null;
+  retention_until_ms: number | null;
+  created_at: string;
+  updated_at: string;
 }

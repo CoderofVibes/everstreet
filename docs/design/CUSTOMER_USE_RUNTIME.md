@@ -461,3 +461,81 @@ The authority facts come from `c01`–`c04` (003l1), with `g01`/`g02` (003g).
 
 All signatures come from a synthetic test key (seed 1). None is a wallet signature, and no fixture
 executes a real transaction.
+
+## 13. Execution of a reserved request (job 003n) [P]
+
+One reserved customer request runs the released product once, through the existing managed
+runtime (`invocations.ts`): the same validated extractor, provider contract, prices, budget,
+operator ceiling, concurrency limit, ledger and restart recovery. **Unit settlement and release
+are later jobs.** The customer's unit stays held on the contract, and nothing here claims it was
+charged or returned.
+
+### 13.1 Identity
+
+- **One-to-one.** One customer request has at most one execution (`customer_executions`, keyed by
+  request), and one execution has exactly one `runtime_invocations` row with purpose
+  **`customer_use`**. The invocation's idempotency key is derived from the request id, so two
+  workers can't create two invocations.
+- **Fixed by the request.** The offer, release, artifact digest and input digest come from the
+  prepared request. The release must still be the offer's release, still active, and still
+  served by the model, validator and release policy it was released with. The artifact's digest
+  must equal the offer's (no artifact swap). The caller supplies no owner, artifact or release.
+- **Owner identity is a business fact.** The invocation records the business owner and
+  generation at dispatch, and `requested_by` is the customer. The record is business operating
+  history for cost only (§13.5).
+
+### 13.2 Transitions
+
+| Step | Where | What |
+|---|---|---|
+| 1. Request | `POST /api/customer/uses/:id/execute` (that customer only) | Requires `reserved`, no conflict, no execution yet (an existing one is returned, never redispatched). |
+| 2. Input | No await | The input is the protected copy (§3.4, `load`) or the one the customer resubmits. Either must match the prepared sha256 **and** length, or the request is refused (`input_mismatch`). It is never executed with missing input (`input_needed`). |
+| 3. Fresh evidence | Await, outside SQLite | One pinned read of control, plan and entitlement, fenced against the request's mark (§5.4). It must show: `platformMeters`, the offer's plan unchanged, decision row 2 **serving at B**, slot 0 unused (`hold_used` bit clear, no fingerprint), and `serve_until − T_B ≥ maximum execution time + margin`. Otherwise: stale is `503 evidence_stale`; a conflict is recorded (sticky) and `409 evidence_conflict`; anything else is `409 not_serving` with the reason. Nothing is reserved or sent. |
+| 4. Dispatch intent | One transaction | Rechecked: the request is still `reserved` with no conflict and no execution; the binding and adapters; the offer, release and runtime identity; and the local control epoch read before the await (`control_changed` otherwise). Then the runtime's own checks: budget, ceiling and concurrency. It inserts the invocation (`running`, the worst-case reservation in the ledger) and the execution row, with the admission evidence. |
+| 5. One provider call | Await | The existing `run`, at most once: only the creator of the invocation calls the provider. |
+| 6. Result | Await, then one transaction | The extraction is validated by the existing validator. On a clean answer the result is protected (`protect`), then the invocation is finished with **no output stored** in it, and the execution records the reference, scheme and retention deadline. |
+
+### 13.3 What can go wrong
+
+| Case | Outcome |
+|---|---|
+| Lost reply to the customer | The same execution and result are returned again |
+| Crash after the intent | The existing `recover()` makes it `unknown` / `outcome_unknown`, its reservation held. Never run again. |
+| Provider failure, timeout, partial or unknown usage | The existing ledger: final usage settles exactly; partial or unknown keeps the hold as unresolved |
+| Cancelled | The provider call is aborted. A late output after a cancellation is **not stored or delivered**; its usage is still recorded. |
+| Protection fails after a result | The execution is `result_unavailable`. Nothing is re-run automatically, and the cost stands. |
+| Competing workers | One invocation (unique key); the other gets the existing execution |
+
+### 13.4 Execution is a result, not a settlement
+
+- **What `fulfilled` means.** The customer's status shows the execution state and outcome, and
+  `fulfilled` only for a validated `extracted` answer. A validated answer is not proof of model
+  quality.
+- **Units.** The status always says the unit is reserved and awaiting settlement. No unit is
+  marked consumed or refunded, and the reservation's allocation stays held until a later
+  settle/release job proves the hold closed.
+
+### 13.5 Privacy and accounting
+
+- **Where the result lives.** It is stored only through an injected `Protection` (`protect`,
+  `load`, `delete`), with a retention deadline (`offer.retention_days`). Without one, execution
+  is unavailable: there is no plaintext fallback. Retrieval after the deadline is refused
+  (`result_expired`), and a bounded `expireResults(limit)` deletes expired copies through the seam.
+- **Who reads it.** The result is read only by the requesting customer, before and after a sale,
+  with the caller rechecked after the `load` await. The former owner, the new owner and other
+  customers get 404.
+- **Owner-facing routes:**
+  - the runtime list excludes `customer_use`;
+  - `GET /api/runtime/invocations/:id` and `cancel` answer 404 for it;
+  - `finish` never writes its output;
+  - events and errors carry codes only.
+- **What the business sees.** Its budget, ceiling and books `spend` count the provider cost
+  (reported tokens at declared prices) as aggregated operating history, with no customer text.
+- **Owner trials.** Their access, retention note and `answerFor` fence are unchanged.
+
+### 13.6 Bounds and limits
+
+- **Residual race.** A sale or revocation can land after the fresh read and before or during the
+  provider call. That is bounded by the one-unit hold and its `serve_until`; it is not atomic.
+- **No worker.** No worker starts by itself, and nothing is wired in `main`.
+- **Deferred.** Unit settlement, release and the customer UI are later jobs.
