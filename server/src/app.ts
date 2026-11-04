@@ -21,6 +21,7 @@ import { customerOperations } from "./operations.ts";
 import { Opportunities } from "./opportunities.ts";
 import { Payments } from "./payments.ts";
 import { Products } from "./products.ts";
+import { Publications } from "./publication.ts";
 import { Releases } from "./releases.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { V3Intents } from "./v3intents.ts";
@@ -83,6 +84,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const v3Intents = new V3Intents(store.db, store, v3);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const customerUses = new CustomerUses(store.db, store, v3, options.customer, runtime);
+  const publications = new Publications(store.db, store);
   const evaluations = new Evaluations(store.db, store, runtime);
   const releases = new Releases(store.db, store, runtime, evaluations);
   const books = new Books(store.db, store, options.chain ?? null);
@@ -484,6 +486,16 @@ export function everstreetApi(store: Store, options: AppOptions) {
     c.json(store.editIdea(me(c), c.req.param("id"), await body(c))),
   );
   app.post("/api/businesses/:id/publish", (c) => c.json(store.publish(me(c), c.req.param("id"))));
+  // Job 001d: the digital public profile (owner only): draft, exact preview, reviewed publish.
+  app.get("/api/businesses/:id/public-profile", (c) =>
+    c.json(publications.view(me(c), c.req.param("id"))),
+  );
+  app.put("/api/businesses/:id/public-profile/draft", async (c) =>
+    c.json(publications.saveDraft(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/businesses/:id/public-profile/publish", async (c) =>
+    c.json(publications.publish(me(c), c.req.param("id"), await body(c))),
+  );
   app.post("/api/businesses/:id/unpublish", (c) =>
     c.json(store.unpublish(me(c), c.req.param("id"))),
   );

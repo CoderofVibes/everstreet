@@ -3,6 +3,7 @@
 
 import { type ReactNode, useEffect, useState } from "react";
 import { api, type Need, type PublicBusiness, type Update } from "../api.ts";
+import { AVAILABILITY_LABEL } from "../publication.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, money } from "../ui.tsx";
@@ -29,7 +30,12 @@ export function Tile({
       <Link to={`/b/${b.slug}?via=${via}`} className="card link">
         <div className="row" style={{ marginBottom: 8 }}>
           <span className="pill">{FAMILY_LABEL[b.family]}</span>
-          {b.action.kind === "interest" ? (
+          {/* Job 001d: a digital profile's availability comes from its active offers. */}
+          {b.digital ? (
+            <span className={`pill ${b.digital.availability === "available" ? "lime" : "caution"}`}>
+              {AVAILABILITY_LABEL[b.digital.availability]}
+            </span>
+          ) : b.action.kind === "interest" ? (
             <span className="pill caution">Testing interest</span>
           ) : (
             <span className="pill lime">Open for customers</span>
@@ -37,7 +43,11 @@ export function Tile({
           {b.new_here && <span className="pill">New here</span>}
         </div>
         <h3 style={{ fontSize: 18, marginBottom: 4 }}>{b.name}</h3>
-        {b.offer && <p style={{ marginBottom: 6 }}>{b.offer.title}</p>}
+        {b.digital ? (
+          <p style={{ marginBottom: 6 }}>{b.digital.headline}</p>
+        ) : (
+          b.offer && <p style={{ marginBottom: 6 }}>{b.offer.title}</p>
+        )}
         <p className="muted" style={{ fontSize: 14, margin: 0 }}>
           by {b.founder.display_name}
           {price ? ` · ${price}` : ""}

@@ -109,7 +109,25 @@ export interface Desk {
   inquiries: Inquiry[];
 }
 
+/** Job 001d: a published digital profile (the live snapshot), as customers see it. */
+export interface DigitalPublic {
+  headline: string;
+  summary: string;
+  audience: string;
+  capabilities: string[];
+  products: {
+    name: string;
+    family_label: string;
+    status: "available" | "not_open" | "in_development";
+    use_offer_id: string | null;
+  }[];
+  availability: "available" | "coming_soon";
+  published_at: string | null;
+}
+
 export interface PublicBusiness {
+  /** Job 001d: present only for a published digital profile. */
+  digital?: DigitalPublic | null;
   slug: string;
   name: string;
   tagline: string;

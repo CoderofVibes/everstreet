@@ -26,6 +26,7 @@ import { Person } from "./pages/Person.tsx";
 import { ProductStudio } from "./pages/ProductStudio.tsx";
 import { Profile } from "./pages/Profile.tsx";
 import { PublicPage } from "./pages/PublicPage.tsx";
+import { PublicProfileEditor } from "./pages/PublicProfile.tsx";
 import { Start } from "./pages/Start.tsx";
 import { Studio } from "./pages/Studio.tsx";
 import { Value } from "./pages/Value.tsx";
@@ -204,6 +205,15 @@ function Routes() {
       />
     );
   if (path === "/handovers") return <HandoversPage key={person?.id ?? "anon"} />;
+  // Job 001d: the public profile editor, keyed by who is acting and which business.
+  const publicProfile = match("/desk/:id/public", path);
+  if (publicProfile)
+    return (
+      <PublicProfileEditor
+        key={`${person?.id ?? "anon"}:${publicProfile.id}`}
+        id={publicProfile.id as string}
+      />
+    );
   const sale = match("/desk/:id/sale", path);
   // Job 003u1: keyed by who is acting and which business: a switch (or signing in) starts a fresh
   // page, so a former actor's listing and requests never remain and an earlier error never sticks.

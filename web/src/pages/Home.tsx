@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, type Need, type PublicBusiness } from "../api.ts";
 import { Icon, type IconName } from "../icons.tsx";
 import { type ProjectSummary, productsApi } from "../productsApi.ts";
+import { AVAILABILITY_LABEL } from "../publication.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, money, STAGE_LABEL } from "../ui.tsx";
@@ -25,11 +26,18 @@ export function BusinessTile({ b }: { b: PublicBusiness }) {
         <span className={`glyph${b.family === "software" ? " mint" : ""}`}>
           <Icon name={FAMILY_ICON[b.family] ?? "layers"} />
         </span>
-        <span className="pill">{STAGE_LABEL[b.stage]}</span>
+        {/* Job 001d: a digital profile shows its availability, not the old stage. */}
+        <span className="pill">
+          {b.digital ? AVAILABILITY_LABEL[b.digital.availability] : STAGE_LABEL[b.stage]}
+        </span>
       </div>
       <h3>{b.name}</h3>
-      {b.offer && (
-        <p style={{ margin: 0, fontSize: 14, color: "var(--text-2)" }}>{b.offer.title}</p>
+      {b.digital ? (
+        <p style={{ margin: 0, fontSize: 14, color: "var(--text-2)" }}>{b.digital.headline}</p>
+      ) : (
+        b.offer && (
+          <p style={{ margin: 0, fontSize: 14, color: "var(--text-2)" }}>{b.offer.title}</p>
+        )
       )}
       <div className="tile-meta">
         {FAMILY_LABEL[b.family]} · by {b.founder.display_name}

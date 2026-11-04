@@ -1316,8 +1316,9 @@ export function ProductStudio({ id }: { id: string }) {
                 </button>
               </li>
               <li className={`tone-${view.business.published_at ? "done" : "now"}`}>
-                <button type="button" onClick={() => go(`/desk/${view.business.id}`)}>
-                  <span className="ps-status-label">Business page</span>
+                {/* Job 001d: straight to the public profile's draft, review and publish. */}
+                <button type="button" onClick={() => go(`/desk/${view.business.id}/public`)}>
+                  <span className="ps-status-label">Public profile</span>
                   <span className="ps-status-value">
                     {view.business.published_at ? "Published" : "Not published"}
                   </span>

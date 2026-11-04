@@ -588,6 +588,13 @@ CREATE INDEX IF NOT EXISTS customer_settlements_due ON customer_settlements(stat
 -- Job 002d: customer maintenance coordination. One lease row per supervisor name (compare-and-
 -- set claim/renew/expiry across processes); one status row per name (heartbeat and the last
 -- pass's safe counts); per-item backoff so failing or undecidable work never blocks the rest.
+-- Job 001d: a digital business's public profile: the owner's draft and, separately, the snapshot
+-- customers see (copied from one reviewed draft revision on publish).
+CREATE TABLE IF NOT EXISTS public_profiles (
+  business_id TEXT PRIMARY KEY REFERENCES businesses(id),
+  draft TEXT NOT NULL, draft_rev INTEGER NOT NULL CHECK (draft_rev >= 1), draft_updated_at TEXT NOT NULL,
+  live TEXT, live_rev INTEGER, live_published_at TEXT, live_owner_generation INTEGER
+) STRICT;
 CREATE TABLE IF NOT EXISTS maintenance_lease (
   name TEXT PRIMARY KEY, holder TEXT NOT NULL, gen INTEGER NOT NULL, until_ms INTEGER NOT NULL
 ) STRICT;

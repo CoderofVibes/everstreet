@@ -264,6 +264,12 @@ export function DeskPage({ id }: { id: string }) {
               {studio.label}
             </Link>
           ))}
+        {/* Job 001d: the digital public profile: draft, review, publish. */}
+        {isDigital && (
+          <Link to={`/desk/${b.id}/public`} className="btn btn-secondary">
+            Public profile
+          </Link>
+        )}
         {desk.project_id && (
           <Link to={`/studio/${desk.project_id}`} className="btn btn-secondary">
             {isDigital ? "Edit page and legacy offering" : "Edit in studio"}

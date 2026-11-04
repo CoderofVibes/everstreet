@@ -14,6 +14,7 @@ import {
   type InterviewAnswers,
   missingFacts,
 } from "./drafting.ts";
+import { digitalPublic } from "./publication.ts";
 
 export class HttpError extends Error {
   constructor(
@@ -693,6 +694,8 @@ export class Store {
       action: customerAction(offer, b.family),
       interested: this.inquiryCount(b.id),
       history: this.ownershipHistory(b.id),
+      // Job 001d: the published digital profile (its live snapshot), or null.
+      digital: digitalPublic(this.db, b.id),
     };
   }
 
@@ -803,6 +806,11 @@ export class Store {
               b.offer?.deliverable,
               b.offer?.includes,
               b.founder.headline,
+              b.digital?.headline,
+              b.digital?.summary,
+              b.digital?.audience,
+              ...(b.digital?.capabilities ?? []),
+              ...(b.digital?.products.map((p) => p.name) ?? []),
             ].join(" "),
           ),
         );

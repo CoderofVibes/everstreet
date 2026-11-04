@@ -10,10 +10,12 @@ import {
   type Receipt,
 } from "../api.ts";
 import { businessOffers, type OfferView } from "../customerApi.ts";
+import { AVAILABILITY_LABEL } from "../publication.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { Avatar, FAMILY_LABEL, money, OfferCard, STAGE_LABEL } from "../ui.tsx";
 import { ago, rememberVia, viaFor, when } from "../via.ts";
+import { DigitalProfile } from "./DigitalProfile.tsx";
 
 function seatsText(s: PublicSession) {
   if (!s.available || s.seats_left === null) return "Availability can't be checked right now";
@@ -315,7 +317,16 @@ export function StorefrontView({
         <div className="storefront-hero">
           <div className="row" style={{ marginBottom: 12 }}>
             <span className="pill">{FAMILY_LABEL[page.family]}</span>
-            <span className="pill lime">{STAGE_LABEL[page.stage]}</span>
+            {/* Job 001d: a digital profile's state is its availability, not the old stage. */}
+            {page.digital ? (
+              <span
+                className={`pill ${page.digital.availability === "available" ? "lime" : "caution"}`}
+              >
+                {AVAILABILITY_LABEL[page.digital.availability]}
+              </span>
+            ) : (
+              <span className="pill lime">{STAGE_LABEL[page.stage]}</span>
+            )}
             {page.new_here && <span className="pill">New here</span>}
             <span className="spacer" />
             {!page.viewer_is_owner && (
@@ -331,6 +342,7 @@ export function StorefrontView({
           </div>
           <h1>{page.name}</h1>
           {page.tagline && <p className="tagline">{page.tagline}</p>}
+          {page.digital && !page.tagline && <p className="tagline">{page.digital.headline}</p>}
           <p className="muted" style={{ fontSize: 14 }}>
             {following.n} {following.n === 1 ? "follower" : "followers"}
           </p>
@@ -471,6 +483,8 @@ export function StorefrontView({
       <aside className="studio-side">
         {page.offer ? (
           <>
+            {/* Job 001d: a mixed business also has its earlier offering. */}
+            {page.digital && <div className="eyebrow">Also offered</div>}
             {hasSessions && <Sessions page={page} preview={preview} onBooked={() => onSent?.()} />}
             <OfferCard
               offer={page.offer}
@@ -543,6 +557,12 @@ export function StorefrontView({
               }
             />
           </>
+        ) : page.digital ? (
+          <div className="card muted" data-testid="digital-only">
+            {page.digital.availability === "available"
+              ? "Use a product above. Nothing else is open to book here."
+              : "Its products aren't open for use yet. Follow to hear when they are."}
+          </div>
         ) : digitalOffers > 0 ? (
           <div className="card muted" data-testid="no-service-offer">
             {digitalOffers === 1 ? "Its digital product is" : "Its digital products are"} offered
@@ -586,7 +606,8 @@ export function PublicPage({ slug }: { slug: string }) {
   if (!page) return <div className="page muted">Loading…</div>;
   return (
     <div className="page">
-      <ProductOffers offers={offers} />
+      {/* Job 001d: a published digital profile leads, with its own Use actions. */}
+      {page.digital ? <DigitalProfile d={page.digital} /> : <ProductOffers offers={offers} />}
       <StorefrontView
         page={page}
         digitalOffers={offers.length}
