@@ -742,6 +742,15 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .fin-table-wrap { overflow-x: auto; max-width: 100%; }
 .fin-table-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .sw-dots { background: radial-gradient(var(--mint-ink) 1px, var(--mint-soft) 1.5px) 0 0 / 5px 5px; border: 1px dashed var(--mint-ink); }
+/* Job 001c: the digital desk's operating canvas: full width, products beside the waiting work. */
+.desk-canvas { display: grid; gap: 22px; margin-bottom: 22px; min-width: 0; }
+.desk-canvas > * { min-width: 0; margin: 0; }
+.ops-summary-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; align-items: start; }
+.product-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.product-card { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; min-width: 0; }
+.work-list { margin: 4px 0 12px; padding-left: 18px; font-size: 14px; display: grid; gap: 4px; }
+.work-list a { overflow-wrap: anywhere; }
+@media (max-width: 900px) { .ops-summary-grid { grid-template-columns: 1fr; } }
 /* Job 003t: Digital operations reuses the books' chart conventions. */
 .sw-error { background: var(--error); }
 .sw-grey { background: var(--line); }

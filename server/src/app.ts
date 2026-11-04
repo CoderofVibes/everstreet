@@ -13,6 +13,7 @@ import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
 import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
 import { Deals } from "./deals.ts";
+import { digitalDesk } from "./digitalDesk.ts";
 import { Evaluations } from "./evaluations.ts";
 import { type ImportInspector, Imports } from "./imports.ts";
 import { ManagedRuntime } from "./invocations.ts";
@@ -661,6 +662,15 @@ export function everstreetApi(store: Store, options: AppOptions) {
       basis: BOOKS_BASIS,
       period_months: n,
     });
+  });
+  // Job 001c: the digital business desk, owner only, read only, as of one instant.
+  app.get("/api/businesses/:id/digital-desk", (c) => {
+    const p = me(c);
+    const id = c.req.param("id");
+    const epoch = store.controlEpoch(p, id);
+    const view = digitalDesk(store.db, id, new Date(), customerUses.operationsService(id));
+    store.stillControls(p, epoch);
+    return c.json(view);
   });
   app.post("/api/businesses/:id/costs", async (c) =>
     c.json(books.addCost(me(c), c.req.param("id"), await body(c)), 201),

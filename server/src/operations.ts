@@ -82,6 +82,48 @@ const firstInstant = (yyyymm: number) =>
 /** The month of an ISO timestamp, in SQL (the recorded UTC instant). */
 const MONTH = (col: string) => `CAST(substr(${col}, 1, 4) || substr(${col}, 6, 2) AS INTEGER)`;
 
+export interface CurrentCustomerWork {
+  needs_attention: number;
+  awaiting_settlement: number;
+  reserved_not_settled: number;
+  awaiting_reservation: number;
+  awaiting_signature: number;
+}
+
+/**
+ * Current customer work, across all time up to the as-of instant (not a period figure).
+ * Exclusive: each request is in at most one group, by the same precedence as the usage buckets
+ * (003t1). A preparation counts only while the customer can still sign it (`nowMs`, the customer
+ * service's clock). Shared by the books and the digital desk (001c).
+ */
+export function currentCustomerWork(
+  db: Db,
+  businessId: string,
+  asOfIso: string,
+  nowMs: number,
+): CurrentCustomerWork {
+  return db
+    .prepare(
+      `SELECT
+          COALESCE(SUM(b = 'needs_attention'), 0) AS needs_attention,
+          COALESCE(SUM(b = 'awaiting_settlement'), 0) AS awaiting_settlement,
+          COALESCE(SUM(b = 'reserved_not_settled'), 0) AS reserved_not_settled,
+          COALESCE(SUM(b = 'awaiting_reservation'), 0) AS awaiting_reservation,
+          COALESCE(SUM(b = 'awaiting_signature'), 0) AS awaiting_signature
+         FROM (SELECT CASE
+            WHEN s.state IN ('charged','returned') THEN NULL
+            WHEN r.conflict IS NOT NULL OR r.state = 'unresolved' OR s.state IN ('conflict','unresolved') THEN 'needs_attention'
+            WHEN s.state IN ('requested','unknown') THEN 'awaiting_settlement'
+            WHEN r.state = 'reserved' THEN 'reserved_not_settled'
+            WHEN r.state IN ('reserve_requested','reserve_unknown') THEN 'awaiting_reservation'
+            WHEN r.state = 'prepared' AND r.sign_by_ms > ? THEN 'awaiting_signature'
+          END AS b
+          FROM customer_requests r LEFT JOIN customer_settlements s ON s.request_id = r.id
+         WHERE r.business_id = ? AND r.created_at <= ?)`,
+    )
+    .get(nowMs, businessId, asOfIso) as unknown as CurrentCustomerWork;
+}
+
 /** Job 003t1: whether anything is settling customer units on its own, from the worker's health. */
 export type SettlementWorker = MaintenanceHealth["worker"]["state"] | "unknown";
 
@@ -226,35 +268,7 @@ export function customerOperations(
     }
   }
 
-  // Current work, across all time up to the as-of instant (not a period figure). Exclusive: each
-  // request is in at most one bucket, by the same precedence as the usage buckets (003t1). A
-  // preparation counts only while the customer can still sign it.
-  const open = db
-    .prepare(
-      `SELECT
-          COALESCE(SUM(b = 'needs_attention'), 0) AS needs_attention,
-          COALESCE(SUM(b = 'awaiting_settlement'), 0) AS awaiting_settlement,
-          COALESCE(SUM(b = 'reserved_not_settled'), 0) AS reserved_not_settled,
-          COALESCE(SUM(b = 'awaiting_reservation'), 0) AS awaiting_reservation,
-          COALESCE(SUM(b = 'awaiting_signature'), 0) AS awaiting_signature
-         FROM (SELECT CASE
-            WHEN s.state IN ('charged','returned') THEN NULL
-            WHEN r.conflict IS NOT NULL OR r.state = 'unresolved' OR s.state IN ('conflict','unresolved') THEN 'needs_attention'
-            WHEN s.state IN ('requested','unknown') THEN 'awaiting_settlement'
-            WHEN r.state = 'reserved' THEN 'reserved_not_settled'
-            WHEN r.state IN ('reserve_requested','reserve_unknown') THEN 'awaiting_reservation'
-            WHEN r.state = 'prepared' AND r.sign_by_ms > ? THEN 'awaiting_signature'
-          END AS b
-          FROM customer_requests r LEFT JOIN customer_settlements s ON s.request_id = r.id
-         WHERE r.business_id = ? AND r.created_at <= ?)`,
-    )
-    .get(service.nowMs, businessId, asOf) as {
-    needs_attention: number;
-    awaiting_settlement: number;
-    reserved_not_settled: number;
-    awaiting_reservation: number;
-    awaiting_signature: number;
-  };
+  const open = currentCustomerWork(db, businessId, asOf, service.nowMs);
   const offers = db
     .prepare(
       `SELECT project_id, SUM(state = 'active') AS active, SUM(state = 'retired') AS retired

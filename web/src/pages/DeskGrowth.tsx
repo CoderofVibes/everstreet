@@ -165,7 +165,8 @@ function SessionsPanel({ desk }: { desk: Desk }) {
   );
 }
 
-export function DeskGrowth({ desk }: { desk: Desk }) {
+/** `withBooks` false: the digital desk shows the books in its main canvas instead (001c). */
+export function DeskGrowth({ desk, withBooks = true }: { desk: Desk; withBooks?: boolean }) {
   const b = desk.business;
   const [extras, setExtras] = useState<Extras | null>(null);
   const [update, setUpdate] = useState("");
@@ -183,7 +184,7 @@ export function DeskGrowth({ desk }: { desk: Desk }) {
   return (
     <>
       <DeskMoney desk={desk} />
-      {b.published_at && <DeskBooks desk={desk} />}
+      {withBooks && b.published_at && <DeskBooks desk={desk} />}
       {b.family === "class" && <SessionsPanel desk={desk} />}
 
       {b.published_at && extras && extras.needs.length > 0 && (

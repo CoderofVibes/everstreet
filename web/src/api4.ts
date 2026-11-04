@@ -116,6 +116,37 @@ export interface OpsCurrent {
   awaiting_signature: number;
 }
 
+/** Job 001c: the digital business desk (owner only, read only, as of one instant). */
+export interface DeskProduct {
+  project_id: string;
+  name: string | null;
+  foundation_label: string;
+  revision: number;
+  updated_at: string;
+  release: { state: "active"; activated_at: string } | { state: "none" | "retired_only" };
+  offers: { active: number; retired: number };
+  offer: { id: string; plan_id: number; unit_price: string | null; asset: string } | null;
+  status: "brief_only" | "released" | "offered" | "offer_retired";
+}
+export interface DeskWorkItem {
+  key: string;
+  who: "you" | "system";
+  count: number;
+  label: string;
+  link: { to: "customers" | "studio" | "inquiries" | "checklist" | "continuity"; project?: string };
+}
+export interface DigitalDeskView {
+  as_of: string;
+  kind: "digital" | "legacy";
+  page: { published: boolean };
+  products: { total: number; shown: DeskProduct[] };
+  imports: { total: number };
+  legacy_offering: { configured: boolean; title: string | null };
+  work: DeskWorkItem[];
+  current: OpsCurrent;
+  settlement: Operations["settlement"];
+}
+
 export interface BooksView {
   months: Month[];
   chain_error: string | null;
@@ -230,6 +261,7 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
 export const api4 = {
   books: (id: string, months = 12) =>
     call<BooksView>(`/api/businesses/${id}/books?months=${months}`),
+  digitalDesk: (id: string) => call<DigitalDeskView>(`/api/businesses/${id}/digital-desk`),
   addCost: (
     id: string,
     c: { category: string; amount_cents: number; recurring: boolean; yyyymm: number; note: string },
