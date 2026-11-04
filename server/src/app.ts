@@ -290,6 +290,16 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/customer/uses/:id/result", async (c) =>
     c.json(await customerUses.result(me(c), c.req.param("id"))),
   );
+  // Job 003q: public product offers (published businesses only) and the customer's own list.
+  app.get("/api/public/businesses/:slug/customer-offers", (c) =>
+    c.json(customerUses.publicOffers(c.req.param("slug"))),
+  );
+  app.get("/api/public/customer-offers/:offer", (c) =>
+    c.json(customerUses.publicOffer(c.req.param("offer"))),
+  );
+  app.get("/api/customer/uses", (c) =>
+    c.json(customerUses.listUses(me(c), Number(c.req.query("limit") ?? 20))),
+  );
   // Job 003o: the unit's settlement or release, decided only from contract readback.
   app.post("/api/customer/uses/:id/units/reconcile", async (c) =>
     c.json(await customerUses.reconcileUnit(me(c), c.req.param("id"))),

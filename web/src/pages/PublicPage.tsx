@@ -9,6 +9,7 @@ import {
   type PublicSession,
   type Receipt,
 } from "../api.ts";
+import { businessOffers, type OfferView } from "../customerApi.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { Avatar, FAMILY_LABEL, money, OfferCard, STAGE_LABEL } from "../ui.tsx";
@@ -570,7 +571,48 @@ export function PublicPage({ slug }: { slug: string }) {
   if (!page) return <div className="page muted">Loading…</div>;
   return (
     <div className="page">
+      <ProductOffers slug={slug} />
       <StorefrontView page={page} onSent={() => api.page(slug).then(setPage)} />
     </div>
+  );
+}
+
+/**
+ * Job 003q: the released digital products this published business offers, with their exact
+ * one-use terms. Shown only when there are some; an unpublished business shows nothing.
+ */
+function ProductOffers({ slug }: { slug: string }) {
+  const [offers, setOffers] = useState<OfferView[]>([]);
+  useEffect(() => {
+    businessOffers(slug)
+      .then(setOffers)
+      .catch(() => setOffers([]));
+  }, [slug]);
+  if (offers.length === 0) return null;
+  return (
+    <section className="card use-offers" aria-labelledby="use-offers-title">
+      <div className="eyebrow" id="use-offers-title">
+        Use a product
+      </div>
+      {offers.map((o) => (
+        <div key={o.offer_id} className="use-offer">
+          <div>
+            <h2>{o.product.name}</h2>
+            <p className="muted">
+              {o.product.fields.length > 0 && (
+                <>Reads: {o.product.fields.map((f) => f.label).join(", ")}. </>
+              )}
+              One unit per use, charged only when you get a result ·{" "}
+              <span className="mono">{o.terms.unit_price}</span> base units of{" "}
+              <span className="mono">{o.terms.asset}</span> · results kept {o.terms.retention_days}{" "}
+              days, private to you.
+            </p>
+          </div>
+          <Link to={`/use/${o.offer_id}`} className="btn btn-primary">
+            Use this product
+          </Link>
+        </div>
+      ))}
+    </section>
   );
 }

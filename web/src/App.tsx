@@ -10,6 +10,7 @@ import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
 import { BuildHome } from "./pages/Build.tsx";
 import { Continuity } from "./pages/Continuity.tsx";
+import { CustomerProduct } from "./pages/CustomerProduct.tsx";
 import { DealPage } from "./pages/Deal.tsx";
 import { DeskList, DeskPage } from "./pages/Desk.tsx";
 import { DeskSale } from "./pages/DeskSale.tsx";
@@ -200,6 +201,24 @@ function Routes() {
   if (path === "/inbox") return <Inbox />;
   if (path === "/explore") return <Explore />;
   if (path === "/activity") return <Activity />;
+  // Job 003q: a customer's product workspace, keyed by who is acting: switching people unmounts
+  // it at once, clearing the document, the request and the result; late answers land nowhere.
+  const useOffer = match("/use/:offer", path);
+  if (useOffer)
+    return (
+      <CustomerProduct
+        key={`${person?.id ?? "anon"}:offer:${useOffer.offer}`}
+        offerId={useOffer.offer as string}
+      />
+    );
+  const useRequest = match("/uses/:id", path);
+  if (useRequest)
+    return (
+      <CustomerProduct
+        key={`${person?.id ?? "anon"}:use:${useRequest.id}`}
+        useId={useRequest.id as string}
+      />
+    );
   const profile = match("/p/:id", path);
   if (profile) return <Person id={profile.id as string} />;
   if (path === "/find") return <Find />;

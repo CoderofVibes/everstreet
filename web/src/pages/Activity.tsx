@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type MyBooking, type MyNeed, type Wallet } from "../api.ts";
+import { myUses, type UseSummary } from "../customerApi.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { money } from "../ui.tsx";
@@ -264,6 +265,65 @@ function NeedCard({ n, onChange }: { n: MyNeed; onChange: (needs: MyNeed[]) => v
   );
 }
 
+const UNIT_LABEL: Record<UseSummary["unit"], string> = {
+  reserved_awaiting_settlement: "unit reserved",
+  charge_pending: "charging one unit",
+  release_pending: "returning your unit",
+  charged: "one unit used",
+  returned: "unit returned",
+  conflict: "needs checking",
+  unknown: "unit not known yet",
+};
+
+/**
+ * Job 003q: the digital products this person used, newest first, each a durable link back to
+ * its own request. Only their own requests; no documents or results are listed here.
+ */
+function MyUses() {
+  const [uses, setUses] = useState<UseSummary[] | null>(null);
+  useEffect(() => {
+    myUses()
+      .then(setUses)
+      .catch(() => setUses([]));
+  }, []);
+  if (uses === null) return null;
+  const products = [...new Map(uses.map((u) => [u.offer_id, u])).values()];
+  return (
+    <section className="card">
+      <h2>My products</h2>
+      {uses.length === 0 ? (
+        <p className="muted">
+          Digital products you use appear here. <Link to="/explore">Explore what's open</Link>.
+        </p>
+      ) : (
+        <>
+          <p className="muted" style={{ fontSize: 14 }}>
+            {products.map((p, i) => (
+              <span key={p.offer_id}>
+                {i > 0 && " · "}
+                <strong>{p.product.name}</strong> from{" "}
+                <Link to={`/b/${p.business.slug}`}>{p.business.name}</Link>
+              </span>
+            ))}
+          </p>
+          <h3 style={{ fontSize: 15, margin: "14px 0 6px" }}>Recent uses</h3>
+          <ul className="use-recent">
+            {uses.slice(0, 10).map((u) => (
+              <li key={u.id}>
+                <Link to={`/uses/${u.id}`}>{u.product.name}</Link>
+                <span className="muted">
+                  {" "}
+                  · {u.label.toLowerCase()} · {UNIT_LABEL[u.unit]} · {ago(u.created_at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function Activity() {
   const { person, requireSignIn } = useSession();
   const [data, setData] = useState<ActivityData | null>(null);
@@ -297,6 +357,7 @@ export function Activity() {
       <h1 className="display" style={{ fontSize: 40 }}>
         My activity
       </h1>
+      <MyUses />
       <WalletCard
         key={data.bookings.map((b) => `${b.id}:${b.status}:${b.payment?.status ?? ""}`).join("|")}
       />

@@ -644,6 +644,114 @@ export class CustomerUses {
 
   // ---------- customer: prepare, status, confirm, cancel ----------
 
+  // ---------- public product summaries and the customer's own list (job 003q) ----------
+
+  /**
+   * What anyone may know about an offer: the business, the product's declared fields and input
+   * limit (from the released artifact), and the exact one-use terms. No customer data.
+   */
+  private productOf(o: OfferRow) {
+    const b = this.db
+      .prepare("SELECT name, slug FROM businesses WHERE id = ?")
+      .get(o.business_id) as { name: string; slug: string };
+    const a = this.db
+      .prepare(
+        "SELECT a.content FROM runtime_releases r JOIN build_artifacts a ON a.job_id = r.artifact_job WHERE r.id = ?",
+      )
+      .get(o.release_id) as { content: string } | undefined;
+    const spec = a
+      ? (JSON.parse(a.content) as {
+          name?: string;
+          input?: { max_chars?: number };
+          fields?: { key: string; label: string; type: string; required: boolean }[];
+        })
+      : {};
+    const plan = JSON.parse(o.plan) as PlanV3;
+    return {
+      offer_id: o.id,
+      offer_state: o.state,
+      business: { name: b.name, slug: b.slug },
+      product: {
+        name: spec.name ?? "Released product",
+        max_chars: Math.min(spec.input?.max_chars ?? LIMITS.inputChars, LIMITS.inputChars),
+        fields: (spec.fields ?? []).slice(0, 40).map((f) => ({
+          key: f.key,
+          label: f.label,
+          type: f.type,
+          required: f.required,
+        })),
+      },
+      terms: {
+        units_per_use: 1,
+        unit_price: plan.unit_price,
+        asset: o.asset,
+        retention_days: o.retention_days,
+        network: o.network,
+        contract: o.account,
+      },
+    };
+  }
+
+  /** Active offers of a published business; an unpublished one is not found (no guessing). */
+  publicOffers(slug: string) {
+    const b = this.db
+      .prepare("SELECT id FROM businesses WHERE slug = ? AND published_at IS NOT NULL")
+      .get(slug) as { id: string } | undefined;
+    if (!b) bad(404, "This page is not published");
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM customer_offers WHERE business_id = ? AND state = 'active' ORDER BY created_at, id LIMIT 10",
+      )
+      .all(b.id) as unknown as OfferRow[];
+    return { offers: rows.map((o) => this.productOf(o)) };
+  }
+
+  /** One offer, only while it is active on a published business. */
+  publicOffer(offerId: string) {
+    const o = this.offer(offerId);
+    const published = o
+      ? this.db
+          .prepare("SELECT 1 AS ok FROM businesses WHERE id = ? AND published_at IS NOT NULL")
+          .get(o.business_id)
+      : undefined;
+    if (o?.state !== "active" || !published) bad(404, "No such product offer");
+    return { offer: this.productOf(o) };
+  }
+
+  /**
+   * The caller's own requests, newest first, bounded. A summary only: no envelope, salt,
+   * signatures, input or result. Retired offers still show (it's the customer's history).
+   */
+  listUses(viewer: Person, limit = 20) {
+    const n = Math.max(1, Math.min(50, Math.floor(Number(limit) || 20)));
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM customer_requests WHERE person_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+      )
+      .all(viewer.id, n) as unknown as RequestRow[];
+    return {
+      uses: rows.map((r) => {
+        const o = this.offer(r.offer_id) as OfferRow;
+        const p = this.productOf(o);
+        const x = this.executionView(this.execution(r.id));
+        return {
+          id: r.id,
+          state: r.state,
+          label: LABELS[r.state].label,
+          offer_id: r.offer_id,
+          business: p.business,
+          product: { name: p.product.name },
+          execution: x
+            ? { state: x.state, result: x.result, fulfilled: x.fulfilled, delivery: x.delivery }
+            : null,
+          unit: this.unitsView(r).unit,
+          created_at: r.created_at,
+          updated_at: r.updated_at,
+        };
+      }),
+    };
+  }
+
   /** The customer's own view. The salt appears only inside the envelope, only while prepared. */
   private view(r: RequestRow) {
     const l = LABELS[r.state];
@@ -652,6 +760,8 @@ export class CustomerUses {
       state: r.state,
       label: l.label,
       explanation: l.explanation,
+      // Public facts about what this request is for (003q); never another customer's data.
+      offer: this.productOf(this.offer(r.offer_id) as OfferRow),
       reason: r.reason,
       // Historical (003m1): whether the hold was serving at the evidence block. Never a
       // capability: `ready_now` is always false here, and any dispatch revalidates afresh.

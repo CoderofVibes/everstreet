@@ -331,7 +331,11 @@ export function Home() {
         </div>
         <ul>
           <li>Customer money is held by the business's contract, not by the owner.</li>
-          <li>Revenue on the books comes from the contract; costs are what the founder enters.</li>
+          <li>
+            Revenue on the books comes from the contract. Operating costs are what the founder
+            enters; the AI cost of running a product is recorded from the provider's reported usage
+            wherever a runtime is connected.
+          </li>
           <li>A buyer sees scoped evidence the seller chooses to share, then the exact terms.</li>
           <li>Product projects and every revision belong to the business, so they move with it.</li>
           <li>Test dollars only. Nothing here moves real money.</li>
