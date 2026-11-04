@@ -54,6 +54,30 @@ unit evidence. None of this proves encrypted durable customer storage is impleme
 
 ## Acceptance
 
+### Caller integration checklist from Astra's source review
+
+The current `server/src/customerUse.ts` has protection calls in more places than customer result
+reads. Cover `protectInput` (including its losing concurrent write), protected-input execution,
+`keepResult` (including late-result cleanup), `result`, batch `expireResults`/`expireInputs`, and
+single-item `deleteResult`/`deleteInput`. Context for maintenance must come from the persisted
+customer request, not a current business owner or an absent HTTP viewer. Those queries currently
+select references without customer identity; deliberately join/read the required request fields.
+This identity must remain stable across a sale.
+
+The existing `protect` interface has no retention or publication acknowledgement, while callers
+publish references only AFTER awaiting protection. Late/losing copies attempt deletion and swallow
+cleanup failures. A durable adapter therefore needs explicit crash/orphan handling across the
+storage-write/reference-publication gap; do not assume protect() returning proves publication or
+that an age-only sweep is safe for a slow active writer. Preserve the caller's result delivery and
+retention fences and document how the new protocol resolves abandoned writes.
+
+Use `server/test/customer-world.ts` and the real-route cases in customer-execution.test.ts and
+customer-maintenance.test.ts as integration starting points, replacing only the protection seam
+with the real adapter where required. Keep the existing synthetic chain/provider labels: actual
+crypto/storage tests are not live NEAR or model-provider evidence.
+
+### Required evidence
+
 - Use actual crypto and temporary durable storage with fictional canaries and ephemeral test keys.
   Inspect only those test artifacts: no plaintext canary or key bytes in the stored records/logs.
   Restart/reopen with correct key recovers; missing/wrong key fails; old keyed records remain

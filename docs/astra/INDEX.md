@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Host lifecycle corrections accepted](2026-11-04_HostLifecycleCorrectionsAccepted.md) | Independent exact stale-uninstaller repeat and real Linux lock harness pass at3b881ef | Narrow002e2 acceptance; install serialization and actual worker-host gates remain;003v next |
+| 2026-11-04 | [Protected storage callers](2026-11-04_ProtectedStorageCallerReview.md) |003v checklist covers maintenance context and storage/reference publication gap | Source review only; adapter still queued, sole39663 on002e2 |
 | 2026-11-04 | [Executable Studio composition](2026-11-04_ExecutableStudioCompositionReview.md) | Actual desktop preview below fold and two ambiguous composers;001k canvas correction brief |1440/1280 fit and keyboard comparison observed; preview cleaned up; JOBS row deferred while Claude owns it |
 | 2026-11-04 | [App Studio recovery accepted](2026-11-04_AppStudioRecoveryAccepted.md) | a4a12c9 actual reload/outage/lost-answer/typed-ahead one-job recovery and390 comparison pass | Narrow UI corrections accepted;002e1 host lock race remains, no engine/live claim |
 | 2026-11-04 | [Wallet integration alignment](2026-11-04_WalletIntegrationAlignment.md) | Official NEP-413 differs from our raw hold/use digest signatures; concrete identity/use-key requirements for003w | No external actions, wallet or key provisioning;76931 remains sole writer on002e1 |
