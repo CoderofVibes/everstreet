@@ -596,6 +596,10 @@ CREATE TABLE IF NOT EXISTS maintenance_status (
   interval_ms INTEGER NOT NULL, started_ms INTEGER, heartbeat_ms INTEGER, last_pass_ms INTEGER,
   last_pass TEXT
 ) STRICT;
+-- Job 002d1: where the next pass starts its phase rotation (written only by the lease holder).
+CREATE TABLE IF NOT EXISTS maintenance_cursor (
+  name TEXT PRIMARY KEY, next_phase INTEGER NOT NULL CHECK (next_phase >= 0), updated_ms INTEGER NOT NULL
+) STRICT;
 CREATE TABLE IF NOT EXISTS maintenance_backoff (
   task TEXT NOT NULL CHECK (task IN ('reserve','settle','result','input')), subject TEXT NOT NULL,
   failures INTEGER NOT NULL, next_ms INTEGER NOT NULL, code TEXT NOT NULL, updated_ms INTEGER NOT NULL,

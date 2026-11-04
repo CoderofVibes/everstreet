@@ -144,6 +144,37 @@ separates three facts:
 - scheduled work actually observed (a recent heartbeat);
 - recorded deletions and failures.
 
+## Corrections in 002d1
+
+**Health is written only by the active holder.** Every write goes through `publish()`, which in
+one `BEGIN IMMEDIATE` transaction checks that this instance holds the durable lease (its holder,
+**this generation** and an unexpired `until_ms`). The writes it covers:
+- the heartbeat at pass start;
+- the pass outcome at the end;
+- the phase cursor;
+- on `stop()`, "stopped" plus releasing the lease (`until_ms = now`), so another instance may
+  take over at once.
+
+**Consequences:**
+- `start()` writes nothing, so starting proves nothing.
+- A standby's start, pass or stop writes nothing, so it can't make an overdue holder look fresh
+  or make an active one look stopped.
+- After every item's await the pass rechecks the lease. If it was lost, it publishes neither the
+  item's backoff nor the pass outcome (`lease_lost`).
+- Per-item financial fencing (request and settlement lease generations) and the adapter guards
+  are unchanged. Health reads have no side effects.
+
+**Fair across phases, durably.** The five phases (prepared, reserve, settle, result, input) run
+in a rotation that starts at `maintenance_cursor.next_phase`. The cursor is written only by the
+holder, so it survives restarts and takeovers. After a pass, the next start is:
+- the first phase that had eligible work but no budget left (it goes first next time);
+- otherwise, the phase after this pass's start.
+
+**Guarantee:** a phase that a busy phase pushed out of a pass's budget gets the first item of the
+next pass, and every phase starts first at least once every five passes. Limits, the pass budget
+and the batch are unchanged; no loop runs until empty. A slow or unavailable metering phase
+therefore can't starve cleanup.
+
 ## Built
 
 **Files.**

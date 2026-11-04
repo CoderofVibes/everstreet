@@ -173,13 +173,17 @@ describe("002d lifecycle and resource bounds", () => {
     );
     s.start();
     s.start(); // idempotent
+    // 002d1: starting proves nothing; health appears only once a holder's pass runs.
     expect(maintenanceHealth(t.w.state.store.db, t.w.f.business, t.w.clock.now).worker.state).toBe(
-      "running",
+      "not_started",
     );
     const passTimer = m.q.find((x) => x.ms === 0);
     expect(passTimer).toBeDefined();
     m.fire(); // the first pass starts
     expect((await s.runPass()).outcome).toBe("busy"); // no overlap with the scheduled one
+    expect(maintenanceHealth(t.w.state.store.db, t.w.f.business, t.w.clock.now).worker.state).toBe(
+      "running",
+    );
     await s.stop();
     expect(m.q.filter((x) => x.ms === 30_000)).toHaveLength(0); // nothing more scheduled
     expect(maintenanceHealth(t.w.state.store.db, t.w.f.business, t.w.clock.now).worker.state).toBe(

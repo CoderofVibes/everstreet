@@ -149,18 +149,22 @@ export class MaintenanceSupervisor {
     if (this.started) return;
     this.started = true;
     this.stopping = false;
-    this.status("running");
+    // 002d1: starting proves nothing; health is written only by a holder's pass.
     this.schedule(0);
   }
 
-  /** No more passes; resolves when the current one ends (bounded by its budget and deadline). */
+  /**
+   * No more passes; resolves when the current one ends (bounded by its budget and deadline). Only
+   * the active holder records "stopped" and releases its lease (so another may take over at
+   * once); a standby's stop changes nothing anyone else can see.
+   */
   async stop() {
     this.stopping = true;
     this.started = false;
     if (this.timer !== null) this.timers.clear(this.timer);
     this.timer = null;
     if (this.running) await this.running;
-    this.status("stopped");
+    this.publish("stopped", undefined, true);
   }
 
   private schedule(ms: number) {
@@ -226,6 +230,55 @@ export class MaintenanceSupervisor {
     }
   }
 
+  /** Whether this instance is the active holder now (the durable lease, this generation). */
+  private holds(): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          "SELECT 1 FROM maintenance_lease WHERE name = ? AND holder = ? AND gen = ? AND until_ms > ?",
+        )
+        .get(this.name, this.opts.holder, this.gen, this.now()),
+    );
+  }
+
+  /**
+   * Job 002d1: health, the phase cursor and (on stop) the lease release are written only while
+   * this instance holds the active lease generation, checked in the same transaction. A standby,
+   * a stale instance or a late finish after a takeover writes nothing.
+   */
+  private publish(
+    state: "running" | "stopped",
+    pass?: PassReport,
+    release = false,
+    nextPhase: number | null = null,
+  ): boolean {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const ok = this.holds();
+      if (ok) {
+        this.status(state, pass);
+        if (nextPhase !== null)
+          this.db
+            .prepare(
+              `INSERT INTO maintenance_cursor (name, next_phase, updated_ms) VALUES (?, ?, ?)
+               ON CONFLICT(name) DO UPDATE SET next_phase = excluded.next_phase, updated_ms = excluded.updated_ms`,
+            )
+            .run(this.name, nextPhase, this.now());
+        if (release)
+          this.db
+            .prepare(
+              "UPDATE maintenance_lease SET until_ms = ? WHERE name = ? AND holder = ? AND gen = ?",
+            )
+            .run(this.now(), this.name, this.opts.holder, this.gen);
+      }
+      this.db.exec("COMMIT");
+      return ok;
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
   private status(state: "running" | "stopped", pass?: PassReport) {
     const now = this.now();
     this.db
@@ -258,28 +311,54 @@ export class MaintenanceSupervisor {
     const started = this.now();
     const report: PassReport = { outcome: "done", started_ms: started, counts: {}, skipped: [] };
     if (!this.claim()) return { ...report, outcome: "standby" };
-    if (this.started) this.status("running");
+    this.publish("running"); // the holder is alive (a heartbeat; not a completed pass)
     const bump = (k: string) => {
       report.counts[k] = (report.counts[k] ?? 0) + 1;
     };
     this.prune();
-    const halt = await this.phasePrepared(bump, started, report);
-    if (halt) return this.finish({ ...report, outcome: halt });
-    for (const task of ["reserve", "settle", "result", "input"] as const) {
-      const guard =
-        task === "reserve" || task === "settle" ? this.guards?.chain : this.guards?.storage;
-      if (guard?.saturated()) {
-        report.skipped.push(`${task}:adapter_saturated`);
-        continue;
-      }
-      if ((task === "result" || task === "input") && this.uses.deletionScheme() === null) {
-        report.skipped.push(`${task}:deletion_unavailable`);
-        continue;
-      }
-      const stop = await this.phase(task, bump, started, report);
-      if (stop) return this.finish({ ...report, outcome: stop });
+    // Job 002d1: phases rotate from a durable cursor, so no phase can always go first and use the
+    // whole budget, and the rotation survives restarts and takeovers. A phase that had eligible
+    // work but no budget left goes first in the next pass.
+    const first = this.cursor();
+    let budgetSkipped: number | null = null;
+    for (let i = 0; i < PHASES.length; i++) {
+      const at = (first + i) % PHASES.length;
+      const name = PHASES[at] as Phase;
+      const skips = report.skipped.length;
+      const stop = await this.runPhase(name, bump, started, report);
+      if (budgetSkipped === null && report.skipped.slice(skips).includes(`${name}:budget`))
+        budgetSkipped = at;
+      if (stop) return this.finish({ ...report, outcome: stop }, null);
     }
-    return this.finish(report);
+    return this.finish(report, budgetSkipped ?? (first + 1) % PHASES.length);
+  }
+
+  private cursor(): number {
+    const r = this.db
+      .prepare("SELECT next_phase FROM maintenance_cursor WHERE name = ?")
+      .get(this.name) as { next_phase: number } | undefined;
+    const n = r?.next_phase ?? 0;
+    return Number.isSafeInteger(n) && n >= 0 ? n % PHASES.length : 0;
+  }
+
+  private async runPhase(
+    name: Phase,
+    bump: (k: string) => void,
+    started: number,
+    report: PassReport,
+  ): Promise<PassReport["outcome"] | null> {
+    if (name === "prepared") return this.phasePrepared(bump, started, report);
+    const guard =
+      name === "reserve" || name === "settle" ? this.guards?.chain : this.guards?.storage;
+    if (guard?.saturated()) {
+      report.skipped.push(`${name}:adapter_saturated`);
+      return null;
+    }
+    if ((name === "result" || name === "input") && this.uses.deletionScheme() === null) {
+      report.skipped.push(`${name}:deletion_unavailable`);
+      return null;
+    }
+    return this.phase(name, bump, started, report);
   }
 
   /**
@@ -302,6 +381,8 @@ export class MaintenanceSupervisor {
       }
       if (!this.claim()) return "lease_lost";
       const code = await this.withDeadline(() => this.operate(task, id));
+      // 002d1: after the await, publish nothing unless this instance still holds the lease.
+      if (!this.holds()) return "lease_lost";
       bump(`${task}:${code}`);
       if (NEUTRAL.has(code)) continue;
       if (PROGRESS[task].has(code)) this.clearBackoff(task, id);
@@ -405,9 +486,10 @@ export class MaintenanceSupervisor {
       .run(this.now() - 7 * 86_400_000);
   }
 
-  private finish(report: PassReport) {
-    if (this.started || report.outcome !== "standby")
-      this.status(this.started ? "running" : "stopped", report);
+  /** Records the pass (and the next phase) only if this instance still holds the lease. */
+  private finish(report: PassReport, nextPhase: number | null) {
+    if (report.outcome === "lease_lost") return report;
+    this.publish("running", report, false, nextPhase);
     return report;
   }
 
@@ -555,6 +637,10 @@ export function maintenanceHealth(
 
 /** Outcomes that mean another worker or a newer lease has the item: nothing to record. */
 const NEUTRAL = new Set(["not_due", "stale"]);
+
+/** The phases, in rotation order; a pass starts at the durable cursor (job 002d1). */
+type Phase = "prepared" | Task;
+const PHASES: readonly Phase[] = ["prepared", "reserve", "settle", "result", "input"];
 
 /** Outcomes that are progress for each task; anything else is backed off. */
 const PROGRESS: Record<Task, Set<string>> = {
