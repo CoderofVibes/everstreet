@@ -208,6 +208,13 @@ actual customer readback fixtures reviewed, no live evidence.003l1 must correct 
 operator authority, accepting freeze, preparation/signing and uncertain root/readback semantics
 before003m durable customer reservation. All six milestones remain open.
 
+November3 at5bb81a0: independent594 app tests/45files/lint/types, web build and70 v3 keyless
+contract tests pass.003l1 authority/signing fixtures verified;003m reservation backend has no
+main wiring or customer UI. Three independent probes reproduce stale first-read refusal,
+equal-height conflict acceptance and expired-hold serving:true.003m1 required before003n
+customer execution. Gated-closing browser refresh preserves separate monthly provenance.
+No live transaction/provider/wallet evidence and no milestone acceptance.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.
