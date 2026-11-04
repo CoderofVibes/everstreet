@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-03 | [Execution review](2026-11-03_ExecutionReview.md) | Independent621 tests; three freshness/privacy probes; corrections then unit settlement/release | Active; see local checkpoint |
 | 2026-11-03 | [Reservation review](2026-11-03_ReservationReview.md) | Independent594 app/70 contract tests; three reservation evidence/readiness reproductions; customer execution next | Active; see local checkpoint |
 | 2026-11-03 | [Customer protocol review](2026-11-03_CustomerProtocolReview.md) | Independent566 app/65 contract tests; recovered-access browser pass; precise customer consent and reservation next | Active; see local checkpoint |
 | 2026-11-03 | [Acquisition bridge review](2026-11-03_AcquisitionBridgeReview.md) | Independent548 tests;003j1 browser recovery passes with stale notice; exact outcome/authority evidence then customer-use protocol | Active; see local checkpoint |

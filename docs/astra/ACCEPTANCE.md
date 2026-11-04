@@ -215,6 +215,13 @@ equal-height conflict acceptance and expired-hold serving:true.003m1 required be
 customer execution. Gated-closing browser refresh preserves separate monthly provenance.
 No live transaction/provider/wallet evidence and no milestone acceptance.
 
+November3 at461dfa3: independent621 tests/47files/lint/types and web build pass.003m1 evidence
+corrections reviewed;003n customer execution shares provider accounting and keeps results
+private through injected protection. Three independent probes find aged-block dispatch,
+post-await retention disclosure and raw provider diagnostic persistence.003n1 required before
+003o unit settlement/release. Home/Opportunities browser regression inspected; no new frontend.
+No contract changes, no live evidence and no full milestone acceptance.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.
