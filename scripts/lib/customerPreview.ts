@@ -10,6 +10,7 @@
 
 import { Hono } from "hono";
 import { RuntimeFailure } from "../../server/src/runtime.ts";
+import type { ViewTransport } from "../../server/src/v3read.ts";
 import {
   customerWorld,
   type Json,
@@ -35,7 +36,15 @@ window.__everstreetAuthorizer = {
 };
 `;
 
-export type LoseRoute = "prepare" | "confirm" | "execute" | "units" | "offer" | "retire";
+export type LoseRoute =
+  | "prepare"
+  | "confirm"
+  | "execute"
+  | "units"
+  | "offer"
+  | "retire"
+  | "record"
+  | "reconcile";
 export const LOSE_ROUTES: LoseRoute[] = [
   "prepare",
   "confirm",
@@ -43,6 +52,8 @@ export const LOSE_ROUTES: LoseRoute[] = [
   "units",
   "offer",
   "retire",
+  "record",
+  "reconcile",
 ];
 const ROUTES: Record<LoseRoute, RegExp> = {
   prepare: /^\/api\/customer\/offers\/[^/]+\/prepare$/,
@@ -52,15 +63,21 @@ const ROUTES: Record<LoseRoute, RegExp> = {
   // Job 003r: the owner's offer creation and retirement.
   offer: /^\/api\/businesses\/[^/]+\/customer-offers$/,
   retire: /^\/api\/businesses\/[^/]+\/customer-offers\/[^/]+\/retire$/,
+  // Job 003s: recording a sale intent and reconciling it.
+  record: /^\/api\/businesses\/[^/]+\/v3\/intents$/,
+  reconcile: /^\/api\/businesses\/[^/]+\/v3\/intents\/[^/]+\/reconcile$/,
 };
 
 /**
  * `withOffer` (003q's quick start) creates the offer as the founder would; without it (003r) the
- * founder sets it up in the studio's Service tab.
+ * founder sets it up in the studio's Service tab. `v3Transport` (003s) serves the business's v3
+ * contract views for the acquisition preview.
  */
-export async function customerPreview(opts: { withOffer?: boolean } = {}) {
+export async function customerPreview(
+  opts: { withOffer?: boolean; v3Transport?: ViewTransport } = {},
+) {
   const protection = new SyntheticProtection();
-  const w = await customerWorld({ customer: { protection } });
+  const w = await customerWorld({ customer: { protection }, v3Transport: opts.v3Transport });
   // The synthetic chain and the server follow this computer's clock (plus any preview offset),
   // so freshness and deadlines behave as they would; the chain only ever moves forward.
   const time = { offset: 0 };

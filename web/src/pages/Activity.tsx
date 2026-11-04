@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type MyBooking, type MyNeed, type Wallet } from "../api.ts";
 import { myUses, type UseSummary } from "../customerApi.ts";
+import { handoverHttp, parseHandovers } from "../handoverApi.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { money } from "../ui.tsx";
@@ -277,6 +278,27 @@ const UNIT_LABEL: Record<UseSummary["unit"], string> = {
   unknown: "unit not known yet",
 };
 
+/** Job 003s: a link to this person's business handover receipts, shown only when there are some. */
+function MyHandovers() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    handoverHttp
+      .mine()
+      .then((r) => setN(parseHandovers(r).length))
+      .catch(() => setN(0));
+  }, []);
+  if (n === 0) return null;
+  return (
+    <section className="card">
+      <h2>Business handovers</h2>
+      <p className="muted" style={{ margin: 0 }}>
+        You take part in {n} sale{n === 1 ? "" : "s"} of a digital business.{" "}
+        <Link to="/handovers">Open your receipts</Link>
+      </p>
+    </section>
+  );
+}
+
 /**
  * Job 003q: the digital products this person used, newest first, each a durable link back to
  * its own request. Only their own requests; no documents or results are listed here.
@@ -360,6 +382,7 @@ export function Activity() {
         My activity
       </h1>
       <MyUses />
+      <MyHandovers />
       <WalletCard
         key={data.bookings.map((b) => `${b.id}:${b.status}:${b.payment?.status ?? ""}`).join("|")}
       />

@@ -16,6 +16,7 @@ import { DeskList, DeskPage } from "./pages/Desk.tsx";
 import { DeskSale } from "./pages/DeskSale.tsx";
 import { Explore } from "./pages/Explore.tsx";
 import { Find } from "./pages/Find.tsx";
+import { HandoversPage, HandoverWorkspace } from "./pages/Handover.tsx";
 import { Helping } from "./pages/Helping.tsx";
 import { Home } from "./pages/Home.tsx";
 import { ImportHome, ImportWorkspace } from "./pages/Import.tsx";
@@ -192,6 +193,16 @@ function Routes() {
     return (
       <Continuity key={`${person?.id ?? "anon"}:${continuity.id}`} id={continuity.id as string} />
     );
+  // Job 003s: keyed by who is acting, so a switch clears the workspace and late answers land nowhere.
+  const handover = match("/desk/:id/handover", path);
+  if (handover)
+    return (
+      <HandoverWorkspace
+        key={`${person?.id ?? "anon"}:${handover.id}`}
+        id={handover.id as string}
+      />
+    );
+  if (path === "/handovers") return <HandoversPage key={person?.id ?? "anon"} />;
   const sale = match("/desk/:id/sale", path);
   if (sale) return <DeskSale id={sale.id as string} />;
   const helping = match("/help/:id", path);

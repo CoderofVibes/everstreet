@@ -252,6 +252,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const r = v3Intents.record(me(c), c.req.param("id"), await body(c));
     return c.json(r, r.created ? 201 : 200);
   });
+  // Job 003s: a participant's own handover receipts (seller or buyer), minimal and bounded.
+  app.get("/api/me/v3/handovers", (c) => c.json(v3Intents.mine(me(c))));
   app.get("/api/businesses/:id/v3/intents/:intent", (c) =>
     c.json(v3Intents.read(me(c), c.req.param("id"), c.req.param("intent"))),
   );

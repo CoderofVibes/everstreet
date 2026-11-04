@@ -706,6 +706,22 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .use-offer { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .use-offer + .use-offer { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 14px; }
 .use-offers + .card { margin-top: 16px; }
+/* Job 003s: the acquisition workspace and handover receipts. */
+.handover .facts { grid-template-columns: minmax(9em, 14em) minmax(0, 1fr); }
+.handover .wrap { overflow-wrap: anywhere; }
+.handover-steps { list-style: none; counter-reset: step; display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 12px 0 16px; }
+.handover-steps li { counter-increment: step; flex: 1 1 160px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13.5px; color: var(--text-3); }
+.handover-steps li::before { content: counter(step) ". "; font-weight: 600; }
+.handover-steps li.step-done { color: var(--mint-ink); border-color: var(--mint-line); background: var(--mint-soft); }
+.handover-steps li.step-now { color: var(--blue-ink); border-color: #c4d6fb; background: var(--blue-soft); font-weight: 600; }
+.handover-list { list-style: none; padding: 0; margin: 0; }
+.handover-list li { padding: 10px 0; border-top: 1px solid var(--line); }
+.handover-confirm { border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 10px 12px; margin-top: 8px; }
+.handover-effects { margin: 6px 0 10px; padding-left: 18px; font-size: 13.5px; }
+.handover-first { margin-top: 10px; }
+.handover-first ol { padding-left: 18px; font-size: 14px; }
+@media (max-width: 760px) { .handover .facts { grid-template-columns: 1fr; gap: 2px 0; } .handover .facts dd { margin-bottom: 8px; } }
+
 /* Job 003r: the studio's customer-offer section. */
 .offer-sub { font-size: 15px; margin: 18px 0 8px; }
 .offer-readiness { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }

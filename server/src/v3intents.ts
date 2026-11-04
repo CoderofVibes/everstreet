@@ -98,12 +98,43 @@ export class V3Intents {
     const result = r.result ? (JSON.parse(r.result) as Record<string, unknown>) : null;
     return {
       intent_id: r.id,
+      // Job 003s: where the receipt belongs, so a participant can come back to it.
+      business_id: r.business_id,
       role: viewer.id === r.seller_person_id ? ("seller" as const) : ("buyer" as const),
       status: r.status,
       deal: { seq: r.deal_seq, version: r.version, digest: r.digest },
       target_generation: r.expected_generation + 1,
+      recorded_at: r.created_at,
       applied_at: r.status === "applied" ? r.updated_at : null,
       outcome_control_seq: (result?.outcome_control_seq as string | undefined) ?? null,
+    };
+  }
+
+  /**
+   * Job 003s: the viewer's own handover receipts, as seller or buyer, newest first (bounded).
+   * Each is the same minimal receipt; the business is named only where that name is already
+   * visible to the viewer (they own it now, or its page is published). Nothing else is added.
+   */
+  mine(viewer: Person) {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM v3_intents WHERE seller_person_id = ? OR buyer_person_id = ? ORDER BY created_at DESC, id LIMIT ${MAX_INTENTS}`,
+      )
+      .all(viewer.id, viewer.id) as unknown as IntentRow[];
+    return {
+      handovers: rows.map((r) => {
+        const b = this.db
+          .prepare("SELECT name, owner_id, published_at FROM businesses WHERE id = ?")
+          .get(r.business_id) as
+          | { name: string; owner_id: string; published_at: string | null }
+          | undefined;
+        const named = b && (b.owner_id === viewer.id || b.published_at !== null);
+        return {
+          business: { id: r.business_id, name: named ? b.name : null },
+          you_own_it_now: b?.owner_id === viewer.id,
+          receipt: this.receipt(r, viewer),
+        };
+      }),
     };
   }
 

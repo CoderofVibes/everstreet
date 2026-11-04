@@ -12,6 +12,7 @@ import {
   when,
 } from "../api5.ts";
 import { api6 } from "../api6.ts";
+import { handoverHttp, parseEvidence } from "../handoverApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { CandidateHead, FigLine } from "./Acquire.tsx";
 import { DealsList, TermsForm } from "./Deal.tsx";
@@ -132,11 +133,14 @@ function RequestCard({
   meta,
   onDone,
   businessId,
+  v3 = false,
 }: {
   r: AccessRequest;
   meta: Meta;
   onDone: () => void;
   businessId: string;
+  /** Job 003s: a v3 business never proposes through the earlier contract's signing path. */
+  v3?: boolean;
 }) {
   const b = r.buyer;
   return (
@@ -193,7 +197,7 @@ function RequestCard({
       </dl>
       <blockquote>{r.purpose}</blockquote>
       {r.status === "pending" && <Decide r={r} meta={meta} onDone={onDone} />}
-      {r.status !== "declined" && r.status !== "withdrawn" && (
+      {r.status !== "declined" && r.status !== "withdrawn" && !v3 && (
         <ProposeTerms r={r} businessId={businessId} />
       )}
       {r.status === "granted" && (
@@ -246,10 +250,16 @@ export function DeskSale({ id }: { id: string }) {
         .catch((e) => setError((e as Error).message)),
     [id, apply],
   );
+  // Job 003s: which contract this business's sale runs on (v3 is read; unbound means the v2 path).
+  const [v3, setV3] = useState(false);
   useEffect(() => {
     api5.meta().then(setMeta);
     load();
-  }, [load]);
+    handoverHttp
+      .evidence(id)
+      .then((r) => setV3(parseEvidence(r).state !== "unbound"))
+      .catch(() => setV3(false));
+  }, [load, id]);
   if (error && !data)
     return (
       <div className="page empty">
@@ -290,6 +300,14 @@ export function DeskSale({ id }: { id: string }) {
         page {data.share_numbers ? "(on now)" : "(off now)"} is a separate choice and doesn't list
         you.
       </p>
+      {v3 && (
+        <p className="notice info" role="note">
+          This business runs on the v3 contract. Discovery and access requests below still apply;
+          its sale is followed, recorded and applied in{" "}
+          <Link to={`/desk/${id}/handover`}>Sale and handover</Link>, not through the earlier
+          contract's deal steps.
+        </p>
+      )}
 
       <div className="desk">
         <div>
@@ -443,10 +461,10 @@ export function DeskSale({ id }: { id: string }) {
               </p>
             )}
             {pending.map((r) => (
-              <RequestCard key={r.id} r={r} meta={meta} onDone={load} businessId={id} />
+              <RequestCard key={r.id} r={r} meta={meta} onDone={load} businessId={id} v3={v3} />
             ))}
             {others.map((r) => (
-              <RequestCard key={r.id} r={r} meta={meta} onDone={load} businessId={id} />
+              <RequestCard key={r.id} r={r} meta={meta} onDone={load} businessId={id} v3={v3} />
             ))}
           </section>
         </div>

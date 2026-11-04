@@ -152,6 +152,8 @@ export function Continuity({ id }: { id: string }) {
         </Link>
         <span className="muted">/</span>
         <span className="pill">Read-only</span>
+        <span className="spacer" />
+        <Link to={`/desk/${id}/handover`}>Sale and handover</Link>
       </div>
       <h1 className="display" style={{ fontSize: 32, margin: "6px 0" }}>
         Ownership and continuity
