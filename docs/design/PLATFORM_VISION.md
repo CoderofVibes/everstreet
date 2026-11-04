@@ -49,33 +49,24 @@ language, defaults or flagship experience. All sample people and businesses are 
 6. Launch and improve: public product profile, customer access, service runtime, usage,
    support, financials, revisions and acquisition readiness use the same business identity.
 
-## Visual direction for the first implemented system
+## Approved visual and interaction direction — November 4
 
-Desktop first, useful at 1440px and 1280px, responsive below that. A purposeful technology
-workspace: near-black ink navigation, a bright neutral work canvas, crisp sans-serif type,
-electric mint for primary actions and ownership/status signals, restrained blue for data.
-Use a coherent token system, consistent line icons, disciplined spacing, 8-12px surfaces,
-strong keyboard focus, readable contrast and reduced-motion support. Avoid the current
-cream/serif craft-directory aesthetic and generic gradients, neon decoration or empty stats.
+Tony approved the complete UI replan and explicitly authorized implementation. Read
+[EVERSTREET_UI_DIRECTION.md](EVERSTREET_UI_DIRECTION.md) before every UI pass; it is the durable
+visual authority and supersedes the earlier dark navigation/mint-primary direction.
 
-Home should be a living product marketplace: a prominent "What do you want to build?"
-composer, digital product previews, discovery categories, founder activity and direct paths
-to Start building, Bring a product and Explore acquisitions. Preserve current routes until
-their replacements work. No invented user counts, revenue or activity presented as real.
+Everstreet is a premium creative workspace connected to a living marketplace. Luminous mineral
+and paper surfaces, deep blue-black typography, cobalt actions and restrained warm highlights;
+selective glass for navigation/tools, clear content surfaces, precise data type, meaningful motion
+and a calm predictable experience. Distinct Discover, Studio, Operate, Acquire and customer
+compositions share identity. Studio centers conversation plus a large working canvas and
+contextual editing; operations shows useful charts; acquisition centers exact terms, evidence and
+customer continuity on NEAR. No invented statistics or execution claims.
 
-Studio: compact project header and state; a narrow step rail; conversation/brief controls on
-the left; the working preview taking the majority of the canvas; Preview, Brief, Checks and
-Versions views; one clear next action. Persist work so a refresh never loses an accepted
-brief or completed revision. Put technical diagnostics behind a detail view.
-
-Operations: prominent revenue, profit, usage and customer trends; period comparisons and
-cost breakdowns. Missing data stays missing, not zero. Keep seeded/observed/reported labels
-near numbers. Valuation uses explainable inputs and scenario interaction; no false market
-accuracy. Product imagery and demos should carry the visual interest in discovery.
-
-Acquisitions: useful listings before onboarding forms, readable business evidence, distinct
-asking price and estimate, explicit transfer contents, closing progress and buyer first shift.
-Customer discovery does not expose private sale intentions.
+The accepted direction file records the complete influence hierarchy, five experiences,
+navigation, internal visual review and rollout sequence. The November 4 no-building hold is
+lifted by Tony's explicit approval. Proceed with bounded implementation and Astra review without
+repeated routine design approval. Preserve the first full creative walkthrough after buildout.
 
 ## Architectural direction for Claude to validate
 

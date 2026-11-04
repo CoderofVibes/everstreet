@@ -1,4 +1,17 @@
 # Decision log
+## 2026-11-04 · Everstreet UI direction approved; implementation resumed
+
+Tony: "Can you remember all of this and start to implement it please? I like everything you just
+listed out" after Astra proposed the UI replan. The earlier design hold is lifted.
+[Accepted direction](design/EVERSTREET_UI_DIRECTION.md) is the durable visual/interaction authority:
+premium creative workspace and living marketplace; luminous mineral/paper, blue-black type,
+cobalt/warm accents, selective glass, contextual AI canvas, precise data and meaningful motion.
+Discover, Studio, Operate, Acquire and customer use have distinct compositions in one system.
+Stable navigation and human control take precedence over automatic rearrangement. Astra leads
+internal concept/interaction/visual review; Claude builds bounded slices. No new routine approval
+needed. All six milestones and central NEAR/customer continuity remain. No external release,
+spending or research assessment authorized. This supersedes older dark-rail/mint visual guidance.
+
 
 Newest first. Routine engineering choices are Claude's; anything that changes the user promise
 goes to Tony and Astra with an alternative.

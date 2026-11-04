@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [UI approval and restart](2026-11-04_UIApproval.md) | Tony approved complete luminous UI direction; durable design/vision/decision updates;001f implementation begins after repair of interrupted001e | Authorized; see local checkpoint |
+| 2026-11-04 | [Legacy disclosure review](2026-11-04_LegacyDisclosureReview.md) | 001d1 source review/6 loader tests; legacy exact-small-count inference counterexample; full check caught active001e partial edits, recheck when complete | Independent review while Claude90429 builds001e; see local checkpoint |
 | 2026-11-04 | [Approved evidence review](2026-11-04_ApprovedEvidenceReview.md) | Tony approved local grants/revocations; both scoped rooms/exports and revocations pass;887 checks; exact publication release-change failure ->001d1 then storefront001e | Active; see local checkpoint |
 | 2026-11-04 | [Evidence review](2026-11-04_EvidenceReview.md) |861 checks; suppression/inference failures and seller recovery; permission test pending; digital publication next | Active; see local checkpoint |
 | 2026-11-04 | [Approved handover review](2026-11-04_ApprovedHandoverReview.md) | Tony approved local test; browser buyer history/seller denial/customer continuity pass;840 checks; next scheduling distinction and buyer evidence | Active; see local checkpoint |
