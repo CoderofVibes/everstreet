@@ -548,7 +548,7 @@ CREATE TABLE IF NOT EXISTS customer_requests (
   hold_message TEXT NOT NULL, use_message TEXT NOT NULL, envelope TEXT NOT NULL, envelope_digest TEXT NOT NULL,
   hold_sig TEXT, use_sig TEXT, prepared_block TEXT NOT NULL, notice TEXT,
   state TEXT NOT NULL CHECK (state IN ('prepared','reserve_requested','reserve_unknown','reserved','refused','unresolved','cancelled','expired')),
-  reason TEXT, serving INTEGER, evidence TEXT, evidence_height TEXT,
+  reason TEXT, serving INTEGER, evidence TEXT, evidence_height TEXT, evidence_mark TEXT, conflict TEXT,
   lease_gen INTEGER NOT NULL DEFAULT 0, lease_until INTEGER, submissions INTEGER NOT NULL DEFAULT 0,
   allocation TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   UNIQUE (person_id, idempotency_key)
@@ -621,6 +621,13 @@ export function openDb(path: string) {
     db.exec(
       "ALTER TABLE project_sources ADD COLUMN constraints_unreadable TEXT NOT NULL DEFAULT '[]'",
     );
+  // Job 003m1: the fenced evidence mark and a sticky evidence conflict per customer request. A row
+  // from 003m has no mark; it is fenced from its prepared block when next read.
+  const requestCols003m = columns("customer_requests");
+  if (!requestCols003m.has("evidence_mark"))
+    db.exec("ALTER TABLE customer_requests ADD COLUMN evidence_mark TEXT");
+  if (!requestCols003m.has("conflict"))
+    db.exec("ALTER TABLE customer_requests ADD COLUMN conflict TEXT");
   // Job 003b: one ownership entry per closed deal, as a backstop to the reconciler. Installed
   // only when existing data allows it; earlier duplicates are reported, never deleted.
   if (ownershipConflicts(db).length === 0)

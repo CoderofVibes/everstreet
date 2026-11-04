@@ -123,6 +123,12 @@ export class FixtureChain {
     this.height += 1;
   }
 
+  /** A change lands in a new block one second later (block time rises: assumption A1). */
+  private nextBlock() {
+    this.height += 1;
+    this.ts += 1_000n;
+  }
+
   block(): PinnedBlock {
     return {
       height: String(this.height),
@@ -223,7 +229,7 @@ export class FixtureChain {
     });
     this.holdPk.set(customer, k.public_key);
     this.opened++;
-    this.height++;
+    this.nextBlock();
     return "opened";
   }
 
@@ -250,7 +256,7 @@ export class FixtureChain {
       serve_until_ms: "0",
       settle_until_ms: "0",
     });
-    this.height++;
+    this.nextBlock();
   }
 
   /** revoke_key: the epoch rises; an active hold under that key stops serving now. */
@@ -263,7 +269,7 @@ export class FixtureChain {
     e.key_epochs[slot] = k.epoch;
     if (e.hold_active && e.hold_key_slot === slot && BigInt(e.serve_until_ms) > this.ts)
       e.serve_until_ms = String(this.ts);
-    this.height++;
+    this.nextBlock();
   }
 
   /** skip_hold_seq: burns the next sequence (only with no hold open). */
@@ -271,13 +277,13 @@ export class FixtureChain {
     const e = this.ent(customer) as Json;
     if (e.hold_active) throw new Error("E_HOLD_ACTIVE");
     e.hold_seq += 1;
-    this.height++;
+    this.nextBlock();
   }
 
   /** set_paused. */
   pause(paused: boolean, customer = CUSTOMER) {
     (this.ent(customer) as Json).paused = paused;
-    this.height++;
+    this.nextBlock();
   }
 }
 
@@ -289,8 +295,16 @@ export class FixtureReader implements CustomerViewTransport {
   failNext = 0;
   mixNext = false;
   malformedNext = false;
+  /**
+   * Labelled synthetic history (job 003m1): while set, every read answers at this block with
+   * these views (decoded contract JSON), as an endpoint serving an older or forked state would.
+   */
+  scripted: { block: PinnedBlock; views: Record<string, Json | null> } | null = null;
+  private reads = 0;
   constructor(private readonly chain: FixtureChain) {}
   async finalBlock(): Promise<PinnedBlock> {
+    if (++this.reads > 300) throw new Error("fixture reader ceiling reached");
+    if (this.scripted) return this.scripted.block;
     if (this.failNext > 0) {
       this.failNext--;
       throw new Error("endpoint unavailable");
@@ -304,6 +318,9 @@ export class FixtureReader implements CustomerViewTransport {
     return b;
   }
   async view(input: { method: string; args: Record<string, unknown>; block: BlockRef }) {
+    const s = this.scripted;
+    if (s && input.method in s.views)
+      return { result: JSON.stringify(s.views[input.method]), block: input.block };
     let result = this.chain.answer(input.method, input.args);
     if (this.malformedNext && input.method !== "get_control") {
       this.malformedNext = false;

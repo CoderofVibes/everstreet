@@ -68,6 +68,7 @@ a `HoldAuth` or a `UseAuth`. **The server never holds a customer's private key.*
 | Business → contract | The operator binding (`V3Options.bindings`: network, account). |
 | Offer → release and plan | A `customer_offers` row (§8.1), immutable except retirement, created by the owner under the control-epoch fence. It stays with the business through a sale. |
 | Platform metering identity | Operator configuration (`operatorAccount`). Never a contract fact (§1.2). |
+| Platform metering policy (003m1) | `platformMeters`: the configured account holds METERING granted **in the current generation**. Deliberately narrower than the contract's `require_metering` (`contractMeters`: owner **or** such an operator, unit test `c01`): the platform never acts through owner authority, so an owner account without a grant is not admitted. |
 
 **Customer records follow the customer, not the owner.** Every request row carries the
 customer's `person_id` and chain account. Only that person reads it. A seller, a buyer who
@@ -226,11 +227,11 @@ These rows are checked in order:
 | # | Readback | Decision | Why it is sound **[V]** |
 |---|---|---|---|
 | 1 | No entitlement, or another `reg_id` | `unresolved: registration_changed` | Our messages name the old `reg_id`, so they can never open again. Whether they opened before an unregister is not readable. |
-| 2 | Active, with every expected field equal (seq, units, key slot, key epoch, serve_until, settle_until) | `reserved`; serving only while the key at our slot is still active at our epoch | Each (slot, epoch) names one key forever: the epoch rises on every install and revoke. The public key was matched at that epoch when we prepared. Equal fields mean the signed message is ours. |
+| 2 | Active, with every expected field equal (seq, units, key slot, key epoch, serve_until, settle_until) | `reserved`; **serving at B** only while the key at our slot is still active at our epoch **and** `T_B < serve_until` (003m1) | Each (slot, epoch) names one key forever: the epoch rises on every install and revoke. The public key was matched at that epoch when we prepared. Equal fields mean the signed message is ours. |
 | 3 | Active, seq, units, key slot, key epoch and settle_until equal, `serve_until < ours`, and the key's epoch now above ours | `reserved`, serving ended (`key_revoked`) | Only `revoke_key` lowers `serve_until` (`c04`). Signed uses still settle. Nothing new is dispatched. |
 | 4 | Active, `hold_seq == ours`, any other field different | `refused: superseded` | One sequence opens at most once (`E_HOLD_SEQ_USED`, `c04`), so ours never opened and never will. |
 | 5 | `hold_seq < ours − 1` | `unknown: inconsistent` | Allocation read `hold_seq = ours − 1`, and the sequence never falls. This is evidence of a different source; it is flagged and never resolved. |
-| 6 | `hold_seq == ours − 1`, and the key at our slot is at a different epoch | `refused: key_changed` | The contract needs `k.epoch == auth.key_epoch`, and epochs only rise. |
+| 6 | `hold_seq == ours − 1`, and the key at our slot is at a **higher** epoch than ours | `refused: key_changed` | The contract needs `k.epoch == auth.key_epoch`, and epochs only rise. A **lower** epoch is a regression: a conflict (§5.4), never a refusal (003m1). |
 | 7 | `hold_seq == ours − 1`, and `T_B > accept_by_ms` | `refused: expired_unopened` | No later block can accept it (`c04`). Block timestamps rise from block to block (§11, assumption A1). |
 | 8 | `hold_seq == ours − 1`, otherwise | still pending: resend the **exact** stored payload, if attempts remain | The identical HoldAuth either opens once or answers `already` (`c04`). It never opens a second hold. |
 | 9 | `hold_seq ≥ ours`, not row 2, 3 or 4 | `unresolved: sequence_used` (with the readback's last-hold fields) | Once closed, only seq, bitmap, count and root remain (`c04`). Which HoldAuth opened it is not readable. |
@@ -258,9 +259,10 @@ These rows are checked in order:
 | `prepared` | The envelope is persisted; signatures are awaited | confirm → `reserve_requested`; cancel → `cancelled`; server clock past `sign_by_ms` → `expired` |
 | `reserve_requested` | Signatures verified; the exact `open_hold` payload persisted; nothing submitted yet | A leased submission → `reserve_unknown` |
 | `reserve_unknown` | At least one submission; no decisive readback yet | Table rows 2–9 |
-| `reserved` | Row 2 or 3 at a pinned block; the block and the matched fields are recorded | Later jobs (dispatch, settle, release) |
+| `reserved` | Row 2 or 3 at a pinned block; the block and the matched fields are recorded. **Historical**: it says the hold was ours at B, never that it may be served now (§5.4). | Later jobs (dispatch, settle, release) |
 | `refused` | Rows 4, 6 or 7: this authorization did not and cannot open a hold | Terminal |
-| `unresolved` | Rows 1, 5 or 9: readback can't attribute the sequence | Terminal for automation; visible to the customer |
+| `unresolved` | Rows 1 or 9: readback can't attribute the sequence | Terminal for automation; visible to the customer |
+| `reserve_unknown` + `evidence_conflict` | Row 5, or a fence violation (§5.4) | Sticky: nothing is read, sent, decided or freed |
 | `cancelled`, `expired` | Never confirmed | Terminal |
 
 **Leases and events:**
@@ -271,6 +273,42 @@ These rows are checked in order:
   attempts; never the salt, signatures or input.
 - **No remote awaits inside SQLite.** Each step commits its intent, awaits outside any
   transaction, then commits its outcome under the CAS.
+
+### 5.4 Evidence is fenced and historical (job 003m1)
+
+Astra reproduced three unsafe decisions at `5bb81a0`: a first readback below the prepared block
+refused a hold that had opened; a different hash at the evidence height terminalized; an
+expired hold read as `serving: true`. The rules now:
+
+- **The baseline.** Preparation persists an evidence mark for its pinned block: the height, hash
+  and timestamp, the sha256 of the decoded entitlement, and a summary of what may only rise
+  (`reg_id`, then within one registration `hold_seq` and each key's epoch). Every later readback
+  is compared with the last accepted mark (`evidenceProblem`).
+- **Lower block:** stale. It is recorded as an event and changes nothing.
+- **Equal height:** it must be identical in hash, time and content. Otherwise it is a conflict
+  (`equal_height_hash_differs`, `equal_block_time_differs`, `equal_block_view_differs`).
+- **Higher height:** its time must be later (assumption A1; else `block_time_not_rising`), and
+  nothing may regress (`registration_regressed`, `hold_sequence_regressed`,
+  `key_epoch_regressed`). Row 5 of §5.2 is also a conflict.
+- **Conflicts are sticky.** The request stays `reserve_unknown` with reason `evidence_conflict`
+  and the conflict recorded. Nothing is read, resent, decided or freed for it, and the worker pass
+  skips it. Its allocation stays held. **Recovery is a defined later step, not automatic:** a
+  later reviewed job resolves it explicitly. A later honest block never clears it silently.
+- **A 003m row without a mark** is fenced from its prepared block (height, hash and time; its
+  content digest is unknown, so equal-height content isn't compared).
+- **Serving is historical.** `serving` reports whether the hold was serving **at the evidence
+  block**: the key still active at our epoch and `T_B < serve_until`. Serving ends at
+  `serve_until`; `revoke_key` lowers it to the revocation time. Status always returns
+  `ready_now: false`. Dispatch (later job) revalidates fresh control, entitlement, the exact
+  hold, the unused slot and the deadline itself.
+- **Nothing trusts the writer.** Stale evidence is never resolved by a writer's answer or a fresh
+  hold. The exact signatures and payload, and the one logical request, are kept.
+- **Bindings before every call.** Prepare and confirm refuse `binding_mismatch` when the writer's
+  network or signer, or the reader's network, differs from the request's binding; nothing is
+  called. A step that finds a mismatch records it and calls nothing. After the read's await,
+  prepare's transaction rechecks the account mapping and binding. Confirm rechecks the account
+  mapping (`account_changed`), the offer, the active release and the binding, atomically with
+  its transition.
 
 ## 6. A sale, or a revocation, while customers are being served [P]
 
@@ -382,10 +420,20 @@ A `reconcileDue(limit)` method serves a later worker.
 | An external hold or skip advances the sequence | Rows 4 or 9; never a fresh automatic hold |
 | A sale while a request is open | The customer's request and its entitlement identity are unchanged. Former and new owners get 404. Admission follows §6. |
 | No reader or writer configured | `503 customer_use_unavailable`; no rows, no calls |
+| A readback below the prepared or evidence block (003m1) | Stale: ignored; the state and allocation are unchanged |
+| Equal-height evidence that differs, a regression, or time not rising (003m1) | Sticky `evidence_conflict` (§5.4): no refusal, release, resend or fresh hold |
+| A reservation read after `serve_until` (003m1) | `reserved`, `serving: false`, `serve_window_passed`; `ready_now` always false |
+| Writer or reader on another network or signer (003m1) | `409 binding_mismatch` at prepare and confirm; in a step, recorded and nothing called |
 
 ## 10. Live prerequisites not met
 
-Each needs Tony's explicit yes:
+**What is already authorized and what is not (corrected in 003m1).** The code, interfaces, test
+doubles and tests for every item below are already authorized and need no further approval.
+What stays prohibited without Tony's explicit yes in chat is the live act itself: real signing
+and transactions, operator key custody, deployment, live endpoints or providers, spending, and
+any external commitment.
+
+The live prerequisites:
 1. Wallet sign-in, so a person proves their chain account. `install_key` is signed from that
    account, and use-keys are generated client-side.
 2. Platform METERING operator key custody, and transaction signing.
@@ -397,7 +445,8 @@ Each needs Tony's explicit yes:
 ## 11. Assumptions to check before any live use
 
 - **A1.** NEAR block timestamps rise strictly from block to block, so a pinned block's timestamp
-  bounds every later block. It is used only in row 7. It must be confirmed against nearcore's
+  bounds every later block. It is used in row 7 and in the evidence fence (§5.4: a higher block
+  whose time didn't rise is a conflict, so a live adapter that breaks A1 fails closed). It must be confirmed against nearcore's
   header validation before live use; until then, row 7 holds only for the synthetic transport.
 - **A2.** `get_entitlement` is read at a final block. A non-final read is refused by the reader.
 

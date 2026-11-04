@@ -11,10 +11,13 @@ import {
   type CustomerViewTransport,
   decideReservation,
   type EntitlementV3,
+  type EvidenceMark,
   type ExpectedHold,
-  meters,
+  evidenceProblem,
+  markOf,
   type PinnedBlock,
   type PlanV3,
+  platformMeters,
   readCustomerViews,
 } from "./customerRead.ts";
 import {
@@ -177,6 +180,8 @@ interface RequestRow {
   serving: number | null;
   evidence: string | null;
   evidence_height: string | null;
+  evidence_mark: string | null;
+  conflict: string | null;
   lease_gen: number;
   lease_until: number | null;
   submissions: number;
@@ -362,6 +367,43 @@ export class CustomerUses {
     return b;
   }
 
+  /**
+   * Whether the configured writer and reader serve exactly this request's network as the
+   * configured operator (003m1). A mismatch is refused before anything is called.
+   */
+  private adaptersFit(r: { network: string }) {
+    if (this.writer && (this.writer.network !== r.network || this.writer.signer !== this.operator))
+      return false;
+    if (this.reader?.network !== undefined && this.reader.network !== r.network) return false;
+    return true;
+  }
+
+  private writerFits(r: { network: string }) {
+    if (!this.adaptersFit(r))
+      bad(
+        409,
+        "The configured NEAR connection is for another network or account; nothing was sent.",
+        "binding_mismatch",
+      );
+  }
+
+  /** The last accepted evidence for a request: its mark, or (003m rows) one from its prepared block. */
+  private markFor(r: RequestRow): { mark: EvidenceMark; digestKnown: boolean } {
+    if (r.evidence_mark)
+      return { mark: JSON.parse(r.evidence_mark) as EvidenceMark, digestKnown: true };
+    const b = JSON.parse(r.prepared_block) as PinnedBlock;
+    const epochs = [0, 0, 0, 0];
+    epochs[r.key_slot] = r.key_epoch;
+    return {
+      mark: {
+        ...b,
+        digest: "",
+        summary: { reg_id: r.reg_id, hold_seq: r.hold_seq - 1, key_epochs: epochs },
+      },
+      digestKnown: false,
+    };
+  }
+
   // ---------- offers (the current owner, fenced on the control epoch) ----------
 
   private offerView(o: OfferRow) {
@@ -522,7 +564,14 @@ export class CustomerUses {
       label: l.label,
       explanation: l.explanation,
       reason: r.reason,
+      // Historical (003m1): whether the hold was serving at the evidence block. Never a
+      // capability: `ready_now` is always false here, and any dispatch revalidates afresh.
       serving: r.serving === null ? null : r.serving === 1,
+      serving_observed_at_ms: r.evidence
+        ? ((JSON.parse(r.evidence) as { block: PinnedBlock }).block.timestamp_ms ?? null)
+        : null,
+      ready_now: false,
+      evidence_conflict: r.conflict ? (JSON.parse(r.conflict) as { reason: string }).reason : null,
       notice: r.notice,
       offer_id: r.offer_id,
       reservation: {
@@ -599,6 +648,7 @@ export class CustomerUses {
     const customer = this.accountOf(viewer.id);
     if (!customer) bad(409, "You have no NEAR account linked here", "no_chain_account");
     this.binding(o);
+    this.writerFits(o);
     const read = await readCustomerViews(
       this.reader,
       o,
@@ -609,7 +659,8 @@ export class CustomerUses {
     const plan = read.plan;
     const e = read.entitlement as EntitlementV3 | null;
     // Unknown or lost authority fails closed (§6); a live deal alone never pauses service.
-    if (!meters(control, this.operator))
+    // Platform policy (narrower than the contract's owner-or-operator rule): a granted operator.
+    if (!platformMeters(control, this.operator))
       bad(
         409,
         "Everstreet can't currently serve this business's customers",
@@ -734,6 +785,10 @@ export class CustomerUses {
       if (now.state !== "active") bad(409, "This offer was withdrawn", "offer_retired");
       if (!this.releaseActive(now))
         bad(409, "This release isn't the active one", "release_not_active");
+      // Mappings rechecked after the await: a changed account or binding authorizes nothing.
+      if (this.accountOf(viewer.id) !== customer)
+        bad(409, "Your linked NEAR account changed; prepare again", "account_changed");
+      this.binding(now);
       const counts = this.db
         .prepare(
           `SELECT COUNT(*) AS total, SUM(CASE WHEN state IN (${OPEN.map(() => "?").join(",")}) THEN 1 ELSE 0 END) AS open FROM customer_requests WHERE person_id = ?`,
@@ -768,8 +823,8 @@ export class CustomerUses {
       }
       this.db
         .prepare(
-          `INSERT INTO customer_requests (id, person_id, customer_account, offer_id, business_id, idempotency_key, request_hash, input_sha, input_chars, network, account, plan_id, reg_id, key_slot, key_epoch, public_key, hold_seq, units, slot, serve_until_ms, settle_until_ms, accept_by_ms, sign_by_ms, salt, fingerprint, hold_message, use_message, envelope, envelope_digest, prepared_block, notice, state, allocation, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?, ?)`,
+          `INSERT INTO customer_requests (id, person_id, customer_account, offer_id, business_id, idempotency_key, request_hash, input_sha, input_chars, network, account, plan_id, reg_id, key_slot, key_epoch, public_key, hold_seq, units, slot, serve_until_ms, settle_until_ms, accept_by_ms, sign_by_ms, salt, fingerprint, hold_message, use_message, envelope, envelope_digest, prepared_block, evidence_height, evidence_mark, notice, state, allocation, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?, ?)`,
         )
         .run(
           id,
@@ -800,6 +855,9 @@ export class CustomerUses {
           JSON.stringify(envelope),
           digest,
           JSON.stringify(read.block),
+          // The evidence baseline (003m1): every later readback is fenced against this block.
+          read.block.height,
+          JSON.stringify(markOf(read.block, e)),
           notice,
           allocation,
           at,
@@ -871,7 +929,17 @@ export class CustomerUses {
     )
       bad(422, "The signatures don't match this request and key", "signature_invalid");
     if (!this.writer) unavailable();
+    this.writerFits(r);
     const moved = this.tx(() => {
+      // What was prepared must still be what is authorized now (003m1): the same account
+      // mapping, the offer still active, its release still the active one, the same binding.
+      if (this.accountOf(viewer.id) !== r.customer_account)
+        bad(409, "Your linked NEAR account changed; prepare again", "account_changed");
+      const o = this.offer(r.offer_id) as OfferRow;
+      if (o.state !== "active") bad(409, "This offer was withdrawn", "offer_retired");
+      if (!this.releaseActive(o))
+        bad(409, "This release isn't the active one", "release_not_active");
+      this.binding(o);
       const c = this.db
         .prepare(
           "UPDATE customer_requests SET state = 'reserve_requested', hold_sig = ?, use_sig = ?, updated_at = ? WHERE id = ? AND state = 'prepared'",
@@ -906,7 +974,7 @@ export class CustomerUses {
     for (const s of stale) this.expireIfDue(s.id);
     const due = this.db
       .prepare(
-        "SELECT id FROM customer_requests WHERE state IN ('reserve_requested','reserve_unknown') AND (lease_until IS NULL OR lease_until <= ?) ORDER BY updated_at, id LIMIT ?",
+        "SELECT id FROM customer_requests WHERE state IN ('reserve_requested','reserve_unknown') AND conflict IS NULL AND (lease_until IS NULL OR lease_until <= ?) ORDER BY updated_at, id LIMIT ?",
       )
       .all(this.now(), n) as { id: string }[];
     const results: Record<string, string> = {};
@@ -1013,6 +1081,26 @@ export class CustomerUses {
         this.db.prepare("UPDATE customer_requests SET lease_until = NULL WHERE id = ?").run(id),
       );
     let r = this.request(id) as RequestRow;
+    // A recorded evidence conflict is sticky (003m1): nothing is read, sent or decided until a
+    // later reviewed job defines how to resolve it. It never frees the allocation.
+    if (r.conflict) {
+      finish();
+      return "evidence_conflict";
+    }
+    // The adapters and binding must match this exact request before anything is called.
+    const b = this.v3.bindingFor(r.business_id);
+    if (!this.adaptersFit(r) || b?.network !== r.network || b.account !== r.account) {
+      return this.underLease(id, gen, () => {
+        this.db
+          .prepare(
+            "UPDATE customer_requests SET reason = 'binding_mismatch', lease_until = NULL, updated_at = ? WHERE id = ?",
+          )
+          .run(iso(), id);
+        this.event(id, "binding_mismatch", { lease: gen });
+      })
+        ? "binding_mismatch"
+        : "stale";
+    }
     if (r.state === "reserve_requested") {
       if (!this.writer) {
         finish();
@@ -1042,8 +1130,13 @@ export class CustomerUses {
         : "stale";
     }
     r = this.request(id) as RequestRow;
-    // An older block than our newest evidence is stale: it never moves the state.
-    if (r.evidence_height !== null && BigInt(read.block.height) < BigInt(r.evidence_height)) {
+    const e = read.entitlement ?? null;
+    // Fenced against the last accepted evidence, which starts at the prepared block (003m1).
+    const next = markOf(read.block, e);
+    const { mark: prev, digestKnown } = this.markFor(r);
+    const problem = evidenceProblem(digestKnown ? prev : { ...prev, digest: next.digest }, next);
+    // A lower block than our evidence is stale: it never moves the state.
+    if (problem === "stale") {
       return this.underLease(id, gen, () => {
         this.event(id, "stale_read", { block: read.block.height, lease: gen });
         this.db.prepare("UPDATE customer_requests SET lease_until = NULL WHERE id = ?").run(id);
@@ -1051,6 +1144,18 @@ export class CustomerUses {
         ? "stale_read"
         : "stale";
     }
+    const conflict = (reason: string) =>
+      this.underLease(id, gen, () => {
+        this.db
+          .prepare(
+            "UPDATE customer_requests SET reason = 'evidence_conflict', conflict = ?, lease_until = NULL, updated_at = ? WHERE id = ?",
+          )
+          .run(JSON.stringify({ reason, block: read.block, against: prev }), iso(), id);
+        this.event(id, "evidence_conflict", { code: reason, block: read.block.height, lease: gen });
+      })
+        ? "evidence_conflict"
+        : "stale";
+    if (problem !== null) return conflict(problem);
     const exp: ExpectedHold = {
       reg_id: r.reg_id,
       key_slot: r.key_slot,
@@ -1061,8 +1166,9 @@ export class CustomerUses {
       settle_until_ms: r.settle_until_ms,
       accept_by_ms: r.accept_by_ms,
     };
-    const e = read.entitlement ?? null;
     const d = decideReservation(exp, e, read.block.timestamp_ms);
+    // Evidence that can't follow what we allocated from is a conflict, never a decision.
+    if (d.kind === "inconsistent") return conflict(`decision_${d.reason.replace(/\W+/g, "_")}`);
     const evidence = JSON.stringify({
       block: read.block,
       decision: d.kind,
@@ -1089,14 +1195,22 @@ export class CustomerUses {
       const set = (state: State, reason: string | null, serving: number | null, free: boolean) =>
         this.db
           .prepare(
-            `UPDATE customer_requests SET state = ?, reason = ?, serving = ?, evidence = ?, evidence_height = ?, lease_until = NULL, updated_at = ?${free ? ", allocation = NULL" : ""} WHERE id = ?`,
+            `UPDATE customer_requests SET state = ?, reason = ?, serving = ?, evidence = ?, evidence_height = ?, evidence_mark = ?, lease_until = NULL, updated_at = ?${free ? ", allocation = NULL" : ""} WHERE id = ?`,
           )
-          .run(state, reason, serving, evidence, read.block.height, iso(), id);
+          .run(
+            state,
+            reason,
+            serving,
+            evidence,
+            read.block.height,
+            JSON.stringify(next),
+            iso(),
+            id,
+          );
       this.event(id, "read", { code: `${d.kind}:${d.row}`, block: read.block.height, lease: gen });
       if (d.kind === "reserved") set("reserved", d.reason, d.serving ? 1 : 0, false);
       else if (d.kind === "refused") set("refused", d.reason, null, true);
       else if (d.kind === "unresolved") set("unresolved", d.reason, null, true);
-      else if (d.kind === "inconsistent") set("reserve_unknown", "inconsistent", null, false);
       else {
         // Still acceptable: resend the identical payload, within the bounded number of attempts.
         // Server clock, as policy only: the proof of expiry is row 7's block timestamp.

@@ -179,10 +179,20 @@ describe("003m the reservation decision table (§5.2)", () => {
       blocked: null,
       row: 8,
     });
-    expect(decideReservation({ ...next, key_epoch: 2 }, consumed, ts)).toMatchObject({
+    // Row 6 (corrected in 003m1): the chain's key epoch is above ours (synthetic: revoked).
+    const c = view("consumed_20.entitlement");
+    c.keys[0] = { ...c.keys[0], state: "revoked", epoch: 2 };
+    c.key_states[0] = 2;
+    c.key_epochs[0] = 2;
+    expect(decideReservation(next, decodeEntitlement(c), ts)).toMatchObject({
       kind: "refused",
       reason: "key_changed",
       row: 6,
+    });
+    // The chain's epoch below ours is a regression, never a refusal.
+    expect(decideReservation({ ...next, key_epoch: 2 }, consumed, ts)).toMatchObject({
+      kind: "inconsistent",
+      row: 5,
     });
     expect(decideReservation(next, consumed, "1793578740001")).toMatchObject({
       kind: "refused",

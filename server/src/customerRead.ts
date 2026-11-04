@@ -4,6 +4,7 @@
 // submits or calls a network itself. Decoded values are checked against the actual contract JSON
 // (server/test/fixtures/v3/customer-readback.json, produced by the contract's unit tests).
 
+import { createHash } from "node:crypto";
 import {
   type BlockRef,
   type ControlV3,
@@ -339,7 +340,12 @@ export interface ExpectedHold {
 }
 
 export type Decision =
-  | { kind: "reserved"; serving: boolean; reason: "key_revoked" | "key_changed" | null; row: 2 | 3 }
+  | {
+      kind: "reserved";
+      serving: boolean;
+      reason: "key_revoked" | "key_changed" | "serve_window_passed" | null;
+      row: 2 | 3;
+    }
   | { kind: "refused"; reason: "superseded" | "key_changed" | "expired_unopened"; row: 4 | 6 | 7 }
   | { kind: "unresolved"; reason: "registration_changed" | "sequence_used"; row: 1 | 9 }
   | { kind: "inconsistent"; reason: string; row: 5 }
@@ -374,9 +380,13 @@ export function decideReservation(
       // 4. One sequence opens at most once: a different hold at ours means ours never opens.
       if (!same) return { kind: "refused", reason: "superseded", row: 4 };
       if (e.serve_until_ms === exp.serve_until_ms) {
-        // 2. Exactly our authorization. Serving needs the key still active at our epoch.
-        const serving = key.state === "active" && key.epoch === exp.key_epoch;
-        return { kind: "reserved", serving, reason: serving ? null : "key_changed", row: 2 };
+        // 2. Exactly our authorization. "Serving" is a fact about block B only (003m1): the key
+        //    still active at our epoch and B before serve_until (revoke_key and the hold's own
+        //    window both end serving there). It is never a capability to dispatch later.
+        const keyOk = key.state === "active" && key.epoch === exp.key_epoch;
+        const inWindow = BigInt(blockTimestampMs) < BigInt(exp.serve_until_ms);
+        const reason = !keyOk ? "key_changed" : !inWindow ? "serve_window_passed" : null;
+        return { kind: "reserved", serving: keyOk && inWindow, reason, row: 2 };
       }
       // 3. Only revoke_key lowers serve_until, and it raises the key's epoch.
       if (BigInt(e.serve_until_ms) < BigInt(exp.serve_until_ms) && key.epoch > exp.key_epoch)
@@ -390,8 +400,11 @@ export function decideReservation(
   if (e.hold_seq >= exp.hold_seq) return { kind: "unresolved", reason: "sequence_used", row: 9 };
   if (e.hold_seq < exp.hold_seq - 1)
     return { kind: "inconsistent", reason: "the hold sequence went back", row: 5 };
-  // 6. open_hold needs the key active at exactly our epoch; epochs only rise.
-  if (key.epoch !== exp.key_epoch) return { kind: "refused", reason: "key_changed", row: 6 };
+  // 6. open_hold needs the key active at exactly our epoch; epochs only rise, so a higher epoch
+  //    proves ours can't open. A lower one is a regression: evidence of another source (003m1).
+  if (key.epoch < exp.key_epoch)
+    return { kind: "inconsistent", reason: "the key epoch went back", row: 5 };
+  if (key.epoch > exp.key_epoch) return { kind: "refused", reason: "key_changed", row: 6 };
   if (key.state !== "active")
     return { kind: "inconsistent", reason: "the key is inactive at our epoch", row: 5 };
   // 7. open_hold needs serve_until ≥ now + 60 s; block time only rises (assumption A1).
@@ -407,9 +420,75 @@ export function decideReservation(
   return { kind: "pending", blocked, row: 8 };
 }
 
-/** Whether `account` holds METERING at the current generation (lib.rs `require_metering`). */
-export function meters(control: ControlV3, account: string) {
+/**
+ * The contract's own authority (lib.rs `require_metering`, unit test c01): the current owner, or
+ * an account holding METERING granted in the current generation.
+ */
+export function contractMeters(control: ControlV3, account: string) {
+  return control.owner === account || platformMeters(control, account);
+}
+
+/**
+ * The platform's narrower policy: it acts only as an explicitly granted METERING operator of the
+ * current generation, never through owner authority (it never holds an owner key). Admission
+ * uses this; it is an app policy, not a contract rule.
+ */
+export function platformMeters(control: ControlV3, account: string) {
   return control.operators.some(
     (o) => o.account === account && (o.caps & 1) !== 0 && o.generation === control.generation,
   );
+}
+
+// ---------- evidence fencing (job 003m1) ----------
+
+/** The facts of one accepted readback that later evidence must be consistent with. */
+export interface EvidenceMark {
+  height: string;
+  hash: string;
+  timestamp_ms: string;
+  /** sha256 of the decoded entitlement (our own canonical decoding). */
+  digest: string;
+  /** What may only rise: registration, then (within it) hold sequence and each key's epoch. */
+  summary: { reg_id: string; hold_seq: number; key_epochs: number[] } | null;
+}
+
+export function markOf(block: PinnedBlock, e: EntitlementV3 | null): EvidenceMark {
+  return {
+    height: block.height,
+    hash: block.hash,
+    timestamp_ms: block.timestamp_ms,
+    digest: createHash("sha256").update(JSON.stringify(e)).digest("hex"),
+    summary: e
+      ? { reg_id: e.reg_id, hold_seq: e.hold_seq, key_epochs: e.keys.map((k) => k.epoch) }
+      : null,
+  };
+}
+
+/**
+ * How a new readback relates to the last accepted one: `stale` (a lower block: ignored),
+ * `null` (acceptable), or a conflict reason. An equal block must be identical in hash, time and
+ * content; a higher block must have a later time (assumption A1) and no regression. A conflict is
+ * evidence of an unreliable source; it never proves anything about the hold.
+ */
+export function evidenceProblem(prev: EvidenceMark, next: EvidenceMark): "stale" | string | null {
+  const h = BigInt(next.height);
+  const p = BigInt(prev.height);
+  if (h < p) return "stale";
+  if (h === p) {
+    if (next.hash !== prev.hash) return "equal_height_hash_differs";
+    if (next.timestamp_ms !== prev.timestamp_ms) return "equal_block_time_differs";
+    if (next.digest !== prev.digest) return "equal_block_view_differs";
+    return null;
+  }
+  if (BigInt(next.timestamp_ms) <= BigInt(prev.timestamp_ms)) return "block_time_not_rising";
+  const a = prev.summary;
+  const b = next.summary;
+  if (a && b) {
+    if (BigInt(b.reg_id) < BigInt(a.reg_id)) return "registration_regressed";
+    if (b.reg_id === a.reg_id) {
+      if (b.hold_seq < a.hold_seq) return "hold_sequence_regressed";
+      if (b.key_epochs.some((x, i) => x < (a.key_epochs[i] ?? 0))) return "key_epoch_regressed";
+    }
+  }
+  return null;
 }
