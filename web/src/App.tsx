@@ -9,6 +9,7 @@ import { AcquireListing } from "./pages/AcquireListing.tsx";
 import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
 import { BuildHome } from "./pages/Build.tsx";
+import { Continuity } from "./pages/Continuity.tsx";
 import { DealPage } from "./pages/Deal.tsx";
 import { DeskList, DeskPage } from "./pages/Desk.tsx";
 import { DeskSale } from "./pages/DeskSale.tsx";
@@ -184,6 +185,12 @@ function Routes() {
   if (path === "/desk") return <DeskList />;
   const value = match("/desk/:id/value", path);
   if (value) return <Value id={value.id as string} />;
+  const continuity = match("/desk/:id/continuity", path);
+  // Keyed by who is acting and which business (job 003j): another person starts clean.
+  if (continuity)
+    return (
+      <Continuity key={`${person?.id ?? "anon"}:${continuity.id}`} id={continuity.id as string} />
+    );
   const sale = match("/desk/:id/sale", path);
   if (sale) return <DeskSale id={sale.id as string} />;
   const helping = match("/help/:id", path);

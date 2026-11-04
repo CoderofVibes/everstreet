@@ -209,6 +209,9 @@ export function DeskPage({ id }: { id: string }) {
         <Link to={`/desk/${b.id}/value`} className="btn btn-secondary">
           Value
         </Link>
+        <Link to={`/desk/${b.id}/continuity`} className="btn btn-secondary">
+          Ownership and continuity
+        </Link>
         {desk.project_id && (
           <Link to={`/studio/${desk.project_id}`} className="btn btn-secondary">
             Edit in studio

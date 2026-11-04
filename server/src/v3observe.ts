@@ -511,23 +511,33 @@ export class V3Observations {
   /** The owner's view of what has been observed. */
   view(viewer: Person, businessId: string) {
     const business = this.store.ownedBusiness(viewer, businessId);
+    // Job 003j: every state names the control epoch it was read under, so a page can drop what
+    // it shows when the business changes hands (or comes back), and fence late answers.
+    const owner_epoch = `${business.owner_id}:${this.store.controlEpoch(viewer, businessId).generation}`;
     const binding = this.bindings.get(businessId);
     if (!binding)
       return {
         state: "unbound" as const,
+        owner_epoch,
         message:
           "This business isn't connected to a v3 contract here; its existing records are unchanged.",
       };
     if (this.upgradeError)
       return {
         state: "paused" as const,
+        owner_epoch,
         code: "format_upgrade_failed",
         message: MESSAGES.format_upgrade_failed,
       };
     const proj = this.projection(businessId);
     const transport = this.opts.transport ? "configured" : "unavailable";
     if (!proj)
-      return { state: "never_observed" as const, binding: this.bindingView(binding), transport };
+      return {
+        state: "never_observed" as const,
+        owner_epoch,
+        binding: this.bindingView(binding),
+        transport,
+      };
     const row = this.db
       .prepare("SELECT snapshot, observed_at FROM v3_observations WHERE id = ?")
       .get(proj.observation_id) as { snapshot: string; observed_at: string };
@@ -540,6 +550,10 @@ export class V3Observations {
     const bindingMatches = binding.network === proj.network && binding.account === proj.account;
     return {
       state: "observed" as const,
+      owner_epoch,
+      /** When this answer was made, by the server's clock, and the age past which it is stale. */
+      served_at: new Date(this.clock()).toISOString(),
+      stale_after_ms: staleAfter,
       binding: this.bindingView(binding),
       binding_matches_record: bindingMatches,
       transport,

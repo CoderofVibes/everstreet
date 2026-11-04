@@ -1146,3 +1146,40 @@ describe("003h1 trusted setup is validated at construction", () => {
     ).not.toThrow();
   });
 });
+
+describe("003j the view carries what the owner page needs to stay truthful", () => {
+  it("every state names its control epoch; observed views carry the server time and stale threshold", async () => {
+    let t = Date.parse("2026-11-03T10:00:00.000Z");
+    const w = world({ now: () => t });
+    // Unbound (Ana's own business has no binding) and never observed.
+    expect((await w.a(`/api/businesses/${w.other}/v3`)).body).toMatchObject({
+      state: "unbound",
+      owner_epoch: `${w.ana.id}:0`,
+    });
+    expect((await w.m(`/api/businesses/${w.bid}/v3`)).body).toMatchObject({
+      state: "never_observed",
+      owner_epoch: `${w.mara.id}:0`,
+    });
+    // Refresh one month, then reload: the evidence persists with its own times.
+    await w.m(`/api/businesses/${w.bid}/v3/refresh`, "POST", { period: 202611 });
+    t += 5 * 60_000;
+    const v = (await w.m(`/api/businesses/${w.bid}/v3`)).body;
+    expect(v).toMatchObject({
+      state: "observed",
+      owner_epoch: `${w.mara.id}:0`,
+      served_at: "2026-11-03T10:05:00.000Z",
+      observed_at: "2026-11-03T10:00:00.000Z",
+      stale_after_ms: 600_000,
+      periods: [
+        expect.objectContaining({ yyyymm: 202611, observed_at: "2026-11-03T10:00:00.000Z" }),
+      ],
+    });
+    // An unrelated person is refused, and a change of hands (even back) changes the epoch.
+    expect((await w.a(`/api/businesses/${w.bid}/v3`)).status).toBe(404);
+    w.transfer(w.mara.id, w.ana.id);
+    w.transfer(w.ana.id, w.mara.id);
+    const back = (await w.m(`/api/businesses/${w.bid}/v3`)).body;
+    expect(back.owner_epoch).not.toBe(v.owner_epoch);
+    expect(back.owner_epoch.startsWith(`${w.mara.id}:`)).toBe(true);
+  });
+});
