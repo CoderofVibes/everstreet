@@ -1,1 +1,3 @@
 *.cmd text eol=crlf
+# Job 002e: the worker host files run inside Linux; CRLF would break `#!/bin/sh` and sudoers.
+scripts/worker-host/** text eol=lf

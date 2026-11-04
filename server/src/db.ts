@@ -338,6 +338,39 @@ CREATE TRIGGER IF NOT EXISTS build_artifacts_no_update BEFORE UPDATE ON build_ar
 BEGIN SELECT RAISE(ABORT, 'build artifacts are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS build_artifacts_no_delete BEFORE DELETE ON build_artifacts
 BEGIN SELECT RAISE(ABORT, 'build artifacts are immutable'); END;
+-- Job 002e: isolated logic checks of a web app version. Execution records, kept apart from the
+-- generation (build_jobs/build_artifacts) they check; a retry is a new row, never a new generation.
+CREATE TABLE IF NOT EXISTS app_checks (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id), job_id TEXT NOT NULL REFERENCES build_jobs(id),
+  digest TEXT NOT NULL, recipe TEXT NOT NULL, idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL,
+  requested_by TEXT NOT NULL REFERENCES people(id), owner_id TEXT NOT NULL REFERENCES people(id),
+  owner_generation INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('queued','running','passed','failed','cancelled','unavailable','unknown')),
+  attempt INTEGER NOT NULL DEFAULT 0, lease_owner TEXT, lease_expires_at TEXT, dispatched_at TEXT,
+  cancel_requested_at TEXT, engine TEXT, result TEXT, failure_code TEXT, failure_detail TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT,
+  UNIQUE (project_id, idempotency_key)
+) STRICT;
+CREATE INDEX IF NOT EXISTS app_checks_state ON app_checks(state, created_at);
+CREATE INDEX IF NOT EXISTS app_checks_job ON app_checks(job_id, created_at);
+-- The project's current app version: an append-only pointer (restore adds a row).
+CREATE TABLE IF NOT EXISTS app_versions (
+  project_id TEXT NOT NULL REFERENCES product_projects(id), seq INTEGER NOT NULL,
+  job_id TEXT NOT NULL REFERENCES build_jobs(id), set_by TEXT NOT NULL REFERENCES people(id),
+  note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, PRIMARY KEY (project_id, seq)
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS app_versions_no_update BEFORE UPDATE ON app_versions
+BEGIN SELECT RAISE(ABORT, 'app version history is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS app_versions_no_delete BEFORE DELETE ON app_versions
+BEGIN SELECT RAISE(ABORT, 'app version history is append-only'); END;
+-- Preview capabilities: only the token's hash, bound to one version, owner epoch and expiry.
+CREATE TABLE IF NOT EXISTS app_preview_tokens (
+  token_hash TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id), job_id TEXT NOT NULL REFERENCES build_jobs(id),
+  digest TEXT NOT NULL, owner_id TEXT NOT NULL REFERENCES people(id), owner_generation INTEGER NOT NULL,
+  issued_to TEXT NOT NULL REFERENCES people(id), expires_ms INTEGER NOT NULL, created_at TEXT NOT NULL
+) STRICT;
 -- Job 002c: running a product. Its own budget and ledger, never summed with build usage.
 CREATE TABLE IF NOT EXISTS runtime_budgets (
   business_id TEXT PRIMARY KEY REFERENCES businesses(id),

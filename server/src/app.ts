@@ -4,6 +4,8 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { Acquisitions, type Criteria, interpretAcquire } from "./acquire.ts";
+import { AppChecks } from "./appChecks.ts";
+import { AppVersions } from "./appVersions.ts";
 import { Authoring } from "./authoring.ts";
 import { type BookingProvider, Bookings } from "./bookings.ts";
 import { BOOKS_BASIS, Books } from "./books.ts";
@@ -58,6 +60,15 @@ export interface AppOptions {
    * the platform's METERING account. Unset: customer use answers unavailable and does nothing.
    */
   customer?: CustomerUseOptions;
+  /** Job 002e: web app logic checks; tests and previews pass their own to share with a worker. */
+  appChecks?: AppChecks;
+  /**
+   * Job 002e: where previews are served from (a different site from the platform, e.g.
+   * http://localhost:PORT when the platform is opened at http://127.0.0.1:PORT) and the platform's
+   * own origin (for frame-ancestors). Without both, preview answers unavailable.
+   */
+  previewOrigin?: string;
+  platformOrigin?: string;
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -93,6 +104,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const deals = payments
     ? new Deals(store.db, store, payments, acquire, options.chain ?? null)
     : null;
+  // Job 002e: web app versions, isolated logic checks and preview capabilities.
+  const appChecks = options.appChecks ?? new AppChecks(store.db, store);
+  const appVersions =
+    options.previewOrigin && options.platformOrigin
+      ? new AppVersions(store, appChecks, {
+          previewOrigin: options.previewOrigin,
+          platformOrigin: options.platformOrigin,
+          now: () => appChecks.now(),
+        })
+      : null;
+  const versionsOrRead = () =>
+    appVersions ?? new AppVersions(store, appChecks, { previewOrigin: "", platformOrigin: "" });
   const needDeals = () => {
     if (!deals)
       throw new HttpError(409, "Deals need payments on NEAR, which aren't connected here");
@@ -405,6 +428,57 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/builds/:id/retry", async (c) => {
     const { job, created } = builds.retry(me(c), c.req.param("id"), await body(c));
     return c.json({ job, created }, created ? 201 : 200);
+  });
+
+  // Job 002e: web app versions, isolated logic checks and previews (owner only; 404 otherwise).
+  app.get("/api/product-projects/:id/app-versions", (c) =>
+    c.json({
+      ...versionsOrRead().list(me(c).id, c.req.param("id")),
+      checks: appChecks.list(me(c).id, c.req.param("id")),
+      preview_available: appVersions !== null,
+    }),
+  );
+  app.get("/api/product-projects/:id/app-versions/:job", (c) =>
+    c.json({ bundle: versionsOrRead().files(me(c).id, c.req.param("id"), c.req.param("job")) }),
+  );
+  app.post("/api/product-projects/:id/app-versions/:job/current", async (c) => {
+    const b = await body<{ note?: unknown }>(c);
+    return c.json(
+      versionsOrRead().setCurrent(me(c).id, c.req.param("id"), c.req.param("job"), b.note),
+    );
+  });
+  app.post("/api/product-projects/:id/app-versions/:job/checks", async (c) => {
+    const b = await body<{ idempotency_key?: unknown }>(c);
+    const { check, created } = appChecks.request(
+      me(c).id,
+      c.req.param("id"),
+      c.req.param("job"),
+      b.idempotency_key,
+    );
+    return c.json({ check }, created ? 201 : 200);
+  });
+  app.post("/api/app-checks/:id/cancel", (c) =>
+    c.json({ check: appChecks.cancel(me(c).id, c.req.param("id")) }),
+  );
+  app.post("/api/product-projects/:id/app-versions/:job/preview", async (c) => {
+    if (!appVersions)
+      throw new HttpError(
+        409,
+        "Preview isn't available here: no separate preview origin is configured.",
+      );
+    const b = await body<{ unchecked?: unknown }>(c);
+    return c.json(
+      appVersions.issuePreview(me(c).id, c.req.param("id"), c.req.param("job"), b.unchecked),
+      201,
+    );
+  });
+  // Served by capability token alone: no cookie is read for authority and none is set.
+  app.get("/preview/app/:token/*", (c) => {
+    if (!appVersions) return c.text("Not found", 404);
+    const token = c.req.param("token");
+    const path = decodeURIComponent(c.req.path.slice(`/preview/app/${token}/`.length));
+    const r = appVersions.serve(token, path);
+    return new Response(r.body, { status: r.status, headers: r.headers });
   });
   app.get("/api/businesses/:id/build-budget", (c) =>
     c.json(builds.budget(me(c), c.req.param("id"))),
