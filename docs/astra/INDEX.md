@@ -2,6 +2,9 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Operating workspace review](2026-11-04_OperatingWorkspaceReview.md) |1047 checks; actual charts/drafts/identity/keyboard/empty; phone overflow found and CSS corrected |001h partial review;005b next; broad/live gates open |
+| 2026-11-04 | [Operating network plan](2026-11-04_OperatingNetworkPlan.md) | Source-grounded005c expert profile/request/delivery workflow; M2 isolation gaps retained |001h sole builder live;005c queued after UI/004b |
+| 2026-11-04 | [Helper read authority](2026-11-04_HelperReadAuthorityReview.md) | Actual revoked helper GET returns private inquiry; normal account switch safely leaves page |005b queued after active001h; no duplicate writer |
 | 2026-11-04 | [Legacy disclosure accepted](2026-11-04_LegacyDisclosureAccepted.md) |1037 tests; actual room/export match,1440/390, small/large/zero; temporal inference limits corrected |003u2 accepted;001h next; all live gates open |
 | 2026-11-04 | [Import recovery repeat](2026-11-04_ImportRecoveryRepeat.md) | Actual Save404/recheck503 settles; draft retained, Check access/save/reopen pass at390; remaining action paths explicit |003u2 sole writer active;004a3 partial browser gate advanced |
 | 2026-11-04 | [Studio phone and demand recovery](2026-11-04_StudioPhoneAndDemandReview.md) |1028 checks; phone edit/focus/long tools/save pass; demand original recovery preserves newer typing |001g1 accepted;003u2 next; broader gates remain |
@@ -51,4 +54,7 @@
 | 2026-11-01 | [Intact businesses and living profiles](2026-11-01_IntactProfiles.md) | Extends Launch pad: business continuity from activation, profitable API and customer-cooperative journeys, living profiles and social layer, computed financials and valuation, owner rules, seven wireframes, v2 requirements and eight-phase update | Proposal complete; six Tony decisions with recommendations |
 | 2026-11-01 | [Launch pad](2026-11-01_LaunchPad.md) | Launch-first product: founder journey from idea to first customers, profiles and distribution, early valuations, acquisitions, service discovery, NEAR architecture, mobile UI and phased build order | Proposal complete; five Tony decisions with recommendations |
 | 2026-11-01 | [Platform vision](2026-11-01_PlatformVision.md) | Full platform: founder and customer journeys, acquisitions and valuations, NEAR architecture, UI, bold extensions and phased build order | Proposal complete; Tony decisions open |
+
+
+
 
