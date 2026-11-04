@@ -29,16 +29,25 @@ export interface MarketLine {
   example: boolean;
 }
 
-/** One listing's honest summary. */
+const OPEN = "Open for customers";
+
+/**
+ * One listing's honest summary. Job 001f1: its status agrees with the Explore tab the server puts
+ * it in (community.ts exploreClass). A mixed business whose digital product is not open but whose
+ * legacy offering takes requests is open, and says which part is.
+ */
 export function marketLine(b: PublicBusiness): MarketLine {
   const by = `by ${b.founder.display_name}`;
   if (b.digital) {
     const d = b.digital;
+    const legacyOpen = d.availability !== "available" && b.action.kind === "question";
     return {
-      status: AVAILABILITY_LABEL[d.availability],
-      tone: d.availability === "available" ? "success" : "caution",
+      status: legacyOpen ? OPEN : AVAILABILITY_LABEL[d.availability],
+      tone: d.availability === "available" || legacyOpen ? "success" : "caution",
       line: d.headline,
-      detail: d.capabilities[0] ?? null,
+      detail: legacyOpen
+        ? `${b.offer?.title ?? "Its offering"} takes requests now; the digital product is not open for use yet.`
+        : (d.capabilities[0] ?? null),
       meta: [d.products[0]?.family_label ?? FAMILY_LABEL[b.family], by].join(" · "),
       example: Boolean(d.example),
     };
@@ -50,8 +59,16 @@ export function marketLine(b: PublicBusiness): MarketLine {
         ? `${money(b.offer.price_cents)} ${b.offer.price_unit}`
         : null
     : null;
+  // Taking requests: its stage once launched or growing; an earlier stage label ("Shaping",
+  // "Testing interest") would contradict the Open tab, so it reads Open for customers.
+  const later = b.stage === "launch" || b.stage === "grow";
   return {
-    status: b.action.kind === "interest" ? "Testing interest" : (STAGE_LABEL[b.stage] ?? "Open"),
+    status:
+      b.action.kind === "interest"
+        ? "Testing interest"
+        : later
+          ? (STAGE_LABEL[b.stage] ?? OPEN)
+          : OPEN,
     tone: b.action.kind === "interest" ? "caution" : "neutral",
     line: b.offer?.title ?? null,
     detail: null,

@@ -1,10 +1,19 @@
-// Explore: a street of things starting. Starting now (testing interest), Open for customers,
-// What people need (needs someone chose to publish), and Following.
+// Explore: a street of things starting. Starting now (not open to customers yet), Open for
+// customers (usable now or taking requests; job 001f1), What people need (needs someone chose to
+// publish), and Following.
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { api, type Need, type PublicBusiness, type Update } from "../api.ts";
-import { marketOrder } from "../discover.ts";
-import { AVAILABILITY_LABEL } from "../publication.ts";
+import { marketLine, marketOrder } from "../discover.ts";
+import {
+  EXPLORE_TABS,
+  type ExploreTab,
+  exploreTabKey,
+  type FollowSlot,
+  feedView,
+  followingFor,
+} from "../exploreView.ts";
+import { initialLoad, type LoadState, latestLoader } from "../latestLoad.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, money } from "../ui.tsx";
@@ -20,6 +29,7 @@ export function Tile({
   via?: string;
   why?: string;
 }) {
+  const m = marketLine(b);
   const price = b.offer
     ? b.offer.first_free
       ? "First one free"
@@ -32,16 +42,10 @@ export function Tile({
       <Link to={`/b/${b.slug}?via=${via}`} className="card link">
         <div className="row" style={{ marginBottom: 8 }}>
           <span className="pill">{FAMILY_LABEL[b.family]}</span>
-          {/* Job 001d: a digital profile's availability comes from its active offers. */}
-          {b.digital ? (
-            <span className={`pill ${b.digital.availability === "available" ? "lime" : "caution"}`}>
-              {AVAILABILITY_LABEL[b.digital.availability]}
-            </span>
-          ) : b.action.kind === "interest" ? (
-            <span className="pill caution">Testing interest</span>
-          ) : (
-            <span className="pill lime">Open for customers</span>
-          )}
+          {/* Job 001d: a digital profile's availability comes from its active offers. Job 001f1:
+              the same status as every other listing (marketLine), so Find and a person's page
+              agree with Explore. */}
+          <span className={`pill ${m.tone === "caution" ? "caution" : "lime"}`}>{m.status}</span>
           {b.new_here && <span className="pill">New here</span>}
         </div>
         <h3 style={{ fontSize: 18, marginBottom: 4 }}>{b.name}</h3>
@@ -192,36 +196,66 @@ export function NeedCard({
   );
 }
 
-type Tab = "starting" | "open" | "needs" | "following";
+type Feed = Awaited<ReturnType<typeof api.exploreFeed>>;
+type Following = { following: { name: string; slug: string }[]; feed: Update[] };
+
+const TAB_LABEL: Record<ExploreTab, string> = {
+  starting: "Starting now",
+  open: "Open for customers",
+  needs: "What people need",
+  following: "Following",
+};
 
 export function Explore() {
   const { person, requireSignIn } = useSession();
-  const [tab, setTab] = useState<Tab>("starting");
-  const [data, setData] = useState<Awaited<ReturnType<typeof api.exploreFeed>> | null>(null);
-  const [feed, setFeed] = useState<{
-    following: { name: string; slug: string }[];
-    feed: Update[];
-  } | null>(null);
+  const who = person?.id ?? null;
+  const [tab, setTab] = useState<ExploreTab>("starting");
+  const tabRefs = useRef<Partial<Record<ExploreTab, HTMLButtonElement | null>>>({});
+  // Job 001f1: the feed settles into data or an honest retry; it never stays Loading on error.
+  const [load, setLoad] = useState<LoadState<Feed>>(initialLoad);
+  const [feedTry, setFeedTry] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: feedTry is the retry trigger.
   useEffect(() => {
-    api
-      .exploreFeed()
-      .then(setData)
-      .catch(() => {});
-  }, []);
+    setLoad((s) => ({ ...s, error: null, status: "loading" }));
+    const l = latestLoader(api.exploreFeed, (p) => setLoad((s) => ({ ...s, ...p })));
+    l.load();
+    return () => l.close();
+  }, [feedTry]);
+  // Job 001f1: the Following feed is the signed-in account's; another account never sees it.
+  const [follow, setFollow] = useState<FollowSlot<Following>>({ who: null, state: initialLoad() });
+  const [followTry, setFollowTry] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: followTry is the retry trigger.
   useEffect(() => {
-    if (tab === "following" && person)
-      api
-        .activity()
-        .then((a) => setFeed({ following: a.following, feed: a.feed }))
-        .catch(() => {});
-  }, [tab, person]);
+    if (tab !== "following" || !who) return;
+    setFollow((f) =>
+      f.who === who
+        ? { who, state: { ...f.state, error: null, status: "loading" } }
+        : { who, state: initialLoad() },
+    );
+    const l = latestLoader(
+      () => api.activity().then((a) => ({ following: a.following, feed: a.feed })),
+      (p) => setFollow((f) => (f.who === who ? { who, state: { ...f.state, ...p } } : f)),
+    );
+    l.load();
+    return () => l.close();
+  }, [tab, who, followTry]);
+  const following = followingFor(follow, who);
 
-  const tabs: [Tab, string, number | undefined][] = [
-    ["starting", "Starting now", data?.starting.length],
-    ["open", "Open for customers", data?.open.length],
-    ["needs", "What people need", data?.needs.length],
-    ["following", "Following", undefined],
-  ];
+  const data = load.data;
+  const counts: Record<ExploreTab, number | undefined> = {
+    starting: data?.starting.length,
+    open: data?.open.length,
+    needs: data?.needs.length,
+    following: undefined,
+  };
+  const onTabKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const next = exploreTabKey(tab, e.key);
+    if (!next) return;
+    e.preventDefault();
+    setTab(next);
+    tabRefs.current[next]?.focus();
+  };
+  const view = feedView(load);
   return (
     <div className="page">
       <div className="eyebrow">Explore</div>
@@ -230,104 +264,173 @@ export function Explore() {
         New businesses testing an idea, ones you can use today, and things people have asked for.
         Nobody pays to appear here.
       </p>
-      <div className="tabs" role="tablist">
-        {tabs.map(([id, label, n]) => (
+      <div className="tabs" role="tablist" aria-label="Explore">
+        {EXPLORE_TABS.map((id) => (
           <button
             key={id}
+            ref={(el) => {
+              tabRefs.current[id] = el;
+            }}
+            id={`explore-tab-${id}`}
             type="button"
             role="tab"
             aria-selected={tab === id}
+            aria-controls={`explore-panel-${id}`}
+            tabIndex={tab === id ? 0 : -1}
             className={`tab${tab === id ? " active" : ""}`}
             onClick={() => setTab(id)}
+            onKeyDown={onTabKey}
           >
-            {label}
-            {n !== undefined ? ` (${n})` : ""}
+            {TAB_LABEL[id]}
+            {counts[id] !== undefined ? ` (${counts[id]})` : ""}
           </button>
         ))}
       </div>
-      {!data ? (
-        <p className="muted">Loading…</p>
-      ) : tab === "starting" ? (
-        data.starting.length === 0 ? (
-          <div className="card empty">
-            <h2>Nothing testing right now</h2>
-            <p>Ideas looking for their first interested people show up here.</p>
+      <div
+        role="tabpanel"
+        id={`explore-panel-${tab}`}
+        aria-labelledby={`explore-tab-${tab}`}
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a tab panel takes focus (WAI-ARIA tabs).
+        tabIndex={0}
+      >
+        {tab === "following" ? null : view === "loading" ? (
+          <p className="muted">Loading…</p>
+        ) : view === "failed" || !data ? (
+          <div className="card empty" role="alert">
+            <h2>Couldn't load Explore just now</h2>
+            <p>Nothing here has changed; this page just couldn't reach the street. {load.error}</p>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setFeedTry((n) => n + 1)}
+            >
+              Try again
+            </button>
           </div>
-        ) : (
-          <>
-            <p className="muted">
-              These are still being shaped: you can tell the founder you're interested, but nothing
-              can be booked yet.
-            </p>
-            <MarketList list={marketOrder(data.starting)} />
-          </>
-        )
-      ) : tab === "open" ? (
-        data.open.length === 0 ? (
-          <div className="card empty">
-            <h2>Nothing open yet</h2>
-          </div>
-        ) : (
-          <MarketList list={marketOrder(data.open)} />
-        )
-      ) : tab === "needs" ? (
-        <>
-          <div className="row" style={{ marginBottom: 16 }}>
-            <p className="muted" style={{ margin: 0, flex: 1 }}>
-              Requests people chose to publish. Who posted them stays private; founders can reply
-              when allowed. Private searches never appear here.
-            </p>
-            <Link to="/opportunities" className="btn btn-primary">
-              Build for these
-            </Link>
-            <Link to="/find" className="btn btn-secondary">
-              Post a need
-            </Link>
-          </div>
-          {data.needs.length === 0 ? (
+        ) : tab === "starting" ? (
+          data.starting.length === 0 ? (
             <div className="card empty">
-              <h2>No open requests</h2>
+              <h2>Nothing starting right now</h2>
+              <p>
+                Ideas looking for their first interested people, and products not open yet, show up
+                here.
+              </p>
             </div>
           ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {data.needs.map((n) => (
-                <NeedCard key={n.id} n={n} />
-              ))}
+            <>
+              <p className="muted">
+                Not open to customers yet: ideas testing interest, and digital products that are
+                still being built or aren't taking new customers. Follow one, or tell the founder
+                you're interested.
+              </p>
+              <MarketList list={marketOrder(data.starting)} />
+            </>
+          )
+        ) : tab === "open" ? (
+          data.open.length === 0 ? (
+            <div className="card empty">
+              <h2>Nothing open yet</h2>
+              <p>Products you can use now, and offerings taking requests, show up here.</p>
             </div>
-          )}
-        </>
-      ) : !person ? (
-        <div className="card empty">
-          <h2>Follow businesses to see their updates here</h2>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => requireSignIn("Join to follow businesses.")}
-          >
-            Sign in or join
-          </button>
-        </div>
-      ) : !feed ? (
-        <p className="muted">Loading…</p>
-      ) : feed.feed.length === 0 ? (
-        <div className="card empty">
-          <h2>
-            {feed.following.length === 0 ? "You're not following anyone yet" : "No updates yet"}
-          </h2>
-          <p>Tap Follow on a business page to see its updates here, newest first.</p>
-        </div>
-      ) : (
-        <div className="card">
-          {feed.feed.map((u) => (
-            <div className="message" key={u.id}>
-              <div className="meta">
-                <Link to={`/b/${u.slug}?via=follow`}>{u.business_name}</Link> · {ago(u.created_at)}
+          ) : (
+            <>
+              <p className="muted">
+                You can use these now, or ask about them. A business with a digital product and
+                another offering is here when either part is open, listed once.
+              </p>
+              <MarketList list={marketOrder(data.open)} />
+            </>
+          )
+        ) : tab === "needs" ? (
+          <>
+            <div className="row" style={{ marginBottom: 16 }}>
+              <p className="muted" style={{ margin: 0, flex: 1 }}>
+                Requests people chose to publish. Who posted them stays private; founders can reply
+                when allowed. Private searches never appear here.
+              </p>
+              <Link to="/opportunities" className="btn btn-primary">
+                Build for these
+              </Link>
+              <Link to="/find" className="btn btn-secondary">
+                Post a need
+              </Link>
+            </div>
+            {data.needs.length === 0 ? (
+              <div className="card empty">
+                <h2>No open requests</h2>
               </div>
-              <p style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{u.body}</p>
-            </div>
-          ))}
+            ) : (
+              <div style={{ display: "grid", gap: 12 }}>
+                {data.needs.map((n) => (
+                  <NeedCard key={n.id} n={n} />
+                ))}
+              </div>
+            )}
+          </>
+        ) : null}
+        {tab === "following" && (
+          <FollowingPanel
+            signedIn={Boolean(person)}
+            state={following}
+            onJoin={() => requireSignIn("Join to follow businesses.")}
+            onRetry={() => setFollowTry((n) => n + 1)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FollowingPanel({
+  signedIn,
+  state,
+  onJoin,
+  onRetry,
+}: {
+  signedIn: boolean;
+  state: LoadState<Following>;
+  onJoin: () => void;
+  onRetry: () => void;
+}) {
+  if (!signedIn)
+    return (
+      <div className="card empty">
+        <h2>Follow businesses to see their updates here</h2>
+        <button type="button" className="btn btn-primary" onClick={onJoin}>
+          Sign in or join
+        </button>
+      </div>
+    );
+  const view = feedView(state);
+  const f = state.data;
+  if (view === "loading") return <p className="muted">Loading…</p>;
+  if (view === "failed" || !f)
+    return (
+      <div className="card empty" role="alert">
+        <h2>Couldn't load your updates just now</h2>
+        <p>{state.error}</p>
+        <button type="button" className="btn btn-secondary" onClick={onRetry}>
+          Try again
+        </button>
+      </div>
+    );
+  if (f.feed.length === 0)
+    return (
+      <div className="card empty">
+        <h2>{f.following.length === 0 ? "You're not following anyone yet" : "No updates yet"}</h2>
+        <p>Tap Follow on a business page to see its updates here, newest first.</p>
+      </div>
+    );
+  return (
+    <div className="card">
+      {f.feed.map((u) => (
+        <div className="message" key={u.id}>
+          <div className="meta">
+            <Link to={`/b/${u.slug}?via=follow`}>{u.business_name}</Link> · {ago(u.created_at)}
+          </div>
+          <p style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{u.body}</p>
         </div>
-      )}
+      ))}
     </div>
   );
 }

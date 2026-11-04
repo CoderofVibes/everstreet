@@ -98,6 +98,25 @@ function check(b: PublicPage, c: Constraints) {
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/**
+ * Job 001f1: which Explore tab a published business belongs in, and why. Exactly one tab each.
+ * - Digital: open while the reviewed release of some listed product has an active offer (the same
+ *   predicate as the storefront's "Available to use" and its Use entry); otherwise coming soon,
+ *   which covers in development, not yet offered and retired offers.
+ * - Legacy: open when its offering takes requests (action "question"), else testing interest.
+ * - Mixed (a digital section and a legacy offering): open if either part is open, because a
+ *   customer can do something now; digital is named first when both are. The legacy action is
+ *   never altered to fit this rule.
+ */
+export function exploreClass(b: PublicPage): {
+  tab: "open" | "starting";
+  reason: "digital_available" | "legacy_open" | "digital_coming_soon" | "legacy_interest";
+} {
+  if (b.digital?.availability === "available") return { tab: "open", reason: "digital_available" };
+  if (b.action.kind === "question") return { tab: "open", reason: "legacy_open" };
+  return { tab: "starting", reason: b.digital ? "digital_coming_soon" : "legacy_interest" };
+}
+
 export class Community {
   constructor(
     private readonly db: Db,
@@ -442,10 +461,14 @@ export class Community {
   // ---------- explore and profiles ----------
 
   explore() {
-    const pages = this.published().map((b) => ({ ...b, new_here: this.isNew(b) }));
+    const pages = this.published().map((b) => ({
+      ...b,
+      new_here: this.isNew(b),
+      explore: exploreClass(b),
+    }));
     return {
-      starting: pages.filter((b) => b.action.kind === "interest"),
-      open: pages.filter((b) => b.action.kind === "question"),
+      starting: pages.filter((b) => b.explore.tab === "starting"),
+      open: pages.filter((b) => b.explore.tab === "open"),
       needs: this.openNeeds(),
     };
   }

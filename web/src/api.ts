@@ -161,6 +161,11 @@ export interface PublicBusiness {
   met?: string[];
   unknown_constraints?: string[];
   new_here?: boolean;
+  /** Job 001f1: Explore only. Which tab and why (server community.ts exploreClass). */
+  explore?: {
+    tab: "open" | "starting";
+    reason: "digital_available" | "legacy_open" | "digital_coming_soon" | "legacy_interest";
+  };
   sessions?: PublicSession[];
   bookings_connected?: boolean;
   payments?: BusinessPayments | null;

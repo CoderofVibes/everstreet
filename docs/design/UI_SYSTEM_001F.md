@@ -65,9 +65,11 @@ The dark left rail is replaced by a spacious, glass, sticky header.
   acting-context menu (profile, local fictional-person switch, sign out).
 - **Contextual secondary navigation:** a compact row under the header, shown for the active
   destination.
-- **Mobile, ≤ 760 px:** the header keeps the wordmark, the four destinations as a labelled
-  segmented row, and a **Menu** button that discloses the contextual links and utilities (focus
-  moves in, Escape returns). Nothing overflows horizontally.
+- **Compact, ≤ 980 px** (phones and narrow tablets; `styles.css` header block): the header keeps
+  the wordmark, the four destinations as a labelled segmented row, and a **Menu** button that
+  discloses the contextual links and utilities (focus moves in, Escape returns). Nothing
+  overflows horizontally. Page padding tightens again at ≤ 760 px. (Job 001f1 corrected this
+  line, which said 760 for the compact header.)
 - **Routing:** every old route still resolves. Only the shell changes.
 
 ## Two compositions considered (Discover, Studio, Acquire)
