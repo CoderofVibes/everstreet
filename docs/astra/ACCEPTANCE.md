@@ -229,6 +229,15 @@ release during pending result protection.003o1 requires actual lifecycle proof/g
 finalization before003q customer workspace. My activity still lacks digital-use history. No live
 integration, complete customer UI or full milestone acceptance.
 
+November4 at d45690d: independent679 app tests/55files/lint/types, web build and73 keyless v3
+contract tests pass.003o1 guards registration identity on release and finalizes delivery before
+settlement.003q browser: customer consent -> extraction -> private result ->99 free/1 used;
+retained result remains readable after synthetic sale, buyer direct request is denied. Desktop
+and390px layout inspected. Findings: prepared incorrectly claims reserved, charged request still
+heads itself Reserved, edited draft after lost prepare strands original recovery, contradictory
+public offer empty state.003q1 corrects these before003r owner-offer setup. Synthetic preview is
+not live NEAR/provider/wallet evidence. All six milestones remain open.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.
