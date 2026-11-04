@@ -5,14 +5,16 @@
 # supervisor (lock-test-supervisor.sh), plain `sleep` children, one temporary directory; every
 # PID it starts is recorded and killed on exit (only if it is still one of ours). No sudo, root,
 # package, ACL, netns, cgroup, systemd, download, generated code or VM. NOT engine conformance.
-#   timeout 120 sh scripts/worker-host/lock-primitive-harness.sh
+# Case 6 is Astra's stale-uninstaller sequence; EVERSTREET_OLD_SETUP=<dir with a pre-fix setup.sh
+# and worker.lock.json> also runs it against that copy, which must violate the invariant.
+#   timeout 150 sh scripts/worker-host/lock-primitive-harness.sh
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 [ "$(id -u)" != 0 ] || { echo "run as an ordinary user"; exit 2; }
 D=$(mktemp -d /tmp/everstreet-lock-harness.XXXXXX)
 PIDS=""
 track() { PIDS="$PIDS $1"; }
-ours() { case "$({ tr '\0' ' ' < "/proc/$1/cmdline"; } 2>/dev/null)" in *sleep*|*lock-test-supervisor*|*flock*|*launch*) return 0 ;; esac; return 1; }
+ours() { case "$({ tr '\0' ' ' < "/proc/$1/cmdline"; } 2>/dev/null)" in *sleep*|*lock-test-supervisor*|*flock*|*launch*|*setup.sh*) return 0 ;; esac; return 1; }
 cleanup() {
   for p in $PIDS $(cat "$D"/*.pid 2>/dev/null); do ours "$p" && kill -9 "$p" 2>/dev/null; done
   chmod -R u+w "$D" 2>/dev/null
@@ -158,6 +160,61 @@ case "$(cat "$M/manifest" 2>/dev/null)" in "dir $S/opt/x") kept=1 ;; *) kept=0 ;
   || fail "interrupted teardown handled wrongly (uninstall rc=$u, kept=$kept, entrant rc=$g)"
 uninst > /dev/null 2>&1; r=$?
 [ "$r" = 0 ] && [ ! -e "$M" ] && pass "repeating the interrupted uninstall completes it" || fail "repeat uninstall failed (rc=$r)"
+
+mkroot; rm -f "$RLOCK"
+uninst > "$D/u.out" 2>&1; u=$?
+[ "$u" != 0 ] && [ -d "$S/opt/x" ] && [ -s "$M/manifest" ] && [ ! -e "$RLOCK" ] \
+  && pass "uninstall refuses when the lock file is missing (it never creates one) and removes nothing" \
+  || fail "uninstall without a lock file wrong (rc=$u $(cat "$D/u.out"))"
+
+# 6. Astra's stale-uninstaller sequence (002e2 review, final section), deterministic:
+#    U2 opens fd 9 and is held at a barrier BEFORE the real flock; U1 uninstalls completely; a
+#    reinstall makes a NEW lock inode; a real launcher entrant holds that NEW lock; U2 resumes.
+#    Required: U2 removes nothing of the new installation while the new holder lives.
+REAL_FLOCK=$(command -v flock)
+mkdir -p "$D/shim"
+printf '%s\n' '#!/bin/sh' \
+  ': > "$EVERSTREET_BARRIER/u2.opened"' \
+  'i=0; while [ ! -e "$EVERSTREET_BARRIER/u2.go" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done' \
+  "exec $REAL_FLOCK \"\$@\"" > "$D/shim/flock"
+chmod +x "$D/shim/flock"
+# stale_uninstaller <dir holding setup.sh and worker.lock.json>: prints "rc holder_alive dir manifest"
+stale_uninstaller() {
+  mkroot; rm -f "$D/u2.opened" "$D/u2.go"
+  PATH=$D/shim:$PATH EVERSTREET_BARRIER=$D EVERSTREET_SYSROOT=$S sh "$1/setup.sh" uninstall > "$D/u2.out" 2>&1 &
+  u2=$!; echo "$u2" > "$D/u2.pid"   # known to cleanup (this runs in a command substitution)
+  waitfile_e "$D/u2.opened" || { echo "barrier-not-reached"; return; }
+  EVERSTREET_SYSROOT=$S sh "$1/setup.sh" uninstall > "$D/u1.out" 2>&1 || { echo "u1-failed"; return; }
+  mkroot                                   # the reinstall: same paths, a NEW lock inode
+  conf 15 none
+  EVERSTREET_TEST_LOCKFILE=$RLOCK sh "$LAUNCH" preflight > /dev/null & hold=$!
+  waitfile "$D/sup.pid" || { echo "holder-not-admitted"; return; }
+  : > "$D/u2.go"; wait "$u2"; rc=$?
+  alive "$hold" && ha=alive || ha=dead
+  [ -d "$S/opt/x" ] && dd=dir-survives || dd=dir-REMOVED
+  [ -s "$M/manifest" ] && mm=manifest-survives || mm=manifest-REMOVED
+  kill -9 "$hold" 2>/dev/null; wait "$hold" 2>/dev/null
+  echo "$rc $ha $dd $mm"
+}
+waitfile_e() { i=0; while [ ! -e "$1" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done; [ -e "$1" ]; }
+
+if [ -n "${EVERSTREET_OLD_SETUP:-}" ]; then
+  set -- $(stale_uninstaller "$EVERSTREET_OLD_SETUP")
+  [ "${1:-}" = 0 ] && [ "${2:-}" = alive ] && [ "${3:-}" = dir-REMOVED ] && [ "${4:-}" = manifest-REMOVED ] \
+    && pass "OLD setup.sh ($EVERSTREET_OLD_SETUP) violates the invariant: stale U2 exit 0 removed the NEW installation while its lock holder lived" \
+    || fail "old stale-uninstaller reproduction didn't match ($*)"
+else
+  echo "skip  OLD setup.sh stale-uninstaller reproduction (set EVERSTREET_OLD_SETUP to a pre-fix copy)"
+fi
+set -- $(stale_uninstaller "$HERE")
+[ "${1:-}" != 0 ] && [ "${2:-}" = alive ] && [ "${3:-}" = dir-survives ] && [ "${4:-}" = manifest-survives ] \
+  && case "$(cat "$D/u2.out")" in *"reinstalled while this uninstall waited"*) true ;; *) false ;; esac \
+  && pass "fenced setup.sh: stale U2 refuses (rc=$1) and the NEW installation and its live holder are untouched" \
+  || fail "stale uninstaller not fenced ($* / $(cat "$D/u2.out"))"
+conf 1 none
+uninst > /dev/null 2>&1; r=$?
+[ "$r" = 0 ] && [ ! -e "$M" ] && pass "after the stale U2 refused, a fresh uninstall of the new installation completes" \
+  || fail "fresh uninstall after stale refusal failed (rc=$r)"
 
 echo "lock-primitive-harness: $FAILS failure(s); real flock(2) and real processes, unprivileged; NOT engine conformance"
 [ "$FAILS" = 0 ]

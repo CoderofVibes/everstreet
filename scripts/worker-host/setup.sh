@@ -71,13 +71,23 @@ netns_present() { ip netns list 2>/dev/null | awk '{print $1}' | grep -qx everst
 
 # 002e2: the launcher's lifecycle lock, the kernel's flock(2) on lifecycle.flock (see `launch`).
 # Uninstall holds it on fd 9 in THIS shell until it exits (no separate holder process); the
-# kernel releases it however this shell ends. The file exists while installed. It is missing only
-# if an earlier uninstall unlinked it, and that happens only while holding the lock, after which
-# `launch` admits no one (no file, or an old inode), so recreating it here is safe.
+# kernel releases it however this shell ends. The lock file is created once per installation
+# (install, before the manifest) and unlinked only by a completed uninstall while it holds the
+# lock, so its inode IS the installation's identity. Uninstall never creates it.
+# Fence (after Astra's U2/U1/reinstall reproduction): an uninstall that opened the file and was
+# then delayed may lock an inode a completed uninstall already removed, while a reinstall's NEW
+# lock is held by someone else. Locking alone excludes nothing then. So after locking, the inode
+# held must still be the current lock file and the manifest must still exist; otherwise this
+# uninstall refuses and removes nothing (it can simply be run again).
 take_lock() {
-  [ -f "$MANIFEST_DIR/lifecycle.flock" ] || : > "$MANIFEST_DIR/lifecycle.flock"
+  [ -f "$MANIFEST_DIR/lifecycle.flock" ] || {
+    echo "the lifecycle lock file is missing; nothing removed (no lock, no fence)" >&2; return 1; }
   exec 9<"$MANIFEST_DIR/lifecycle.flock"
   flock -n 9 || { echo "a lifecycle operation is in progress; try again when it ends" >&2; return 1; }
+  held=$(stat -L -c '%d:%i' "/proc/$$/fd/9" 2>/dev/null || echo held-unknown)
+  now=$(stat -c '%d:%i' "$MANIFEST_DIR/lifecycle.flock" 2>/dev/null || echo gone)
+  [ "$held" = "$now" ] && [ -e "$MANIFEST" ] || {
+    echo "the worker host was removed or reinstalled while this uninstall waited; nothing removed" >&2; return 1; }
 }
 
 # Confirms a recorded resource is really gone (or no longer enabled/installed).
@@ -160,10 +170,13 @@ install_all() {
   echo "$(pin node)  $N_TAR" | sha256sum -c -
   echo "$ks  vmlinux" | sha256sum -c -
   echo "$rs  rootfs.squashfs" | sha256sum -c -
-  mkdir -p "$MANIFEST_DIR"; : > "$MANIFEST"
-  # 002e2: the lifecycle lock file, created once here and never recreated while installed
-  # (`launch` only opens it; a fresh inode would split exclusion).
+  # 002e2: the lifecycle lock file, created once here BEFORE the manifest (so a manifest always
+  # has its lock) and never recreated while installed: `launch` and uninstall only open it, and
+  # its inode identifies this installation. `mkdir` without -p fails if the directory appeared
+  # since the conflict check.
+  mkdir "$MANIFEST_DIR"
   : > "$MANIFEST_DIR/lifecycle.flock"; chmod 0600 "$MANIFEST_DIR/lifecycle.flock"
+  : > "$MANIFEST"
   # Each line is written BEFORE its resource is created: a failure leaves a removable record.
 
   # 1. Only the missing packages, by name, so uninstall removes only those.

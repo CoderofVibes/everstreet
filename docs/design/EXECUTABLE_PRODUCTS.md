@@ -257,13 +257,26 @@ kernel's flock(2), held by the critical process itself**.
   `sh -c 'exec 9>&-; exec "$@"'`, so no VM process inherits the lock. Short helpers the launcher
   runs (`id`, `setpriv`, `rmdir`, each with a timeout) do inherit fd 9. That can only keep the
   lock held a little longer, never release it early.
-- **Pending entrants, uninstall, reinstall.** After acquiring, `launch` checks that the inode it
-  holds is still the current lock file, and that `installed.json` exists. Uninstall takes the same
-  lock on fd 9 in its own shell, removes everything recorded, and unlinks the lock file WHILE
-  still holding it. Install creates the lock file once. So an entrant that opened the file before
-  an uninstall (or before a reinstall made a new inode) refuses (69) rather than entering on a
-  stale inode. A failed uninstall keeps its records and the lock file, and releases the lock when
-  its shell exits.
+- **Pending entrants, uninstall, reinstall: every entrant is fenced.** The lock file is created
+  once per installation (install, before the manifest) and unlinked only by a completed uninstall
+  that holds the lock. Nothing else creates it, so its inode identifies the installation.
+  - **`launch`.** After acquiring, it checks that the inode it holds is still the current lock
+    file, and that `installed.json` exists. Otherwise it refuses (69).
+  - **`setup.sh uninstall`.** It takes the same lock on fd 9 in its own shell. After acquiring, it
+    checks that the inode it holds is still the current lock file, and that the manifest exists.
+    Otherwise it refuses and removes nothing. It never creates a lock file; if one is missing it
+    refuses. It then removes everything recorded and unlinks the lock file WHILE still holding it.
+  - **Why the uninstall fence (Astra, 002e2 review, final section).** An uninstall (U2) can open
+    the file and then be delayed before locking. Meanwhile another uninstall (U1) completes, a
+    reinstall makes a new inode, and a launcher holds the new lock. U2 then locks the OLD inode
+    and, unfenced, removed the NEW installation while its holder lived. Harness case 6 shows the
+    pre-fix `setup.sh` doing exactly that, and the fenced one refusing.
+  - **Failure and repeat.** A failed uninstall keeps its records and the lock file, releases the
+    lock when its shell exits, and can be repeated.
+  - **Not fenced: install itself.** Install does not take the lifecycle lock. Two installs are
+    excluded only by the conflict check and a non-`-p` `mkdir` of the state directory. An
+    uninstall started while an install is still running is not excluded; that needs the operator
+    not to overlap them (an open point for review).
 - **Orphans.** While a preflight holds the lock, no launcher process is alive. Any `es-*`
   leftover belongs to an ended launcher, though its VM may still be RUNNING (fd 9 closed), and
   preflight cleans it. A run refuses to start over leftovers ("preflight first").
@@ -278,12 +291,16 @@ kernel's flock(2), held by the critical process itself**.
   - an inheriting daemon (hazard shown) versus an fd-closed daemon;
   - uninstall exclusion;
   - pending entrants after uninstall and after reinstall;
-  - an interrupted and then repeated uninstall.
+  - an interrupted and then repeated uninstall;
+  - uninstall refusing without a lock file;
+  - Astra's stale-uninstaller sequence: the pre-fix `setup.sh` violates the invariant, and the
+    fenced one refuses and leaves the new installation and its holder untouched.
 
   `server/test/worker-lock.test.ts` runs it on Linux and is skipped on Windows. This is NOT
   engine conformance.
 - **Pending on the real host:** the root path through sudo, and conformance cases 9 (busy during
-  a run) and 10 (a killed launcher leaves an orphan that is cleaned).
+  a run), 10 (a killed launcher leaves an orphan that is cleaned) and 11 (only the outer sudo is
+  killed).
 
 **The platform worker side** (after Astra's AppCheckLifecycleReview):
 - the lease is renewed on every poll tick from claim to end;

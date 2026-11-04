@@ -16,20 +16,21 @@ const linuxWithFlock =
 
 describe("002e2 lifecycle lock: real flock(2), real processes (Linux only)", () => {
   it.runIf(linuxWithFlock)(
-    "lock-primitive-harness: old -o form violates the invariant; the exec-held lock, fd-closed daemons, uninstall and inode checks hold",
+    "lock-primitive-harness: old -o form violates the invariant; the exec-held lock, fd-closed daemons, uninstall, inode and stale-uninstaller fences hold",
     () => {
       const r = spawnSync(
         "timeout",
-        ["120", "sh", "scripts/worker-host/lock-primitive-harness.sh"],
+        ["150", "sh", "scripts/worker-host/lock-primitive-harness.sh"],
         {
           encoding: "utf8",
-          timeout: 130_000,
+          timeout: 160_000,
         },
       );
       expect(r.stdout).toContain("lock-primitive-harness: 0 failure(s)");
       expect(r.stdout).not.toContain("FAIL");
+      expect(r.stdout).toContain("fenced setup.sh: stale U2 refuses");
       expect(r.status).toBe(0);
     },
-    140_000,
+    170_000,
   );
 });
