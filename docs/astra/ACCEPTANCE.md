@@ -288,3 +288,15 @@ meaningful milestone is verified or an external decision is necessary; don't req
 design approvals. Keep the full roadmap open until its behavior, not only its pages, exists.
 
 
+
+## November4 maintenance and studio integration review
+
+At7c9f683, independent798tests/71files, lint/types and webbuild pass. Browser on explicitly
+synthetic maintenance preview confirms unsupported result returned100free/0used; supported
+invoice automatically charged99free/1used without Settle click; owner-safe running/cleanup
+readiness.001b1 retirement now immediately changes global summary;1280/390 density improved,
+keyboard disclosure works. Query-only history,200%zoom and wider accessibility remain pending.
+Two finite independent probes fail: standby.stop overwrites active worker health; repeated slow
+settlement phase starves expired-result cleanup.002d1 blocks maintenance acceptance.003t adds
+customer operating performance next. See2026-11-04_MaintenanceReview.md. No full milestone or
+live provider/testnet acceptance;73 prior v3 unit tests are separate evidence, not rerun.
