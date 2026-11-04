@@ -15,7 +15,20 @@ import type { Json } from "./customer-world.ts";
 import { maintenanceWorld } from "./maintenance-world.ts";
 
 function countingTimers() {
-  const t = { sets: 0, set: (_fn: () => void, _ms: number) => ++t.sets, clear: () => {} };
+  // `live`: timers set and not cleared. An operation deadline (the 003v orphan sweep's, or any
+  // item's) is always cleared; only a schedule stays armed.
+  const t = {
+    sets: 0,
+    live: new Set<unknown>(),
+    set: (_fn: () => void, _ms: number) => {
+      const h = ++t.sets;
+      t.live.add(h);
+      return h;
+    },
+    clear: (h: unknown) => {
+      t.live.delete(h);
+    },
+  };
   return t;
 }
 
@@ -57,11 +70,11 @@ describe("002d2 a one-off pass is not a scheduled worker", () => {
     expect(health().state).toBe("running");
     await s.stop();
     expect(health().state).toBe("stopped");
-    const setsAfterStop = timers.sets;
+    const liveAfterStop = timers.live.size;
     t.advance(1_000);
     expect((await s.runPass()).outcome).toBe("done");
     expect(health().state).toBe("not_scheduled");
-    expect(timers.sets).toBe(setsAfterStop); // nothing re-armed
+    expect(timers.live.size).toBe(liveAfterStop); // nothing re-armed
   });
 
   it("a pass in progress is in flight, and only then", async () => {

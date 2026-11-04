@@ -360,6 +360,7 @@ export class MaintenanceSupervisor {
     report: PassReport,
   ): Promise<PassReport["outcome"] | null> {
     if (name === "prepared") return this.phasePrepared(bump, started, report);
+    if (name === "orphans") return this.phaseOrphans(bump, started, report);
     const guard =
       name === "reserve" || name === "settle" ? this.guards?.chain : this.guards?.storage;
     if (guard?.saturated()) {
@@ -400,6 +401,47 @@ export class MaintenanceSupervisor {
       if (PROGRESS[task].has(code)) this.clearBackoff(task, id);
       else this.backoff(task, id, code);
     }
+    return null;
+  }
+
+  /**
+   * Job 003v: one bounded orphan sweep of protected storage (`CustomerUses.sweepProtected`). It
+   * deletes only copies whose publication window is closed and that nothing references; the
+   * scan position is this instance's (a restart starts from the beginning, which is safe).
+   */
+  private sweepAfter: string | null = null;
+  private async phaseOrphans(
+    bump: (k: string) => void,
+    started: number,
+    report: PassReport,
+  ): Promise<PassReport["outcome"] | null> {
+    if (this.guards?.storage.saturated()) {
+      report.skipped.push("orphans:adapter_saturated");
+      return null;
+    }
+    if (this.uses.deletionScheme() === null) {
+      report.skipped.push("orphans:deletion_unavailable");
+      return null;
+    }
+    if (this.now() - started >= this.passBudgetMs) {
+      report.skipped.push("orphans:budget");
+      return null;
+    }
+    if (!this.claim()) return "lease_lost";
+    let result: Awaited<ReturnType<CustomerUses["sweepProtected"]>> | null = null;
+    const code = await this.withDeadline(async () => {
+      result = await this.uses.sweepProtected(this.batch, this.sweepAfter);
+      return "swept";
+    });
+    if (!this.holds()) return "lease_lost";
+    const r = result as Awaited<ReturnType<CustomerUses["sweepProtected"]>> | null;
+    if (code !== "swept" || !r) {
+      bump(`orphans:${code}`);
+      return null;
+    }
+    this.sweepAfter = r.next;
+    for (const k of ["deleted", "failed", "anomalies"] as const)
+      for (let i = 0; i < r[k]; i++) bump(`orphans:${k}`);
     return null;
   }
 
@@ -667,8 +709,8 @@ export function maintenanceHealth(
 const NEUTRAL = new Set(["not_due", "stale"]);
 
 /** The phases, in rotation order; a pass starts at the durable cursor (job 002d1). */
-type Phase = "prepared" | Task;
-const PHASES: readonly Phase[] = ["prepared", "reserve", "settle", "result", "input"];
+type Phase = "prepared" | Task | "orphans";
+const PHASES: readonly Phase[] = ["prepared", "reserve", "settle", "result", "input", "orphans"];
 
 /** Outcomes that are progress for each task; anything else is backed off. */
 const PROGRESS: Record<Task, Set<string>> = {

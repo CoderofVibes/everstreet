@@ -4,6 +4,7 @@
 // (reconcileDue/settleDue/expireResults/expireInputs) and pass with fair selection and backoff.
 
 import { describe, expect, it } from "vitest";
+import type { ProtectedContext } from "../src/customerUse.ts";
 import { DAY, maintenanceWorld } from "./maintenance-world.ts";
 
 describe("002d fair selection: older stuck work never starves eligible work", () => {
@@ -43,9 +44,9 @@ describe("002d fair selection: older stuck work never starves eligible work", ()
     // The three oldest results can't be deleted (a synthetic storage fault on those refs).
     const failing = new Set(refs.slice(0, 3));
     const del = t.protection.delete.bind(t.protection);
-    t.protection.delete = async (ref: string) => {
+    t.protection.delete = async (ref: string, ctx: ProtectedContext) => {
       if (failing.has(ref)) throw new Error("synthetic delete failure");
-      return del(ref);
+      return del(ref, ctx);
     };
     t.w.clock.now += 31 * DAY;
     const s = t.supervisor();

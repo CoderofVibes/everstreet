@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ProtectedContext } from "../src/customerUse.ts";
 import { openDb } from "../src/db.ts";
 import { RuntimeFailure } from "../src/runtime.ts";
 import { Store } from "../src/store.ts";
@@ -65,8 +66,8 @@ describe("003n1 reproductions (Astra, 461dfa3)", () => {
     const id = await reservedWith(w);
     await w.cara(`/api/customer/uses/${id}/execute`, "POST", {});
     const load = protection.load.bind(protection);
-    protection.load = async (ref: string) => {
-      const bytes = await load(ref);
+    protection.load = async (ref: string, ctx: ProtectedContext) => {
+      const bytes = await load(ref, ctx);
       w.clock.now += 366 * DAY; // the deadline passes while the load is awaited
       return bytes;
     };
@@ -192,8 +193,8 @@ describe("003n1 retention after awaits", () => {
     expect((await w.cara(`/api/customer/uses/${id}/result`)).body.code).toBe("result_expired");
     w.clock.now = until - 1;
     const load = protection.load.bind(protection);
-    protection.load = async (ref: string) => {
-      const bytes = await load(ref);
+    protection.load = async (ref: string, ctx: ProtectedContext) => {
+      const bytes = await load(ref, ctx);
       // Synthetic: the result is deleted while the load is awaited.
       w.state.store.db
         .prepare("UPDATE customer_executions SET result_state = 'deleted', result_ref = NULL")

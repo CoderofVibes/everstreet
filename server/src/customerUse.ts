@@ -108,14 +108,31 @@ export interface CustomerChainWriter {
  */
 export interface InputProtection {
   readonly scheme: string;
-  protect(input: {
-    person_id: string;
-    request_id: string;
-    kind?: "input" | "result";
-    bytes: Buffer;
-  }): Promise<string>;
-  load?(ref: string): Promise<Buffer>;
-  delete?(ref: string): Promise<void>;
+  protect(input: ProtectedContext & { bytes: Buffer }): Promise<string>;
+  /**
+   * Job 003v: every load and delete carries the caller's EXPECTED context, read from the
+   * persisted customer request (never the current business owner or an HTTP viewer). An object
+   * stored under another context is refused, so a swapped valid reference can't be read or
+   * deleted. Delete is idempotent: an absent object counts as deleted.
+   */
+  load?(ref: string, ctx: ProtectedContext): Promise<Buffer>;
+  delete?(ref: string, ctx: ProtectedContext): Promise<void>;
+  /** Stored objects in reference order, for the orphan sweep (`sweepProtected`). */
+  list?(after: string | null, limit: number): Promise<ProtectedObjectInfo[]>;
+  /** Fixed problem codes (e.g. a wrong key); not ready means nothing new is protected. */
+  readiness?(): { ready: boolean; problems: string[] };
+}
+
+/** What a protected object belongs to: the customer person, the request, input or result. */
+export interface ProtectedContext {
+  person_id: string;
+  request_id: string;
+  kind: "input" | "result";
+}
+
+export interface ProtectedObjectInfo extends ProtectedContext {
+  ref: string;
+  created_ms: number;
 }
 
 export interface CustomerUseOptions {
@@ -210,6 +227,7 @@ interface RequestRow {
   input_chars: number;
   input_ref: string | null;
   input_scheme: string | null;
+  input_deleted_at: string | null;
   network: string;
   account: string;
   plan_id: number;
@@ -824,21 +842,41 @@ export class CustomerUses {
             detail: "No metering account is connected, so no unit can be reserved or charged.",
             next: "The operator connects a metering account.",
           },
-      this.protection
+      this.protection && this.protection.readiness?.().ready === false
         ? {
             key: "protection",
             label: "Protected storage",
-            state: "configured",
-            detail: `Documents and results are protected at rest (${this.protection.scheme}).`,
-            next: null,
-          }
-        : {
-            key: "protection",
-            label: "Protected storage",
             state: "unavailable",
-            detail: "No protected storage is connected, so no document can be kept or run.",
-            next: "The operator connects protected storage.",
-          },
+            detail:
+              "Protected storage is connected but its key doesn't match the stored documents, so nothing new is kept.",
+            next: "The operator checks the protected storage keys.",
+          }
+        : this.protection && (this.protection.readiness?.().problems.length ?? 0) > 0
+          ? {
+              // 003v (Astra): new documents can still be kept, but some stored ones can't be read,
+              // because a key they were written with is missing or wrong. Writes work; reads of
+              // those objects don't, and the item says so with an operator action.
+              key: "protection",
+              label: "Protected storage",
+              state: "configured",
+              detail: `New documents and results are protected at rest (${this.protection.scheme}), but some kept ones can't be read: a key they were written with is missing or doesn't match.`,
+              next: "The operator restores the older protected storage key.",
+            }
+          : this.protection
+            ? {
+                key: "protection",
+                label: "Protected storage",
+                state: "configured",
+                detail: `Documents and results are protected at rest (${this.protection.scheme}).`,
+                next: null,
+              }
+            : {
+                key: "protection",
+                label: "Protected storage",
+                state: "unavailable",
+                detail: "No protected storage is connected, so no document can be kept or run.",
+                next: "The operator connects protected storage.",
+              },
       this.cleanupItem(businessId),
       this.maintenanceItem(businessId),
       runtime?.available
@@ -1415,7 +1453,7 @@ export class CustomerUses {
         bad(409, "That key was used for a different request", "idempotency_conflict");
       // A retry carries the same input (the hash proves it): if protecting it failed or never
       // finished the first time, it is protected now, once (003n).
-      await this.protectInput(viewer.id, prior.id, text);
+      await this.protectInput(prior.id, text);
       return { created: false, ...this.status(viewer, prior.id) };
     }
     if (o.state !== "active") bad(409, "This offer was withdrawn", "offer_retired");
@@ -1659,28 +1697,30 @@ export class CustomerUses {
       return id;
     });
     // Outside the transaction: the protected copy, then its reference. No plaintext fallback.
-    await this.protectInput(viewer.id, created, text);
+    await this.protectInput(created, text);
     return { created: created === id, ...this.status(viewer, created) };
   }
 
   /**
    * Protects a request's input once (003n). A failure leaves no reference and is retried by the
-   * next same-key prepare; two attempts racing keep the first reference and delete the other, so
-   * nothing is orphaned or protected twice. Terminal requests are not protected again.
+   * next same-key prepare; two attempts racing keep the first reference and delete the other.
+   * Terminal requests, and inputs already deleted, are not protected again.
+   * 003v: the context is the persisted request's (its customer person, never the viewer or an
+   * owner). Publication is one CAS that is possible only while the input's PUBLICATION WINDOW is
+   * open: the request is open, has no input reference and its input was never deleted. Each of
+   * those changes only one way, so once the window is closed it stays closed, and the orphan
+   * sweep may delete an unreferenced copy (a crash before the CAS, a losing copy whose cleanup
+   * failed) without racing a slow writer.
    */
-  private async protectInput(personId: string, id: string, text: string) {
+  private async protectInput(id: string, text: string) {
     const p = this.protection;
     const r = this.request(id);
-    if (!p || !r || r.input_ref !== null) return;
-    if (!["prepared", "reserve_requested", "reserve_unknown", "reserved"].includes(r.state)) return;
+    if (!p || !r || r.input_ref !== null || r.input_deleted_at !== null) return;
+    if (!(OPEN as readonly string[]).includes(r.state)) return;
+    const ctx = { person_id: r.person_id, request_id: id, kind: "input" as const };
     let ref: string;
     try {
-      ref = await p.protect({
-        person_id: personId,
-        request_id: id,
-        kind: "input",
-        bytes: Buffer.from(text, "utf8"),
-      });
+      ref = await p.protect({ ...ctx, bytes: Buffer.from(text, "utf8") });
     } catch {
       this.tx(() => this.event(id, "input_protect_failed", {}));
       return;
@@ -1689,11 +1729,88 @@ export class CustomerUses {
       () =>
         this.db
           .prepare(
-            "UPDATE customer_requests SET input_ref = ?, input_scheme = ? WHERE id = ? AND input_ref IS NULL",
+            `UPDATE customer_requests SET input_ref = ?, input_scheme = ?
+              WHERE id = ? AND input_ref IS NULL AND input_deleted_at IS NULL
+                AND state IN ('prepared','reserve_requested','reserve_unknown','reserved')`,
           )
           .run(ref, p.scheme, id).changes === 1,
     );
-    if (!kept) await p.delete?.(ref).catch(() => {});
+    if (!kept) await p.delete?.(ref, ctx).catch(() => {});
+  }
+
+  /**
+   * Job 003v: whether a stored protected object can still be published, is published, or is an
+   * orphan, from the persisted records alone (synchronous: nothing changes between the reads).
+   */
+  private protectedVerdict(o: ProtectedObjectInfo): "referenced" | "open" | "orphan" | "anomaly" {
+    const r = this.request(o.request_id);
+    // A request's customer never changes; an object naming another person isn't ours to judge.
+    if (r && r.person_id !== o.person_id) return "anomaly";
+    // Referenced by ANOTHER request's row (records altered by hand): kept, never swept.
+    const elsewhere = this.db
+      .prepare(
+        `SELECT 1 FROM customer_requests WHERE input_ref = ? AND NOT (id = ? AND ? = 'input')
+         UNION ALL SELECT 1 FROM customer_executions WHERE result_ref = ? AND NOT (request_id = ? AND ? = 'result')
+         LIMIT 1`,
+      )
+      .get(o.ref, o.request_id, o.kind, o.ref, o.request_id, o.kind);
+    if (elsewhere) return "anomaly";
+    if (o.kind === "input") {
+      if (r?.input_ref === o.ref) return "referenced";
+      const open =
+        r !== undefined &&
+        r.input_ref === null &&
+        r.input_deleted_at === null &&
+        (OPEN as readonly string[]).includes(r.state);
+      return open ? "open" : "orphan";
+    }
+    const x = this.execution(o.request_id);
+    if (x?.result_ref === o.ref) return "referenced";
+    if (x?.result_state !== "pending") return "orphan";
+    if (x.delivery === "delivered" || x.delivery === "not_delivered") return "orphan";
+    // Still undecided: it closes only when recovery finalizes it (after deliveryTimeoutMs).
+    const d = this.tx(() => this.finalizeDelivery(x, this.runtime?.row(x.invocation_id)));
+    return d === "pending" ? "open" : "orphan";
+  }
+
+  /**
+   * Job 003v: the orphan sweep. Examines up to `limit` stored objects after `after` (reference
+   * order) and deletes those that are neither referenced nor publishable any more, with their
+   * own stored context (checked against the persisted request). An open window, a referenced
+   * object or an anomaly is kept. A failed deletion is counted, never reported as deleted.
+   */
+  async sweepProtected(limit: number = LIMITS.duePerPass, after: string | null = null) {
+    const p = this.protection;
+    const out = {
+      examined: 0,
+      deleted: 0,
+      kept: 0,
+      anomalies: 0,
+      failed: 0,
+      next: null as string | null,
+    };
+    if (!p?.list || !p.delete) return out;
+    const n = Math.max(1, Math.min(LIMITS.duePerPass, Math.floor(limit)));
+    const objects = await p.list(after, n);
+    for (const o of objects) {
+      out.examined++;
+      const v = this.protectedVerdict(o);
+      if (v === "anomaly") out.anomalies++;
+      if (v !== "orphan") {
+        out.kept++;
+        continue;
+      }
+      const ctx = { person_id: o.person_id, request_id: o.request_id, kind: o.kind };
+      const ok = await (p.delete as NonNullable<InputProtection["delete"]>)(o.ref, ctx).then(
+        () => true,
+        () => false,
+      );
+      if (ok) out.deleted++;
+      else out.failed++;
+    }
+    out.next =
+      objects.length === n ? (objects[objects.length - 1] as ProtectedObjectInfo).ref : null;
+    return out;
   }
 
   cancel(viewer: Person, id: string) {
@@ -2193,7 +2310,10 @@ export class CustomerUses {
           "Your saved document was kept under another protection scheme; send it again",
           "protection_scheme_changed",
         );
-      const bytes = await p.load(r.input_ref).catch(() => null);
+      // 003v: the context the copy must have, from the persisted request.
+      const bytes = await p
+        .load(r.input_ref, { person_id: r.person_id, request_id: r.id, kind: "input" })
+        .catch(() => null);
       if (!bytes)
         bad(503, "Your saved document couldn't be read; send it again", "input_unavailable");
       text = bytes.toString("utf8");
@@ -2337,7 +2457,7 @@ export class CustomerUses {
           .run(JSON.stringify(next), read.block.height, id);
         this.event(id, "execution_dispatched", { block: read.block.height });
       },
-      sink: (row, result) => this.keepResult(id, viewer.id, o.retention_days, row, result),
+      sink: (row, result) => this.keepResult(id, o.retention_days, row, result),
     });
     if (started.created) await started.done;
     return this.status(viewer, id); // checks the caller once more
@@ -2346,7 +2466,6 @@ export class CustomerUses {
   /** Protects a finished execution's validated result and records it (§13.2 step 6). */
   private async keepResult(
     id: string,
-    personId: string,
     retentionDays: number,
     _row: InvocationRow,
     result: Extraction,
@@ -2364,14 +2483,15 @@ export class CustomerUses {
           .run(this.now(), iso(), id).changes === 1,
     );
     if (!started) return;
+    // 003v: the customer of the persisted request (stable across a sale), not the caller.
+    const ctx = {
+      person_id: (this.request(id) as RequestRow).person_id,
+      request_id: id,
+      kind: "result" as const,
+    };
     let ref: string;
     try {
-      ref = await p.protect({
-        person_id: personId,
-        request_id: id,
-        kind: "result",
-        bytes: Buffer.from(JSON.stringify(result), "utf8"),
-      });
+      ref = await p.protect({ ...ctx, bytes: Buffer.from(JSON.stringify(result), "utf8") });
     } catch {
       this.tx(() => {
         const c = this.db
@@ -2400,8 +2520,9 @@ export class CustomerUses {
       if (!c.changes) this.event(id, "late_result_discarded", {});
       return c.changes === 1;
     });
-    // A late copy is never kept: deleted through the seam (its own expiry covers a failure).
-    if (!kept) await p.delete?.(ref).catch(() => {});
+    // A late copy is never kept: deleted through the seam. If that fails, the orphan sweep
+    // deletes it later: the decision is final, so the copy can never be published (003v).
+    if (!kept) await p.delete?.(ref, ctx).catch(() => {});
   }
 
   /** The customer's own result, through the protection seam, while it is retained. */
@@ -2423,7 +2544,10 @@ export class CustomerUses {
     if (!p?.load) bad(503, "Results can't be read on this server", "protection_unavailable");
     if (x.result_scheme !== p.scheme)
       bad(503, "This result was kept under another protection scheme", "protection_scheme_changed");
-    const bytes = await p.load(x.result_ref as string).catch(() => null);
+    const req = this.request(id) as RequestRow;
+    const bytes = await p
+      .load(x.result_ref as string, { person_id: req.person_id, request_id: id, kind: "result" })
+      .catch(() => null);
     if (!bytes) bad(503, "The result couldn't be read just now", "result_unavailable");
     // After the await, everything again (003n1): the caller, and that this exact result is still
     // the kept one and still within its retention. Loaded bytes are never returned otherwise.
@@ -2456,15 +2580,24 @@ export class CustomerUses {
     const n = Math.max(1, Math.min(LIMITS.duePerPass, Math.floor(limit)));
     const p = this.protection;
     if (!p?.delete) return { deleted: 0, failed: 0 };
+    // 003v: each object's expected context comes from its persisted request (the customer).
     const due = this.db
       .prepare(
-        "SELECT request_id, result_ref FROM customer_executions WHERE result_state = 'stored' AND retention_until_ms <= ? AND result_scheme = ? ORDER BY retention_until_ms LIMIT ?",
+        `SELECT x.request_id, x.result_ref, r.person_id FROM customer_executions x
+           JOIN customer_requests r ON r.id = x.request_id
+          WHERE x.result_state = 'stored' AND x.retention_until_ms <= ? AND x.result_scheme = ?
+          ORDER BY x.retention_until_ms LIMIT ?`,
       )
-      .all(this.now(), p.scheme, n) as { request_id: string; result_ref: string }[];
+      .all(this.now(), p.scheme, n) as {
+      request_id: string;
+      result_ref: string;
+      person_id: string;
+    }[];
     let deleted = 0;
     let failed = 0;
     for (const d of due) {
-      const ok = await (p.delete as (ref: string) => Promise<void>)(d.result_ref).then(
+      const ctx = { person_id: d.person_id, request_id: d.request_id, kind: "result" as const };
+      const ok = await (p.delete as NonNullable<InputProtection["delete"]>)(d.result_ref, ctx).then(
         () => true,
         () => false,
       );
@@ -2473,12 +2606,12 @@ export class CustomerUses {
         continue;
       }
       this.tx(() => {
-        this.db
+        const c = this.db
           .prepare(
-            "UPDATE customer_executions SET result_state = 'deleted', result_ref = NULL, updated_at = ? WHERE request_id = ? AND result_state = 'stored'",
+            "UPDATE customer_executions SET result_state = 'deleted', result_ref = NULL, updated_at = ? WHERE request_id = ? AND result_state = 'stored' AND result_ref = ?",
           )
-          .run(iso(), d.request_id);
-        this.event(d.request_id, "result_deleted", {});
+          .run(iso(), d.request_id, d.result_ref);
+        if (c.changes) this.event(d.request_id, "result_deleted", {});
       });
       deleted++;
     }
@@ -2498,12 +2631,13 @@ export class CustomerUses {
     if (!p?.delete) return { deleted: 0, failed: 0 };
     const candidates = this.db
       .prepare(
-        `SELECT r.id, r.input_ref, r.state, r.serve_until_ms, x.invocation_id
+        `SELECT r.id, r.person_id, r.input_ref, r.state, r.serve_until_ms, x.invocation_id
            FROM customer_requests r LEFT JOIN customer_executions x ON x.request_id = r.id
           WHERE r.input_ref IS NOT NULL AND r.input_scheme = ? ORDER BY r.created_at LIMIT ?`,
       )
       .all(p.scheme, LIMITS.keptPerPerson) as {
       id: string;
+      person_id: string;
       input_ref: string;
       state: State;
       serve_until_ms: string;
@@ -2519,7 +2653,8 @@ export class CustomerUses {
     let deleted = 0;
     let failed = 0;
     for (const c of candidates.filter(done).slice(0, n)) {
-      const ok = await (p.delete as (ref: string) => Promise<void>)(c.input_ref).then(
+      const ctx = { person_id: c.person_id, request_id: c.id, kind: "input" as const };
+      const ok = await (p.delete as NonNullable<InputProtection["delete"]>)(c.input_ref, ctx).then(
         () => true,
         () => false,
       );
@@ -2563,11 +2698,16 @@ export class CustomerUses {
     if (!p?.delete) return "not_due";
     const x = this.db
       .prepare(
-        "SELECT result_ref FROM customer_executions WHERE request_id = ? AND result_state = 'stored' AND retention_until_ms <= ? AND result_scheme = ?",
+        `SELECT x.result_ref, r.person_id FROM customer_executions x
+           JOIN customer_requests r ON r.id = x.request_id
+          WHERE x.request_id = ? AND x.result_state = 'stored' AND x.retention_until_ms <= ? AND x.result_scheme = ?`,
       )
-      .get(requestId, this.now(), p.scheme) as { result_ref: string } | undefined;
+      .get(requestId, this.now(), p.scheme) as
+      | { result_ref: string; person_id: string }
+      | undefined;
     if (!x) return "not_due";
-    const ok = await p.delete(x.result_ref).then(
+    const ctx = { person_id: x.person_id, request_id: requestId, kind: "result" as const };
+    const ok = await p.delete(x.result_ref, ctx).then(
       () => true,
       () => false,
     );
@@ -2589,12 +2729,18 @@ export class CustomerUses {
     if (!p?.delete) return "not_due";
     const c = this.db
       .prepare(
-        `SELECT r.input_ref, r.state, r.serve_until_ms, x.invocation_id
+        `SELECT r.person_id, r.input_ref, r.state, r.serve_until_ms, x.invocation_id
            FROM customer_requests r LEFT JOIN customer_executions x ON x.request_id = r.id
           WHERE r.id = ? AND r.input_ref IS NOT NULL AND r.input_scheme = ?`,
       )
       .get(id, p.scheme) as
-      | { input_ref: string; state: State; serve_until_ms: string; invocation_id: string | null }
+      | {
+          person_id: string;
+          input_ref: string;
+          state: State;
+          serve_until_ms: string;
+          invocation_id: string | null;
+        }
       | undefined;
     if (!c) return "not_due";
     const done =
@@ -2602,10 +2748,12 @@ export class CustomerUses {
       this.now() >= Number(c.serve_until_ms) ||
       (c.invocation_id !== null && this.runtime?.row(c.invocation_id)?.state !== "running");
     if (!done) return "not_due";
-    const ok = await p.delete(c.input_ref).then(
-      () => true,
-      () => false,
-    );
+    const ok = await p
+      .delete(c.input_ref, { person_id: c.person_id, request_id: id, kind: "input" })
+      .then(
+        () => true,
+        () => false,
+      );
     if (!ok) return "failed";
     this.tx(() => {
       const r = this.db

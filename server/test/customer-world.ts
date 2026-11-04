@@ -27,6 +27,8 @@ import {
   type CustomerUseOptions,
   CustomerUses,
   type InputProtection,
+  type ProtectedContext,
+  type ProtectedObjectInfo,
   type WriterAnswer,
 } from "../src/customerUse.ts";
 import { ManagedRuntime, type RuntimeOptions } from "../src/invocations.ts";
@@ -603,7 +605,10 @@ export class SyntheticProtection implements InputProtection {
     this.resultGate = { release, arrive };
     return { open, entered };
   }
-  async protect(input: { request_id: string; kind?: string; bytes: Buffer }) {
+  /** Job 003v: each reference's context; load and delete refuse any other, like the real store. */
+  contexts = new Map<string, ProtectedContext>();
+  created = new Map<string, number>();
+  async protect(input: ProtectedContext & { bytes: Buffer }) {
     if (++this.calls > 100) throw new Error("synthetic protection ceiling reached");
     // The gate first, so a protection can also fail after it waited (job 003o1).
     if (input.kind === "result" && this.resultGate) {
@@ -614,23 +619,46 @@ export class SyntheticProtection implements InputProtection {
       this.failProtect--;
       throw new Error("synthetic protection failure");
     }
-    const ref = `ref-${++this.n}`;
+    const ref = `ref-${String(++this.n).padStart(6, "0")}`;
     this.kept.set(ref, input.bytes);
-    this.kinds.set(ref, input.kind ?? "input");
+    this.kinds.set(ref, input.kind);
+    this.contexts.set(ref, {
+      person_id: input.person_id,
+      request_id: input.request_id,
+      kind: input.kind,
+    });
+    this.created.set(ref, Date.now());
     return ref;
   }
-  async load(ref: string) {
+  private sameContext(ref: string, ctx: ProtectedContext) {
+    const c = this.contexts.get(ref);
+    return (
+      !c ||
+      (c.person_id === ctx.person_id && c.request_id === ctx.request_id && c.kind === ctx.kind)
+    );
+  }
+  async load(ref: string, ctx: ProtectedContext) {
     const b = this.kept.get(ref);
     if (!b) throw new Error("no such reference");
+    if (!this.sameContext(ref, ctx)) throw new Error("context mismatch");
     return b;
   }
-  async delete(ref: string) {
+  async delete(ref: string, ctx: ProtectedContext) {
     if (this.failDelete > 0) {
       this.failDelete--;
       throw new Error("synthetic delete failure");
     }
+    if (!this.sameContext(ref, ctx)) throw new Error("context mismatch");
     this.kept.delete(ref);
+    this.contexts.delete(ref);
     this.deleted.push(ref);
+  }
+  async list(after: string | null, limit: number): Promise<ProtectedObjectInfo[]> {
+    return [...this.contexts.entries()]
+      .filter(([ref]) => after === null || ref > after)
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .slice(0, limit)
+      .map(([ref, c]) => ({ ref, ...c, created_ms: this.created.get(ref) ?? 0 }));
   }
 }
 
