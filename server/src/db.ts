@@ -507,6 +507,63 @@ CREATE TABLE IF NOT EXISTS v3_periods (
   block_height TEXT NOT NULL, block_hash TEXT NOT NULL, period TEXT NOT NULL, digest TEXT NOT NULL,
   observed_at TEXT NOT NULL, PRIMARY KEY (business_id, yyyymm)
 ) STRICT;
+-- Job 003m: customer use (docs/design/CUSTOMER_USE_RUNTIME.md §8). An offer binds a release to a
+-- contract plan; it is the business's, immutable but for retirement. A request is the customer's
+-- own record: never the owner's, before or after a sale. Raw input is never stored here.
+CREATE TABLE IF NOT EXISTS customer_offers (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  project_id TEXT NOT NULL REFERENCES product_projects(id),
+  release_id TEXT NOT NULL REFERENCES runtime_releases(id), artifact_digest TEXT NOT NULL,
+  network TEXT NOT NULL, account TEXT NOT NULL, plan_id INTEGER NOT NULL, plan TEXT NOT NULL,
+  asset TEXT NOT NULL, read_block TEXT NOT NULL, retention_days INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('active','retired')),
+  idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL,
+  created_by TEXT NOT NULL REFERENCES people(id), owner_generation INTEGER NOT NULL,
+  created_at TEXT NOT NULL, retired_at TEXT, UNIQUE (business_id, idempotency_key)
+) STRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS customer_offers_one_active ON customer_offers(release_id, plan_id) WHERE state = 'active';
+CREATE TRIGGER IF NOT EXISTS customer_offers_immutable BEFORE UPDATE ON customer_offers
+WHEN OLD.state = 'retired' OR NEW.state <> 'retired' OR NEW.id IS NOT OLD.id
+  OR NEW.business_id IS NOT OLD.business_id OR NEW.project_id IS NOT OLD.project_id
+  OR NEW.release_id IS NOT OLD.release_id OR NEW.artifact_digest IS NOT OLD.artifact_digest
+  OR NEW.network IS NOT OLD.network OR NEW.account IS NOT OLD.account
+  OR NEW.plan_id IS NOT OLD.plan_id OR NEW.plan IS NOT OLD.plan OR NEW.asset IS NOT OLD.asset
+  OR NEW.read_block IS NOT OLD.read_block OR NEW.retention_days IS NOT OLD.retention_days
+  OR NEW.idempotency_key IS NOT OLD.idempotency_key OR NEW.request_hash IS NOT OLD.request_hash
+  OR NEW.created_by IS NOT OLD.created_by OR NEW.owner_generation IS NOT OLD.owner_generation
+  OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT, 'customer offers are immutable but for retirement'); END;
+CREATE TRIGGER IF NOT EXISTS customer_offers_no_delete BEFORE DELETE ON customer_offers
+BEGIN SELECT RAISE(ABORT, 'customer offers are kept'); END;
+CREATE TABLE IF NOT EXISTS customer_requests (
+  id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES people(id), customer_account TEXT NOT NULL,
+  offer_id TEXT NOT NULL REFERENCES customer_offers(id), business_id TEXT NOT NULL REFERENCES businesses(id),
+  idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL,
+  input_sha TEXT NOT NULL, input_chars INTEGER NOT NULL, input_ref TEXT, input_scheme TEXT,
+  network TEXT NOT NULL, account TEXT NOT NULL, plan_id INTEGER NOT NULL, reg_id TEXT NOT NULL,
+  key_slot INTEGER NOT NULL, key_epoch INTEGER NOT NULL, public_key TEXT NOT NULL,
+  hold_seq INTEGER NOT NULL, units INTEGER NOT NULL CHECK (units = 1), slot INTEGER NOT NULL CHECK (slot = 0),
+  serve_until_ms TEXT NOT NULL, settle_until_ms TEXT NOT NULL, accept_by_ms TEXT NOT NULL,
+  sign_by_ms INTEGER NOT NULL, salt TEXT NOT NULL, fingerprint TEXT NOT NULL,
+  hold_message TEXT NOT NULL, use_message TEXT NOT NULL, envelope TEXT NOT NULL, envelope_digest TEXT NOT NULL,
+  hold_sig TEXT, use_sig TEXT, prepared_block TEXT NOT NULL, notice TEXT,
+  state TEXT NOT NULL CHECK (state IN ('prepared','reserve_requested','reserve_unknown','reserved','refused','unresolved','cancelled','expired')),
+  reason TEXT, serving INTEGER, evidence TEXT, evidence_height TEXT,
+  lease_gen INTEGER NOT NULL DEFAULT 0, lease_until INTEGER, submissions INTEGER NOT NULL DEFAULT 0,
+  allocation TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  UNIQUE (person_id, idempotency_key)
+) STRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS customer_requests_one_allocation ON customer_requests(allocation) WHERE allocation IS NOT NULL;
+CREATE INDEX IF NOT EXISTS customer_requests_due ON customer_requests(state, updated_at);
+CREATE TABLE IF NOT EXISTS customer_request_events (
+  request_id TEXT NOT NULL REFERENCES customer_requests(id), seq INTEGER NOT NULL,
+  kind TEXT NOT NULL, code TEXT, block TEXT, lease_gen INTEGER, at TEXT NOT NULL,
+  PRIMARY KEY (request_id, seq)
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS customer_request_events_no_update BEFORE UPDATE ON customer_request_events
+BEGIN SELECT RAISE(ABORT, 'customer request events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS customer_request_events_no_delete BEFORE DELETE ON customer_request_events
+BEGIN SELECT RAISE(ABORT, 'customer request events are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_update BEFORE UPDATE ON build_usage
 BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_delete BEFORE DELETE ON build_usage

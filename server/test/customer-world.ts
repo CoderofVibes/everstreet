@@ -1,0 +1,566 @@
+// Job 003m test world. A TEST DOUBLE of one business-v3 entitlement, seeded from the contract's own
+// JSON (server/test/fixtures/v3/customer-readback.json and direct-accepting.json, produced by the
+// contract's unit tests). It models only the open_hold rules the reservation relies on
+// (lib.rs open_hold, revoke_key, skip_hold_seq, release_hold); it is not the contract, executes no
+// transaction and proves no live authorization. Every synthetic change to fixture state is a named
+// method here. The customer's key is the contract tests' synthetic seed 1, never a wallet key.
+// Every producer has its own finite ceiling.
+
+import { createPrivateKey, sign } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { everstreetApi } from "../src/app.ts";
+import type { CustomerViewTransport, PinnedBlock } from "../src/customerRead.ts";
+import {
+  closedRootPreimage,
+  type Envelope,
+  envelopeDigest,
+  fingerprintPreimage,
+  preimageOfHold,
+  preimageOfUse,
+  sha256,
+  sha256Hex,
+} from "../src/customerSigning.ts";
+import type {
+  CustomerChainWriter,
+  CustomerUseOptions,
+  InputProtection,
+  WriterAnswer,
+} from "../src/customerUse.ts";
+import type { Store } from "../src/store.ts";
+import type { BlockRef } from "../src/v3read.ts";
+import { correct, runtimeWorld, ScriptedRuntime } from "./runtime-world.ts";
+
+// biome-ignore lint/suspicious/noExplicitAny: fixture JSON is read field by field
+export type Json = Record<string, any>;
+
+const here = dirname(fileURLToPath(import.meta.url));
+const fixture = (name: string) =>
+  JSON.parse(readFileSync(join(here, "fixtures", "v3", `${name}.json`), "utf8")) as Record<
+    string,
+    string
+  >;
+export const READBACK = fixture("customer-readback");
+export const ACCEPTING = fixture("direct-accepting");
+export const SIGNING = JSON.parse(
+  readFileSync(join(here, "fixtures", "v3", "customer-signing.json"), "utf8"),
+) as Json;
+export const view = (k: string) => JSON.parse(READBACK[k] as string) as Json;
+
+export const BUSINESS = "studio.biz.near";
+export const CUSTOMER = "cara.near";
+export const OPERATOR = "meter.near";
+export const T0 = 1_793_577_600_000n; // the contract tests' T0: 2026-11-02T00:00:00Z
+
+/** A synthetic ed25519 signer from a 32-byte seed (the contract tests use seed 1). */
+export function keyFromSeed(seed: number) {
+  const der = Buffer.concat([
+    Buffer.from("302e020100300506032b657004220420", "hex"),
+    Buffer.alloc(32, seed),
+  ]);
+  const key = createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+  return (messageHex: string) => sign(null, Buffer.from(messageHex, "hex"), key).toString("hex");
+}
+
+const HASH_CHARS = "ABCDEFGHJK"; // base58 has no 0: map each digit to a letter
+const hashOf = (h: number) =>
+  `Bkh${String(h)
+    .padStart(29, "0")
+    .replace(/[0-9]/g, (d) => HASH_CHARS[Number(d)] as string)}`;
+
+class ChainRefusal extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
+/** The test double of the chain: one plan, one entitlement per customer. */
+export class FixtureChain {
+  height = 1_000;
+  ts = T0;
+  plan = view("plan_1");
+  control: Json = JSON.parse(ACCEPTING.get_control as string);
+  treasury: Json = JSON.parse(ACCEPTING.get_treasury as string);
+  ents = new Map<string, Json>();
+  private holdPk = new Map<string, string>();
+  opened = 0;
+  calls = 0;
+  readonly ceiling = 400;
+
+  constructor() {
+    // Funded 100, key slot 0 active at epoch 1, nothing held (the contract's own JSON).
+    this.ents.set(CUSTOMER, view("funded_100.entitlement"));
+    this.noDeal();
+  }
+
+  private bump() {
+    if (++this.calls > this.ceiling) throw new Error("fixture chain ceiling reached");
+  }
+
+  /** Synthetic: the accepting fixture's control with its live deal removed. */
+  noDeal() {
+    this.control = { ...this.control, live_deal: null };
+  }
+
+  /** The contract-produced control with a live Direct deal in accepting (grants exclude meter). */
+  accepting() {
+    this.control = JSON.parse(ACCEPTING.get_control as string);
+  }
+
+  /** The contract-produced control after an actual sale: owner buyer.near, meter2 at gen 2. */
+  afterSale() {
+    this.control = view("after_sale.control");
+  }
+
+  /** Synthetic: the new owner appointed the platform's account again (appoint_operator). */
+  reappointPlatform() {
+    this.control = { ...this.control, operators: [[OPERATOR, 1, this.control.generation]] };
+  }
+
+  tick(ms: bigint) {
+    this.ts += ms;
+    this.height += 1;
+  }
+
+  block(): PinnedBlock {
+    return {
+      height: String(this.height),
+      hash: hashOf(this.height),
+      timestamp_ms: String(this.ts),
+    };
+  }
+
+  ent(customer = CUSTOMER) {
+    return this.ents.get(customer) ?? null;
+  }
+
+  answer(method: string, args: Record<string, unknown>): string {
+    this.bump();
+    if (method === "get_control") return JSON.stringify(this.control);
+    if (method === "get_treasury") return JSON.stringify(this.treasury);
+    if (method === "get_plan") return JSON.stringify(args.plan_id === 1 ? this.plan : null);
+    if (method === "get_entitlement")
+      return JSON.stringify(args.plan_id === 1 ? this.ent(String(args.customer)) : null);
+    throw new Error(`no view ${method}`);
+  }
+
+  private meters(signer: string) {
+    if (signer === this.control.owner) return true;
+    return (this.control.operators as [string, number, number][]).some(
+      ([a, caps, g]) => a === signer && (caps & 1) !== 0 && g === this.control.generation,
+    );
+  }
+
+  /** open_hold's rules, in the contract's order (lib.rs open_hold). */
+  openHold(
+    signer: string,
+    customer: string,
+    auth: {
+      hold_seq: number;
+      units: number;
+      serve_until_ms: string;
+      key_slot: number;
+      key_epoch: number;
+    },
+    sig: string,
+    verify: (pk: string, message: string, sig: string) => boolean,
+  ): "opened" | "already" {
+    this.bump();
+    if (!this.meters(signer)) throw new ChainRefusal("E_NOT_OPERATOR");
+    const e = this.ent(customer);
+    if (!e) throw new ChainRefusal("E_STATE");
+    const ref = {
+      business: BUSINESS,
+      plan_id: 1,
+      customer,
+      reg_id: e.reg_id as string,
+      key_slot: auth.key_slot,
+      key_epoch: auth.key_epoch,
+    };
+    const message = sha256(preimageOfHold(ref, auth)).toString("hex");
+    if (
+      e.hold_active &&
+      e.hold_seq === auth.hold_seq &&
+      e.hold_units === auth.units &&
+      e.serve_until_ms === auth.serve_until_ms &&
+      e.hold_key_slot === auth.key_slot &&
+      e.hold_key_epoch === auth.key_epoch
+    ) {
+      if (!verify(this.holdPk.get(customer) as string, message, sig))
+        throw new ChainRefusal("E_SIG");
+      return "already";
+    }
+    if (!(auth.hold_seq > e.hold_seq)) throw new ChainRefusal("E_HOLD_SEQ_USED");
+    if (e.paused) throw new ChainRefusal("E_PAUSED");
+    if (e.hold_active) throw new ChainRefusal("E_HOLD_ACTIVE");
+    if (auth.hold_seq !== e.hold_seq + 1) throw new ChainRefusal("E_HOLD_SEQ");
+    const k = e.keys[auth.key_slot];
+    if (k?.state !== "active" || k.epoch !== auth.key_epoch) throw new ChainRefusal("E_KEY");
+    if (!verify(k.public_key, message, sig)) throw new ChainRefusal("E_SIG");
+    if (auth.units < 1 || BigInt(auth.units) > BigInt(e.free)) throw new ChainRefusal("E_UNITS");
+    const serve = BigInt(auth.serve_until_ms);
+    if (serve < this.ts + 60_000n) throw new ChainRefusal("E_EXPIRED");
+    if (serve > this.ts + BigInt(this.plan.hold_ttl_ms)) throw new ChainRefusal("E_TTL");
+    const day = Number(this.ts / 86_400_000n);
+    const today = k.day === day ? k.held_today : 0;
+    if (today + auth.units > k.max_units_per_day) throw new ChainRefusal("E_DAILY_CAP");
+    k.day = day;
+    k.held_today = today + auth.units;
+    Object.assign(e, {
+      hold_seq: auth.hold_seq,
+      hold_active: true,
+      hold_key_slot: auth.key_slot,
+      hold_key_epoch: auth.key_epoch,
+      hold_units: auth.units,
+      hold_charged: 0,
+      hold_used: 0,
+      hold_slots: Array(auth.units).fill(null),
+      hold_opened_at_ms: String(this.ts),
+      serve_until_ms: auth.serve_until_ms,
+      settle_until_ms: String(serve + BigInt(this.plan.settle_grace_ms)),
+      free: String(BigInt(e.free) - BigInt(auth.units)),
+    });
+    this.holdPk.set(customer, k.public_key);
+    this.opened++;
+    this.height++;
+    return "opened";
+  }
+
+  /** release_hold (lib.rs close_hold): uncharged units return; last_hold keeps seq/bitmap/root. */
+  release(customer = CUSTOMER) {
+    const e = this.ent(customer) as Json;
+    const used = (e.hold_slots as (string | null)[])
+      .map((f, i) => [i, f] as const)
+      .filter((x): x is readonly [number, string] => x[1] !== null);
+    Object.assign(e, {
+      free: String(BigInt(e.free) + BigInt(e.hold_units - e.hold_charged)),
+      last_hold_seq: e.hold_seq,
+      last_hold_used: e.hold_used,
+      last_hold_charged: e.hold_charged,
+      last_hold_root: sha256Hex(closedRootPreimage(used)),
+      hold_active: false,
+      hold_key_slot: 0,
+      hold_key_epoch: 0,
+      hold_units: 0,
+      hold_charged: 0,
+      hold_used: 0,
+      hold_slots: [],
+      hold_opened_at_ms: "0",
+      serve_until_ms: "0",
+      settle_until_ms: "0",
+    });
+    this.height++;
+  }
+
+  /** revoke_key: the epoch rises; an active hold under that key stops serving now. */
+  revoke(slot: number, customer = CUSTOMER) {
+    const e = this.ent(customer) as Json;
+    const k = e.keys[slot];
+    k.epoch += 1;
+    k.state = "revoked";
+    e.key_states[slot] = 2;
+    e.key_epochs[slot] = k.epoch;
+    if (e.hold_active && e.hold_key_slot === slot && BigInt(e.serve_until_ms) > this.ts)
+      e.serve_until_ms = String(this.ts);
+    this.height++;
+  }
+
+  /** skip_hold_seq: burns the next sequence (only with no hold open). */
+  skip(customer = CUSTOMER) {
+    const e = this.ent(customer) as Json;
+    if (e.hold_active) throw new Error("E_HOLD_ACTIVE");
+    e.hold_seq += 1;
+    this.height++;
+  }
+
+  /** set_paused. */
+  pause(paused: boolean, customer = CUSTOMER) {
+    (this.ent(customer) as Json).paused = paused;
+    this.height++;
+  }
+}
+
+/** The read transport over the test double, with injected faults. Ceiling: the chain's. */
+export class FixtureReader implements CustomerViewTransport {
+  readonly network = "testnet";
+  /** Answers this many reads with an older block (a lagging endpoint). */
+  lagging = 0;
+  failNext = 0;
+  mixNext = false;
+  malformedNext = false;
+  constructor(private readonly chain: FixtureChain) {}
+  async finalBlock(): Promise<PinnedBlock> {
+    if (this.failNext > 0) {
+      this.failNext--;
+      throw new Error("endpoint unavailable");
+    }
+    const b = this.chain.block();
+    if (this.lagging > 0) {
+      this.lagging--;
+      const h = Number(b.height) - 5;
+      return { height: String(h), hash: hashOf(h), timestamp_ms: b.timestamp_ms };
+    }
+    return b;
+  }
+  async view(input: { method: string; args: Record<string, unknown>; block: BlockRef }) {
+    let result = this.chain.answer(input.method, input.args);
+    if (this.malformedNext && input.method !== "get_control") {
+      this.malformedNext = false;
+      // Synthetic mutation: an extra field the contract never sends.
+      result = JSON.stringify({ ...(JSON.parse(result) as Json), surprise: 1 });
+    }
+    if (this.mixNext) {
+      this.mixNext = false;
+      const h = Number(input.block.height) + 1;
+      return { result, block: { height: String(h), hash: hashOf(h) } };
+    }
+    return { result, block: input.block };
+  }
+}
+
+interface Gate {
+  /** Resolves once a submission is waiting at this gate. */
+  entered: Promise<void>;
+  /** Lets it through (idempotent). */
+  open: () => void;
+}
+type Mode =
+  | "ok"
+  | "lose_reply"
+  | "drop"
+  | { gate: Gate; release: Promise<void>; arrive: () => void };
+
+/** The hold writer over the test double. Ceiling: 50 submissions. */
+export class FixtureWriter implements CustomerChainWriter {
+  readonly network = "testnet";
+  readonly signer = OPERATOR;
+  modes: Mode[] = [];
+  calls = 0;
+  answers: WriterAnswer[] = [];
+  /** The latest gate (`holdNext`), for tests holding one submission. */
+  gateOpen: () => void = () => {};
+  entered: Promise<void> = Promise.resolve();
+  constructor(
+    private readonly chain: FixtureChain,
+    private readonly verify: (pk: string, m: string, s: string) => boolean,
+  ) {}
+  /** The next queued submission waits inside the writer until its gate opens. */
+  holdNext(): Gate {
+    let open: () => void = () => {};
+    let arrive: () => void = () => {};
+    const release = new Promise<void>((r) => {
+      open = r;
+    });
+    const entered = new Promise<void>((r) => {
+      arrive = r;
+    });
+    const gate = { entered, open };
+    this.modes.push({ gate, release, arrive });
+    this.gateOpen = open;
+    this.entered = entered;
+    return gate;
+  }
+  async openHold(input: Parameters<CustomerChainWriter["openHold"]>[0]): Promise<WriterAnswer> {
+    if (++this.calls > 50) throw new Error("fixture writer ceiling reached");
+    const mode = this.modes.shift() ?? "ok";
+    if (mode === "drop") throw new Error("network: the request never arrived");
+    if (typeof mode === "object") {
+      mode.arrive();
+      await mode.release;
+    }
+    let answer: WriterAnswer;
+    try {
+      answer = {
+        status: this.chain.openHold(
+          this.signer,
+          input.customer,
+          input.auth,
+          input.sig,
+          this.verify,
+        ),
+      };
+    } catch (e) {
+      if (e instanceof ChainRefusal) answer = { status: "refused", code: e.code };
+      else throw e;
+    }
+    this.answers.push(answer);
+    if (mode === "lose_reply") throw new Error("network: the response was lost");
+    return answer;
+  }
+}
+
+/** A labelled synthetic protection double: it keeps inputs in memory, never on disk. */
+export class SyntheticProtection implements InputProtection {
+  readonly scheme = "synthetic-test-only";
+  kept = new Map<string, Buffer>();
+  async protect(input: { request_id: string; bytes: Buffer }) {
+    const ref = `ref-${this.kept.size + 1}`;
+    this.kept.set(ref, input.bytes);
+    return ref;
+  }
+}
+
+/**
+ * What a customer's client does before signing (§3): recompute every preimage and the digest
+ * from the envelope's plain fields, then sign the two digests with its own key.
+ */
+export function clientCheck(env: Envelope & { envelope_digest: string }) {
+  const ref = {
+    business: env.business_account,
+    plan_id: env.plan_id,
+    customer: env.customer_account,
+    reg_id: env.reg_id,
+    key_slot: env.key_slot,
+    key_epoch: env.key_epoch,
+  };
+  const fp = sha256Hex(
+    fingerprintPreimage({
+      ...ref,
+      network: env.network,
+      hold_seq: env.hold.hold_seq,
+      slot: env.use.slot,
+      request_id: env.request_id,
+      offer_id: env.offer_id,
+      release_id: env.release_id,
+      artifact_digest: env.artifact_digest,
+      input_sha256: env.commitment.input_sha256,
+      salt: env.commitment.salt_hex,
+    }),
+  );
+  const hold = preimageOfHold(ref, env.hold);
+  const use = preimageOfUse(ref, {
+    hold_seq: env.hold.hold_seq,
+    slot: env.use.slot,
+    fingerprint: fp,
+  });
+  const { envelope_digest, ...rest } = env;
+  return (
+    fp === env.use.fingerprint_hex &&
+    hold.toString("hex") === env.hold.preimage_hex &&
+    sha256(hold).toString("hex") === env.hold.message_hex &&
+    use.toString("hex") === env.use.preimage_hex &&
+    sha256(use).toString("hex") === env.use.message_hex &&
+    envelopeDigest(rest as Envelope) === envelope_digest
+  );
+}
+
+/**
+ * A founder with an active release, bound to the fixture business account, and a customer linked
+ * to the fixture's customer account. `make` rebuilds the app on a store (a restart).
+ */
+export async function customerWorld(
+  opts: {
+    dbPath?: string;
+    customer?: Partial<CustomerUseOptions>;
+    noReader?: boolean;
+    noWriter?: boolean;
+  } = {},
+) {
+  // The scripted extractor that passes the release check (fictional documents only).
+  const rw = runtimeWorld(new ScriptedRuntime(correct), {}, { dbPath: opts.dbPath });
+  const f = await rw.founder("Ava Chen");
+  await rw.release(f);
+  const release = rw.store.db
+    .prepare("SELECT id FROM runtime_releases WHERE project_id = ? AND state = 'active'")
+    .get(f.project) as { id: string };
+  const chain = new FixtureChain();
+  const { verifiesEd25519 } = await import("../src/customerSigning.ts");
+  const reader = new FixtureReader(chain);
+  const writer = new FixtureWriter(chain, verifiesEd25519);
+  const clock = { now: Number(T0) };
+  const options = (): CustomerUseOptions => ({
+    reader: opts.noReader ? null : reader,
+    writer: opts.noWriter ? null : writer,
+    operatorAccount: OPERATOR,
+    now: () => clock.now,
+    ...opts.customer,
+  });
+  const make = (store: Store) =>
+    everstreetApi(store, {
+      localPreview: true,
+      environment: "test",
+      v3: {
+        transport: null,
+        bindings: [{ business_id: f.business, network: "testnet", account: BUSINESS }],
+      },
+      customer: options(),
+    });
+  const state = { store: rw.store, app: make(rw.store) };
+  let tokens = 0;
+  const sessionFor = (personId: string) => {
+    const token = `test-session-${++tokens}-${personId}`;
+    state.store.db
+      .prepare("INSERT INTO sessions (token, person_id, created_at) VALUES (?, ?, ?)")
+      .run(token, personId, new Date().toISOString());
+    return token;
+  };
+  const caller = (personId: string) => {
+    const token = sessionFor(personId);
+    const call = async (path: string, method = "GET", body?: unknown) => {
+      const res = await state.app.request(path, {
+        method,
+        headers: { cookie: `es_session=${token}`, "content-type": "application/json" },
+        body: body === undefined || method === "GET" ? undefined : JSON.stringify(body),
+      });
+      return { status: res.status, body: (await res.json()) as Json };
+    };
+    return Object.assign(call, { id: personId });
+  };
+  const person = (name: string) => {
+    const id = `person-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`;
+    state.store.db
+      .prepare(
+        "INSERT INTO people (id, display_name, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
+      )
+      .run(id, name, new Date().toISOString());
+    return caller(id);
+  };
+  const link = (personId: string, account: string) =>
+    state.store.db
+      .prepare(
+        "INSERT INTO chain_accounts (owner_kind, owner_id, account_id, secret, tx, created_at) VALUES ('person', ?, ?, NULL, 'fixture', ?)",
+      )
+      .run(personId, account, new Date().toISOString());
+  const owner = caller(f.ava.id);
+  const cara = person("Cara Okafor");
+  link(cara.id, CUSTOMER);
+  const offer = async () => {
+    const r = await owner(`/api/businesses/${f.business}/customer-offers`, "POST", {
+      idempotency_key: "offer-key-0001",
+      release_id: release.id,
+      plan_id: 1,
+      retention_days: 30,
+    });
+    if (r.status !== 201 && r.status !== 200) throw new Error(`offer: ${r.body.error}`);
+    return r.body.offer.id as string;
+  };
+  const sign1 = keyFromSeed(1);
+  /** Prepare, check as the client would, and sign with the synthetic seed-1 key. */
+  const signed = (env: Envelope & { envelope_digest: string }, signer = sign1) => ({
+    envelope_digest: env.envelope_digest,
+    hold_signature: signer(env.hold.message_hex),
+    use_signature: signer(env.use.message_hex),
+  });
+  return {
+    rw,
+    f,
+    release: release.id,
+    chain,
+    reader,
+    writer,
+    clock,
+    state,
+    make,
+    owner,
+    cara,
+    person,
+    link,
+    caller,
+    offer,
+    signed,
+    sign1,
+  };
+}
+
+export type CustomerWorld = Awaited<ReturnType<typeof customerWorld>>;

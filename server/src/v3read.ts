@@ -149,6 +149,10 @@ function oneOf<T extends string>(v: Raw, where: string, allowed: readonly T[]): 
   return v as T;
 }
 
+/** The same strict decoders, for other business-v3 views (job 003m: customer readback). */
+export const strict = { fail, obj, arr, u64, u128, u8, u32, small, bool, hex32, account, oneOf };
+export { checkBlock };
+
 // ---------- decoded views (the contract's own field names) ----------
 
 export interface DealV3 {

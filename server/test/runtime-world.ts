@@ -158,8 +158,10 @@ export function gate() {
 export function runtimeWorld(
   provider: RuntimeProvider | null = new ScriptedRuntime(),
   options: RuntimeOptions = {},
+  /** Job 003m: a file-backed database, for restart tests. */
+  extra: { dbPath?: string } = {},
 ) {
-  const store = new Store(openDb(":memory:"));
+  const store = new Store(openDb(extra.dbPath ?? ":memory:"));
   const builder = new SpecBuilder();
   const builds = new Builds(store.db, store, builder, { operatorCeilingCents: 100_000 });
   const runtime = new ManagedRuntime(store.db, store, provider, {

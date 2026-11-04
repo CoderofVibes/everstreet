@@ -11,6 +11,7 @@ import type { BuildProvider } from "./build.ts";
 import { Builds, proposalBudget } from "./builds.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
+import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
 import { Deals } from "./deals.ts";
 import { Evaluations } from "./evaluations.ts";
 import { type ImportInspector, Imports } from "./imports.ts";
@@ -49,6 +50,11 @@ export interface AppOptions {
    * operator's bindings. Unset: v3 reads are unavailable and no business is bound.
    */
   v3?: V3Options;
+  /**
+   * Customer use (job 003m): an injected read transport with block timestamps, a hold writer and
+   * the platform's METERING account. Unset: customer use answers unavailable and does nothing.
+   */
+  customer?: CustomerUseOptions;
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -73,6 +79,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const opportunities = new Opportunities(store.db, store, community, products);
   const v3 = new V3Observations(store.db, store, options.v3);
   const v3Intents = new V3Intents(store.db, store, v3);
+  const customerUses = new CustomerUses(store.db, store, v3, options.customer);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const evaluations = new Evaluations(store.db, store, runtime);
   const releases = new Releases(store.db, store, runtime, evaluations);
@@ -246,6 +253,32 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.post("/api/businesses/:id/v3/intents/:intent/reconcile", async (c) =>
     c.json(await v3Intents.reconcile(me(c), c.req.param("id"), c.req.param("intent"))),
+  );
+
+  // Job 003m: customer offers (the owner) and a customer's own preparations and reservations.
+  app.get("/api/businesses/:id/customer-offers", (c) =>
+    c.json(customerUses.listOffers(me(c), c.req.param("id"))),
+  );
+  app.post("/api/businesses/:id/customer-offers", async (c) => {
+    const r = await customerUses.createOffer(me(c), c.req.param("id"), await body(c));
+    return c.json(r, r.created ? 201 : 200);
+  });
+  app.post("/api/businesses/:id/customer-offers/:offer/retire", (c) =>
+    c.json(customerUses.retireOffer(me(c), c.req.param("id"), c.req.param("offer"))),
+  );
+  app.post("/api/customer/offers/:offer/prepare", async (c) => {
+    const r = await customerUses.prepare(me(c), c.req.param("offer"), await body(c));
+    return c.json(r, r.created ? 201 : 200);
+  });
+  app.get("/api/customer/uses/:id", (c) => c.json(customerUses.status(me(c), c.req.param("id"))));
+  app.post("/api/customer/uses/:id/confirm", async (c) =>
+    c.json(await customerUses.confirm(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/customer/uses/:id/cancel", (c) =>
+    c.json(customerUses.cancel(me(c), c.req.param("id"))),
+  );
+  app.post("/api/customer/uses/:id/reconcile", async (c) =>
+    c.json(await customerUses.reconcile(me(c), c.req.param("id"))),
   );
 
   // ---------- product studio: digital product projects and their revisions ----------
