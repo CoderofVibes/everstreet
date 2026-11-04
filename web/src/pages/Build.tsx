@@ -1,16 +1,12 @@
 // The product studio's front door: describe an idea, choose a foundation, and get a saved
 // project with an editable brief and prototype. Also the founder's list of product projects.
 
-import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useState } from "react";
+import { useActorRead, usePublicRead } from "../actorRead.ts";
 import { api } from "../api.ts";
+import { composerReady } from "../homeView.ts";
 import { FOUNDATION_ICON, Icon } from "../icons.tsx";
-import {
-  ago,
-  type Foundation,
-  type FoundationInfo,
-  type ProjectSummary,
-  productsApi,
-} from "../productsApi.ts";
+import { ago, type Foundation, type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 
@@ -23,40 +19,50 @@ export function Composer({
 }) {
   const { person, requireSignIn } = useSession();
   const { go } = useRouter();
+  const who = person?.id ?? null;
   const [idea, setIdea] = useState("");
   const [foundation, setFoundation] = useState<Foundation>("ai_api");
   const [name, setName] = useState("");
-  const [business, setBusiness] = useState(businessId ?? "");
-  const [foundations, setFoundations] = useState<FoundationInfo[] | null>(null);
-  const [owned, setOwned] = useState<{ id: string; name: string }[]>([]);
+  // Job 001f2: the chosen business belongs to the account that chose it; another account starts
+  // from the link's business (if any) or a new private business, never the previous choice.
+  const [picked, setPicked] = useState<{ who: string | null; id: string }>({
+    who,
+    id: businessId ?? "",
+  });
+  const business = picked.who === who ? picked.id : (businessId ?? "");
+  const setBusiness = (id: string) => setPicked({ who, id });
+  // Job 001f2: product types settle into a list or an honest retry; idea, name and choice stay.
+  const types = usePublicRead(fetchFoundations);
+  const foundations = types.state.data;
+  // Job 001f2: the account's own businesses, bound to that account (late answers for anyone
+  // else are dropped).
+  const ownedRead = useActorRead(person && variant === "full" ? person.id : null, fetchOwned);
+  const owned = ownedRead.state.data ?? [];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    productsApi
-      .foundations()
-      .then((r) => setFoundations(r.foundations))
-      .catch(() => setFoundations([]));
-  }, []);
-  useEffect(() => {
-    if (!person || variant !== "full") return;
-    api
-      .projects()
-      .then((r) => {
-        const seen = new Map<string, string>();
-        for (const p of r.projects) seen.set(p.business_id, p.name);
-        setOwned([...seen].map(([id, n]) => ({ id, name: n })));
-      })
-      .catch(() => {});
-  }, [person, variant]);
-
   const chosen = foundations?.find((x) => x.id === foundation);
+  const ready = composerReady(types.state, foundation);
+  const typesNote = !ready.canSubmit && (
+    <div className="composer-note" role={types.state.status === "loading" ? undefined : "alert"}>
+      <span>{ready.reason}</span>
+      {types.state.data === null && types.state.status !== "loading" && (
+        <button type="button" className="btn btn-secondary btn-sm" onClick={types.retry}>
+          Try again
+        </button>
+      )}
+    </div>
+  );
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     if (busy) return;
     if (idea.trim().length < 3) {
       setError("Describe your idea in a sentence or two.");
+      return;
+    }
+    if (!ready.canSubmit) {
+      setError(ready.reason);
       return;
     }
     if (
@@ -151,10 +157,23 @@ export function Composer({
                   {b.name}
                 </option>
               ))}
+              {/* The link's business while your businesses are still being read. */}
+              {business && !owned.some((b) => b.id === business) && (
+                <option value={business}>The business from your link</option>
+              )}
             </select>
+            {person && ownedRead.state.data === null && ownedRead.state.status !== "loading" && (
+              <span className="composer-note" role="alert">
+                <span>Your businesses couldn't be loaded, so only a new one is listed.</span>
+                <button type="button" className="btn btn-quiet btn-sm" onClick={ownedRead.retry}>
+                  Try again
+                </button>
+              </span>
+            )}
           </label>
         </div>
       )}
+      {typesNote}
       <div className="composer-foot">
         {variant === "hero" && (
           <fieldset className="foundation-chips" style={{ border: 0, padding: 0, margin: 0 }}>
@@ -180,7 +199,7 @@ export function Composer({
           </span>
         )}
         <span className="spacer" />
-        <button type="submit" className="btn btn-primary" disabled={busy}>
+        <button type="submit" className="btn btn-primary" disabled={busy || !ready.canSubmit}>
           {busy ? "Creating…" : "Start building"} <Icon name="arrowRight" size="sm" />
         </button>
       </div>
@@ -214,17 +233,42 @@ export function ProjectCard({ p }: { p: ProjectSummary }) {
   );
 }
 
+const fetchFoundations = () => productsApi.foundations().then((r) => r.foundations);
+const fetchOwned = () =>
+  api.projects().then((r) => {
+    const seen = new Map<string, string>();
+    for (const p of r.projects) seen.set(p.business_id, p.name);
+    return [...seen].map(([id, n]) => ({ id, name: n }));
+  });
+/** Job 001f2: the signed-in account's product projects (shared by Build and Home). */
+export const fetchProjects = () => productsApi.list().then((r) => r.projects);
+
+/** Job 001f2: a private list's failure, with a retry, never an empty claim. */
+export function ReadFailed({
+  what,
+  error,
+  onRetry,
+}: {
+  what: string;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="card empty" role="alert">
+      <h2>Couldn't load {what} just now</h2>
+      <p>Nothing has changed; this page just couldn't read it.{error ? ` ${error}` : ""}</p>
+      <button type="button" className="btn btn-secondary" onClick={onRetry}>
+        Try again
+      </button>
+    </div>
+  );
+}
+
 export function BuildHome() {
   const { person, requireSignIn } = useSession();
-  const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
+  const list = useActorRead(person?.id ?? null, fetchProjects);
+  const projects = list.state.data;
   const preset = new URLSearchParams(window.location.search).get("business") ?? undefined;
-  useEffect(() => {
-    if (!person) return setProjects([]);
-    productsApi
-      .list()
-      .then((r) => setProjects(r.projects))
-      .catch(() => setProjects([]));
-  }, [person]);
 
   return (
     <div className="page">
@@ -257,8 +301,10 @@ export function BuildHome() {
               Sign in or join
             </button>
           </div>
+        ) : projects === null && list.state.status === "loading" ? (
+          <p className="muted">Loading your projects…</p>
         ) : projects === null ? (
-          <p className="muted">Loading…</p>
+          <ReadFailed what="your projects" error={list.state.error} onRetry={list.retry} />
         ) : projects.length === 0 ? (
           <div className="card empty">
             <h2>No product projects yet</h2>

@@ -1,14 +1,15 @@
 // Home: build or bring a digital product, discover what is published, and see how a business
 // changes hands on NEAR. Everything shown is real data from this computer; nothing is invented.
 
-import { useEffect, useState } from "react";
-import { api, type Need, type PublicBusiness } from "../api.ts";
-import { featured, marketOrder } from "../discover.ts";
+import { useState } from "react";
+import { useActorRead, usePublicRead } from "../actorRead.ts";
+import { api } from "../api.ts";
+import { featured } from "../discover.ts";
+import { catalogView } from "../homeView.ts";
 import { Icon, type IconName } from "../icons.tsx";
-import { type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
-import { Composer, ProjectCard } from "./Build.tsx";
+import { Composer, fetchProjects, ProjectCard, ReadFailed } from "./Build.tsx";
 import { FeaturedProduct, MarketList } from "./Market.tsx";
 
 const STAGES: { icon: IconName; title: string; text: string; now: "now" | "partial" | "later" }[] =
@@ -65,36 +66,23 @@ const CATEGORIES: { id: string; label: string }[] = [
   { id: "product", label: "Products" },
 ];
 
+const fetchShelf = () => api.discover().then((r) => r.businesses);
+const fetchNeeds = () => api.needs().then((r) => r.needs.slice(0, 3));
+
 export function Home() {
   const { go } = useRouter();
   const { person } = useSession();
-  const [shelf, setShelf] = useState<PublicBusiness[] | null>(null);
-  const [needs, setNeeds] = useState<Need[]>([]);
-  const [mine, setMine] = useState<ProjectSummary[]>([]);
   const [category, setCategory] = useState("all");
-  useEffect(() => {
-    api
-      .discover()
-      .then((r) => setShelf(r.businesses))
-      .catch(() => setShelf([]));
-    api
-      .needs()
-      .then((r) => setNeeds(r.needs.slice(0, 3)))
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
-    if (!person) return setMine([]);
-    productsApi
-      .list()
-      .then((r) => setMine(r.projects.slice(0, 3)))
-      .catch(() => setMine([]));
-  }, [person]);
+  // Job 001f2: each read settles into data or an honest retry; a failure is never shown as an
+  // empty catalog. The recent projects belong to the signed-in account only.
+  const shelf = usePublicRead(fetchShelf);
+  const needs = usePublicRead(fetchNeeds);
+  const mine = useActorRead(person?.id ?? null, fetchProjects);
+  const recent = mine.state.data?.slice(0, 3) ?? null;
 
   // Digital products first (open ones first); earlier examples (classes, services) after them.
-  const ordered = marketOrder(shelf ?? []);
-  const shown = ordered.filter((b) => category === "all" || b.family === category).slice(0, 8);
-  const hasSoftware = ordered.some((b) => b.family === "software" || b.digital);
-  const lead = featured(shelf ?? []);
+  const catalog = catalogView(shelf.state, category);
+  const lead = featured(shelf.state.data ?? []);
 
   const paths: { icon: IconName; title: string; text: string; to?: string; primary?: boolean }[] = [
     {
@@ -190,8 +178,10 @@ export function Home() {
         )}
       </nav>
 
-      {mine.length > 0 && (
-        <section className="home-section">
+      {/* Job 001f2: only the signed-in account's own projects, read for that account; nothing
+          from a previous account is shown while the next one loads. */}
+      {person && (recent === null || recent.length > 0) && (
+        <section className="home-section" aria-busy={mine.state.status === "loading"}>
           <div className="section-head">
             <div>
               <h2>Continue building</h2>
@@ -202,11 +192,17 @@ export function Home() {
               All projects
             </Link>
           </div>
-          <div className="project-grid">
-            {mine.map((p) => (
-              <ProjectCard key={p.id} p={p} />
-            ))}
-          </div>
+          {recent ? (
+            <div className="project-grid">
+              {recent.map((p) => (
+                <ProjectCard key={p.id} p={p} />
+              ))}
+            </div>
+          ) : mine.state.status === "loading" ? (
+            <p className="muted">Loading your projects…</p>
+          ) : (
+            <ReadFailed what="your recent projects" error={mine.state.error} onRetry={mine.retry} />
+          )}
         </section>
       )}
 
@@ -234,12 +230,14 @@ export function Home() {
             ))}
           </fieldset>
         </div>
-        {shelf === null ? (
-          <p className="muted">Loading…</p>
-        ) : shown.length === 0 ? (
+        {catalog.kind === "loading" ? (
+          <p className="muted">Loading what's published…</p>
+        ) : catalog.kind === "failed" ? (
+          <ReadFailed what="what's published" error={catalog.error} onRetry={shelf.retry} />
+        ) : catalog.kind === "empty" ? (
           <div className="card empty">
             <h2>
-              {category === "software" || (category === "all" && !hasSoftware)
+              {catalog.software
                 ? "No software products are published yet"
                 : "Nothing published in this category yet"}
             </h2>
@@ -247,13 +245,13 @@ export function Home() {
           </div>
         ) : (
           <>
-            {category === "all" && !hasSoftware && (
+            {catalog.earlierOnly && (
               <p className="notice info">
                 No software products are published yet. These are the earlier examples.
               </p>
             )}
-            <MarketList list={shown} />
-            {ordered.length > shown.length && (
+            <MarketList list={catalog.shown} />
+            {catalog.more && (
               <p style={{ marginTop: 12 }}>
                 <Link to="/explore">See everything published on Explore</Link>
               </p>
@@ -262,7 +260,17 @@ export function Home() {
         )}
       </section>
 
-      {needs.length > 0 && (
+      {needs.state.data === null && needs.state.status === "failed" && (
+        <section className="home-section">
+          <p className="notice" role="alert">
+            Open requests couldn't be loaded just now.{" "}
+            <button type="button" className="btn btn-quiet btn-sm" onClick={needs.retry}>
+              Try again
+            </button>
+          </p>
+        </section>
+      )}
+      {(needs.state.data?.length ?? 0) > 0 && (
         <section className="home-section">
           <div className="section-head">
             <div>
@@ -275,7 +283,7 @@ export function Home() {
             </Link>
           </div>
           <div className="shelf">
-            {needs.map((n) => (
+            {(needs.state.data ?? []).map((n) => (
               <div className="card" key={n.id}>
                 <p style={{ margin: "0 0 8px" }}>“{n.text}”</p>
                 <span className="muted" style={{ fontSize: 13 }}>

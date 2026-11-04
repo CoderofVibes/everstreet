@@ -680,6 +680,9 @@ details.advanced[open] > summary { margin-bottom: 8px; }
   .compare { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* Job 001f2: a composer read that couldn't finish, with its retry; typed work stays. */
+.composer-note { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13px; color: var(--amber); margin: 6px 0 0; }
+
 /* ---------- job 001g: the canvas studio (docs/design/CANVAS_STUDIO.md) ---------- */
 .companion-head { display: grid; gap: 2px; margin: 0 0 12px; font-size: 13px; }
 .ctx-kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cobalt-ink); font-weight: 600; }
