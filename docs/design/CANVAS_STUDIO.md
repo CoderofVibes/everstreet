@@ -115,7 +115,10 @@ conversation stay keyed by owner epoch.
   removed.
 - **Fail-safe.** Denied storage leaves the in-session behaviour exactly as before.
 - **Nothing is sent from it.** Requests in flight keep their own envelopes.
-- **Only the mounted instance writes** (after Astra's StudioDraftLifetimeReview). Each
+- **Only the mounted instance writes or deletes** (after Astra's StudioDraftLifetimeReview,
+  including its follow-up: deletions are fenced like writes, so a detached instance's late 404 on
+  a job read, or a stale page load's 404, can't clear the newer view's draft. The studio's
+  project-404 cleanup runs only from the mounted page.) Each
   controller is attached while its view is mounted and detached on unmount. A late answer
   to a detached instance's request writes nothing, so it can't overwrite the newer instance's
   draft or remove the kept envelope. The new instance recovers that same request under the same

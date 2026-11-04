@@ -6,6 +6,7 @@ The StudioDraftLifetimeReview findings arrived during the work and are covered h
 **Commits:**
 - `fe4b3b7`: Astra's eight paths, committed after the check passed (1198 passed and 1 skipped).
 - `31d1c9a`: the correction, its tests and the CANVAS_STUDIO state rules.
+- The third-finding correction (fenced deletions): the commit after `6cb83e1`, recorded in JOBS.
 
 **Status: in review. Not browser-repeated by me** (no browser here). The evidence is the real
 controllers recreated in tests, plus a 25 s smoke run of the preview.
@@ -70,9 +71,40 @@ both fixed):
   (`clearProject`).
 - Another person, project or owner epoch never matches a key.
 
+## Third finding: late deletions (StudioDraftLifetimeReview follow-up)
+
+Astra's final follow-up was right. My first fence covered **writes** but not **deletions**.
+
+**The failing sequence:**
+1. A queued job.
+2. `refresh()` with its read deferred.
+3. The view unmounts (`detach()`).
+4. A recreated view types newer text.
+5. The OLD read answers 404.
+
+The 404 path's direct `clearScope` erased the newer draft. The new view still showed it, but a
+reload came back empty. `forget()` had the same direct clear, reachable from a stale page-load
+callback.
+
+**Reproduced first** on the real `Generations` controller, in a new test in `routeDrafts.test.ts`.
+Before the correction it failed (draft `""` after reload); the matching stale-`forget()` case for
+both Generations and BriefComposer failed the same way.
+
+**Corrected:**
+- **Generations.** `refresh()`'s 404 and `forget()` clear storage only while the instance is
+  writable (attached and not ended), like every write. The request and job envelope deletion
+  (`remember(null)`) was already fenced. A detached instance still ends or clears its own memory.
+- **BriefComposer.** `forget()` clears storage only while attached and not ended.
+- **The callers**, inspected:
+  - AppView's versions 404 and the conversation's 404 go through these fenced `forget()`s.
+  - ProductStudio's project-404 `clearProject` ran directly from its load callback. It now runs
+    only while that studio page is mounted (a `mounted` ref).
+- **Kept.** The mounted view's definite access-loss cleanup still clears everything (tested), and
+  same-key recovery is unchanged: the new view still holds the job and reads it itself.
+
 ## Evidence
 
-**`web/test/routeDrafts.test.ts`** (21 tests) drives the real controllers recreated over the same
+**`web/test/routeDrafts.test.ts`** (24 tests) drives the real controllers recreated over the same
 storage:
 - the reproduction;
 - an emptied box;
@@ -91,16 +123,19 @@ storage:
 - **Astra's two late-answer cases**: a detached instance's late refusal versus the newer draft,
   with the envelope still recoverable; a late refusal or success after `forget()`;
 - an effect re-run;
-- the brief outbox's late answers after detach and after `forget()`.
+- the brief outbox's late answers after detach and after `forget()`;
+- **the third finding**: a detached instance's late job-read 404 versus the newer draft (still
+  recoverable); a stale `forget()` for both controllers; the mounted view's access-loss cleanup
+  still clearing everything.
 
 **`web/test/appGenerate.test.ts`:** four assertions that counted all storage entries now count only
 the request envelope (`everstreet.app-generation.*`). Unsent drafts are now kept by design, for
 example the refused words.
 
 **Checks:**
-- **`npm run check`:** exit 0, lint and types clean. 1217 passed and 1 skipped (1218), across 126
+- **`npm run check`:** exit 0, lint and types clean. 1220 passed and 1 skipped (1221), across 126
   passed and 1 skipped files.
-- **`npm run web:build`:** 883.87 kB JS (was 880.23), 72.52 kB CSS, with the existing chunk
+- **`npm run web:build`:** 884.02 kB JS (was 880.23 at 001k), 72.52 kB CSS, with the existing chunk
   warning.
 - **Preview smoke (25 s, no `--wsl`):** page 200, controls answered, and it exited at the deadline.
 

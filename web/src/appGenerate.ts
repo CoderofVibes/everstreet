@@ -219,8 +219,9 @@ export class Generations {
       if (this.state.job?.id !== j.id) return;
       if (e instanceof ApiError && e.status === 404) {
         this.remember(null);
-        // 001k1: access definitely ended: the unsent draft goes too.
-        clearScope(this.opts.storage, this.opts.scope);
+        // 001k1: access definitely ended: the unsent draft goes too (only from the mounted view:
+        // a detached instance's late read must not erase what the new view holds).
+        if (this.writable) clearScope(this.opts.storage, this.opts.scope);
         this.set({
           draft: "",
           job: null,
@@ -250,7 +251,8 @@ export class Generations {
    */
   forget() {
     this.remember(null);
-    clearScope(this.opts.storage, this.opts.scope);
+    // Deletions are fenced like writes: a stale, detached page load can't clear the new view's.
+    if (this.writable) clearScope(this.opts.storage, this.opts.scope);
     this.set({
       draft: "",
       pending: null,

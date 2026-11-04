@@ -73,7 +73,8 @@ export class BriefComposer {
   }
   /** Access to the project definitely ended: everything kept for this scope goes. */
   forget() {
-    clearScope(this.opts.storage, this.opts.scope);
+    // Deletions are fenced like writes: a stale, detached panel can't clear the new one's.
+    if (this.attached && !this.ended) clearScope(this.opts.storage, this.opts.scope);
     this.set({ text: "", outbox: null });
     this.ended = true;
   }

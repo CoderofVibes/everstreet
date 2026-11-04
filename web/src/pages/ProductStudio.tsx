@@ -12,6 +12,7 @@ import {
   useCallback,
   useEffect,
   useReducer,
+  useRef,
   useState,
 } from "react";
 import { ApiError } from "../api.ts";
@@ -877,6 +878,15 @@ export function ProductStudio({ id }: { id: string }) {
     setDraft(next);
   };
 
+  // 001k1: only the mounted studio deletes kept composer state (a load that answers after this
+  // page unmounted must not clear what a newer studio for the project holds).
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const load = useCallback(() => {
     setLoadError(null);
     return productsApi
@@ -897,7 +907,7 @@ export function ProductStudio({ id }: { id: string }) {
       .catch((e) => {
         // 001k1: the project definitely isn't this person's (any owner epoch): their kept
         // composer text and unresolved requests for it are removed from this tab.
-        if (e instanceof ApiError && e.status === 404)
+        if (mounted.current && e instanceof ApiError && e.status === 404)
           clearProject(typeof sessionStorage === "undefined" ? null : sessionStorage, personId, id);
         setLoadError({
           status: e instanceof ApiError ? e.status : 0,

@@ -439,3 +439,76 @@ describe("001k1 late answers (Astra's StudioDraftLifetimeReview, reproduced firs
     expect(storage.m.size).toBe(0);
   });
 });
+
+describe("001k1 late DELETIONS (Astra's StudioDraftLifetimeReview follow-up, reproduced first)", () => {
+  it("a detached instance's late 404 on its job read can't erase the newer instance's draft", async () => {
+    const storage = new MemoryStorage();
+    let failRead: (e: unknown) => void = () => {};
+    const p: GenerationPort = {
+      generate: async () => ({ job: { id: JOB, state: "queued", failure: null } }),
+      build: () =>
+        new Promise((_, rej) => {
+          failRead = rej;
+        }),
+      cancelBuild: async (id) => ({ job: { id, state: "cancelled", failure: null } }),
+    };
+    const a = app(storage, p);
+    a.attach();
+    a.setDraft("first");
+    await a.submit(BASE); // a queued job, kept by id
+    const reading = a.refresh(); // its read is still out
+    a.detach(); // the view unmounts
+    const b = app(storage, never());
+    b.attach();
+    expect(b.getState().job?.id).toBe(JOB);
+    b.setDraft("newer draft after return");
+    failRead(new ApiError(404, "gone")); // the OLD read answers late
+    await reading;
+    expect(b.getState().draft).toBe("newer draft after return");
+    const c = app(storage, never());
+    expect(c.getState().draft).toBe("newer draft after return");
+    expect(c.getState().job?.id).toBe(JOB); // the new view reads the job itself
+  });
+
+  it("a detached instance's late forget (a stale page load) can't erase the newer instance's state", () => {
+    const storage = new MemoryStorage();
+    const a = app(storage);
+    a.attach();
+    a.detach();
+    const b = app(storage);
+    b.attach();
+    b.setDraft("kept by the mounted view");
+    a.forget(); // the old view's page load answered 404 after it unmounted
+    expect(app(storage).getState().draft).toBe("kept by the mounted view");
+    // The same for the brief composer.
+    const x = brief(storage);
+    x.attach();
+    x.detach();
+    const y = brief(storage);
+    y.attach();
+    y.setText("brief words kept");
+    x.forget();
+    expect(brief(storage).getState().text).toBe("brief words kept");
+  });
+
+  it("the mounted instance's definite access loss still clears everything", async () => {
+    const storage = new MemoryStorage();
+    const p: GenerationPort = {
+      generate: async () => ({ job: { id: JOB, state: "queued", failure: null } }),
+      build: () => Promise.reject(new ApiError(404, "gone")),
+      cancelBuild: async (id) => ({ job: { id, state: "cancelled", failure: null } }),
+    };
+    const g = app(storage, p);
+    g.attach();
+    g.setDraft("x");
+    await g.submit(BASE);
+    g.setDraft("private");
+    await g.refresh();
+    expect(app(storage).getState()).toMatchObject({ draft: "", job: null });
+    const b = brief(storage);
+    b.attach();
+    b.setText("private brief");
+    b.forget();
+    expect(storage.m.size).toBe(0);
+  });
+});
