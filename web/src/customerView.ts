@@ -4,7 +4,7 @@
 // result is "completed" only as a complete extraction; anything else is never styled as success.
 
 import type { UseView } from "./customerApi.ts";
-import type { WorkspaceState } from "./customerWorkspace.ts";
+import type { DoubtAction, WorkspaceState } from "./customerWorkspace.ts";
 
 export type CustomerStepStatus = "completed" | "current" | "waiting" | "stopped" | "attention";
 export interface CustomerStep {
@@ -22,7 +22,7 @@ export const CUSTOMER_STEP_WORD: Record<CustomerStepStatus, string> = {
   attention: "Needs checking",
 };
 
-type View = Pick<WorkspaceState, "use" | "result" | "check" | "unanswered" | "draft">;
+type View = Pick<WorkspaceState, "use" | "result" | "check" | "unanswered" | "draft" | "inDoubt">;
 
 const ENDED: UseView["state"][] = ["refused", "unresolved", "cancelled", "expired"];
 const is = (status: CustomerStepStatus, detail: string) => ({ status, detail });
@@ -108,7 +108,39 @@ function resultStep(s: View) {
   return is("stopped", "No usable result. A use without one isn't charged.");
 }
 
+// 001j1: which step a lost answer leaves in doubt.
+const DOUBT_STEP: Record<DoubtAction, CustomerStep["key"]> = {
+  authorize: "authorize",
+  cancel: "authorize",
+  run: "run",
+  release: "run",
+  check_unit: "result",
+};
+const DOUBT_DETAIL: Record<DoubtAction, string> = {
+  authorize: "Sent, but no answer came back: it may have been received. Check this request.",
+  cancel: "Your cancel was sent, but no answer came back. Check this request.",
+  run: "Sent, but no answer came back: it may have run. Check this request; it is never run again automatically.",
+  release: "Your return was sent, but no answer came back. Check this request.",
+  check_unit: "Settling was sent, but no answer came back. Check this request.",
+};
+
 export function customerSteps(s: View): CustomerStep[] {
+  const steps = baseSteps(s);
+  // 001j1: after a lost answer the request shown is stale: its step needs checking, and nothing
+  // after it is claimed until a fresh read of the same request answers.
+  const d = s.inDoubt;
+  if (!d || d.useId !== s.use?.id) return steps;
+  const at = steps.findIndex((st) => st.key === DOUBT_STEP[d.action]);
+  return steps.map((st, i) =>
+    i < at
+      ? st
+      : i === at
+        ? { ...st, status: "attention", detail: DOUBT_DETAIL[d.action] }
+        : { ...st, status: "waiting", detail: "After this request is checked." },
+  );
+}
+
+function baseSteps(s: View): CustomerStep[] {
   return [
     { key: "document", title: "Your document", ...documentStep(s) },
     { key: "authorize", title: "Review and authorize one use", ...authorizeStep(s) },

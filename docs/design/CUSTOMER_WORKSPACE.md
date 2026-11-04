@@ -145,6 +145,29 @@ refused answer is never styled or worded as success.
   zero.
 - **Empty result:** a compact placeholder naming the declared fields; no 360px blank card.
 
+### A lost answer (job 001j1)
+
+Authorize/confirm, run, return, settle and cancel change the request on the server. If one of
+their answers is lost, the request on the page is the state from before it, and the server may
+have acted:
+- **What counts as lost:** no answer, a 5xx, or an unreadable answer. A 4xx is a definite refusal
+  and is shown as one.
+- **Request-bound marker:** the controller keeps `inDoubt: { action, useId }`.
+- **The one next action is "Check what happened".** It is a GET of the same request.
+- **Nothing based on the stale state is offered:** no Run, no second signature, no Cancel, no
+  return.
+- **Step strip:** that step reads "Needs checking"; the steps after it wait.
+- **Unit card:** says its state is as last read.
+- **A failed check keeps the marker and the action.** Nothing is retried automatically.
+- **A fresh read settles it and says what it found:** for example, the run finished; or no run
+  exists, so running it now uses the same request; or the authorization wasn't recorded, so
+  nothing is held.
+- **Other ways it clears:** access ending, leaving the request, or a reload or direct link. Those
+  start from a fresh read, so the marker is never persisted.
+
+The server's idempotency and its actor and request fences are unchanged. The lost prepare is the
+existing 003q1 recovery.
+
 ## Disposable preview
 
 ```

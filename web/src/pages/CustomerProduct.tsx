@@ -12,7 +12,12 @@ import {
   type CustomerStep,
   customerSteps,
 } from "../customerView.ts";
-import { type Action, CustomerWorkspace, nextStep } from "../customerWorkspace.ts";
+import {
+  type Action,
+  CustomerWorkspace,
+  nextStep,
+  type WorkspaceState,
+} from "../customerWorkspace.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 
@@ -271,6 +276,62 @@ function ResultArea({
   return <p className={`use-placeholder${stopped ? " is-stopped" : ""}`}>{text}</p>;
 }
 
+/**
+ * The active step's controls: the one next action, and the secondary choices the state allows.
+ * 001j1: while an answer for this request was lost, only "Check what happened" is offered: no
+ * cancel or return based on the state from before it.
+ */
+export function StepActions({
+  s,
+  onAction,
+}: {
+  s: WorkspaceState;
+  onAction: (a: Action | null) => void;
+}) {
+  const next = nextStep(s);
+  const use = s.use;
+  const busy = s.busy !== null;
+  const settled = next.action !== "check_request";
+  return (
+    <>
+      <div className="use-actions">
+        <button
+          type="button"
+          className="btn btn-primary btn-lg"
+          disabled={busy || next.action === null || (next.action === "prepare" && !s.draft.trim())}
+          onClick={() => onAction(next.action)}
+        >
+          {busy ? "Working…" : next.label}
+        </button>
+        {settled && use?.state === "prepared" && next.action !== "cancel" && (
+          <button
+            type="button"
+            className="btn btn-quiet"
+            disabled={busy}
+            onClick={() => onAction("cancel")}
+          >
+            Cancel this request
+          </button>
+        )}
+        {settled &&
+          use?.state === "reserved" &&
+          !use.execution &&
+          use.units.unit === "reserved_awaiting_settlement" && (
+            <button
+              type="button"
+              className="btn btn-quiet"
+              disabled={busy}
+              onClick={() => onAction("release")}
+            >
+              Don't run it: return my unit
+            </button>
+          )}
+      </div>
+      <p className="muted use-why">{next.why}</p>
+    </>
+  );
+}
+
 /** Job 001j: the use's steps, each status a word (never colour alone). */
 export function CustomerProgress({
   steps,
@@ -346,7 +407,6 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
 
   const offer = s.offer;
   const use = s.use;
-  const next = nextStep(s);
   const run = (a: Action | null) => {
     if (!a) return;
     if (a === "start_another") {
@@ -366,10 +426,10 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
       release: () => w.release(),
       cancel: () => w.cancel(),
       refresh: () => w.refresh(),
+      check_request: () => w.checkRequest(),
     };
     void map[a]();
   };
-  const busy = s.busy !== null;
   const unit = use ? UNIT_WORDS[use.units.unit] : null;
   const needsDocument = !use || (use.state === "prepared" && s.accepted === null);
   const max = offer?.product.max_chars ?? 0;
@@ -450,41 +510,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
           )}
           {use?.state === "prepared" && <Consent use={use} check={s.check} />}
 
-          <div className="use-actions">
-            <button
-              type="button"
-              className="btn btn-primary btn-lg"
-              disabled={
-                busy || next.action === null || (next.action === "prepare" && !s.draft.trim())
-              }
-              onClick={() => run(next.action)}
-            >
-              {busy ? "Working…" : next.label}
-            </button>
-            {use?.state === "prepared" && next.action !== "cancel" && (
-              <button
-                type="button"
-                className="btn btn-quiet"
-                disabled={busy}
-                onClick={() => run("cancel")}
-              >
-                Cancel this request
-              </button>
-            )}
-            {use?.state === "reserved" &&
-              !use.execution &&
-              use.units.unit === "reserved_awaiting_settlement" && (
-                <button
-                  type="button"
-                  className="btn btn-quiet"
-                  disabled={busy}
-                  onClick={() => run("release")}
-                >
-                  Don't run it: return my unit
-                </button>
-              )}
-          </div>
-          <p className="muted use-why">{next.why}</p>
+          <StepActions s={s} onAction={run} />
           {s.authorizer?.synthetic && (
             <p className="use-provenance" role="note">
               <strong>{s.authorizer.label}.</strong> Authorizing here makes a synthetic test
@@ -511,6 +537,12 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
           <h2 id="use-unit-title">Your unit</h2>
           {unit && use ? (
             <>
+              {s.inDoubt?.useId === use.id && (
+                <p className="notice use-unit-doubt" role="note">
+                  As last read, before your last request lost its answer. Check this request to see
+                  the unit now.
+                </p>
+              )}
               <span className={`pill ${unit.tone}`}>{unit.label}</span>
               <p className="use-note">{unit.text}</p>
               {use.units.source ? (

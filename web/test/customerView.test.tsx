@@ -23,7 +23,7 @@ import type { CustomerPort } from "../src/customerApi.ts";
 import type { CustomerAuthorizer } from "../src/customerAuthorizer.ts";
 import { activeCustomerStep, completeResult, customerSteps } from "../src/customerView.ts";
 import { CustomerWorkspace, nextStep, type WorkspaceState } from "../src/customerWorkspace.ts";
-import { CustomerProgress, CustomerResult } from "../src/pages/CustomerProduct.tsx";
+import { CustomerProgress, CustomerResult, StepActions } from "../src/pages/CustomerProduct.tsx";
 
 const INVOICE =
   "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD";
@@ -61,6 +61,8 @@ function portOver(go0: Call, before: () => void = () => {}, override: Partial<Cu
   return { ...port, ...override };
 }
 
+/** Signatures made by the test authorizer (001j1: a lost answer never signs again). */
+let signatures = 0;
 /** Test-only authorizer: the contract tests' synthetic key. Never in the app bundle. */
 const testAuthorizer = (): CustomerAuthorizer => {
   const sign = keyFromSeed(1);
@@ -68,10 +70,13 @@ const testAuthorizer = (): CustomerAuthorizer => {
     label: "Test only: synthetic key",
     synthetic: true,
     publicKey: async () => SEED1_PK,
-    sign: async (m) => ({
-      hold_signature: sign(m.hold_message_hex),
-      use_signature: sign(m.use_message_hex),
-    }),
+    sign: async (m) => {
+      signatures++;
+      return {
+        hold_signature: sign(m.hold_message_hex),
+        use_signature: sign(m.use_message_hex),
+      };
+    },
   };
 };
 
@@ -240,32 +245,6 @@ describe("001j steps follow the real request", () => {
     expect(w.chain.charged).toBe(0);
   });
 
-  it("a lost execute answer: checking again finds the same run, completed once", async () => {
-    let lose = true;
-    const box: { real?: CustomerPort } = {};
-    const { w, open, runs } = await setup({
-      execute: async (id, b) => {
-        const r = await box.real?.execute(id, b);
-        if (lose) {
-          lose = false;
-          throw new TypeError("network");
-        }
-        return r;
-      },
-    });
-    box.real = portOver(w.cara, () => {
-      w.clock.now = Number(w.chain.ts);
-    });
-    const ws = open();
-    await reserved(ws);
-    await ws.run();
-    expect(statuses(ws.getState()).result).not.toBe("completed");
-    for (let i = 0; i < 3 && ws.getState().use?.execution?.state !== "completed"; i++)
-      await ws.refresh();
-    expect(statuses(ws.getState())).toMatchObject({ run: "completed", result: "current" });
-    expect(runs()).toBe(1);
-  });
-
   it("access lost: the request and its result leave the page; the steps start over", async () => {
     let gone = false;
     const box: { real?: CustomerPort } = {};
@@ -347,5 +326,172 @@ describe("001j the customer's view across a sale (synthetic preview scenario)", 
     await after.showResult();
     expect(view(after.getState())).toEqual(before);
     expect(p.controls.summary().entitlement).toMatchObject({ free: "99", consumed: "1" });
+  });
+});
+
+// Job 001j1, Astra's browser finding on 89c6923: after the server ran a use but its answer was
+// lost, the page still offered "Run it on my document" and "Don't run it: return my unit". The
+// same request's direct link showed the finished result. These lose one answer of the real API
+// (the server acts, or never sees it, or refuses) and check what the page's own controls
+// (StepActions, the component the page renders) offer at each step.
+
+type Method = "execute" | "confirm" | "release";
+/** One answer of `method` is lost: after the server acted, before it saw it, or a refusal. */
+async function losing(method: Method, mode: "acted" | "unsent" | "refused") {
+  let lose = true;
+  const box: { real?: CustomerPort; failReads: number } = { failReads: 0 };
+  const call = (id: string, b: unknown) => {
+    if (!box.real) throw new Error("port not ready");
+    return (box.real[method] as (id: string, b: unknown) => Promise<unknown>)(id, b);
+  };
+  const x = await setup({
+    [method]: async (id: string, b: unknown) => {
+      if (!lose) return call(id, b);
+      lose = false;
+      if (mode === "refused") throw new ApiError(409, "Not possible now", "not_now");
+      if (mode === "acted") await call(id, b);
+      throw new TypeError("network");
+    },
+    use: async (id: string) => {
+      if (box.failReads > 0) {
+        box.failReads--;
+        throw new ApiError(503, "Service unavailable");
+      }
+      return box.real?.use(id);
+    },
+  } as Partial<CustomerPort>);
+  box.real = portOver(x.w.cara, () => {
+    x.w.clock.now = Number(x.w.chain.ts);
+  });
+  return { ...x, box };
+}
+
+const controls = (s: WorkspaceState) =>
+  renderToStaticMarkup(<StepActions s={s} onAction={() => {}} />);
+
+describe("001j1 a lost answer is recovered visibly, on the same request", () => {
+  it("lost execute: only Check what happened; a failed read keeps it; a fresh read shows the finished run once", async () => {
+    const { open, runs, box } = await losing("execute", "acted");
+    const ws = open();
+    await reserved(ws);
+    const id = ws.getState().use?.id;
+    await ws.run();
+
+    // Immediately: the page offers a check of this request, nothing based on the stale state.
+    let s = ws.getState();
+    expect(s.inDoubt).toEqual({ action: "run", useId: id });
+    expect(nextStep(s)).toMatchObject({ action: "check_request", label: "Check what happened" });
+    let html = controls(s);
+    expect(html).toContain("Check what happened");
+    expect(html).toMatch(/It may have run\. Check this request: it is never run again/);
+    expect(html).not.toContain("Run it on my document");
+    expect(html).not.toContain("return my unit");
+    expect(statuses(s)).toMatchObject({ run: "attention", result: "waiting" });
+    expect(runs()).toBe(1);
+
+    // The check's read fails: still in doubt, still the same action, nothing run.
+    box.failReads = 1;
+    await ws.checkRequest();
+    s = ws.getState();
+    expect(s.inDoubt?.useId).toBe(id);
+    expect(nextStep(s).action).toBe("check_request");
+    expect(s.notice?.tone).toBe("warn");
+    html = controls(s);
+    expect(html).toContain("Check what happened");
+    expect(html).not.toContain("Run it on my document");
+
+    // A fresh read of the same request: the run finished; the doubt is settled.
+    await ws.checkRequest();
+    s = ws.getState();
+    expect(s.inDoubt).toBeNull();
+    expect(s.use?.id).toBe(id);
+    expect(s.use?.execution?.state).toBe("completed");
+    expect(s.notice).toMatchObject({ code: "request_checked", tone: "ok" });
+    expect(nextStep(s).action).toBe("show_result");
+    expect(controls(s)).toContain("Show my result");
+    expect(statuses(s)).toMatchObject({ run: "completed", result: "current" });
+    expect(runs()).toBe(1);
+  });
+
+  it("the run never reached the server: the check says so, then running it is the same request", async () => {
+    const { open, runs } = await losing("execute", "unsent");
+    const ws = open();
+    await reserved(ws);
+    const id = ws.getState().use?.id;
+    await ws.run();
+    expect(nextStep(ws.getState()).action).toBe("check_request");
+    await ws.checkRequest();
+    expect(ws.getState().notice?.code).toBe("run_not_started");
+    expect(nextStep(ws.getState()).action).toBe("run");
+    expect(runs()).toBe(0);
+    await ws.run();
+    expect(ws.getState().use).toMatchObject({ id, execution: { state: "completed" } });
+    expect(runs()).toBe(1);
+  });
+
+  it("an explicit refusal is a definite answer: no doubt, the refusal is shown", async () => {
+    const { open, runs } = await losing("execute", "refused");
+    const ws = open();
+    await reserved(ws);
+    await ws.run();
+    const s = ws.getState();
+    expect(s.inDoubt).toBeNull();
+    expect(s.notice).toMatchObject({ tone: "error", message: "Not possible now" });
+    expect(nextStep(s).action).not.toBe("check_request");
+    expect(runs()).toBe(0);
+  });
+
+  it("lost authorization: no second signature or cancel offered; the check finds it received", async () => {
+    const { open } = await losing("confirm", "acted");
+    const ws = open();
+    await ws.start();
+    ws.setDraft(INVOICE);
+    await ws.prepare();
+    const id = ws.getState().use?.id;
+    const before = signatures;
+    await ws.authorize();
+    expect(signatures - before).toBe(1);
+    const html = controls(ws.getState());
+    expect(html).toContain("Check what happened");
+    expect(html).not.toContain("Authorize this one use");
+    expect(html).not.toContain("Cancel this request");
+    expect(statuses(ws.getState())).toMatchObject({ authorize: "attention", run: "waiting" });
+    await ws.checkRequest();
+    const s = ws.getState();
+    expect(s.use?.id).toBe(id);
+    expect(s.use?.state).not.toBe("prepared");
+    expect(s.notice?.code).toBe("request_checked");
+    expect(signatures - before).toBe(1);
+  });
+
+  it("lost return: the stale Run and return aren't offered; the check shows the return requested", async () => {
+    const { open, runs } = await losing("release", "acted");
+    const ws = open();
+    await reserved(ws);
+    await ws.release();
+    const html = controls(ws.getState());
+    expect(html).toContain("Check what happened");
+    expect(html).not.toContain("Run it on my document");
+    expect(html).not.toContain("return my unit");
+    await ws.checkRequest();
+    expect(["release_pending", "returned"]).toContain(ws.getState().use?.units.unit);
+    expect(nextStep(ws.getState()).action).not.toBe("run");
+    expect(runs()).toBe(0);
+  });
+
+  it("a reload or direct link reads the request fresh: no stale doubt; leaving the request clears it", async () => {
+    const { open, runs } = await losing("execute", "acted");
+    const ws = open();
+    await reserved(ws);
+    const id = ws.getState().use?.id as string;
+    await ws.run();
+    expect(ws.getState().inDoubt).not.toBeNull();
+    const link = open(id);
+    await link.start();
+    expect(link.getState()).toMatchObject({ inDoubt: null, use: { id } });
+    expect(nextStep(link.getState()).action).toBe("show_result");
+    ws.startAnother();
+    expect(ws.getState()).toMatchObject({ inDoubt: null, use: null });
+    expect(runs()).toBe(1);
   });
 });

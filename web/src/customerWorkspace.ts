@@ -64,7 +64,35 @@ export interface WorkspaceState {
    * valid until its deadline. The draft is kept; checking again is the customer's choice.
    */
   waiting: { request_id: string | null; until_ms: string } | null;
+  /**
+   * 001j1: an action that changes this request was sent and its answer was lost (no answer, a
+   * gateway failure or an unreadable one). The server may have acted, so the request shown is
+   * the state from before it. Until a fresh read of the same request answers, the only next step
+   * is to check it: never run, authorize, return or cancel again on that stale state. Cleared by a
+   * fresh answer for this request, access ending or leaving the request; never by elapsed time.
+   */
+  inDoubt: { action: DoubtAction; useId: string } | null;
 }
+
+/** The actions that change a request on the server; a lost answer leaves them in doubt. */
+export type DoubtAction = "authorize" | "run" | "release" | "check_unit" | "cancel";
+const DOUBT: readonly Action[] = ["authorize", "run", "release", "check_unit", "cancel"];
+
+/** No answer, a gateway failure, or an answer we couldn't read: the server may have acted. */
+const unansweredError = (e: unknown) =>
+  !(e instanceof ApiError) || e.status >= 500 || e instanceof MalformedAnswer;
+
+const DOUBT_WHY: Record<DoubtAction, string> = {
+  authorize:
+    "Your authorization was sent, but no answer came back. It may have been received. Check this request before anything else: nothing is signed again by checking.",
+  run: "Your request to run it was sent, but no answer came back. It may have run. Check this request: it is never run again automatically, and checking makes no new run.",
+  release:
+    "Your request to return the unit was sent, but no answer came back. Check this request to see what the contract and this app now show.",
+  check_unit:
+    "Your request to settle the unit was sent, but no answer came back. Check this request to see its unit now.",
+  cancel:
+    "Your request to cancel was sent, but no answer came back. Check this request to see whether it was cancelled.",
+};
 
 const at = (ms: string) => new Date(Number(ms)).toLocaleString();
 const WAIT_WHY = (ms: string) =>
@@ -82,6 +110,7 @@ export type Action =
   | "release"
   | "cancel"
   | "refresh"
+  | "check_request"
   | "start_another";
 
 export interface Storage {
@@ -117,6 +146,7 @@ export class CustomerWorkspace {
     authorizer: null,
     unanswered: null,
     waiting: null,
+    inDoubt: null,
   };
   private listeners = new Set<() => void>();
   private alive = true;
@@ -198,6 +228,7 @@ export class CustomerWorkspace {
       busy: null,
       unanswered: null,
       waiting: null,
+      inDoubt: null,
       notice: { tone: "warn", code: "access_ended", message: ACCESS_ENDED },
     });
   }
@@ -212,6 +243,16 @@ export class CustomerWorkspace {
     } catch (e) {
       if (gen !== this.generation) return;
       if (e instanceof ApiError && e.status === 404 && this.state.use) return this.gone();
+      const use = this.state.use;
+      if (DOUBT.includes(action) && use && unansweredError(e)) {
+        // 001j1: the server may have acted; the request shown is stale until it is read again.
+        const doubt = action as DoubtAction;
+        this.set({
+          inDoubt: { action: doubt, useId: use.id },
+          notice: { tone: "warn", code: "answer_lost", message: DOUBT_WHY[doubt] },
+        });
+        return;
+      }
       const unavailable = e instanceof ApiError && e.status === 503;
       this.set({
         notice: {
@@ -228,7 +269,9 @@ export class CustomerWorkspace {
   private applyUse(raw: unknown, gen: number) {
     if (gen !== this.generation) return false;
     const use = parseUse(raw);
-    this.set({ use, offer: use.offer, status: "ready" });
+    // 001j1: a fresh, readable answer from the server is the request's state now: any doubt
+    // about a lost answer is settled by it (for another request, the doubt no longer applies).
+    this.set({ use, offer: use.offer, status: "ready", inDoubt: null });
     return true;
   }
 
@@ -342,8 +385,7 @@ export class CustomerWorkspace {
     } catch (e) {
       // Unanswered: no answer, a gateway failure, or an answer we couldn't read. The server may
       // have acted, so the attempt stays recoverable. A definite refusal ends it.
-      const unanswered =
-        !(e instanceof ApiError) || e.status >= 500 || e instanceof MalformedAnswer;
+      const unanswered = unansweredError(e);
       if (gen === this.generation) {
         if (unanswered) this.set({ unanswered: { chars: p.text.length } });
         else {
@@ -471,6 +513,22 @@ export class CustomerWorkspace {
   checkReservation() {
     return this.onRequest("check_reservation", (id) => this.port.reconcile(id));
   }
+
+  /**
+   * 001j1: after a lost answer, reads this same request (a GET: it changes nothing) and says what
+   * it found. A failed read keeps the doubt and this action; nothing is retried automatically.
+   */
+  checkRequest() {
+    const req = this.state.use;
+    const doubt = this.state.inDoubt;
+    if (!req) return;
+    return this.act("check_request", async (gen) => {
+      if (!this.applyUse(await this.port.use(req.id), gen)) return;
+      const now = this.state.use;
+      if (doubt && now) this.set({ notice: found(doubt.action, now) });
+      await this.loadRecent();
+    });
+  }
   refresh() {
     return this.onRequest("refresh", (id) => this.port.use(id));
   }
@@ -510,7 +568,49 @@ export class CustomerWorkspace {
     if (this.pending) return;
     this.generation++;
     if (this.state.offer) this.remember(this.state.offer.offer_id, null);
-    this.set({ use: null, accepted: null, check: null, result: null, busy: null, notice: null });
+    this.set({
+      use: null,
+      accepted: null,
+      check: null,
+      result: null,
+      busy: null,
+      notice: null,
+      inDoubt: null,
+    });
+  }
+}
+
+/** 001j1: what a fresh read of the request showed after a lost answer, in plain words. */
+function found(action: DoubtAction, u: UseView): Notice {
+  const ok = (message: string): Notice => ({ tone: "ok", code: "request_checked", message });
+  const x = u.execution;
+  switch (action) {
+    case "run":
+      if (!x)
+        return {
+          tone: "info",
+          code: "run_not_started",
+          message:
+            "Checked: this request shows no run, so it didn't start and nothing was charged. Running it now uses the same request.",
+        };
+      return ok(
+        x.state === "running"
+          ? "Checked: it is running. It is never run twice."
+          : x.state === "completed"
+            ? "Checked: the run finished. Nothing was run twice."
+            : "Checked: the run ended without a usable result. It isn't run again automatically.",
+      );
+    case "authorize":
+      return u.state === "prepared"
+        ? {
+            tone: "info",
+            code: "authorization_not_recorded",
+            message:
+              "Checked: your authorization wasn't recorded, so nothing is held. You can authorize this same request again.",
+          }
+        : ok("Checked: your authorization was received. What happened next is shown below.");
+    default:
+      return ok("Checked: this request's current state is shown below.");
   }
 }
 
@@ -523,6 +623,13 @@ export interface Next {
 /** The one primary next step for the current state, in plain words. */
 export function nextStep(s: WorkspaceState): Next {
   const u = s.use;
+  // 001j1: a lost answer for this request comes first: the state shown may be stale.
+  if (u && s.inDoubt?.useId === u.id)
+    return {
+      action: "check_request",
+      label: "Check what happened",
+      why: DOUBT_WHY[s.inDoubt.action],
+    };
   if (!u && s.unanswered)
     return {
       action: "recover_original",
