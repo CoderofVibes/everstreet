@@ -1,4 +1,19 @@
 # Product acceptance ledger
+## November4 approved scoped evidence and publication review
+
+At295ec50, independent887tests/90files and types passed; lint exited0 with one useMathMinMax
+warning. Approved disposable browser grants to fictional Fenn/Ruiz: Fenn financial+digital
+performance, Ruiz financial only; downloaded exports reflect exact scopes. Both grants revoked;
+both room and export endpoints refuse further access. Seller sign-in recovery passed. See
+[ApprovedEvidenceReview](2026-11-04_ApprovedEvidenceReview.md). Local only, no live-chain evidence.
+
+Publication browser draft -> reviewed version1 -> local page -> actual Use route passed; saving
+version2 leaves live version1. Exact review across runtime release changes FAILED independent
+finite actual-route probe: new name silently published under same draft_rev.001d1 required before
+acceptance;001e improves currently duplicated plain storefront hierarchy. Unpublish browser
+confirmation stalled in tooling, not a verified product failure; automated tests pass separately.
+Full responsive/zoom/a11y, live integrations and all six milestone gates remain open.
+
 
 Astra owns this ledger. A passing command or a completed builder report does not by itself
 accept a milestone. Record an evidence path, commit and observed result when closing a gate.
