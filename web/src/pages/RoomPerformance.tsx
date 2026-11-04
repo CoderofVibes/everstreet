@@ -1,7 +1,8 @@
-// Job 003u: the buyer's Digital performance tab. Only the allowlisted aggregate the seller granted:
-// customer uses by month and outcome, usable results, open work, and runtime cost serving
-// customers beside the founder's own tests. Hidden small counts are a hatched marker and the words
-// "Fewer than 3", never a value. No links into the seller's tools and no actions.
+// Job 003u/003u1: the buyer's Digital performance tab. Only the allowlisted aggregate the seller
+// granted: customer uses by month and outcome, usable results, open work, and runtime cost serving
+// customers beside the founder's own tests. When breakdowns are withheld, their charts are not
+// drawn at all and every withheld figure reads "Withheld" (no size claimed), in text, ARIA labels
+// and the table alike. No links into the seller's tools and no actions.
 
 import { useId, useState } from "react";
 import type { PerformanceEvidence } from "../api5.ts";
@@ -9,8 +10,7 @@ import { intScale, microcentsUsd } from "../operations.ts";
 import {
   costShown,
   describeMonth,
-  drawn,
-  isHidden,
+  isWithheld,
   performanceState,
   shownText,
 } from "../performance.ts";
@@ -33,15 +33,13 @@ function MonthlyChart({
 }: {
   months: Month[];
   title: string;
-  series: { label: string; fill: string; value: (m: Month) => number | "hidden" }[];
+  series: { label: string; fill: string; value: (m: Month) => number }[];
   axis: string;
   fmt: (t: number) => string;
 }) {
   const id = useId();
   const [active, setActive] = useState<number | null>(null);
-  const values = months.flatMap((m) =>
-    series.map((s) => s.value(m)).filter((v): v is number => v !== "hidden"),
-  );
+  const values = months.flatMap((m) => series.map((s) => s.value(m)));
   const scale = intScale(values);
   const band = (W - LEFT - 8) / Math.max(1, months.length);
   const bar = Math.min(24, band / (series.length + 1));
@@ -55,11 +53,6 @@ function MonthlyChart({
       <Scroll label={`${title} (scrolls sideways on small screens)`}>
         <svg viewBox={`0 0 ${W} ${H}`} className="fin-svg">
           <title>{title}</title>
-          <defs>
-            <pattern id={`${id}-hatch`} width="6" height="6" patternUnits="userSpaceOnUse">
-              <path d="M0 6 L6 0" stroke="var(--ink-3)" strokeWidth="1.5" />
-            </pattern>
-          </defs>
           {scale.ticks.map((t) => {
             const y = TOP + PLOT - (t / scale.max) * PLOT;
             return (
@@ -97,18 +90,6 @@ function MonthlyChart({
               {series.map((s, k) => {
                 const v = s.value(m);
                 const bx = x(i) - (series.length * (bar + 2)) / 2 + k * (bar + 2);
-                if (v === "hidden")
-                  return (
-                    <rect
-                      key={s.label}
-                      x={bx}
-                      y={TOP + PLOT - 18}
-                      width={bar}
-                      height={18}
-                      fill={`url(#${id}-hatch)`}
-                      stroke="var(--ink-3)"
-                    />
-                  );
                 const h = (v / scale.max) * PLOT;
                 return v === 0 ? null : (
                   <rect
@@ -142,9 +123,6 @@ function MonthlyChart({
           </span>
         ))}
         <span>
-          <i className="sw sw-grey" /> Hatched: fewer than 3 (hidden)
-        </span>
-        <span>
           <i className="sw sw-dash" /> This month so far
         </span>
       </div>
@@ -172,7 +150,9 @@ export function RoomPerformance({ p }: { p: PerformanceEvidence | undefined }) {
         The seller's own records of customer uses and runtime calls, over {p.period.months}{" "}
         {p.period.buckets} as of {p.as_of.replace("T", " ").slice(0, 16)} UTC. {p.basis.not}
       </p>
-      {state.kind === "nothing_recorded" && <p className="notice">{state.text}</p>}
+      {(state.kind === "nothing_recorded" || state.kind === "withheld") && (
+        <p className="notice">{state.text}</p>
+      )}
       <div className="fin-tiles">
         <div className="fin-tile">
           <div className="k">Customer uses requested</div>
@@ -193,7 +173,7 @@ export function RoomPerformance({ p }: { p: PerformanceEvidence | undefined }) {
         </div>
         <div className="fin-tile">
           <div className="k">Runtime cost serving customers</div>
-          <div className={`v${isHidden(t.customers.microcents) ? " fin-unknown" : ""}`}>
+          <div className={`v${isWithheld(t.customers.microcents) ? " fin-unknown" : ""}`}>
             {costShown(t.customers.microcents)}
           </div>
           <div className="s">
@@ -209,31 +189,45 @@ export function RoomPerformance({ p }: { p: PerformanceEvidence | undefined }) {
           </li>
         ))}
       </ul>
+      {p.withheld ? (
+        <p className="muted" style={{ fontSize: 13 }}>
+          The monthly customer-use chart and customer costs by month are withheld for this window.
+        </p>
+      ) : (
+        <MonthlyChart
+          months={p.months}
+          title="Customer uses by the month they were requested"
+          axis="Uses"
+          fmt={String}
+          series={[
+            {
+              label: "Customer uses",
+              fill: "var(--mint)",
+              value: (m) => (isWithheld(m.requested) ? 0 : m.requested),
+            },
+          ]}
+        />
+      )}
       <MonthlyChart
         months={p.months}
-        title="Customer uses by the month they were requested"
-        axis="Uses"
-        fmt={String}
-        series={[
-          {
-            label: "Customer uses",
-            fill: "var(--mint)",
-            value: (m) => (isHidden(m.requested) ? "hidden" : drawn(m.requested)),
-          },
-        ]}
-      />
-      <MonthlyChart
-        months={p.months}
-        title="Runtime cost by month: serving customers beside founder trials and checks"
+        title={
+          p.withheld
+            ? "Founder trials and checks by month (customer costs withheld)"
+            : "Runtime cost by month: serving customers beside founder trials and checks"
+        }
         axis="US dollars"
         fmt={(v) => microcentsUsd(BigInt(Math.round(v)).toString())}
         series={[
-          {
-            label: "Serving customers",
-            fill: "var(--mint)",
-            value: (m) =>
-              isHidden(m.customers.microcents) ? "hidden" : Number(m.customers.microcents),
-          },
+          ...(p.withheld
+            ? []
+            : [
+                {
+                  label: "Serving customers",
+                  fill: "var(--mint)",
+                  value: (m: Month) =>
+                    isWithheld(m.customers.microcents) ? 0 : Number(m.customers.microcents),
+                },
+              ]),
           {
             label: "Founder trials and checks",
             fill: "var(--blue)",
@@ -282,8 +276,8 @@ export function RoomPerformance({ p }: { p: PerformanceEvidence | undefined }) {
           <li>
             <strong>Unknown cost:</strong> {shownText(t.customers.unknown_cost_calls)} calls serving
             customers (
-            {isHidden(t.customers.unknown_held_cents)
-              ? "amount held hidden"
+            {isWithheld(t.customers.unknown_held_cents)
+              ? "amount held withheld"
               : `${t.customers.unknown_held_cents}¢ held`}
             ) and {t.founder.unknown_cost_calls} founder calls ({t.founder.unknown_held_cents}¢
             held) have unknown cost; they are not counted as zero.

@@ -162,11 +162,13 @@ export interface BuyerScenario {
   created_at: string;
 }
 
-/** Job 003u: a count shown, or hidden because it is 1 or 2 (or could be worked out). */
-export type Shown = number | "fewer_than_3";
+/** Job 003u1: a count shown, or withheld (which says nothing about its size). */
+export type Shown = number | "withheld";
 export interface PerformanceEvidence {
   as_of: string;
   state: "not_started" | "recorded";
+  /** Breakdowns withheld because some group of uses would have been 1 or 2. */
+  withheld: boolean;
   period: { from: number; to: number; months: number; buckets: string };
   usage: { requested: Shown; split: { key: string; label: string; value: Shown }[] };
   months: {

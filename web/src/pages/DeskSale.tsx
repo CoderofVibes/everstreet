@@ -2,7 +2,7 @@
 // one to buy, exactly what buyers see, and named access requests to grant, narrow or decline.
 // Customers never see any of this; sharing numbers on the public page is a separate choice.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type AccessRequest,
   api5,
@@ -13,7 +13,9 @@ import {
 } from "../api5.ts";
 import { api6 } from "../api6.ts";
 import { handoverHttp, parseEvidence } from "../handoverApi.ts";
+import { initialLoad, type LoadState, latestLoader } from "../latestLoad.ts";
 import { Link, useRouter } from "../router.tsx";
+import { useSession } from "../session.tsx";
 import { CandidateHead, FigLine } from "./Acquire.tsx";
 import { DealsList, TermsForm } from "./Deal.tsx";
 
@@ -230,52 +232,103 @@ function RequestCard({
   );
 }
 
+/**
+ * Job 003u1: the route keys this page by who is acting and which business, so a switch starts a
+ * new page. Signed out, it asks to sign in and reads nothing; signed in, it reads through a
+ * sequenced loader (success clears errors, access loss drops the data, failures can be retried).
+ * Unsaved listing edits survive reloads (e.g. after deciding a request).
+ */
 export function DeskSale({ id }: { id: string }) {
+  const { person, requireSignIn } = useSession();
   const [meta, setMeta] = useState<Meta | null>(null);
-  const [data, setData] = useState<SellerListing | null>(null);
+  const [ls, setLs] = useState<LoadState<SellerListing>>(initialLoad);
+  const data = ls.data;
   const [f, setF] = useState<SellerListing["listing"] | null>(null);
   const [asking, setAsking] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const apply = useCallback((d: SellerListing) => {
-    setData(d);
-    setF(d.listing);
-    setAsking(d.listing.asking_cents === null ? "" : String(d.listing.asking_cents / 100));
+  const dirty = useRef(false);
+  const editF = (v: SellerListing["listing"]) => {
+    dirty.current = true;
+    setF(v);
+  };
+  const editAsking = (v: string) => {
+    dirty.current = true;
+    setAsking(v);
+  };
+  const apply = useCallback((d: SellerListing, force: boolean) => {
+    if (force || !dirty.current) {
+      dirty.current = false;
+      setF(d.listing);
+      setAsking(d.listing.asking_cents === null ? "" : String(d.listing.asking_cents / 100));
+    }
   }, []);
-  const load = useCallback(
+  const loader = useMemo(
     () =>
-      api5
-        .listing(id)
-        .then(apply)
-        .catch((e) => setError((e as Error).message)),
-    [id, apply],
+      latestLoader<SellerListing>(
+        () => api5.listing(id),
+        (patch) => setLs((prev) => ({ ...prev, ...patch })),
+      ),
+    [id],
   );
+  useEffect(() => {
+    loader.open();
+    return () => loader.close();
+  }, [loader]);
+  const load = useCallback(() => loader.load(), [loader]);
+  // A loaded listing fills the form unless the owner has unsaved edits.
+  useEffect(() => {
+    if (ls.data) apply(ls.data, false);
+    if (ls.status === "refused") setF(null);
+  }, [ls.data, ls.status, apply]);
   // Job 003s: which contract this business's sale runs on (v3 is read; unbound means the v2 path).
   const [v3, setV3] = useState(false);
   useEffect(() => {
-    api5.meta().then(setMeta);
+    api5
+      .meta()
+      .then(setMeta)
+      .catch(() => {});
+    if (!person) return;
     load();
     handoverHttp
       .evidence(id)
       .then((r) => setV3(parseEvidence(r).state !== "unbound"))
       .catch(() => setV3(false));
-  }, [load, id]);
-  if (error && !data)
+  }, [load, id, person]);
+  if (!person)
     return (
       <div className="page empty">
-        <h2>{error}</h2>
+        <h2>Sign in to manage who may discover this business.</h2>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => requireSignIn("Sign in to manage selling.")}
+        >
+          Sign in or join
+        </button>
+      </div>
+    );
+  if (!data && (ls.status === "refused" || ls.status === "failed"))
+    return (
+      <div className="page empty">
+        <h2>{ls.error}</h2>
+        {ls.status === "failed" && (
+          <button type="button" className="btn" onClick={load}>
+            Try again
+          </button>
+        )}
         <Link to="/desk">Your businesses</Link>
       </div>
     );
   if (!data || !f || !meta) return <div className="page muted">Loading…</div>;
   const save = async () => {
     try {
-      apply(
-        await api5.updateListing(id, {
-          ...f,
-          asking_cents: asking.trim() ? Math.round(Number(asking) * 100) : null,
-        }),
-      );
+      const d = await api5.updateListing(id, {
+        ...f,
+        asking_cents: asking.trim() ? Math.round(Number(asking) * 100) : null,
+      });
+      apply(d, true);
+      setLs((prev) => ({ ...prev, data: d, error: null, status: "ready" }));
       setError(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -328,7 +381,7 @@ export function DeskSale({ id }: { id: string }) {
                     boxShadow: f.mode === k ? "0 0 0 2px var(--forest)" : undefined,
                   }}
                   aria-pressed={f.mode === k}
-                  onClick={() => setF({ ...f, mode: k })}
+                  onClick={() => editF({ ...f, mode: k })}
                 >
                   <strong style={{ fontSize: 15 }}>{label}</strong>
                   <p className="muted" style={{ fontSize: 13, margin: "6px 0 0" }}>
@@ -348,7 +401,7 @@ export function DeskSale({ id }: { id: string }) {
                     <select
                       className="input"
                       value={f.openness}
-                      onChange={(e) => setF({ ...f, openness: e.target.value })}
+                      onChange={(e) => editF({ ...f, openness: e.target.value })}
                     >
                       {Object.entries(meta.openness).map(([k, label]) => (
                         <option key={k} value={k}>
@@ -364,7 +417,7 @@ export function DeskSale({ id }: { id: string }) {
                       className="input"
                       inputMode="decimal"
                       value={asking}
-                      onChange={(e) => setAsking(e.target.value)}
+                      onChange={(e) => editAsking(e.target.value)}
                     />
                   </label>
                 </div>
@@ -375,7 +428,7 @@ export function DeskSale({ id }: { id: string }) {
                       className="input"
                       rows={2}
                       value={f.reason}
-                      onChange={(e) => setF({ ...f, reason: e.target.value })}
+                      onChange={(e) => editF({ ...f, reason: e.target.value })}
                     />
                   </label>
                 )}
@@ -385,7 +438,7 @@ export function DeskSale({ id }: { id: string }) {
                   <input
                     className="input"
                     value={f.transition}
-                    onChange={(e) => setF({ ...f, transition: e.target.value })}
+                    onChange={(e) => editF({ ...f, transition: e.target.value })}
                   />
                 </label>
                 <strong>What buyers may see before asking</strong>
@@ -396,7 +449,7 @@ export function DeskSale({ id }: { id: string }) {
                         type="checkbox"
                         checked={f.disclose.includes(k)}
                         onChange={(e) =>
-                          setF({
+                          editF({
                             ...f,
                             disclose: e.target.checked
                               ? [...f.disclose, k]
@@ -424,7 +477,7 @@ export function DeskSale({ id }: { id: string }) {
                             type="checkbox"
                             checked={f.invites.includes(b.id)}
                             onChange={(e) =>
-                              setF({
+                              editF({
                                 ...f,
                                 invites: e.target.checked
                                   ? [...f.invites, b.id]
@@ -455,6 +508,14 @@ export function DeskSale({ id }: { id: string }) {
 
           <section className="card">
             <h2>Access requests</h2>
+            {ls.status === "failed" && (
+              <p className="notice">
+                {ls.error} The list below is from the last successful check.{" "}
+                <button type="button" className="btn btn-quiet btn-sm" onClick={load}>
+                  Check again
+                </button>
+              </p>
+            )}
             {data.requests.length === 0 && (
               <p className="muted">
                 None yet. When a buying team asks, you'll see who they are, what they want and why.

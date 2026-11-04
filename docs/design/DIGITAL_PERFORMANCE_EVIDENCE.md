@@ -55,7 +55,48 @@ Written before the code.
 **No money value** comes from uses. These figures are not revenue, cash, profit, a valuation,
 testnet verification or proof of real provider execution.
 
-## Suppression: coherent and conservative
+## Withholding (corrected in 003u1)
+
+**Why the 003u rule was replaced.** Astra's two probes showed it was wrong.
+- **A false label.** A secondary-suppressed 10 was labelled "fewer than 3".
+- **Exact recovery.** The deterministic suppression pattern, the published total and the zeros
+  together identified small cells exactly. For `[1,1]/2`, only one input of the 256 pairs 0..15
+  matched.
+
+**The rule now: decided for the whole projection** (`disclose()` in `performanceEvidence.ts`).
+1. **The gate.** It collects every count that would be published: requested, the usage split,
+   monthly requests, ran, the execution split, current groups and total, monthly and total
+   customer calls, and unknown-cost calls. It adds every published difference that is itself a
+   group of uses: requested but never run, calls without a run, and open work outside the window.
+2. **Nothing is 1 or 2:** everything is published exactly. Zeros are recorded facts.
+3. **Anything is 1 or 2:** every breakdown is **withheld**. That covers the usage split, monthly
+   series, execution, current work, customer calls and customer cost, per month and in total,
+   plus unknown-cost calls. Only the requested total remains, and it too is withheld if it is 1
+   or 2. Customer calls are withheld too: showing them only sometimes would itself say which
+   difference was small.
+4. **No size claim.** `"withheld"` claims no size, in the data, the text, the ARIA labels and the
+   table alike. The room says "Withheld". `withheld: true` says breakdowns were withheld. Charts
+   of withheld series are not drawn.
+5. **Founder trials and checks** are the seller's own activity and are always exact.
+
+**Tested against complete outputs** (`server/test/performance-disclosure.test.ts`):
+- **Astra's two probes.**
+- **Every pair** (a, b) in 0..15: each withheld output is shared by more than one first cell.
+- **A family of about 1,700 whole-business shapes:** charged, returned, reserved and never
+  reserved, split across months in every way. For every distinct public output, no quantity of
+  1 or 2 (any count, the never-run group, either month) is the only value consistent with it.
+- **Generator fixes:** while writing it, the generator had to allow every month split. A fixed
+  split made the test itself "know" the answer.
+
+**Limits (in the room):**
+- This lowers the risk of singling out a customer. It is not a guarantee of anonymity.
+- Reading again later shows how figures moved.
+- The fact that breakdowns are withheld says some group is small.
+
+**Migration.** There is nothing to migrate: the projection is computed on each read. The marker
+changed from `"fewer_than_3"` to `"withheld"` (API, room and export).
+
+## Suppression as first built in 003u (superseded)
 
 A count of 1 or 2 shows as **"Fewer than 3"** (`"fewer_than_3"` in the data). Zero is shown: it is
 a recorded fact and singles nobody out.

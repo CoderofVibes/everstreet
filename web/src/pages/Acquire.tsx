@@ -18,6 +18,7 @@ import {
   when,
 } from "../api5.ts";
 import { Link } from "../router.tsx";
+import { scopeList } from "../scopes.ts";
 import { useSession } from "../session.tsx";
 import { DealsList } from "./Deal.tsx";
 
@@ -560,8 +561,8 @@ function RequestsTab({ ws, onChange }: { ws: Workspace; onChange: () => void }) 
             </div>
             <div className="meta">
               Asked by {r.requested_by} on {when(r.created_at)} for {r.days} days:{" "}
-              {r.categories.join(", ")}
-              {r.granted && ` · Granted: ${r.granted.join(", ")}`}
+              {scopeList(r.categories)}
+              {r.granted && ` · Granted: ${scopeList(r.granted)}`}
               {r.status === "granted" && r.expires_at && ` · until ${when(r.expires_at)}`}
               {r.status === "expired" && r.expires_at && ` · ended ${when(r.expires_at)}`}
               {r.status === "revoked" && r.revoked_at && ` · ended ${when(r.revoked_at)}`}

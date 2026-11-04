@@ -9,6 +9,7 @@ import { ApiError, api5, type ManifestItem, type Room, when } from "../api5.ts";
 import { begin, type EvidenceView, initial, settle } from "../evidenceView.ts";
 import { beforeOpening, missingReason, money, partialLabel } from "../finance.ts";
 import { Link } from "../router.tsx";
+import { scopeList } from "../scopes.ts";
 import { useSession } from "../session.tsx";
 import { CashChart, EarnedCostChart, Scroll } from "./FinanceChart.tsx";
 import { RoomPerformance } from "./RoomPerformance.tsx";
@@ -330,7 +331,7 @@ export function AcquireRoom({ id }: { id: string }) {
       <Link to="/acquire">← Back to acquisitions</Link>
       <div className="preview-banner" style={{ marginTop: 16 }}>
         <span>
-          <strong>{r.buyer.name}</strong> · Evidence room · Access: {(r.granted ?? []).join(", ")} ·
+          <strong>{r.buyer.name}</strong> · Evidence room · Access: {scopeList(r.granted ?? [])} ·
           until {when(r.expires_at)} · Fictional example
         </span>
         <a

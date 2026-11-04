@@ -5,7 +5,7 @@
 // fictional people; labelled fixtures; finite.
 
 import { describe, expect, it } from "vitest";
-import { FEWER, PERFORMANCE_MONTHS, suppressPartition } from "../src/performanceEvidence.ts";
+import { PERFORMANCE_MONTHS, WITHHELD } from "../src/performanceEvidence.ts";
 import type { Json } from "./customer-world.ts";
 import { gate, world } from "./deal-world.ts";
 import { maintenanceWorld } from "./maintenance-world.ts";
@@ -15,8 +15,18 @@ const inert = { set: () => 1, clear: () => {} };
 const UNSUPPORTED = "A fictional shopping list: oat milk, rye bread, two lemons";
 const PURPOSE = "Check how the invoice service is used before we talk price";
 
-/** A digital business with recorded uses, listed privately to one buying team. */
-async function listed(opts: { charged?: number; v3Transport?: FixtureV3Transport } = {}) {
+/**
+ * A digital business with recorded uses (charged, returned, reserved-not-run), listed privately
+ * to one buying team. Defaults: 4 charged, 1 returned, 1 reserved.
+ */
+async function listed(
+  opts: {
+    charged?: number;
+    returned?: number;
+    reserved?: number;
+    v3Transport?: FixtureV3Transport;
+  } = {},
+) {
   const t = await maintenanceWorld({ v3Transport: opts.v3Transport });
   const s = t.supervisor("worker-a", { timers: inert });
   const ids: string[] = [];
@@ -26,17 +36,26 @@ async function listed(opts: { charged?: number; v3Transport?: FixtureV3Transport
     await t.execute(who, id);
     ids.push(id);
   }
-  const r = t.customer(20);
-  const returned = await t.reserve(r, "perf-key-returned", UNSUPPORTED);
-  t.sync();
-  await r(`/api/customer/uses/${returned}/execute`, "POST", {});
+  const returnedIds: string[] = [];
+  for (let i = 0; i < (opts.returned ?? 1); i++) {
+    const r = t.customer(20 + i);
+    const id = await t.reserve(r, `perf-key-returned-${i}`, UNSUPPORTED);
+    t.sync();
+    await r(`/api/customer/uses/${id}/execute`, "POST", {});
+    returnedIds.push(id);
+  }
   // Passes until every run use is settled (bounded: at most 12).
   for (let i = 0; i < 12; i++) {
-    if (ids.every((id) => t.unit(id) === "charged") && t.unit(returned) === "returned") break;
+    if (
+      ids.every((id) => t.unit(id) === "charged") &&
+      returnedIds.every((id) => t.unit(id) === "returned")
+    )
+      break;
     t.sync();
     await s.runPass();
   }
-  await t.reserve(t.customer(21), "perf-key-reserved");
+  for (let i = 0; i < (opts.reserved ?? 1); i++)
+    await t.reserve(t.customer(40 + i), `perf-key-reserved-${i}`);
   const biz = t.w.f.business;
   const noah = t.w.person("Noah Fenn");
   const team = (
@@ -76,40 +95,14 @@ async function listed(opts: { charged?: number; v3Transport?: FixtureV3Transport
   return { t, biz, noah, team, listingId, ask, decide, room, ids };
 }
 
-describe("003u suppression keeps every small group hidden, including by subtraction", () => {
-  it("primary, secondary, total and zero cases", () => {
-    expect(suppressPartition([5, 4, 0], 9)).toEqual({ cells: [5, 4, 0], total: 9 });
-    // One small cell: the smallest other non-zero cell is hidden too.
-    expect(suppressPartition([5, 1, 4, 0], 10)).toEqual({ cells: [5, FEWER, FEWER, 0], total: 10 });
-    // One small cell and nothing else to hide it with: the total is hidden.
-    expect(suppressPartition([0, 2, 0], 2)).toEqual({ cells: [0, FEWER, 0], total: FEWER });
-    expect(suppressPartition([0, 0, 0], 0)).toEqual({ cells: [0, 0, 0], total: 0 });
-    // Two small cells hide each other.
-    expect(suppressPartition([6, 1, 2], 9)).toEqual({ cells: [6, FEWER, FEWER], total: 9 });
-    // A small total hides every non-zero cell.
-    expect(suppressPartition([1, 1, 0], 2)).toEqual({ cells: [FEWER, FEWER, 0], total: FEWER });
-    // Exhaustive over small partitions: no published total minus published cells leaves exactly
-    // one hidden cell whose value is 1 or 2.
-    for (let a = 0; a <= 4; a++)
-      for (let b = 0; b <= 4; b++)
-        for (let c = 0; c <= 4; c++) {
-          const cells = [a, b, c];
-          const s = suppressPartition(cells, a + b + c);
-          for (const [i, v] of s.cells.entries())
-            if (v !== FEWER) expect(v).toBe(cells[i]);
-            else expect(cells[i]).toBeGreaterThan(0);
-          const hidden = s.cells.filter((v) => v === FEWER).length;
-          if (s.total !== FEWER) expect(hidden === 0 || hidden >= 2).toBe(true);
-          for (const [i, v] of cells.entries())
-            if (v === 1 || v === 2) expect(s.cells[i]).toBe(FEWER);
-        }
-  });
-});
+// 003u1: the suppression rule itself is tested in performance-disclosure.test.ts against complete
+// public outputs; these tests check the projection over real records.
 
 const ALLOWED = [
   "as_of",
   "state",
   "period",
+  "withheld",
   "usage",
   "months",
   "execution",
@@ -122,7 +115,8 @@ const ALLOWED = [
 
 describe("003u a buyer who asked and was granted sees only the allowlisted aggregate", () => {
   it("requested explicitly, granted deliberately; figures agree with the owner's; nothing private", async () => {
-    const x = await listed();
+    // 4 charged, 3 returned, none reserved: no group of 1 or 2 anywhere, so everything shows.
+    const x = await listed({ charged: 4, returned: 3, reserved: 0 });
     const req = (await x.ask(["financials", "digital_performance"])).body.request.id as string;
     // Before the owner decides: nothing.
     expect((await x.room(req)).status).toBe(403);
@@ -133,14 +127,14 @@ describe("003u a buyer who asked and was granted sees only the allowlisted aggre
     expect(Object.keys(p).sort()).toEqual([...ALLOWED].sort());
     expect(p.period.months).toBe(PERFORMANCE_MONTHS);
     expect(p.state).toBe("recorded");
-    // 4 charged, 1 returned, 1 reserved: the two single counts hide each other; the total shows.
-    expect(p.usage.requested).toBe(6);
+    expect(p.withheld).toBe(false);
+    expect(p.usage.requested).toBe(7);
     expect(Object.fromEntries(p.usage.split.map((s: Json) => [s.key, s.value]))).toEqual({
       charged: 4,
-      returned: FEWER,
+      returned: 3,
       settling: 0,
       needs_attention: 0,
-      reserved: FEWER,
+      reserved: 0,
       never_reserved: 0,
     });
     // The same aggregation as the owner's books (no second model).
@@ -149,7 +143,7 @@ describe("003u a buyer who asked and was granted sees only the allowlisted aggre
     expect(p.cost.customers.microcents).toBe(books.totals.cost.customers.microcents);
     expect(p.cost.founder.microcents).toBe(books.totals.cost.founder.microcents);
     expect(p.cost.customers.calls).toBe(books.totals.cost.customers.calls);
-    expect(p.months.at(-1).requested).toBe(6);
+    expect(p.months.at(-1).requested).toBe(7);
     // Nothing private or owner-only: ids, links, documents, results, worker or holder facts.
     const text = JSON.stringify(p);
     for (const secret of [
@@ -179,20 +173,41 @@ describe("003u a buyer who asked and was granted sees only the allowlisted aggre
     expect(Object.keys(exp).sort()).toEqual([...ALLOWED].sort());
   });
 
-  it("small totals: one or two uses hide every count and cost that could single someone out", async () => {
+  it("a group of 1 or 2 anywhere withholds every breakdown, with no size claimed", async () => {
+    // 4 charged, 1 returned, 1 reserved: small groups exist, so only the total requested shows.
+    const x = await listed();
+    const req = (await x.ask(["digital_performance"])).body.request.id as string;
+    await x.decide(req, { action: "grant" });
+    const p = (await x.room(req)).body.digital_performance as Json;
+    expect(p.withheld).toBe(true);
+    expect(p.usage.requested).toBe(6);
+    for (const s of p.usage.split) expect(s.value).toBe(WITHHELD);
+    expect(p.execution).toEqual({
+      ran: WITHHELD,
+      usable_result: WITHHELD,
+      not_usable: WITHHELD,
+      undecided_or_unknown: WITHHELD,
+    });
+    expect(p.current.total).toBe(WITHHELD);
+    expect(p.cost.customers).toMatchObject({ calls: WITHHELD, microcents: WITHHELD });
+    for (const m of p.months) {
+      expect(m.requested).toBe(WITHHELD);
+      expect(m.customers).toEqual({ calls: WITHHELD, microcents: WITHHELD });
+    }
+    // The founder's own testing isn't about customers: exact, never withheld.
+    expect(p.cost.founder.microcents).toMatch(/^[0-9]+$/);
+    // No number is hiding in the text, and no bound is claimed.
+    expect(JSON.stringify(p)).not.toMatch(/fewer_than_3|"Fewer/);
+  });
+
+  it("small totals: 1 charged, 1 returned, 1 reserved shows only the total of 3", async () => {
     const x = await listed({ charged: 1 });
-    // 1 charged, 1 returned, 1 reserved = 3 requested; ran 2, calls 2.
     const req = (await x.ask(["digital_performance"])).body.request.id as string;
     await x.decide(req, { action: "grant" });
     const p = (await x.room(req)).body.digital_performance as Json;
     expect(p.usage.requested).toBe(3);
-    for (const s of p.usage.split) expect([0, FEWER]).toContain(s.value);
-    expect(p.execution.ran).toBe(FEWER);
-    expect(p.cost.customers).toMatchObject({ calls: FEWER, microcents: FEWER });
-    const now = p.months.at(-1);
-    expect(now.customers).toEqual({ calls: FEWER, microcents: FEWER });
-    // The founder's own testing isn't about customers: exact, never suppressed.
-    expect(p.cost.founder.microcents).toMatch(/^[0-9]+$/);
+    expect(p.withheld).toBe(true);
+    expect(p.cost.customers.microcents).toBe(WITHHELD);
   });
 });
 

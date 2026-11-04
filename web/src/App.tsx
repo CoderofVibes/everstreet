@@ -205,7 +205,9 @@ function Routes() {
     );
   if (path === "/handovers") return <HandoversPage key={person?.id ?? "anon"} />;
   const sale = match("/desk/:id/sale", path);
-  if (sale) return <DeskSale id={sale.id as string} />;
+  // Job 003u1: keyed by who is acting and which business: a switch (or signing in) starts a fresh
+  // page, so a former actor's listing and requests never remain and an earlier error never sticks.
+  if (sale) return <DeskSale key={`${person?.id ?? "anon"}:${sale.id}`} id={sale.id as string} />;
   const helping = match("/help/:id", path);
   if (helping) return <Helping id={helping.id as string} />;
   const desk = match("/desk/:id", path);
