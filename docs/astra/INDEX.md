@@ -2,6 +2,9 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Acquisition continuity repeat](2026-11-04_AcquisitionContinuityRepeat.md) | Approved actual browser record/premature refusal/fixture close/seller loss/buyer management/private customer99+result preserved |001i1 pending; Claude ENOTFOUND diagnosed; all live/full milestone gates remain |
+| 2026-11-04 | [Acquisition history review](2026-11-04_AcquisitionHistoryReview.md) | Synthetic pure probe: old applied sale incorrectly completes new sale progression |001i still live; recheck final and correct before acceptance |
+| 2026-11-04 | [Customer adapter plan](2026-11-04_CustomerAdapterPlan.md) | Existing100/20/80 double coverage distinguished from live gaps;003v real durable protection adapter prepared |001i sole writer; M3 and all six milestones remain open |
 | 2026-11-04 | [Books refresh accepted](2026-11-04_BooksRefreshAccepted.md) |1076 checks/build; actual503 period/draft/phone recovery;404 recheck restored by Astra and verified |001h1 locally accepted;001i next; broad/live gates remain |
 | 2026-11-04 | [Executable product plan](2026-11-04_ExecutableProductPlan.md) | Grounded M2 code-execution gap;002e real worker/bundle/preview path with actual isolation gates |001h1 sole writer; queued after acquisition/customer composition; all milestones retained |
 | 2026-11-04 | [Helper read accepted](2026-11-04_HelperReadAccepted.md) |1069 checks/build; actual revoked/outage/regrant/scope/sale/outsider/phone/keyboard pass |005b accepted locally;001h1 next; all live/full milestones open |
