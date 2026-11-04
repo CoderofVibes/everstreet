@@ -311,3 +311,14 @@ costs; charts and keyboard month detail work. Same-month future-row probe fails 
 operating desk coherence ->001c. Browser sale-intent action blocked by automatic review; explicit
 Tony approval pending, no bypass. Pre-block regression continuity proof is separate from browser
 proof. All six milestones remain open; see2026-11-04_OperationsReview.md.
+
+## Approved browser handover — November4
+
+Tony explicitly approved the previously blocked local fixture test. Actual browser exact intent
+recording -> Noah applies fixture-closed outcome -> buyer retains8uses/3charged/1returned and
+$0.0075customer/$0.012founder costs; Ava direct desk denied; Cara retains original structured
+invoice and99free/1used. No real chain or100/20/80 completion claim.003t1/001c finished during
+review; clean5ddae3d independently passes840tests/80files/lint/types/webbuild. New single-product
+desk and clearer operations copy observed; frozen full-layout/multi-product/legacy review remains.
+Manual-pass health still conflates scheduling ->002d2; scoped buyer evidence ->003u. See
+2026-11-04_ApprovedHandoverReview.md. All six milestones remain open.
