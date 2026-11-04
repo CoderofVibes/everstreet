@@ -4,13 +4,69 @@
 import { describe, expect, it } from "vitest";
 import type { OpsCost, OpsMonth } from "../src/api4.ts";
 import {
+  booksEmptyMessage,
   costText,
+  currentWork,
   describeCost,
   describeUsage,
   intScale,
   microcentsUsd,
+  settlementText,
   usageSegments,
 } from "../src/operations.ts";
+
+describe("003t1 current work, settlement and the books' empty message say exactly what they count", () => {
+  it("current work: every group in the total, named, attention first; nothing waiting is said", () => {
+    const w = currentWork({
+      awaiting_settlement: 1,
+      needs_attention: 2,
+      reserved_not_settled: 1,
+      awaiting_reservation: 0,
+      awaiting_signature: 1,
+    });
+    expect(w.total).toBe(5);
+    expect(w.parts.map((p) => `${p.value} ${p.label}`)).toEqual([
+      "2 need attention",
+      "1 awaiting settlement (outcome not yet read back)",
+      "1 reserved, not yet settled",
+      "1 prepared, awaiting the customer's signature",
+    ]);
+    const none = currentWork({
+      awaiting_settlement: 0,
+      needs_attention: 0,
+      reserved_not_settled: 0,
+      awaiting_reservation: 0,
+      awaiting_signature: 0,
+    });
+    expect(none).toEqual({ total: 0, parts: [] });
+  });
+
+  it("only a running worker is described as settling by itself", () => {
+    const s = (worker: "running" | "stopped" | "overdue" | "not_started" | "unknown", paused = 0) =>
+      settlementText({
+        worker,
+        heartbeat_at: "2026-11-04T13:45:10.000Z",
+        paused_by_authority: paused,
+      });
+    expect(s("running")).toContain("settles and returns units by itself");
+    expect(s("running")).toContain("2026-11-04 13:45 UTC");
+    expect(s("running", 2)).toContain("2 paused");
+    for (const w of ["stopped", "overdue", "not_started", "unknown"] as const)
+      expect(s(w)).not.toContain("by itself;");
+    expect(s("overdue")).toContain("nothing settles by itself");
+    expect(s("not_started")).toContain("No background worker has run");
+    expect(s("unknown")).toContain("unknown");
+  });
+
+  it("the books' empty message names payments and revenue only and never calls them zero", () => {
+    expect(booksEmptyMessage(false)).toMatch(/^No payment or revenue records yet\./);
+    expect(booksEmptyMessage(false)).toContain("not known, not zero");
+    expect(booksEmptyMessage(false)).not.toContain("below");
+    expect(booksEmptyMessage(true)).toContain(
+      "Customer uses and runtime cost from this app's own records are shown below.",
+    );
+  });
+});
 
 const cost = (o: Partial<OpsCost> = {}): OpsCost => ({
   microcents: "0",
@@ -87,7 +143,7 @@ describe("003t axes and month text", () => {
       execution: { ran: 4, usable_result: 3, not_usable: 1, undecided: 0, unknown: 0 },
     });
     expect(describeUsage(m)).toBe(
-      "Nov 2026: 5 uses requested (2 charged, 1 returned, 1 settling, 0 needing attention, 0 reserved, not yet settled, 1 never reserved); 4 ran: 3 usable, 1 not usable",
+      "Nov 2026: 5 uses requested (2 charged, 1 returned, 1 awaiting settlement, 0 needing attention, 0 reserved, not yet settled, 1 never reserved); 4 ran: 3 usable, 1 not usable",
     );
     // The segments are exclusive and add up to the requested total.
     expect(usageSegments(m.usage).reduce((a, s) => a + s.value, 0)).toBe(5);

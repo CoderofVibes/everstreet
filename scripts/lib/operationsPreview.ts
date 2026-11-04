@@ -13,7 +13,7 @@
 import { guardAdapters, MaintenanceSupervisor } from "../../server/src/maintenance.ts";
 import { customerOperations } from "../../server/src/operations.ts";
 import type { Json } from "../../server/test/customer-world.ts";
-import { acquisitionPreview } from "./acquisitionPreview.ts";
+import { acquisitionPreview, FIXTURE_START_MS } from "./acquisitionPreview.ts";
 
 const INVOICE =
   "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD";
@@ -23,8 +23,8 @@ export async function operationsPreview() {
   const p = await acquisitionPreview({
     label: {
       label: "Preview only: synthetic customers, runtime, worker and sale evidence",
-      detail:
-        "Fictional customer uses recorded by the app's own routes this month; earlier months are recorded zeros, not history. Sale views are contract test fixtures. Not testnet or production evidence; nothing leaves this computer.",
+      // 003t1: the fixture sale clock is stated here too (as in 003s1), never the wall clock.
+      detail: `Fictional customer uses recorded by the app's own routes this month; earlier months are recorded zeros, not history. Sale views are the contract tests' fixtures, read on a fixture clock that started at ${new Date(FIXTURE_START_MS).toISOString()}; customer uses run on this computer's clock. Not testnet or production evidence; nothing leaves this computer.`,
     },
   });
   const { w } = p;

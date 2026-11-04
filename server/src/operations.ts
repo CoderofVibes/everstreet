@@ -6,6 +6,7 @@
 
 import { addMonths, monthLabel, ym } from "./books.ts";
 import type { Db } from "./db.ts";
+import type { MaintenanceHealth } from "./maintenance.ts";
 
 export const MAX_OPERATION_MONTHS = 24;
 
@@ -81,11 +82,29 @@ const firstInstant = (yyyymm: number) =>
 /** The month of an ISO timestamp, in SQL (the recorded UTC instant). */
 const MONTH = (col: string) => `CAST(substr(${col}, 1, 4) || substr(${col}, 6, 2) AS INTEGER)`;
 
-export function customerOperations(db: Db, businessId: string, months: number, now = new Date()) {
+/** Job 003t1: whether anything is settling customer units on its own, from the worker's health. */
+export type SettlementWorker = MaintenanceHealth["worker"]["state"] | "unknown";
+
+/**
+ * `now` is the one as-of instant (003t1): a record created after it, even later the same UTC
+ * month, is in no figure. `service` carries the customer service's clock (signing deadlines) and
+ * the background worker's health as read by the caller; without it, the worker is "unknown".
+ */
+export function customerOperations(
+  db: Db,
+  businessId: string,
+  months: number,
+  now = new Date(),
+  service: { nowMs: number; health: MaintenanceHealth | null } = {
+    nowMs: now.getTime(),
+    health: null,
+  },
+) {
   const n = Math.min(MAX_OPERATION_MONTHS, Math.max(1, Math.floor(months)));
   const current = ym(now);
   const from = addMonths(current, -(n - 1));
   const since = firstInstant(from);
+  const asOf = now.toISOString();
 
   // Usage, by request cohort; one exclusive status bucket per request.
   const usageRows = db
@@ -102,10 +121,10 @@ export function customerOperations(db: Db, businessId: string, months: number, n
           END AS bucket,
           COUNT(*) AS n
          FROM customer_requests r LEFT JOIN customer_settlements s ON s.request_id = r.id
-        WHERE r.business_id = ? AND r.created_at >= ?
+        WHERE r.business_id = ? AND r.created_at >= ? AND r.created_at <= ?
         GROUP BY yyyymm, bucket`,
     )
-    .all(businessId, since) as { yyyymm: number; bucket: keyof UsageCounts; n: number }[];
+    .all(businessId, since, asOf) as { yyyymm: number; bucket: keyof UsageCounts; n: number }[];
 
   // Execution facts, by the same cohort (the charging-eligibility rule for "usable").
   const execRows = db
@@ -122,10 +141,10 @@ export function customerOperations(db: Db, businessId: string, months: number, n
          FROM customer_executions x
          JOIN customer_requests r ON r.id = x.request_id
          LEFT JOIN runtime_invocations i ON i.id = x.invocation_id
-        WHERE r.business_id = ? AND r.created_at >= ?
+        WHERE r.business_id = ? AND r.created_at >= ? AND r.created_at <= ? AND x.created_at <= ?
         GROUP BY yyyymm, bucket`,
     )
-    .all(businessId, since) as {
+    .all(businessId, since, asOf, asOf) as {
     yyyymm: number;
     bucket: Exclude<keyof ExecutionCounts, "ran">;
     n: number;
@@ -141,10 +160,10 @@ export function customerOperations(db: Db, businessId: string, months: number, n
           COALESCE(SUM(CASE WHEN state <> 'running' AND usage_state IN ('partial','unknown') THEN 1 ELSE 0 END), 0) AS unknown,
           COALESCE(SUM(CASE WHEN usage_state IN ('partial','unknown') THEN reserved_cents ELSE 0 END), 0) AS held
          FROM runtime_invocations
-        WHERE business_id = ? AND created_at >= ?
+        WHERE business_id = ? AND created_at >= ? AND created_at <= ?
         GROUP BY yyyymm, grp`,
     )
-    .all(businessId, since) as {
+    .all(businessId, since, asOf) as {
     yyyymm: number;
     grp: "customers" | "founder";
     micro: string;
@@ -207,40 +226,78 @@ export function customerOperations(db: Db, businessId: string, months: number, n
     }
   }
 
-  // Current, across all time (not a period figure): what still needs settling or attention.
+  // Current work, across all time up to the as-of instant (not a period figure). Exclusive: each
+  // request is in at most one bucket, by the same precedence as the usage buckets (003t1). A
+  // preparation counts only while the customer can still sign it.
   const open = db
     .prepare(
       `SELECT
-          COALESCE(SUM(CASE WHEN s.state IN ('requested','unknown') THEN 1 ELSE 0 END), 0) AS settling,
-          COALESCE(SUM(CASE WHEN r.conflict IS NOT NULL OR r.state = 'unresolved' OR s.state IN ('conflict','unresolved') THEN 1 ELSE 0 END), 0) AS attention
-         FROM customer_requests r LEFT JOIN customer_settlements s ON s.request_id = r.id
-        WHERE r.business_id = ?`,
+          COALESCE(SUM(b = 'needs_attention'), 0) AS needs_attention,
+          COALESCE(SUM(b = 'awaiting_settlement'), 0) AS awaiting_settlement,
+          COALESCE(SUM(b = 'reserved_not_settled'), 0) AS reserved_not_settled,
+          COALESCE(SUM(b = 'awaiting_reservation'), 0) AS awaiting_reservation,
+          COALESCE(SUM(b = 'awaiting_signature'), 0) AS awaiting_signature
+         FROM (SELECT CASE
+            WHEN s.state IN ('charged','returned') THEN NULL
+            WHEN r.conflict IS NOT NULL OR r.state = 'unresolved' OR s.state IN ('conflict','unresolved') THEN 'needs_attention'
+            WHEN s.state IN ('requested','unknown') THEN 'awaiting_settlement'
+            WHEN r.state = 'reserved' THEN 'reserved_not_settled'
+            WHEN r.state IN ('reserve_requested','reserve_unknown') THEN 'awaiting_reservation'
+            WHEN r.state = 'prepared' AND r.sign_by_ms > ? THEN 'awaiting_signature'
+          END AS b
+          FROM customer_requests r LEFT JOIN customer_settlements s ON s.request_id = r.id
+         WHERE r.business_id = ? AND r.created_at <= ?)`,
     )
-    .get(businessId) as { settling: number; attention: number };
+    .get(service.nowMs, businessId, asOf) as {
+    needs_attention: number;
+    awaiting_settlement: number;
+    reserved_not_settled: number;
+    awaiting_reservation: number;
+    awaiting_signature: number;
+  };
   const offers = db
     .prepare(
       `SELECT project_id, SUM(state = 'active') AS active, SUM(state = 'retired') AS retired
-         FROM customer_offers WHERE business_id = ? GROUP BY project_id ORDER BY project_id LIMIT 20`,
+         FROM customer_offers WHERE business_id = ? AND created_at <= ?
+        GROUP BY project_id ORDER BY project_id LIMIT 20`,
     )
-    .all(businessId) as { project_id: string; active: number; retired: number }[];
+    .all(businessId, asOf) as { project_id: string; active: number; retired: number }[];
   const ever = (
     db
-      .prepare("SELECT COUNT(*) AS n FROM customer_requests WHERE business_id = ?")
-      .get(businessId) as { n: number }
+      .prepare(
+        "SELECT COUNT(*) AS n FROM customer_requests WHERE business_id = ? AND created_at <= ?",
+      )
+      .get(businessId, asOf) as { n: number }
   ).n;
+  const h = service.health;
 
   return {
     state: offers.length === 0 && ever === 0 ? ("not_started" as const) : ("recorded" as const),
+    as_of: asOf,
     period: { from, to: current, months: n, buckets: "UTC calendar months" },
     months: list,
     totals,
-    current: { settling: open.settling, needs_attention: open.attention },
+    current: {
+      awaiting_settlement: open.awaiting_settlement,
+      needs_attention: open.needs_attention,
+      reserved_not_settled: open.reserved_not_settled,
+      awaiting_reservation: open.awaiting_reservation,
+      awaiting_signature: open.awaiting_signature,
+    },
+    // Job 003t1: settlement is described as automatic only while the worker is observed running.
+    settlement: {
+      worker: (h ? h.worker.state : "unknown") as SettlementWorker,
+      heartbeat_at: h?.worker.heartbeat_at ?? null,
+      paused_by_authority: h?.work.paused_by_authority ?? 0,
+    },
     products: offers.map((o) => ({
       project_id: o.project_id,
       active_offers: o.active,
       retired_offers: o.retired,
     })),
     basis: {
+      current:
+        "Current work counts every request up to this reading, not just the period: each is in one group only. A charged or returned use is finished; a preparation counts while the customer can still sign it. Settlement is called automatic only while the background worker is seen running.",
       usage:
         "Each use is counted in the UTC month it was requested; its status is its current recorded outcome (charged and returned are exact contract readbacks). A month's split can change as outcomes resolve; its total can't.",
       execution:

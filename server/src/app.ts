@@ -650,7 +650,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
       now,
       spend: books.spend(id, n),
       // Job 003t: owner-only digital operations, from this app's own customer and runtime records.
-      operations: customerOperations(store.db, id, n),
+      // 003t1: read as of one instant; the worker's health qualifies any "automatic" claim.
+      operations: customerOperations(
+        store.db,
+        id,
+        n,
+        new Date(),
+        customerUses.operationsService(id),
+      ),
       basis: BOOKS_BASIS,
       period_months: n,
     });

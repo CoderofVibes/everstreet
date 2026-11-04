@@ -963,6 +963,15 @@ export class CustomerUses {
   }
 
   /**
+   * Job 003t1: this service's clock and the background worker's health, for the owner's books
+   * (read only; the caller has already checked control).
+   */
+  operationsService(businessId: string) {
+    const nowMs = this.now();
+    return { nowMs, health: maintenanceHealth(this.db, businessId, nowMs) };
+  }
+
+  /**
    * Job 002d: the background maintenance item. Its worker state is the platform's; its counts are
    * this business's own obligations. A heartbeat alone isn't presented as everything healthy.
    */

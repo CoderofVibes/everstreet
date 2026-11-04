@@ -21,6 +21,7 @@ import {
   money,
   partialLabel,
 } from "../finance.ts";
+import { booksEmptyMessage } from "../operations.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { DeskOperations } from "./DeskOperations.tsx";
@@ -189,11 +190,8 @@ export function DeskBooks({ desk }: { desk: Desk }) {
       )}
 
       {nothing ? (
-        <div className="notice">
-          <strong>No records yet.</strong> Turn on payments so customers' orders are recorded on the
-          business's own contract, and add what the business pays for below. Charts appear as soon
-          as there is something real to show.
-        </div>
+        // 003t1: scoped to what is missing; recorded digital operations below stay valid.
+        <div className="notice">{booksEmptyMessage(data.operations?.state === "recorded")}</div>
       ) : (
         <>
           <BalanceTiles now={data.now} />

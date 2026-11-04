@@ -89,7 +89,16 @@ describe("003t the owner's digital operations match the records", () => {
     expect(ops.totals.cost.founder).toMatchObject({ microcents: founder.s, calls: founder.n });
     expect(customers.n).toBe(4); // one provider call per run: nothing re-run by maintenance
     expect(addDecimal(customers.s, founder.s)).toBe(String(r.body.spend.runtime.period_microcents));
-    expect(ops.current).toEqual({ settling: 1, needs_attention: 0 });
+    // 003t1: exclusive current work (the prepared use is still signable; the cancelled one isn't).
+    expect(ops.current).toEqual({
+      awaiting_settlement: 1,
+      needs_attention: 0,
+      reserved_not_settled: 1,
+      awaiting_reservation: 0,
+      awaiting_signature: 1,
+    });
+    // The books read the worker's actual health: a pass just ran (heartbeat), so "running".
+    expect(ops.settlement.worker).toBe("running");
     expect(ops.state).toBe("recorded");
     // Owner-safe: no identity, document, result or reference.
     const text = JSON.stringify(ops);

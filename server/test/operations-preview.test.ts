@@ -32,6 +32,9 @@ describe("003t operations preview: recorded activity, an actual sale, the same h
     ).text();
     expect(label).toMatch(/Preview only: synthetic customers, runtime, worker and sale evidence/);
     expect(label).toMatch(/earlier months are recorded zeros, not history/);
+    // 003t1: the separate fixture sale clock is explained, as in the acquisition preview.
+    expect(label).toMatch(/fixture clock that started at 2026-11-02T00:10:00\.000Z/);
+    expect(label).toMatch(/customer uses run on this computer's clock/);
     const ava = await browser(p, p.people.ava);
     const noah = await browser(p, p.people.noah);
     const cara = await browser(p, p.people.cara);

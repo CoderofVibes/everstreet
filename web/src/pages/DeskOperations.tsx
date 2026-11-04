@@ -8,11 +8,13 @@ import { useId, useState } from "react";
 import type { Operations, OpsMonth } from "../api4.ts";
 import {
   costText,
+  currentWork,
   describeCost,
   describeUsage,
   intScale,
   microcentsUsd,
   openReserved,
+  settlementText,
   usageSegments,
 } from "../operations.ts";
 import { Link } from "../router.tsx";
@@ -193,7 +195,7 @@ function UsageChart({ months }: { months: OpsMonth[] }) {
           <i className="sw sw-blue" /> Returned to the customer
         </span>
         <span>
-          <i className="sw sw-hatch" /> Settling (not yet read back)
+          <i className="sw sw-hatch" /> Awaiting settlement (not yet read back)
         </span>
         <span>
           <i className="sw sw-error" /> Needs attention
@@ -369,12 +371,13 @@ export function DeskOperations({ ops, businessId }: { ops: Operations; businessI
       </div>
     );
   const attention = ops.current.needs_attention;
+  const work = currentWork(ops.current);
   return (
     <div className="fin-ops">
       <h3 style={{ fontSize: 15, marginTop: 18 }}>Digital operations</h3>
       <p className="muted" style={{ fontSize: 13 }}>
         From this app's own records of customer uses and runtime calls, in {ops.period.buckets} (
-        {span}). Counts of uses, not money.
+        {span}), as of {ops.as_of.replace("T", " ").slice(0, 16)} UTC. Counts of uses, not money.
       </p>
       <div className="fin-tiles">
         <div className="fin-tile">
@@ -392,12 +395,12 @@ export function DeskOperations({ ops, businessId }: { ops: Operations; businessI
           </div>
         </div>
         <div className="fin-tile">
-          <div className="k">Open now (all time)</div>
-          <div className={`v${attention ? " fin-unknown" : ""}`}>
-            {ops.current.settling + attention}
-          </div>
+          <div className="k">Current customer work (all time)</div>
+          <div className={`v${attention ? " fin-unknown" : ""}`}>{work.total}</div>
           <div className="s">
-            {ops.current.settling} settling automatically · {attention} need attention
+            {work.parts.length
+              ? work.parts.map((p) => `${p.value} ${p.label}`).join(" · ")
+              : "Nothing waiting"}
           </div>
         </div>
         <div className="fin-tile">
@@ -413,6 +416,12 @@ export function DeskOperations({ ops, businessId }: { ops: Operations; businessI
           </div>
         </div>
       </div>
+      <p
+        className={ops.settlement.worker === "running" ? "muted" : "notice"}
+        style={{ fontSize: 13 }}
+      >
+        {settlementText(ops.settlement)}
+      </p>
       <UsageChart months={ops.months} />
       <CostChart months={ops.months} />
       <details style={{ marginTop: 12 }}>
@@ -426,7 +435,7 @@ export function DeskOperations({ ops, businessId }: { ops: Operations; businessI
                 <th scope="col">Requested</th>
                 <th scope="col">Charged</th>
                 <th scope="col">Returned</th>
-                <th scope="col">Settling</th>
+                <th scope="col">Awaiting settlement</th>
                 <th scope="col">Needs attention</th>
                 <th scope="col">Reserved, not settled</th>
                 <th scope="col">Never reserved</th>
@@ -468,6 +477,9 @@ export function DeskOperations({ ops, businessId }: { ops: Operations; businessI
         <ul style={{ fontSize: 12.5, paddingLeft: 18 }} className="muted">
           <li>
             <strong>Uses:</strong> {ops.basis.usage}
+          </li>
+          <li>
+            <strong>Current work:</strong> {ops.basis.current}
           </li>
           <li>
             <strong>Usable:</strong> {ops.basis.execution}

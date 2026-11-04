@@ -102,6 +102,34 @@ As built:
 - costs are formatted from the exact string with BigInt (`web/src/operations.ts`); chart
   heights use a float, but the text and table are always exact.
 
+## Corrections in 003t1
+
+- **One as-of instant.** `customerOperations(..., now)` reads every projection as of `now`:
+  - requests, executions (request and execution `created_at`), runtime calls, offers and the
+    "ever" count all use `created_at <= now`;
+  - a record created later, even in the same UTC month, is in no figure;
+  - the instant is returned as `as_of`;
+  - source timestamps are read, never rewritten.
+- **Current work** (all time up to `as_of`, not a period figure) is split into exclusive groups,
+  by the same precedence as the usage buckets:
+  - needs attention;
+  - awaiting settlement;
+  - reserved, not yet settled;
+  - awaiting reservation readback;
+  - prepared, awaiting the customer's signature (only while it can still be signed, on the
+    customer service's clock).
+
+  Charged and returned uses are finished and appear in no group. This replaces "Open now".
+- **Settlement claims** follow the worker's observed health
+  (`settlement.worker`: running / overdue / stopped / not_started / unknown):
+  - "Settles by itself" only while it is running;
+  - every other state says units wait;
+  - paused-by-authority is named;
+  - nothing is started or polled by a read.
+- **The Books empty message** names only what is missing (payment and revenue records: not known,
+  not zero) and points to the recorded operations below.
+- **The operations preview label** states the fixture sale clock, as the acquisition preview does.
+
 ## Preview
 
 `npx tsx scripts/preview-operations.ts` (site on :8820, controls on :8821, 127.0.0.1 only) builds

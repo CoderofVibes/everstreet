@@ -95,9 +95,25 @@ export interface Operations {
     execution: OpsExecution;
     cost: { customers: OpsCost; founder: OpsCost };
   };
-  current: { settling: number; needs_attention: number };
+  /** The one instant every figure is read as of (003t1). */
+  as_of: string;
+  /** Current work up to `as_of` (not a period figure), in exclusive groups (003t1). */
+  current: OpsCurrent;
+  /** Whether anything settles customer units by itself, from the worker's health (003t1). */
+  settlement: {
+    worker: "running" | "stopped" | "overdue" | "not_started" | "unknown";
+    heartbeat_at: string | null;
+    paused_by_authority: number;
+  };
   products: { project_id: string; active_offers: number; retired_offers: number }[];
-  basis: { usage: string; execution: string; cost: string; value: string };
+  basis: { current: string; usage: string; execution: string; cost: string; value: string };
+}
+export interface OpsCurrent {
+  awaiting_settlement: number;
+  needs_attention: number;
+  reserved_not_settled: number;
+  awaiting_reservation: number;
+  awaiting_signature: number;
 }
 
 export interface BooksView {
