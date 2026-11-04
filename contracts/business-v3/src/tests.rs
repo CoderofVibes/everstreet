@@ -3186,3 +3186,76 @@ fn serialized_views_match_server_fixtures() {
     assert_eq!((c.owner, c.generation, c.live_deal.is_none()), (id(BUYER), 2, true));
     fixture("gated-closed", include_str!("../../../server/test/fixtures/v3/gated-closed.json"), views_json(&g));
 }
+
+// =====================================================================================
+// 003l: customer-use readback, exactly as the contract returns it, at each state the runtime
+// protocol (docs/design/CUSTOMER_USE_RUNTIME.md) must interpret. Each value is produced by the
+// actual methods (sponsor_shell, ft buy, open_hold, settle_hold, release_hold, the sale). Synthetic
+// only: no contract behaviour changes. Regenerate with UPDATE_V3_FIXTURES=1.
+// =====================================================================================
+
+#[test]
+fn customer_readback_matches_server_fixture() {
+    let mut out = serde_json::Map::new();
+    let mut put = |name: &str, json: String| {
+        out.insert(name.to_string(), serde_json::Value::String(json));
+    };
+    let ent = |w: &W| serde_json::to_string(&w.b.get_entitlement(id(CARA), 1)).unwrap();
+    let check = |w: &W, hold: u32, slot: u8, f: [u8; 32]| {
+        serde_json::to_string(&w.b.check_use(id(CARA), 1, w.ent(CARA).reg_id, hold, slot, hex::encode(f))).unwrap()
+    };
+    let k = key(1);
+
+    // 100 units funded, the customer's key installed, nothing used.
+    let mut w = W::new();
+    w.shell(CARA, CARA);
+    assert_eq!(w.buy(CARA, 100, 1, Some((0, &k))), 0);
+    put("plan_1", serde_json::to_string(&w.b.get_plan(1)).unwrap());
+    put("funded_100.entitlement", ent(&w));
+    assert_eq!((w.ent(CARA).free.0, w.ent(CARA).consumed.0), (100, 0));
+
+    // 20 used across two closed holds.
+    for seq in 1..=2 {
+        assert_eq!(w.open(CARA, &k, seq, 10), "opened");
+        let u = w.uses(CARA, &k, seq, 0..10);
+        all(&w.settle(CARA, seq, u, true), "charged", 10);
+    }
+    assert_100_20_80(&w);
+    put("consumed_20.entitlement", ent(&w));
+    put("consumed_20.check_use.closed_hold", check(&w, 2, 3, fp(2, 3, 0)));
+    put("consumed_20.check_use.closed_hold_altered", check(&w, 2, 3, fp(2, 3, 1)));
+    put("consumed_20.check_use.unknown_hold", check(&w, 9, 0, fp(9, 0, 0)));
+
+    // An active hold of 10 with 4 charged.
+    assert_eq!(w.open(CARA, &k, 3, 10), "opened");
+    let u = w.uses(CARA, &k, 3, 0..4);
+    all(&w.settle(CARA, 3, u, false), "charged", 4);
+    put("active_hold.entitlement", ent(&w));
+    put("active_hold.check_use.charged", check(&w, 3, 2, fp(3, 2, 0)));
+    put("active_hold.check_use.altered_fingerprint", check(&w, 3, 2, fp(3, 2, 1)));
+    put("active_hold.check_use.unused_slot", check(&w, 3, 7, fp(3, 7, 0)));
+    // The same signed use again: "already", nothing charged twice.
+    let again = vec![w.use_(CARA, &k, 3, 2, 0)];
+    let replay = w.settle(CARA, 3, again, false);
+    assert_eq!(replay, vec!["already"]);
+    put("active_hold.settle_replay", serde_json::to_string(&replay).unwrap());
+    assert_eq!(w.ent(CARA).hold_charged, 4);
+
+    // Past its settle deadline, anyone releases it: 4 stay consumed, 6 return to free.
+    w.now = w.ent(CARA).settle_until_ms.0 + 1;
+    w.call(STRANGER, 0, |b| b.release_hold(id(CARA), 1, 3));
+    assert_eq!((w.ent(CARA).free.0, w.ent(CARA).consumed.0, w.ent(CARA).hold_active), (76, 24, false));
+    put("released_after_deadline.entitlement", ent(&w));
+    put("released_after_deadline.check_use.charged_slot", check(&w, 3, 2, fp(3, 2, 0)));
+    put("released_after_deadline.check_use.unused_slot", check(&w, 3, 7, fp(3, 7, 0)));
+
+    // 100/20/80 across an actual sale: the customer's record is untouched by the close.
+    let (mut s, _) = happy();
+    s.sell(FOUNDER, BUYER, 100 * P, &[(METER2, METERING)]);
+    assert_100_20_80_customer(&s);
+    put("after_sale.entitlement", ent(&s));
+    put("after_sale.control", serde_json::to_string(&s.b.get_control()).unwrap());
+
+    let actual = serde_json::to_string_pretty(&serde_json::Value::Object(out)).unwrap() + "\n";
+    fixture("customer-readback", include_str!("../../../server/test/fixtures/v3/customer-readback.json"), actual);
+}
