@@ -430,3 +430,145 @@ describe("003j access, control and lifecycle", () => {
     expect(c2.getState().status).toBe("ready");
   });
 });
+
+// ---------- 003j1: malformed answers during recovery and refresh ----------
+
+const NEVER = {
+  state: "never_observed",
+  owner_epoch: "mara:0",
+  binding: { network: "testnet", account: "studio.biz.testnet" },
+  transport: "configured",
+};
+
+/** From a valid never-observed view: 404 refresh, then a failed recheck: access unconfirmed. */
+async function unconfirmed() {
+  const o = await opened(NEVER);
+  const r = o.c.refresh();
+  o.api.take("refresh").fail(new ApiError(404, "No such business"));
+  await new Promise((x) => setTimeout(x, 0));
+  o.api.take("get").fail(offline());
+  await r;
+  expect(o.c.getState().access).toBe("unconfirmed");
+  return o;
+}
+
+describe("003j1 Astra's reproductions", () => {
+  it("#1 a malformed answer to Check access settles as unconfirmed, retryable, never stuck checking", async () => {
+    const { api, c } = await unconfirmed();
+    const check = c.checkAccess();
+    api.take("get").ok({ state: "observed" }); // malformed
+    await check;
+    expect(c.getState().access).toBe("unconfirmed");
+    expect(c.getState().view).toMatchObject({ state: "never_observed" }); // last valid evidence
+    // The person can retry, and a valid answer restores access.
+    const again = c.checkAccess();
+    expect(api.pending.filter((p) => p.kind === "get")).toHaveLength(1);
+    api.take("get").ok(NEVER);
+    await again;
+    expect(c.getState().access).toBe("current");
+    expect(c.blocked).toBeNull();
+  });
+
+  it("#2 an accepted refresh carrying a malformed view never announces success", async () => {
+    const { api, c } = await opened(NEVER);
+    const r = c.refresh();
+    api
+      .take("refresh")
+      .ok({ outcome: "accepted", message: "accepted", view: { state: "observed" } });
+    await r;
+    const s = c.getState();
+    expect(s.refresh.state).not.toBe("done");
+    expect(s.refresh).toMatchObject({ state: "unknown" });
+    expect(s.refresh.message).not.toMatch(/Recorded/);
+    expect(s.view).toMatchObject({ state: "never_observed" });
+    expect(c.blocked).toBeNull(); // retryable
+  });
+});
+
+describe("003j1 the whole refresh answer is validated at the browser boundary", () => {
+  const cases: [string, unknown][] = [
+    ["not an object", "accepted"],
+    ["an array", []],
+    ["no outcome", { message: "x", view: observed() }],
+    ["an unknown outcome", { outcome: "applied", message: "x", view: observed() }],
+    ["an object-valued outcome", { outcome: { a: 1 }, message: "x", view: observed() }],
+    ["an observation outcome without a view", { outcome: "accepted", message: "Recorded." }],
+    ["an object-valued message", { outcome: "duplicate", message: { a: 1 }, view: observed() }],
+    [
+      "a malformed month result",
+      {
+        outcome: "accepted",
+        message: "x",
+        view: observed(),
+        period: { yyyymm: "202611", outcome: 1 },
+      },
+    ],
+    [
+      "an unknown month outcome",
+      {
+        outcome: "accepted",
+        message: "x",
+        view: observed(),
+        period: { yyyymm: 202611, outcome: "maybe" },
+      },
+    ],
+    ["a refusal without a code", { outcome: "refused", message: "x" }],
+    [
+      "a refusal with an object message",
+      { outcome: "refused", code: "timeout", message: { a: 1 } },
+    ],
+  ];
+  for (const [what, answer] of cases)
+    it(`refuses ${what}: no success claimed, last valid evidence and its time kept, retry possible`, async () => {
+      const { api, c } = await opened();
+      const before = c.getState().view;
+      const r = c.refresh();
+      api.take("refresh").ok(answer);
+      await r;
+      const s = c.getState();
+      expect(s.refresh.state).toBe("unknown");
+      expect(s.refresh.message).toMatch(/wasn't in the expected form/);
+      expect(s.view).toBe(before);
+      expect(c.blocked).toBeNull();
+    });
+
+  it("a retry after a malformed answer can succeed normally", async () => {
+    const { api, c } = await opened();
+    let r = c.refresh();
+    api.take("refresh").ok({ outcome: "accepted" });
+    await r;
+    r = c.refresh();
+    api.take("refresh").ok({
+      outcome: "accepted",
+      message: "Recorded.",
+      view: observed({ block: { height: "187310200", hash: "Def" } }),
+    });
+    await r;
+    expect(c.getState().refresh).toMatchObject({ state: "done", outcome: "accepted" });
+    expect((c.getState().view as Json).block.height).toBe("187310200");
+  });
+
+  it("a valid refusal is still a refusal, with its code", async () => {
+    const { api, c } = await opened();
+    const r = c.refresh();
+    api
+      .take("refresh")
+      .ok({ outcome: "refused", code: "timeout", message: "The NEAR read took too long." });
+    await r;
+    expect(c.getState().refresh).toMatchObject({ state: "refused", code: "timeout" });
+  });
+
+  it("an older malformed answer after a newer successful access check changes nothing", async () => {
+    const { api, c } = await unconfirmed();
+    const stale = c.load(); // an older read, still in flight
+    const check = c.checkAccess();
+    const [older, newer] = [api.take("get"), api.take("get")];
+    newer.ok(NEVER);
+    await check;
+    expect(c.getState().access).toBe("current");
+    older.ok({ state: "observed" }); // malformed, and older
+    await stale;
+    expect(c.getState()).toMatchObject({ access: "current", status: "ready", message: null });
+    expect(c.getState().view).toMatchObject({ state: "never_observed" });
+  });
+});

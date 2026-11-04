@@ -216,6 +216,55 @@ export function parseView(raw: unknown): ContinuityView {
   return v as unknown as Observed;
 }
 
+// ---------- the refresh answer (job 003j1) ----------
+
+/** What a completed (non-refused) refresh can say; each carries the resulting view. */
+const OBSERVATION_OUTCOMES = [
+  "accepted",
+  "duplicate",
+  "stale",
+  "conflict",
+  "contradictory",
+  "source_changed",
+] as const;
+const PERIOD_OUTCOMES = ["accepted", "duplicate", "stale", "conflict", "not_recorded"] as const;
+
+export type ValidRefresh =
+  | { outcome: "refused"; code: string; message: string }
+  | {
+      outcome: (typeof OBSERVATION_OUTCOMES)[number];
+      message: string;
+      period: { yyyymm: number; outcome: (typeof PERIOD_OUTCOMES)[number] } | null;
+      view: Observed;
+    };
+
+/**
+ * Checks a whole refresh answer before anything is announced: a supported outcome, a text
+ * message, a refusal's code, a completed observation's (valid, observed) view, and any month
+ * result. Throws MalformedView otherwise; nothing unknown is cast and trusted.
+ */
+export function parseRefreshAnswer(raw: unknown): ValidRefresh {
+  const r = obj(raw, "the refresh answer");
+  const message = str(r.message, "the refresh message");
+  if (r.outcome === "refused")
+    return { outcome: "refused", code: str(r.code, "the refusal code"), message };
+  const outcome = r.outcome as (typeof OBSERVATION_OUTCOMES)[number];
+  if (typeof r.outcome !== "string" || !OBSERVATION_OUTCOMES.includes(outcome))
+    bad("the refresh outcome");
+  const view = parseView(r.view);
+  if (view.state !== "observed") bad("the view after a refresh");
+  let period: { yyyymm: number; outcome: (typeof PERIOD_OUTCOMES)[number] } | null = null;
+  if (r.period !== undefined && r.period !== null) {
+    const p = obj(r.period, "the month result");
+    const m = int(p.yyyymm, "the month");
+    const po = p.outcome as (typeof PERIOD_OUTCOMES)[number];
+    if (m < 197_001 || m > 999_912 || m % 100 < 1 || m % 100 > 12) bad("the month");
+    if (typeof p.outcome !== "string" || !PERIOD_OUTCOMES.includes(po)) bad("the month outcome");
+    period = { yyyymm: m, outcome: po };
+  }
+  return { outcome, message, period, view: view as Observed };
+}
+
 // ---------- display helpers (strings in, strings out) ----------
 
 /** "400000000000000000000" → "400,000,000,000,000,000,000"; exact, never rounded. */

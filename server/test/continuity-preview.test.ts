@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { continuityPreview } from "../../scripts/lib/continuityPreview.ts";
+import { parseRefreshAnswer, parseView } from "../../web/src/continuityApi.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: tests read deep response fields
 type Json = Record<string, any>;
@@ -83,6 +84,25 @@ describe("003j the preview offers every state for review", () => {
     });
     p.transfer(p.ids.ledger);
     expect((await m(`/api/businesses/${p.ids.ledger}/v3`)).status).toBe(404);
+  });
+
+  it("the real server's refresh answers pass the browser's strict validation (job 003j1)", async () => {
+    const p = await continuityPreview({ timeoutMs: 50 });
+    const m = await as(p, p.maraToken);
+    const accepted = (
+      await m(`/api/businesses/${p.ids.ledger}/v3/refresh`, "POST", { period: 202610 })
+    ).body;
+    expect(parseRefreshAnswer(accepted)).toMatchObject({
+      outcome: "accepted",
+      period: { yyyymm: 202610, outcome: "accepted" },
+      view: { state: "observed" },
+    });
+    p.transport.mode = "offline";
+    const refused = (await m(`/api/businesses/${p.ids.ledger}/v3/refresh`, "POST")).body;
+    expect(parseRefreshAnswer(refused)).toMatchObject({ outcome: "refused", code: "unavailable" });
+    p.transport.mode = "ok";
+    const conflictWorld = (await m(`/api/businesses/${p.ids.harbor}/v3`)).body;
+    expect(() => parseView(conflictWorld)).not.toThrow();
   });
 
   it("the paused variant pauses only the v3 capability", async () => {

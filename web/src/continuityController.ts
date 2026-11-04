@@ -20,9 +20,14 @@ import { ApiError } from "./api.ts";
 import {
   type ContinuityView,
   MalformedView,
+  parseRefreshAnswer,
   parseView,
-  type RefreshAnswer,
+  type ValidRefresh,
 } from "./continuityApi.ts";
+
+/** A refresh answer that didn't validate: nothing is announced as recorded. */
+export const MALFORMED_REFRESH =
+  "The refresh answer wasn't in the expected form, so nothing is shown as recorded. The evidence below is unchanged, with its original time. You can try again.";
 
 export interface ContinuityPort {
   get(businessId: string): Promise<unknown>;
@@ -123,21 +128,24 @@ export class ContinuityController {
     return this.state.view?.owner_epoch ?? null;
   }
 
-  /** Applies a validated view read as number `seq`; older reads never replace newer ones. */
-  private apply(seq: number, raw: unknown): boolean {
-    if (seq <= this.applied) return false;
+  /**
+   * Applies a view read as number `seq` (job 003j1: says what happened, so an HTTP answer is
+   * never mistaken for a valid one). "superseded": a newer read was already applied, so this
+   * one changes nothing. "malformed": refused, and the last valid evidence stays.
+   */
+  private apply(seq: number, raw: unknown): "applied" | "superseded" | "malformed" {
+    if (seq <= this.applied) return "superseded";
     let v: ContinuityView;
     try {
       v = parseView(raw);
     } catch (e) {
       if (!(e instanceof MalformedView)) throw e;
-      this.applied = seq;
       this.set((s) => ({
         ...s,
         status: s.view ? s.status : "error",
         message: "The evidence couldn't be shown safely: the answer wasn't in the expected form.",
       }));
-      return false;
+      return "malformed";
     }
     this.applied = seq;
     const changed = this.epoch() !== null && this.epoch() !== v.owner_epoch;
@@ -151,7 +159,7 @@ export class ContinuityController {
       // Another control epoch: nothing typed or reported for the previous one carries over.
       ...(changed ? { refresh: IDLE, month: "" } : {}),
     }));
-    return true;
+    return "applied";
   }
 
   private gone() {
@@ -167,17 +175,20 @@ export class ContinuityController {
     }));
   }
 
-  /** A plain read. Returns "ok", "ended" or "failed". */
-  load = async (): Promise<"ok" | "ended" | "failed"> => {
+  /**
+   * A plain read. "applied": a valid view is now shown. "superseded": a newer read already
+   * decided. "malformed": the answer was refused. "ended": access ended. "failed": no answer.
+   */
+  load = async (): Promise<"applied" | "superseded" | "malformed" | "ended" | "failed"> => {
     if (this.state.status === "gone") return "ended";
     const seq = ++this.reads;
     try {
       const raw = await this.api.get(this.businessId);
       if (!this.alive) return "failed";
-      this.apply(seq, raw);
-      return "ok";
+      return this.apply(seq, raw);
     } catch (e) {
-      if (!this.alive || seq <= this.applied) return "failed";
+      if (!this.alive) return "failed";
+      if (seq <= this.applied) return "superseded";
       if (e instanceof ApiError && e.status === 404) {
         this.gone();
         return "ended";
@@ -197,9 +208,12 @@ export class ContinuityController {
   checkAccess = async () => {
     if (this.state.access !== "unconfirmed") return;
     this.set((s) => ({ ...s, access: "checking" }));
-    const r = await this.load();
-    const after = this.getState().access;
-    if (r === "failed" && after === "checking") this.set((s) => ({ ...s, access: "unconfirmed" }));
+    await this.load();
+    // Only an applied valid view (or a newer one that was) confirms access, and access ending
+    // clears the page. Anything else (no answer, a malformed one) settles back to unconfirmed,
+    // so the check can be retried; it never stays "checking".
+    const after: ContinuityState["access"] = this.getState().access;
+    if (after === "checking") this.set((s) => ({ ...s, access: "unconfirmed" }));
   };
 
   setMonth = (month: string) => this.set((s) => ({ ...s, month }));
@@ -226,21 +240,27 @@ export class ContinuityController {
     const settle = (r: Partial<RefreshStatus>) =>
       this.set((s) => ({ ...s, refresh: { ...IDLE, ...r } }));
     try {
-      const raw = (await this.api.refresh(
-        this.businessId,
-        period ? { period } : {},
-      )) as RefreshAnswer;
+      const raw = await this.api.refresh(this.businessId, period ? { period } : {});
       if (!this.alive || this.epoch() !== epoch) return;
-      if (raw.outcome === "refused") {
-        settle({ state: "refused", code: raw.code ?? null, message: raw.message ?? null });
+      // Job 003j1: the whole answer is checked before anything is announced.
+      let answer: ValidRefresh;
+      try {
+        answer = parseRefreshAnswer(raw);
+      } catch (e) {
+        if (!(e instanceof MalformedView)) throw e;
+        settle({ state: "unknown", message: MALFORMED_REFRESH });
         return;
       }
-      if (raw.view) this.apply(seq, raw.view);
+      if (answer.outcome === "refused") {
+        settle({ state: "refused", code: answer.code, message: answer.message });
+        return;
+      }
+      this.apply(seq, answer.view);
       settle({
         state: "done",
-        outcome: raw.outcome,
-        message: OUTCOME[raw.outcome] ?? raw.message ?? null,
-        period: raw.period ?? null,
+        outcome: answer.outcome,
+        message: OUTCOME[answer.outcome] ?? answer.message,
+        period: answer.period,
       });
     } catch (e) {
       if (!this.alive || this.epoch() !== epoch) return;
@@ -249,7 +269,7 @@ export class ContinuityController {
         // Is it still ours? A read tells a gone business apart from a passing failure.
         const r = await this.load();
         if (r === "ended") return;
-        if (r === "failed") {
+        if (r === "failed" || r === "malformed") {
           this.set((s) => ({ ...s, access: "unconfirmed" }));
           settle({ state: "unknown", message: ACCESS_UNCONFIRMED });
           return;
