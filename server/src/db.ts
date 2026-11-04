@@ -549,6 +549,7 @@ CREATE TABLE IF NOT EXISTS customer_requests (
   hold_sig TEXT, use_sig TEXT, prepared_block TEXT NOT NULL, notice TEXT,
   state TEXT NOT NULL CHECK (state IN ('prepared','reserve_requested','reserve_unknown','reserved','refused','unresolved','cancelled','expired')),
   reason TEXT, serving INTEGER, evidence TEXT, evidence_height TEXT, evidence_mark TEXT, conflict TEXT,
+  input_deleted_at TEXT,
   lease_gen INTEGER NOT NULL DEFAULT 0, lease_until INTEGER, submissions INTEGER NOT NULL DEFAULT 0,
   allocation TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   UNIQUE (person_id, idempotency_key)
@@ -569,7 +570,7 @@ CREATE TABLE IF NOT EXISTS customer_executions (
   input_source TEXT NOT NULL CHECK (input_source IN ('protected','resubmitted')),
   result_state TEXT NOT NULL CHECK (result_state IN ('pending','stored','none','unavailable','deleted')),
   result_ref TEXT, result_scheme TEXT, result_outcome TEXT, retention_until_ms INTEGER,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  delivered_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS customer_executions_retention ON customer_executions(result_state, retention_until_ms);
 CREATE TRIGGER IF NOT EXISTS customer_request_events_no_update BEFORE UPDATE ON customer_request_events
@@ -640,6 +641,11 @@ export function openDb(path: string) {
     db.exec("ALTER TABLE customer_requests ADD COLUMN evidence_mark TEXT");
   if (!requestCols003m.has("conflict"))
     db.exec("ALTER TABLE customer_requests ADD COLUMN conflict TEXT");
+  // Job 003n1: when a protected input was deleted, and when a result was durably delivered.
+  if (!requestCols003m.has("input_deleted_at"))
+    db.exec("ALTER TABLE customer_requests ADD COLUMN input_deleted_at TEXT");
+  if (!columns("customer_executions").has("delivered_at"))
+    db.exec("ALTER TABLE customer_executions ADD COLUMN delivered_at TEXT");
   // Job 003b: one ownership entry per closed deal, as a backstop to the reconciler. Installed
   // only when existing data allows it; earlier duplicates are reported, never deleted.
   if (ownershipConflicts(db).length === 0)

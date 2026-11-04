@@ -533,6 +533,57 @@ charged or returned.
   (reported tokens at declared prices) as aggregated operating history, with no customer text.
 - **Owner trials.** Their access, retention note and `answerFor` fence are unchanged.
 
+### 13.7 Freshness, retention, diagnostics and delivery (job 003n1)
+
+Astra reproduced three failures at `461dfa3`:
+- the same final block a day later still dispatched once;
+- a result loaded across its retention deadline was returned;
+- provider failure text (which can echo the customer's document) was stored in the business's
+  `failure_detail`.
+
+The rules now:
+
+- **Admission freshness (local-clock policy).** Prepare and execute accept the newest final block
+  only if:
+  - `now − T_B ≤ maxBlockAgeMs` (default 120 s): else `503 evidence_too_old`;
+  - `T_B − now ≤ maxFutureSkewMs` (default 30 s): else `503 clock_uncertain`.
+
+  Chain timestamps stay the evidence for chain facts; the local clock is admission policy only,
+  never proof of a refund.
+- **Time left counts from the later clock:** `serve_until − max(now, T_B)` must cover the runtime
+  limit plus the margin. It is checked after the read **and again inside the dispatch
+  transaction**, together with the release, model and artifact (`releaseFor` and the same artifact
+  job). A model change during the read gives `release_needs_recheck`; a re-pointed release gives
+  `artifact_changed`.
+- **Retention is exact and rechecked after the await.** A result is available while
+  `now < retention_until` and expired from the deadline on. `result` checks the caller, the state,
+  the reference, the scheme and the deadline before the `load`, and **all of them again after it**.
+  Loaded bytes are never returned if any changed (`result_expired`, `result_changed`).
+- **Allowlisted diagnostics.** A `customer_use` record stores only a fixed sentence per failure
+  class (`CUSTOMER_DIAGNOSTICS`), never provider prose. The class, usage and cost stay exact.
+  Owner trials keep the provider's explanation.
+- **Validated, delivered, eligible.** These are three separate facts:
+  - *validated*: completed with a valid `extracted` answer;
+  - *delivered*: the result was durably protected (`delivered_at`);
+  - *fulfilled* and *settlement_eligible*: both of the above.
+
+  Eligibility is frozen at delivery; later expiry or deletion doesn't undo it. In these cases the
+  work is ineligible and never re-run:
+  - a protection failure;
+  - a crash between finishing and protecting;
+  - a model refusal (delivered for the customer to read, but ineligible).
+- **Cleanup through the seam, bounded and honest:**
+  - **`expireInputs(limit)`** deletes an input that can't be needed again: the request ended
+    without running, its execution finished (nothing re-runs), or its serving time passed.
+    A request that may still run keeps its input.
+  - **`expireResults(limit)`** deletes a result at or past its deadline.
+  - **Failures.** A failed deletion keeps its reference and is counted as failed, and a
+    reference under another protection scheme is skipped: it is never passed to this seam, and
+    neither execute nor `result` loads it (`protection_scheme_changed`).
+  - **Orphans.** Protecting a result is followed by a compare-and-swap. A losing result copy is
+    deleted, as are duplicate input copies. A crash between `protect` returning and the record
+    leaves an unreferenced copy in the seam's own store; the seam's own expiry must cover that.
+
 ### 13.6 Bounds and limits
 
 - **Residual race.** A sale or revocation can land after the fresh read and before or during the

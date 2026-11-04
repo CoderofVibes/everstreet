@@ -108,6 +108,26 @@ const plain = (s: string, max = 300) => s.replace(CONTROL, " ").trim().slice(0, 
 export const RETENTION_NOTE =
   "The pasted text itself isn't stored, only its length and fingerprint. The result (extracted values, notes and any reported issues) is kept as one of the business's records, can contain text from the document, and moves with the business if it is sold. Test cases you save keep their input.";
 
+/**
+ * The only failure text a customer execution's business record holds (job 003n1): fixed per
+ * class, never the provider's or the document's words.
+ */
+export const CUSTOMER_DIAGNOSTICS: Record<string, string> = {
+  not_sent: "The AI provider refused the request before processing it; nothing was billed.",
+  provider_error: "The AI provider failed or its answer couldn't be read.",
+  timeout: "No answer arrived within the time limit; the request was stopped.",
+  cancelled: "The request was cancelled.",
+  unpriced_usage: "The AI provider reported usage outside the priced limits.",
+  bad_answer: "The AI provider's answer wasn't a usable structured result.",
+  outcome_unknown: "The server stopped while this request was running; it was not run again.",
+  other: "The request failed.",
+};
+
+export function customerDiagnostic(failureClass: string | null): string | null {
+  if (!failureClass) return null;
+  return CUSTOMER_DIAGNOSTICS[failureClass] ?? (CUSTOMER_DIAGNOSTICS.other as string);
+}
+
 export const NO_RUNTIME: BuildAvailability = {
   available: false,
   provider: null,
@@ -819,7 +839,13 @@ export class ManagedRuntime {
         state,
         result?.outcome ?? null,
         info.failureClass,
-        info.detail ? plain(info.detail, 500) : null,
+        // A customer's execution keeps only an allowlisted diagnostic for its class (job 003n1):
+        // provider prose can echo the customer's document. Owner trials keep theirs.
+        row.purpose === "customer_use"
+          ? customerDiagnostic(info.failureClass)
+          : info.detail
+            ? plain(info.detail, 500)
+            : null,
         // A customer's result is never stored on the business's record (job 003n).
         result && row.purpose !== "customer_use" ? JSON.stringify(result) : null,
         usageState,

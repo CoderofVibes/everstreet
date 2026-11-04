@@ -425,12 +425,32 @@ export class SyntheticProtection implements InputProtection {
   /** The next this-many protect calls fail (job 003n). */
   failProtect = 0;
   deleted: string[] = [];
+  /** The next this-many delete calls fail (job 003n1). */
+  failDelete = 0;
+  /** While set, protecting a result waits here (job 003n1: a crash before it is recorded). */
+  resultGate: { release: Promise<void>; arrive: () => void } | null = null;
   private n = 0;
+  holdResults() {
+    let open: () => void = () => {};
+    let arrive: () => void = () => {};
+    const release = new Promise<void>((r) => {
+      open = r;
+    });
+    const entered = new Promise<void>((r) => {
+      arrive = r;
+    });
+    this.resultGate = { release, arrive };
+    return { open, entered };
+  }
   async protect(input: { request_id: string; kind?: string; bytes: Buffer }) {
     if (++this.calls > 100) throw new Error("synthetic protection ceiling reached");
     if (this.failProtect > 0) {
       this.failProtect--;
       throw new Error("synthetic protection failure");
+    }
+    if (input.kind === "result" && this.resultGate) {
+      this.resultGate.arrive();
+      await this.resultGate.release;
     }
     const ref = `ref-${++this.n}`;
     this.kept.set(ref, input.bytes);
@@ -443,6 +463,10 @@ export class SyntheticProtection implements InputProtection {
     return b;
   }
   async delete(ref: string) {
+    if (this.failDelete > 0) {
+      this.failDelete--;
+      throw new Error("synthetic delete failure");
+    }
     this.kept.delete(ref);
     this.deleted.push(ref);
   }

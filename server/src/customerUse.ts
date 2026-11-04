@@ -103,6 +103,12 @@ export interface CustomerUseOptions {
   maxSubmissions?: number;
   /** Time left before serve_until, beyond the runtime's own limit, to admit an execution. */
   executionMarginMs?: number;
+  /**
+   * Admission freshness (job 003n1): the newest final block must be at most this old by the
+   * local clock, and at most `maxFutureSkewMs` ahead of it. Policy, not a chain proof.
+   */
+  maxBlockAgeMs?: number;
+  maxFutureSkewMs?: number;
   now?: () => number;
 }
 
@@ -276,6 +282,31 @@ export class CustomerUses {
   private readonly writeTimeoutMs: number;
   private readonly maxSubmissions: number;
   private readonly executionMarginMs: number;
+  private readonly maxBlockAgeMs: number;
+  private readonly maxFutureSkewMs: number;
+
+  /**
+   * Admission freshness (003n1): a block read now is fresh only if its own timestamp is close
+   * to the local clock. An endpoint returning a coherent but old final block can't authorize
+   * work; a block from the future means the clocks disagree, which also fails closed.
+   */
+  private fresh(block: PinnedBlock) {
+    const t = Number(block.timestamp_ms);
+    const now = this.now();
+    if (!Number.isSafeInteger(t) || t - now > this.maxFutureSkewMs)
+      bad(503, "The server's clock and NEAR's disagree; nothing was run", "clock_uncertain");
+    if (now - t > this.maxBlockAgeMs)
+      bad(503, "The newest NEAR block read is too old; nothing was run", "evidence_too_old");
+  }
+
+  /**
+   * Time left on a hold for work starting now, by the later of the local clock and the block
+   * time (003n1): neither clock alone may stretch the deadline.
+   */
+  private timeLeft(serveUntil: string, blockTimestampMs: string) {
+    const start = Math.max(this.now(), Number(blockTimestampMs));
+    return Number(serveUntil) - start;
+  }
   private readonly now: () => number;
 
   constructor(
@@ -287,6 +318,8 @@ export class CustomerUses {
     private readonly runtime: ManagedRuntime | null = null,
   ) {
     this.executionMarginMs = positive(opts.executionMarginMs, 60_000, "executionMarginMs");
+    this.maxBlockAgeMs = positive(opts.maxBlockAgeMs, 120_000, "maxBlockAgeMs");
+    this.maxFutureSkewMs = positive(opts.maxFutureSkewMs, 30_000, "maxFutureSkewMs");
     this.reader = opts.reader;
     this.writer = opts.writer;
     this.operator = opts.operatorAccount;
@@ -681,6 +714,8 @@ export class CustomerUses {
     const control = read.control as NonNullable<typeof read.control>;
     const plan = read.plan;
     const e = read.entitlement as EntitlementV3 | null;
+    // Deadlines are computed from this block's time: it must be recent by the local clock (003n1).
+    this.fresh(read.block);
     // Unknown or lost authority fails closed (§6); a live deal alone never pauses service.
     // Platform policy (narrower than the contract's owner-or-operator rule): a granted operator.
     if (!platformMeters(control, this.operator))
@@ -1284,12 +1319,26 @@ export class CustomerUses {
       .get(id) as unknown as ExecutionRow | undefined;
   }
 
+  /**
+   * Settlement eligibility (003n1): a completed, validated extraction whose result was durably
+   * delivered. Never tokens, cost, a completed row alone, or a result that couldn't be kept.
+   */
+  private eligible(x: ExecutionRow, inv: InvocationRow | undefined) {
+    return (
+      x.delivered_at !== null &&
+      x.result_outcome === "extracted" &&
+      inv?.state === "completed" &&
+      inv.outcome === "extracted"
+    );
+  }
+
   /** The customer's view of an execution: outcome and result availability, never cost or text. */
   private executionView(x: ExecutionRow | undefined) {
     if (!x) return null;
     const inv = this.runtime?.row(x.invocation_id);
     const state = inv?.state ?? "unknown";
-    const expired = x.retention_until_ms !== null && this.now() > x.retention_until_ms;
+    // Available strictly before the deadline; at the deadline it is expired (003n1).
+    const expired = x.retention_until_ms !== null && this.now() >= x.retention_until_ms;
     const result =
       state === "running"
         ? "pending"
@@ -1307,8 +1356,14 @@ export class CustomerUses {
     return {
       state,
       outcome: inv?.outcome ?? null,
-      // A validated, complete extraction: not a judgement of the model's quality.
-      fulfilled: state === "completed" && inv?.outcome === "extracted",
+      // 003n1: three separate facts. Validated: the model's answer passed the validator as a
+      // complete extraction (not a judgement of its quality). Delivered: that result was durably
+      // protected for the customer. Fulfilled (and eligible for settlement): both, frozen when
+      // it was delivered; later expiry or deletion doesn't undo a delivery.
+      validated: state === "completed" && inv?.outcome === "extracted",
+      delivered: x.delivered_at !== null,
+      fulfilled: this.eligible(x, inv),
+      settlement_eligible: this.eligible(x, inv),
       failure: inv?.failure_class ? inv.failure_class : null,
       usage_state: inv?.usage_state ?? "unknown",
       result,
@@ -1356,6 +1411,12 @@ export class CustomerUses {
       text = input.input;
       source = "resubmitted";
     } else if (r.input_ref) {
+      if (r.input_scheme !== p.scheme)
+        bad(
+          503,
+          "Your saved document was kept under another protection scheme; send it again",
+          "protection_scheme_changed",
+        );
       const bytes = await p.load(r.input_ref).catch(() => null);
       if (!bytes)
         bad(503, "Your saved document couldn't be read; send it again", "input_unavailable");
@@ -1379,6 +1440,8 @@ export class CustomerUses {
       this.readTimeoutMs,
     ).catch(readFailed);
     const cur = this.own(viewer, id); // the caller, again, after the await
+    // The block must be recent by the local clock (003n1), whatever its height or coherence.
+    this.fresh(read.block);
     const e = read.entitlement ?? null;
     const next = markOf(read.block, e);
     const { mark: prev, digestKnown } = this.markFor(cur);
@@ -1431,8 +1494,8 @@ export class CustomerUses {
     const hold = e as EntitlementV3;
     if ((hold.hold_used & 1) !== 0 || hold.hold_slots[0] !== null)
       bad(409, "Your hold's use was already recorded; nothing was run", "slot_used");
-    const left = BigInt(hold.serve_until_ms) - BigInt(read.block.timestamp_ms);
-    if (left < BigInt(runtime.timeoutMs + this.executionMarginMs))
+    const needed = runtime.timeoutMs + this.executionMarginMs;
+    if (this.timeLeft(hold.serve_until_ms, read.block.timestamp_ms) < needed)
       bad(409, "Too little time is left on your hold to run it safely", "not_enough_time");
     const admission = JSON.stringify({
       block: read.block,
@@ -1460,8 +1523,20 @@ export class CustomerUses {
         if (offer.state !== "active") bad(409, "This offer was withdrawn", "offer_retired");
         if (!this.releaseActive(offer))
           bad(409, "This release isn't the active one", "release_not_active");
+        // The runtime identity and artifact, again (003n1): a model or release change during the
+        // await must not dispatch the old configuration.
+        const again = runtime.releaseFor(o.project_id, o.release_id, o.artifact_digest);
+        if (!again.ok || again.artifact.job_id !== rel.artifact.job_id)
+          bad(
+            409,
+            "The released product can't serve this request now",
+            again.ok ? "artifact_changed" : again.code,
+          );
         this.binding(offer);
         this.writerFits(now);
+        // The deadline at the actual dispatch, after every await (003n1).
+        if (this.timeLeft(hold.serve_until_ms, read.block.timestamp_ms) < needed)
+          bad(409, "Too little time is left on your hold to run it safely", "not_enough_time");
         const ep = runtime.ownerEpoch(o.business_id);
         if (ep.owner_id !== epoch.owner_id || ep.generation !== epoch.generation)
           bad(
@@ -1510,10 +1585,17 @@ export class CustomerUses {
         () =>
           this.db
             .prepare(
-              "UPDATE customer_executions SET result_state = 'stored', result_ref = ?, result_scheme = ?, result_outcome = ?, retention_until_ms = ?, updated_at = ? WHERE request_id = ? AND result_state = 'pending'",
+              "UPDATE customer_executions SET result_state = 'stored', result_ref = ?, result_scheme = ?, result_outcome = ?, retention_until_ms = ?, delivered_at = ?, updated_at = ? WHERE request_id = ? AND result_state = 'pending'",
             )
-            .run(ref, p.scheme, result.outcome, this.now() + retentionDays * 86_400_000, iso(), id)
-            .changes === 1,
+            .run(
+              ref,
+              p.scheme,
+              result.outcome,
+              this.now() + retentionDays * 86_400_000,
+              iso(),
+              iso(),
+              id,
+            ).changes === 1,
       );
       if (!kept) await p.delete?.(ref).catch(() => {});
     } catch {
@@ -1533,18 +1615,29 @@ export class CustomerUses {
     this.own(viewer, id);
     const x = this.execution(id);
     if (!x) bad(404, "Nothing has run for this request", "no_result");
-    if (
-      x.result_state === "deleted" ||
-      (x.retention_until_ms !== null && this.now() > x.retention_until_ms)
-    )
-      bad(409, "This result is past its retention and is no longer kept", "result_expired");
-    if (x.result_state !== "stored" || !x.result_ref)
-      bad(409, "There is no kept result for this request", "no_result");
+    const readable = (e: ExecutionRow) => {
+      if (
+        e.result_state === "deleted" ||
+        (e.retention_until_ms !== null && this.now() >= e.retention_until_ms)
+      )
+        bad(409, "This result is past its retention and is no longer kept", "result_expired");
+      if (e.result_state !== "stored" || !e.result_ref)
+        bad(409, "There is no kept result for this request", "no_result");
+    };
+    readable(x);
     const p = this.protection;
     if (!p?.load) bad(503, "Results can't be read on this server", "protection_unavailable");
-    const bytes = await p.load(x.result_ref).catch(() => null);
+    if (x.result_scheme !== p.scheme)
+      bad(503, "This result was kept under another protection scheme", "protection_scheme_changed");
+    const bytes = await p.load(x.result_ref as string).catch(() => null);
     if (!bytes) bad(503, "The result couldn't be read just now", "result_unavailable");
-    this.own(viewer, id); // the caller, again, after the await
+    // After the await, everything again (003n1): the caller, and that this exact result is still
+    // the kept one and still within its retention. Loaded bytes are never returned otherwise.
+    this.own(viewer, id);
+    const after = this.execution(id) as ExecutionRow;
+    readable(after);
+    if (after.result_ref !== x.result_ref)
+      bad(409, "This result changed while it was being read", "result_changed");
     return {
       result: JSON.parse(bytes.toString("utf8")) as Extraction,
       outcome: x.result_outcome,
@@ -1560,16 +1653,20 @@ export class CustomerUses {
     return this.status(viewer, id);
   }
 
-  /** Deletes results past their retention through the seam, a bounded number at a time. */
+  /**
+   * Deletes results at or past their retention through the seam, a bounded number at a time.
+   * A failed deletion keeps its reference and is counted as failed, never as deleted; a result
+   * under another scheme is skipped, never handed to this seam.
+   */
   async expireResults(limit: number = LIMITS.duePerPass) {
     const n = Math.max(1, Math.min(LIMITS.duePerPass, Math.floor(limit)));
     const p = this.protection;
     if (!p?.delete) return { deleted: 0, failed: 0 };
     const due = this.db
       .prepare(
-        "SELECT request_id, result_ref FROM customer_executions WHERE result_state = 'stored' AND retention_until_ms < ? ORDER BY retention_until_ms LIMIT ?",
+        "SELECT request_id, result_ref FROM customer_executions WHERE result_state = 'stored' AND retention_until_ms <= ? AND result_scheme = ? ORDER BY retention_until_ms LIMIT ?",
       )
-      .all(this.now(), n) as { request_id: string; result_ref: string }[];
+      .all(this.now(), p.scheme, n) as { request_id: string; result_ref: string }[];
     let deleted = 0;
     let failed = 0;
     for (const d of due) {
@@ -1593,6 +1690,61 @@ export class CustomerUses {
     }
     return { deleted, failed };
   }
+
+  /**
+   * Deletes protected inputs that can never be needed again (003n1), a bounded number at a
+   * time: the request ended without running (cancelled, expired, refused, unresolved), or its
+   * execution has finished (nothing is ever re-run), or its hold's serving time has passed (it
+   * can no longer run). A request that may still run keeps its input. Failures keep the
+   * reference; another scheme's references are skipped.
+   */
+  async expireInputs(limit: number = LIMITS.duePerPass) {
+    const n = Math.max(1, Math.min(LIMITS.duePerPass, Math.floor(limit)));
+    const p = this.protection;
+    if (!p?.delete) return { deleted: 0, failed: 0 };
+    const candidates = this.db
+      .prepare(
+        `SELECT r.id, r.input_ref, r.state, r.serve_until_ms, x.invocation_id
+           FROM customer_requests r LEFT JOIN customer_executions x ON x.request_id = r.id
+          WHERE r.input_ref IS NOT NULL AND r.input_scheme = ? ORDER BY r.created_at LIMIT ?`,
+      )
+      .all(p.scheme, LIMITS.keptPerPerson) as {
+      id: string;
+      input_ref: string;
+      state: State;
+      serve_until_ms: string;
+      invocation_id: string | null;
+    }[];
+    const now = this.now();
+    const done = (c: (typeof candidates)[number]) => {
+      if (["cancelled", "expired", "refused", "unresolved"].includes(c.state)) return true;
+      if (now >= Number(c.serve_until_ms)) return true;
+      if (c.invocation_id) return this.runtime?.row(c.invocation_id)?.state !== "running";
+      return false;
+    };
+    let deleted = 0;
+    let failed = 0;
+    for (const c of candidates.filter(done).slice(0, n)) {
+      const ok = await (p.delete as (ref: string) => Promise<void>)(c.input_ref).then(
+        () => true,
+        () => false,
+      );
+      if (!ok) {
+        failed++;
+        continue;
+      }
+      this.tx(() => {
+        const r = this.db
+          .prepare(
+            "UPDATE customer_requests SET input_ref = NULL, input_deleted_at = ?, updated_at = ? WHERE id = ? AND input_ref = ?",
+          )
+          .run(iso(), iso(), c.id, c.input_ref);
+        if (r.changes) this.event(c.id, "input_deleted", {});
+      });
+      deleted++;
+    }
+    return { deleted, failed };
+  }
 }
 
 interface ExecutionRow {
@@ -1606,6 +1758,7 @@ interface ExecutionRow {
   result_scheme: string | null;
   result_outcome: string | null;
   retention_until_ms: number | null;
+  delivered_at: string | null;
   created_at: string;
   updated_at: string;
 }
