@@ -322,3 +322,13 @@ review; clean5ddae3d independently passes840tests/80files/lint/types/webbuild. N
 desk and clearer operations copy observed; frozen full-layout/multi-product/legacy review remains.
 Manual-pass health still conflates scheduling ->002d2; scoped buyer evidence ->003u. See
 2026-11-04_ApprovedHandoverReview.md. All six milestones remain open.
+
+## November4 scoped buyer evidence review
+
+Atbcf2346, independent861tests/84files/lint/types/webbuild pass;002d2 scheduling distinction
+regressions pass.003u suppression remains unaccepted: [1,10]/11 labels10as fewer3, and [1,1]/2
+has only one possible hidden value under full-output enumeration.003u1 covers both plus browser
+seller Sign in first lingering after actor selection until reload. Browser Grant was rejected
+by automatic review; Tony approval requested for synthetic Fenn/Ruiz grant/revoke tests. No grant
+or API substitute performed; room chart/export/revocation browser review pending.001d connects
+safe digital publication/discovery next. All six milestones open; see2026-11-04_EvidenceReview.md.

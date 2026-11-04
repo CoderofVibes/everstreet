@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Evidence review](2026-11-04_EvidenceReview.md) |861 checks; suppression/inference failures and seller recovery; permission test pending; digital publication next | Active; see local checkpoint |
 | 2026-11-04 | [Approved handover review](2026-11-04_ApprovedHandoverReview.md) | Tony approved local test; browser buyer history/seller denial/customer continuity pass;840 checks; next scheduling distinction and buyer evidence | Active; see local checkpoint |
 | 2026-11-04 | [Operations review](2026-11-04_OperationsReview.md) | Independent817 tests; charts/counts browser pass; date/status corrections and digital operating desk; browser sale-intent approval pending | Active; see local checkpoint |
 | 2026-11-04 | [Maintenance review](2026-11-04_MaintenanceReview.md) | Independent798 tests; browser automatic return/charge and studio status correction pass; two maintenance failures then operating performance | Active; see local checkpoint |
