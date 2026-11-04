@@ -33,6 +33,11 @@ interface PaymentRow {
 }
 
 const now = () => new Date().toISOString();
+
+/** Job 005b: what a helper's appointment may cover, as the contract names it. */
+type HelperCapability = "support" | "fulfillment";
+type CapabilityState = "authorized" | "denied" | "unconfirmed" | "ended";
+type HelperAccess = "active" | "denied" | "unconfirmed" | "ended";
 const HOUR = 3_600_000;
 
 export class Payments {
@@ -559,9 +564,59 @@ export class Payments {
     }[];
   }
 
-  /** What a helper sees: messages to answer and paid orders to mark delivered. */
-  async helperDesk(person: Person, businessId: string) {
+  /**
+   * Job 005b: the helper's record and the business's ownership generation, compared before and
+   * after an awaited contract check, so a revocation, re-appointment or sale while it ran
+   * returns nothing private and allows no write.
+   */
+  private helperStamp(businessId: string, personId: string): string {
+    const t = this.db
+      .prepare("SELECT created_at, revoked_at FROM team WHERE business_id = ? AND person_id = ?")
+      .get(businessId, personId) as { created_at: string; revoked_at: string | null } | undefined;
+    const gen = (
+      this.db
+        .prepare("SELECT COUNT(*) AS n FROM ownership WHERE business_id = ?")
+        .get(businessId) as {
+        n: number;
+      }
+    ).n;
+    return `${t?.created_at ?? "-"}|${t?.revoked_at ?? "-"}|${gen}`;
+  }
+
+  /**
+   * Job 005b: whether this person may use one capability for this business NOW: Everstreet's
+   * current record, the appointment's capabilities, and the contract's answer, fenced across the
+   * await. Never throws for an unreachable contract: that is "unconfirmed".
+   */
+  private async capabilityNow(
+    person: Person,
+    businessId: string,
+    capability: HelperCapability,
+  ): Promise<{ state: CapabilityState; reason: string }> {
     const row = this.teamRow(businessId, person.id);
+    if (!row) return { state: "ended", reason: "Your helper access for this business ended" };
+    const caps = JSON.parse(row.capabilities) as string[];
+    if (!caps.includes(capability))
+      return { state: "denied", reason: `Not appointed for ${capability}` };
+    try {
+      const c = await this.helperCheck(person, businessId, capability);
+      return c.authorized
+        ? { state: "authorized", reason: c.reason }
+        : { state: "denied", reason: `The business's contract says no: ${c.reason}` };
+    } catch (e) {
+      return {
+        state: "unconfirmed",
+        reason: `The business's contract couldn't be checked just now (${(e as Error).message})`,
+      };
+    }
+  }
+
+  /**
+   * What a helper sees (job 005b, docs/design/HELPER_READ_AUTHORITY.md): only the capabilities
+   * Everstreet currently records AND the contract confirms now, unchanged while checked. A former
+   * helper gets an honest ended state; never-a-helper gets 404. No private field otherwise.
+   */
+  async helperDesk(person: Person, businessId: string) {
     const ever = this.db
       .prepare("SELECT 1 FROM team WHERE business_id = ? AND person_id = ?")
       .get(businessId, person.id);
@@ -570,11 +625,88 @@ export class Payments {
       name: string;
       slug: string;
     };
-    const check = await this.helperCheck(person, businessId, "fulfillment").catch((e) => ({
-      authorized: false,
-      reason: `NEAR testnet not reachable: ${(e as Error).message}`,
+    const before = this.helperStamp(businessId, person.id);
+    const [support, fulfillment] = [
+      await this.capabilityNow(person, businessId, "support"),
+      await this.capabilityNow(person, businessId, "fulfillment"),
+    ];
+    if (this.helperStamp(businessId, person.id) !== before)
+      throw new HttpError(
+        409,
+        "Your access changed while this was loading, so nothing was shown. Open it again.",
+        "access_changed",
+      );
+    const states = [support.state, fulfillment.state];
+    const access: HelperAccess = states.includes("authorized")
+      ? "active"
+      : states.includes("ended")
+        ? "ended"
+        : states.includes("unconfirmed")
+          ? "unconfirmed"
+          : "denied";
+    const base = {
+      business: { id: businessId, ...b },
+      access,
+      active_in_everstreet: Boolean(this.teamRow(businessId, person.id)),
+      capabilities: { support, fulfillment },
+      // Kept for older clients: whether anything is authorized now, and why not.
+      chain_check: {
+        authorized: access === "active",
+        reason: access === "active" ? "confirmed by the business's contract" : support.reason,
+      },
+    };
+    if (access !== "active")
+      return { ...base, business_account: null, inquiries: null, orders: null };
+    return {
+      ...base,
+      business_account: this.businessPayments(businessId)?.account_id ?? null,
+      inquiries: support.state === "authorized" ? this.helperInquiries(businessId) : null,
+      orders: fulfillment.state === "authorized" ? this.helperOrders(businessId) : null,
+    };
+  }
+
+  /** Job 005b: a reply as a helper: support confirmed now, fenced, and never over an answer. */
+  async helperReply(person: Person, businessId: string, inquiryId: string, text: string) {
+    const before = this.helperStamp(businessId, person.id);
+    const support = await this.capabilityNow(person, businessId, "support");
+    if (support.state !== "authorized")
+      throw new HttpError(403, `You can't answer for this business now: ${support.reason}`);
+    if (this.helperStamp(businessId, person.id) !== before)
+      throw new HttpError(
+        409,
+        "Your access changed while this was being checked, so nothing was sent. Open it again.",
+        "access_changed",
+      );
+    const i = this.db
+      .prepare("SELECT business_id, reply FROM inquiries WHERE id = ?")
+      .get(inquiryId) as { business_id: string; reply: string | null } | undefined;
+    if (i?.business_id !== businessId) throw new HttpError(404, "No such message");
+    if (i.reply !== null)
+      throw new HttpError(
+        409,
+        "This message already has a reply, so nothing was sent again.",
+        "already_replied",
+      );
+    this.store.replyAsHelper(person, inquiryId, businessId, text);
+    return this.helperDesk(person, businessId);
+  }
+
+  /** Messages, with only what answering needs: no person ids; the name as the customer shared it. */
+  private helperInquiries(businessId: string) {
+    return this.store.inquiriesFor(businessId).map((i) => ({
+      id: i.id,
+      kind: i.kind,
+      message: i.message,
+      share_contact: i.share_contact,
+      from_name: i.share_contact ? i.from_name : (i.from_name.split(" ")[0] ?? "A customer"),
+      reply: i.reply,
+      created_at: i.created_at,
+      replied_at: i.replied_at,
     }));
-    const orders = (
+  }
+
+  private helperOrders(businessId: string) {
+    return (
       this.db
         .prepare(
           "SELECT * FROM payments WHERE business_id = ? AND status IN ('paid','delivered') ORDER BY created_at DESC LIMIT 30",
@@ -593,14 +725,6 @@ export class Payments {
         customer: who?.display_name ?? "Someone",
       };
     });
-    return {
-      business: { id: businessId, ...b },
-      active_in_everstreet: Boolean(row),
-      chain_check: check,
-      business_account: this.businessPayments(businessId)?.account_id ?? null,
-      inquiries: this.store.inquiriesFor(businessId),
-      orders,
-    };
   }
 
   async withdraw(founder: Person, businessId: string, cents: number) {

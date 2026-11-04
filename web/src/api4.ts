@@ -239,13 +239,28 @@ export interface TeamMember {
   since: string;
 }
 
+/** Job 005b: one capability's state now (Everstreet's record and the business's contract). */
+export interface HelperCapabilityNow {
+  state: "authorized" | "denied" | "unconfirmed" | "ended";
+  reason: string;
+}
 export interface HelperDesk {
   business: { id: string; name: string; slug: string };
+  /** Job 005b: active (some capability confirmed now), denied, unconfirmed or ended. */
+  access: "active" | "denied" | "unconfirmed" | "ended";
   active_in_everstreet: boolean;
+  capabilities: { support: HelperCapabilityNow; fulfillment: HelperCapabilityNow };
   chain_check: { authorized: boolean; reason: string };
   business_account: string | null;
-  inquiries: Inquiry[];
-  orders: (Receipt & { session_starts_at: string | null; customer: string })[];
+  /** Null unless support is confirmed now (never an empty list standing in for "not allowed"). */
+  inquiries:
+    | (Pick<Inquiry, "id" | "kind" | "message" | "share_contact" | "from_name" | "reply"> & {
+        created_at: string;
+        replied_at: string | null;
+      })[]
+    | null;
+  /** Null unless fulfillment is confirmed now. */
+  orders: (Receipt & { session_starts_at: string | null; customer: string })[] | null;
 }
 
 async function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {

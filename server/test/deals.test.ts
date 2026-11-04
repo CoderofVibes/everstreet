@@ -241,6 +241,12 @@ describe("after the close", () => {
     expect((await s.ana(`/api/businesses/${s.id}`)).status).toBe(200);
     expect((await s.mara(`/api/businesses/${s.id}`)).status).toBe(404);
     expect((await s.sam("/api/helping")).body.businesses).toEqual([]);
+    // Job 005b: the former helper's direct URL shows ended access, not the business's orders.
+    const old = await s.sam(`/api/helping/${s.id}`);
+    expect(old.status).toBe(200);
+    expect(old.body.access).toBe("ended");
+    expect(JSON.stringify(old.body)).not.toContain("Theo");
+    expect(old.body.orders ?? null).toBeNull();
     expect((await s.ana(`/api/businesses/${s.id}/value`)).body.scenarios).toEqual([]);
     expect((await s.ana("/api/acquire/search", "POST", { buyer_id: s.coop })).body.results).toEqual(
       [],

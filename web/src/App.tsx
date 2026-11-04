@@ -220,7 +220,9 @@ function Routes() {
   // page, so a former actor's listing and requests never remain and an earlier error never sticks.
   if (sale) return <DeskSale key={`${person?.id ?? "anon"}:${sale.id}`} id={sale.id as string} />;
   const helping = match("/help/:id", path);
-  if (helping) return <Helping id={helping.id as string} />;
+  // Job 005b: keyed by actor and business, like the other private pages.
+  if (helping)
+    return <Helping key={`${person?.id ?? "anon"}:${helping.id}`} id={helping.id as string} />;
   const desk = match("/desk/:id", path);
   // Job 003t: keyed by who is acting and which business, so the books and their operations
   // figures are cleared on a switch and a late answer for the previous view lands nowhere.

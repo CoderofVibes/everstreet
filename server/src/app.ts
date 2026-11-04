@@ -936,18 +936,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/helping/:id", async (c) =>
     c.json(await needPayments().helperDesk(me(c), c.req.param("id"))),
   );
+  // Job 005b: support confirmed now (Everstreet's record and the contract), fenced across the
+  // check, and never over an existing answer.
   app.post("/api/helping/:id/inquiries/:inquiryId/reply", async (c) => {
-    const p = me(c);
-    const id = c.req.param("id");
-    const check = await needPayments().helperCheck(p, id, "support");
-    if (!check.authorized)
-      throw new HttpError(
-        403,
-        `The business's contract says you can't answer for it: ${check.reason}`,
-      );
     const { text } = await body<{ text?: string }>(c);
-    store.replyAsHelper(p, c.req.param("inquiryId"), id, String(text ?? ""));
-    return c.json(await needPayments().helperDesk(p, id));
+    return c.json(
+      await needPayments().helperReply(
+        me(c),
+        c.req.param("id"),
+        c.req.param("inquiryId"),
+        String(text ?? ""),
+      ),
+    );
   });
 
   // ---------- my activity ----------
