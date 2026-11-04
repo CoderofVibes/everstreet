@@ -55,6 +55,7 @@ import { useSession } from "../session.tsx";
 import { type Records, type RecordsPort, type Source, StudioRecords } from "../studioRecords.ts";
 import { type Prefill, prefillFor, studioScope } from "../studioScope.ts";
 import { projectStatus, type Target } from "../studioStatus.ts";
+import { AppView } from "./AppView.tsx";
 import { BuildsView } from "./Builds.tsx";
 import {
   BRIEF_FIELD_ID,
@@ -75,6 +76,7 @@ type Tab =
   | "checks"
   | "versions"
   | "builds"
+  | "app"
   | "service"
   | "continuity";
 interface LocalDraft extends Content {
@@ -89,6 +91,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "checks", label: "Checks" },
   { id: "versions", label: "Versions" },
   { id: "builds", label: "Builds" },
+  { id: "app", label: "Web app" },
   { id: "service", label: "Service" },
   { id: "continuity", label: "Continuity" },
 ];
@@ -98,7 +101,7 @@ const TABS: { id: Tab; label: string }[] = [
  * a working preview) and operating (builds, service, continuity), which get the whole canvas with
  * the editor one deliberate click away. The editor is only hidden, never unmounted.
  */
-export const OPERATE_TABS: readonly Tab[] = ["builds", "service", "continuity"];
+export const OPERATE_TABS: readonly Tab[] = ["builds", "app", "service", "continuity"];
 export function studioLayout(tab: Tab, editorOpen: boolean) {
   const operate = OPERATE_TABS.includes(tab);
   return { operate, editorShown: !operate || editorOpen };
@@ -1478,6 +1481,10 @@ export function ProductStudio({ id }: { id: string }) {
                   dirty={dirty}
                   onRecords={onRecords}
                 />
+              )}
+              {/* Job 002e: keyed by person, project and owner epoch: another scope starts clean. */}
+              {tab === "app" && (
+                <AppView key={scope} projectId={view.project.id} headRevision={view.head.number} />
               )}
               {/* Job 002c1: once opened, Service stays mounted (hidden on other tabs) so a pending
                 request, its text and target survive switching tabs. Keyed by person, project
