@@ -139,7 +139,7 @@ export function BooksNotice({ books }: { books: BooksHandle }) {
         <>
           {" "}
           <button type="button" className="btn btn-secondary btn-sm" onClick={books.load}>
-            Try again
+            {books.state.status === "refused" ? "Check access" : "Try again"}
           </button>
         </>
       )}

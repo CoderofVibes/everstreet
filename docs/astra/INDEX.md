@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Books refresh accepted](2026-11-04_BooksRefreshAccepted.md) |1076 checks/build; actual503 period/draft/phone recovery;404 recheck restored by Astra and verified |001h1 locally accepted;001i next; broad/live gates remain |
+| 2026-11-04 | [Executable product plan](2026-11-04_ExecutableProductPlan.md) | Grounded M2 code-execution gap;002e real worker/bundle/preview path with actual isolation gates |001h1 sole writer; queued after acquisition/customer composition; all milestones retained |
 | 2026-11-04 | [Helper read accepted](2026-11-04_HelperReadAccepted.md) |1069 checks/build; actual revoked/outage/regrant/scope/sale/outsider/phone/keyboard pass |005b accepted locally;001h1 next; all live/full milestones open |
 | 2026-11-04 | [Books recovery review](2026-11-04_BooksRecoveryReview.md) | Actual initial503/retry and404 clearing pass; cached503 hides failure and period mismatch ->001h1 |005b sole writer; correction before001i; broad/live gates open |
 | 2026-11-04 | [Operating workspace review](2026-11-04_OperatingWorkspaceReview.md) |1047 checks; actual charts/drafts/identity/keyboard/empty; phone overflow found and CSS corrected |001h partial review;005b next; broad/live gates open |

@@ -105,7 +105,8 @@ export function booksNotice<T extends { period_months: number }>(
     return {
       tone: "error",
       text: `The books can't be shown: ${s.error ?? "access ended"}.`,
-      retry: false,
+      // A fresh authorized read may restore access. Keep the figures cleared until it succeeds.
+      retry: true,
     };
   if (s.status === "failed") {
     if (shown === null)

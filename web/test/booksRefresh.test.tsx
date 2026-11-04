@@ -149,7 +149,7 @@ describe("001h1 order, access loss and unmount", () => {
     expect(booksNotice(s.read.state)).toBeNull();
   });
 
-  it("401, 403 and 404 drop every figure (and the read time); no retry is offered", async () => {
+  it("401, 403 and 404 clear figures; checking access keeps them hidden until a fresh read succeeds", async () => {
     for (const status of [401, 403, 404]) {
       const s = server();
       void s.read.request(6);
@@ -159,9 +159,24 @@ describe("001h1 order, access loss and unmount", () => {
       s.calls[1]?.fail(new HttpError(status, "No such business"));
       await tick();
       expect(s.read.state).toMatchObject({ data: null, readAt: null, status: "refused" });
-      expect(booksNotice(s.read.state)?.retry).toBe(false);
+      expect(booksNotice(s.read.state)?.retry).toBe(true);
       const overview = render(<OverviewFigures books={s.handle()} businessId="b1" />);
       expect(overview).toContain("can&#x27;t be shown");
+      expect(overview).toContain("Check access");
+      expect(render(<BooksPanel books={s.handle()} />)).toContain("Check access");
+      void s.handle().load();
+      expect(s.calls[2]?.period).toBe(3);
+      expect(s.read.state).toMatchObject({ data: null, readAt: null, status: "loading" });
+      s.calls[2]?.fail(new HttpError(503, "Access check unavailable"));
+      await tick();
+      expect(s.read.state.data).toBeNull();
+      void s.handle().load();
+      expect(s.calls[3]?.period).toBe(3);
+      expect(s.read.state.data).toBeNull();
+      s.calls[3]?.ok(booksFor(3));
+      await tick();
+      expect(s.read.state).toMatchObject({ status: "ready", data: { period_months: 3 } });
+      expect(booksNotice(s.read.state)).toBeNull();
     }
   });
 
