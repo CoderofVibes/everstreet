@@ -59,7 +59,16 @@ export interface WorkspaceState {
    * in state or storage). While set, no other request is made; it can only be recovered.
    */
   unanswered: { chars: number } | null;
+  /**
+   * 003r1: a new request was refused because an earlier, stopped request's authorization stays
+   * valid until its deadline. The draft is kept; checking again is the customer's choice.
+   */
+  waiting: { request_id: string | null; until_ms: string } | null;
 }
+
+const at = (ms: string) => new Date(Number(ms)).toLocaleString();
+const WAIT_WHY = (ms: string) =>
+  `The authorization prepared for your stopped request stays valid on the contract until ${at(ms)}. To keep your units safe, a new request for them can start only after that. Nothing is signed or created by checking; your document is kept.`;
 
 export type Action =
   | "recover_original"
@@ -107,6 +116,7 @@ export class CustomerWorkspace {
     notice: null,
     authorizer: null,
     unanswered: null,
+    waiting: null,
   };
   private listeners = new Set<() => void>();
   private alive = true;
@@ -187,6 +197,7 @@ export class CustomerWorkspace {
       check: null,
       busy: null,
       unanswered: null,
+      waiting: null,
       notice: { tone: "warn", code: "access_ended", message: ACCESS_ENDED },
     });
   }
@@ -338,7 +349,19 @@ export class CustomerWorkspace {
         else {
           this.pending = null;
           this.remember(offerId, null);
-          this.set({ unanswered: null });
+          // 003r1: an earlier stopped request's window is still open: say until when.
+          const d = e instanceof ApiError ? e.detail : undefined;
+          const waiting =
+            e instanceof ApiError &&
+            e.code === "previous_window_open" &&
+            typeof d?.until_ms === "string" &&
+            /^[0-9]{1,20}$/.test(d.until_ms)
+              ? {
+                  request_id: typeof d.request_id === "string" ? d.request_id : null,
+                  until_ms: d.until_ms,
+                }
+              : null;
+          this.set({ unanswered: null, waiting });
         }
         await this.loadRecent();
       }
@@ -346,7 +369,7 @@ export class CustomerWorkspace {
     }
     this.pending = null;
     this.remember(offerId, { key: p.key, id: this.state.use?.id });
-    this.set({ accepted: p.text, result: null, unanswered: null });
+    this.set({ accepted: p.text, result: null, unanswered: null, waiting: null });
     await this.checkEnvelope();
     await this.loadRecent();
   }
@@ -508,11 +531,13 @@ export function nextStep(s: WorkspaceState): Next {
     };
   if (!u)
     return s.draft.trim()
-      ? {
-          action: "prepare",
-          label: "Review one use",
-          why: "Nothing is reserved or charged by reviewing.",
-        }
+      ? s.waiting
+        ? { action: "prepare", label: "Check again and review", why: WAIT_WHY(s.waiting.until_ms) }
+        : {
+            action: "prepare",
+            label: "Review one use",
+            why: "Nothing is reserved or charged by reviewing.",
+          }
       : {
           action: null,
           label: "Add your document",
@@ -555,6 +580,10 @@ export function nextStep(s: WorkspaceState): Next {
       break;
     case "cancelled":
     case "expired":
+      // 003r1: not reusable at once; the server's view of the deadline says so.
+      if (u.next_use?.state === "wait")
+        return { action: "refresh", label: "Check again", why: WAIT_WHY(u.next_use.until_ms) };
+      return { action: "start_another", label: "Start a new request", why: u.explanation };
     case "refused":
     case "unresolved":
       return { action: "start_another", label: "Start a new request", why: u.explanation };

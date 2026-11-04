@@ -67,8 +67,9 @@ function Terms({ i }: { i: Inspection }) {
         </dd>
         <dt>Results kept</dt>
         <dd>
-          {i.retention_days} days, for the customer only. After that the server won't show them, and
-          its retention pass deletes them. Neither you nor a future owner can read them.
+          {i.retention_days} days, for the customer only; after that every read refuses them.
+          Deleting them takes the server's retention pass: see Result cleanup above for what is
+          known about it here. Neither you nor a future owner can read them.
         </dd>
         <dt>Plan</dt>
         <dd>
@@ -207,6 +208,8 @@ export function CustomerOffers({
   }, [s]);
 
   const busy = st.busy !== null;
+  // 003r1: while access is unconfirmed, nothing that changes anything can be pressed.
+  const locked = busy || st.access === "unconfirmed";
   const r = st.readiness;
   const items = r ? itemsWith(r.items, st.inspection) : [];
   const configured = items.filter((i) => i.state === "configured" || i.state === "observed");
@@ -246,6 +249,22 @@ export function CustomerOffers({
 
       {st.status === "ready" && r && (
         <>
+          {st.access === "unconfirmed" && (
+            <div className="notice" role="alert">
+              We couldn't confirm that you still manage this business. Below is what was last
+              loaded, for reference only; changes are paused until access is confirmed.
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={busy}
+                  onClick={() => s.checkAccess()}
+                >
+                  {st.busy === "check_access" ? "Checking…" : "Check access"}
+                </button>
+              </div>
+            </div>
+          )}
           <h3 className="offer-sub">Where it stands</h3>
           <p style={{ fontSize: 14 }}>
             {configured.length} of {items.length} set on this server.{" "}
@@ -285,7 +304,7 @@ export function CustomerOffers({
                     <button
                       type="button"
                       className="btn btn-primary btn-sm"
-                      disabled={busy}
+                      disabled={locked}
                       onClick={() => s.recoverOriginal()}
                     >
                       {st.busy === "recover" ? "Recovering…" : "Recover my original request"}
@@ -315,12 +334,12 @@ export function CustomerOffers({
                     value={st.draft.retention}
                     onChange={(e) => s.setDraft({ retention: e.target.value })}
                   />
-                  <small>1 to 365. After this, results can't be read and are deleted.</small>
+                  <small>1 to 365. After this, results can't be read.</small>
                 </label>
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  disabled={busy}
+                  disabled={locked}
                   onClick={() => s.inspect()}
                 >
                   {st.busy === "inspect" ? "Reading…" : "Inspect plan"}
@@ -332,7 +351,7 @@ export function CustomerOffers({
                   <button
                     type="button"
                     className="btn btn-primary"
-                    disabled={busy || st.inspection.active_offer !== null}
+                    disabled={locked || st.inspection.active_offer !== null}
                     onClick={() => s.create()}
                   >
                     {st.busy === "create" ? "Creating…" : "Create this offer"}
@@ -356,7 +375,7 @@ export function CustomerOffers({
                 <OfferRow
                   key={o.id}
                   o={o}
-                  busy={busy}
+                  busy={locked}
                   confirming={st.confirmRetire === o.id}
                   onRetire={() => s.retireOffer(o.id)}
                   onCancel={() => s.cancelRetire()}

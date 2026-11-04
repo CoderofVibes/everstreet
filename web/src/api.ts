@@ -331,6 +331,8 @@ export class ApiError extends Error {
     message: string,
     /** The server's stable reason, when it gives one. */
     readonly code?: string,
+    /** 003r1: bounded facts to act on the refusal (e.g. a deadline), when the server gives them. */
+    readonly detail?: Record<string, unknown>,
   ) {
     super(message);
   }

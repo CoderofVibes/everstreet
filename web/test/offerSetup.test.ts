@@ -292,3 +292,211 @@ describe("003r retirement and a sale through the controller", () => {
     expect(s.getState().inspection).toBeNull();
   });
 });
+
+describe("003r1 a review is only current while its facts and access are", () => {
+  const retireRelease = (w: CustomerWorld) =>
+    w.state.store.db
+      .prepare("UPDATE runtime_releases SET state = 'retired', retired_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), w.release);
+
+  it("the release retired, then a refresh: the review is set aside and nothing can be created", async () => {
+    const w = await world();
+    const s = setupFor(w, w.owner);
+    await s.start();
+    await s.inspect();
+    expect(s.getState().inspection).not.toBeNull();
+    retireRelease(w);
+    await s.refresh();
+    expect(s.getState().readiness?.release).toBeNull();
+    expect(s.getState().inspection).toBeNull();
+    await s.create();
+    expect(s.getState().notice?.code).toBe("not_reviewed");
+    expect(rows(w)).toHaveLength(0);
+  });
+
+  it("the binding or the ownership generation changed: a refresh sets the review aside", async () => {
+    const w = await world();
+    const s = setupFor(w, w.owner);
+    await s.start();
+    await s.inspect();
+    w.v3.bindings[0] = { ...w.v3.bindings[0], account: "other.biz.near" } as never;
+    w.state.app = w.make(w.state.store);
+    await s.refresh();
+    expect(s.getState().inspection).toBeNull();
+    // Same person, new generation: sold and bought back.
+    const v = await world();
+    const t = setupFor(v, v.owner);
+    await t.start();
+    await t.inspect();
+    const other = v.person("Noah Fenn");
+    v.rw.transfer(v.f.business, v.f.ava.id, other.id);
+    v.rw.transfer(v.f.business, other.id, v.f.ava.id);
+    await t.refresh();
+    expect([t.getState().status, t.getState().inspection]).toEqual(["ready", null]);
+  });
+
+  for (const check of ["failed", "malformed"] as const)
+    it(`a 404 then an inconclusive access check (${check}): the review is set aside and actions wait for Check access`, async () => {
+      const w = await world();
+      const id = await w.offer();
+      const real = portFor(w.owner, w);
+      let breakCheck = false;
+      const port = portFor(w.owner, w, {
+        retire: async () => {
+          breakCheck = true;
+          throw new ApiError(404, "No such offer");
+        },
+        readiness: async (b, p) => {
+          if (breakCheck) {
+            if (check === "failed") throw new ApiError(503, "unavailable");
+            return { readiness: "garbled" };
+          }
+          return real.readiness(b, p);
+        },
+      });
+      const s = setupFor(w, w.owner, port);
+      await s.start();
+      await s.inspect();
+      await s.retireOffer(id);
+      await s.retireOffer(id);
+      expect(s.getState()).toMatchObject({
+        busy: null,
+        access: "unconfirmed",
+        inspection: null,
+        confirmRetire: null,
+        status: "ready",
+      });
+      // Nothing that changes anything runs until access is confirmed.
+      const calls = w.chain.calls;
+      await s.inspect();
+      await s.create();
+      await s.retireOffer(id);
+      expect(s.getState().notice?.code).toBe("access_unconfirmed");
+      expect(w.chain.calls).toBe(calls);
+      expect(rows(w)[0]?.state).toBe("active");
+      // Still inconclusive: stays unconfirmed and retryable.
+      await s.checkAccess();
+      expect(s.getState().access).toBe("unconfirmed");
+      breakCheck = false;
+      await s.checkAccess();
+      expect(s.getState()).toMatchObject({ access: "confirmed", status: "ready" });
+      await s.inspect();
+      expect(s.getState().inspection).not.toBeNull();
+    });
+
+  it("a 404 then a denied check clears the owner's content; a superseded check lands nowhere", async () => {
+    const w = await world();
+    const id = await w.offer();
+    const s = setupFor(w, w.owner);
+    await s.start();
+    await s.inspect();
+    w.rw.transfer(w.f.business, w.f.ava.id, w.person("Noah Fenn").id);
+    await s.retireOffer(id);
+    await s.retireOffer(id);
+    expect(s.getState()).toMatchObject({ status: "gone", inspection: null, offers: [] });
+    // Superseded: the page closes while its access check is in flight.
+    const v = await world();
+    const vid = await v.offer();
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const real = portFor(v.owner, v);
+    let hold = false;
+    const t = setupFor(
+      v,
+      v.owner,
+      portFor(v.owner, v, {
+        retire: async () => {
+          hold = true;
+          throw new ApiError(404, "No such offer");
+        },
+        readiness: async (b, p) => {
+          if (hold) await held;
+          return real.readiness(b, p);
+        },
+      }),
+    );
+    await t.start();
+    await t.inspect();
+    const before = t.getState();
+    await t.retireOffer(vid);
+    const pending = t.retireOffer(vid);
+    t.retire();
+    release();
+    await pending;
+    expect(t.getState().inspection).toEqual(before.inspection); // nothing applied after close
+  });
+
+  it("an unanswered create stays recoverable while access is unconfirmed, and after it is confirmed", async () => {
+    const w = await world();
+    const real = portFor(w.owner, w);
+    let mode: "lose" | "check_fails" | "ok" = "lose";
+    const port = portFor(w.owner, w, {
+      create: async (b, body) => {
+        if (mode === "lose") {
+          mode = "check_fails";
+          throw new TypeError("network");
+        }
+        return real.create(b, body);
+      },
+      retire: async () => {
+        throw new ApiError(404, "No such offer");
+      },
+      readiness: async (b, p) => {
+        if (mode === "check_fails" && breakNow) throw new ApiError(503, "unavailable");
+        return real.readiness(b, p);
+      },
+    });
+    let breakNow = false;
+    const s = setupFor(w, w.owner, port);
+    await s.start();
+    await s.inspect();
+    await s.create();
+    expect(s.getState().unanswered).toEqual({ plan_id: 1, retention_days: 30 });
+    breakNow = true;
+    await s.retireOffer("nope");
+    await s.retireOffer("nope");
+    expect(s.getState().access).toBe("unconfirmed");
+    await s.recoverOriginal();
+    expect(s.getState().notice?.code).toBe("access_unconfirmed");
+    expect(s.getState().unanswered).not.toBeNull();
+    breakNow = false;
+    mode = "ok";
+    await s.checkAccess();
+    await s.recoverOriginal();
+    expect(s.getState().unanswered).toBeNull();
+    expect(rows(w)).toHaveLength(1);
+  });
+
+  it("a create answer naming another release, project, source or digest keeps the exact request recoverable", async () => {
+    for (const field of ["release_id", "project_id", "artifact_digest", "source"] as const) {
+      const w = await world();
+      const real = portFor(w.owner, w);
+      let tamper = true;
+      const port = portFor(w.owner, w, {
+        create: async (b, body) => {
+          const r = (await real.create(b, body)) as Json;
+          if (!tamper) return r;
+          tamper = false;
+          const o = { ...r.offer };
+          if (field === "source") o.source = { network: "testnet", account: "other.biz.near" };
+          else if (field === "artifact_digest") o.artifact_digest = "ab".repeat(32);
+          else o[field] = "someone-else";
+          return { ...r, offer: o };
+        },
+      });
+      const s = setupFor(w, w.owner, port);
+      await s.start();
+      await s.inspect();
+      await s.create();
+      expect([field, s.getState().unanswered, s.getState().created]).toEqual([
+        field,
+        { plan_id: 1, retention_days: 30 },
+        null,
+      ]);
+      await s.recoverOriginal();
+      expect([field, s.getState().unanswered, rows(w).length]).toEqual([field, null, 1]);
+    }
+  });
+});

@@ -84,6 +84,11 @@ export interface UseView {
   label: string;
   explanation: string;
   headline: Headline;
+  /**
+   * 003r1: for a request that ended unconfirmed, whether a new one for the same units may start:
+   * "wait" until its authorization deadline, or "check" (a new request reads the contract first).
+   */
+  next_use: { state: "wait"; until_ms: string } | { state: "check"; until_ms: null } | null;
   offer: OfferView;
   reason: string | null;
   evidence_conflict: string | null;
@@ -298,6 +303,14 @@ export function parseUse(raw: unknown): UseView {
     label: str(w.label, "use.label"),
     explanation: str(w.explanation, "use.explanation"),
     headline: parseHeadline(w.headline),
+    next_use: nullable(w.next_use, (v) => {
+      const n = obj(v, "use.next_use");
+      if (n.state === "wait")
+        return { state: "wait" as const, until_ms: dec(n.until_ms, "next_use.until_ms") };
+      if (n.state === "check" && n.until_ms === null)
+        return { state: "check" as const, until_ms: null };
+      return fail("use.next_use");
+    }),
     offer: parseOffer(w.offer),
     reason: nullable(w.reason, (v) => str(v, "use.reason")),
     evidence_conflict: nullable(w.evidence_conflict, (v) => str(v, "use.conflict")),
@@ -396,9 +409,20 @@ export async function call(path: string, method = "GET", body?: unknown): Promis
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    code?: string;
+    detail?: unknown;
+  } | null;
   if (!res.ok)
-    throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`, data?.code);
+    throw new ApiError(
+      res.status,
+      data?.error ?? `Request failed (${res.status})`,
+      data?.code,
+      data?.detail && typeof data.detail === "object" && !Array.isArray(data.detail)
+        ? (data.detail as Record<string, unknown>)
+        : undefined,
+    );
   if (data === null) throw new MalformedAnswer("The answer wasn't readable.");
   return data;
 }

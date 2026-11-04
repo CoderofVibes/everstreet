@@ -115,6 +115,37 @@ Customers keep their requests, results and units.
   access. Lost ownership clears readiness, offers and review ("You no longer manage this
   business"). Late answers after the page closed land nowhere.
 
+## Corrections in 003r1
+
+- **A review is current only while its facts hold.** The facts are the same owner generation,
+  the same active release and artifact digest, and the same contract binding. Readiness now
+  returns `binding`.
+  - Every refresh drops a review whose facts changed, including a release that is no longer
+    active.
+  - A late inspection answer is applied only if it still matches.
+  - Create refuses a review that isn't current.
+- **Access in doubt is its own state.** This happens when a 404 or `control_changed` is followed
+  by an access check that fails or can't be read.
+  - The state becomes `access: unconfirmed`, and the review is set aside.
+  - What was loaded stays visible as history, but inspect, create, recover and retire are
+    paused.
+  - **Check access** retries. A validated read confirms access; a 404 clears the page ("no
+    longer manage").
+  - An unanswered create stays recoverable once access is confirmed. A check superseded by
+    the page closing lands nowhere.
+- **Create answers must name exactly this request.** The answer has to match its release,
+  project, artifact digest, source, plan and retention. A mismatch counts as unanswered, so the
+  exact request stays recoverable.
+- **Result cleanup is a separate readiness item.** Every read refuses a result past its
+  retention time. Beyond that, the item reads:
+  - *unavailable*: no deletion capability is connected;
+  - *unknown*: deletion is possible, but no retention pass is scheduled here (with a count of
+    overdue results);
+  - *observed*: recorded deletions, with their count and time. That shows a pass has run, not
+    that one runs on a schedule.
+  
+  Setup copy no longer says results "are deleted".
+
 ## Preview (disposable, synthetic)
 
 ```

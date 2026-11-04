@@ -104,7 +104,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.onError((error, c) => {
     if (error instanceof HttpError)
       return c.json(
-        error.code ? { error: error.message, code: error.code } : { error: error.message },
+        {
+          error: error.message,
+          ...(error.code ? { code: error.code } : {}),
+          ...(error.detail ? { detail: error.detail } : {}),
+        },
         error.status,
       );
     console.error(error);

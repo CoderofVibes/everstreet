@@ -400,6 +400,11 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               )}
           </div>
           <p className="muted use-why">{next.why}</p>
+          {!use && s.waiting?.request_id && (
+            <p className="muted use-note">
+              <Link to={`/uses/${s.waiting.request_id}`}>Open the stopped request</Link>
+            </p>
+          )}
           <div role="status" aria-live="polite">
             {s.notice && (
               <p

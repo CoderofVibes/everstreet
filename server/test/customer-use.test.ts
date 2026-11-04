@@ -652,7 +652,11 @@ describe("003m customer preparation and reservation (real API, injected adapters
         idempotency_key: key,
         input: INPUT,
       });
-    expect((await go("use-key-0002")).body.code).toBe("use_in_progress");
+    // 003r1: the refusal says why and until when; the barrier itself is unchanged.
+    expect((await go("use-key-0002")).body).toMatchObject({
+      code: "previous_window_open",
+      detail: { request_id: use.id, until_ms: use.envelope.consent.accept_by_ms },
+    });
     w.chain.tick(BigInt(use.envelope.consent.accept_by_ms) - w.chain.ts + 1n);
     w.clock.now = Number(w.chain.ts);
     const next = await go("use-key-0003");

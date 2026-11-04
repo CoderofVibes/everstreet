@@ -21,6 +21,8 @@ export class HttpError extends Error {
     message: string,
     /** A stable reason for clients to act on, so nothing parses the human message. */
     readonly code?: string,
+    /** Job 003r1: bounded, non-private facts a client needs to act on the refusal. */
+    readonly detail?: Record<string, string | number | null>,
   ) {
     super(message);
   }
@@ -741,6 +743,7 @@ export class Store {
       throw new HttpError(
         409,
         "Control of this business changed while this was loading, so nothing was shown or saved. Try again.",
+        "control_changed",
       );
   }
 

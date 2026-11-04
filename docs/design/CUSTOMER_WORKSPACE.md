@@ -78,6 +78,17 @@ and the exact terms.
   item carries a `headline` that composes request, execution and unit facts. For example, a
   charged request reads **Completed**, not "Reserved"; the protocol state stays `reserved` as
   a historical fact. The workspace, Recent uses and Activity all show the same headline.
+- **After cancelling (003r1).** A cancelled or expired request's authorization stays valid on
+  the contract until its accept deadline. Its unit allocation stays guarded until that block
+  time has passed, or until the contract shows the sequence used (`skip_hold_seq`). The barrier
+  is unchanged.
+  - The view now carries `next_use`: `wait` until the deadline, by the server clock, or `check`.
+  - The page offers **Check again** (a read; nothing is signed or created) instead of a new
+    request, and says until when.
+  - A new request refused inside the window returns `409 previous_window_open` with `{request_id,
+    until_ms}`. The page keeps the typed draft and offers **Check again and review**.
+  - There is no polling and no automatic replacement. At the deadline exactly, a request is
+    still refused.
 - **Public page.** When a published business has released digital offers, the storefront no
   longer says "No offer published yet" beside them. It says the product is offered above and
   nothing else is open to book. No readiness is inferred.

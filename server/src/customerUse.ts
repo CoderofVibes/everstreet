@@ -276,15 +276,23 @@ const LABELS: Record<State, { label: string; explanation: string }> = {
     explanation:
       "The contract's records can't show whether this reservation opened. Nothing was charged by Everstreet for it, and it won't be retried automatically. You can start a new request.",
   },
-  cancelled: { label: "Cancelled", explanation: "You cancelled before signing; nothing was sent." },
+  cancelled: {
+    label: "Cancelled",
+    explanation: "You cancelled it here before it was confirmed; nothing was sent from here.",
+  },
   expired: {
     label: "Expired",
-    explanation: "It wasn't signed in time; nothing was sent. You can start a new request.",
+    explanation: "It wasn't confirmed in time; nothing was sent from here.",
   },
 };
 
-function bad(status: 400 | 404 | 409 | 422 | 429 | 503, message: string, code?: string): never {
-  throw new HttpError(status, message, code);
+function bad(
+  status: 400 | 404 | 409 | 422 | 429 | 503,
+  message: string,
+  code?: string,
+  detail?: Record<string, string | number | null>,
+): never {
+  throw new HttpError(status, message, code, detail);
 }
 
 function unavailable(): never {
@@ -830,6 +838,7 @@ export class CustomerUses {
             detail: "No protected storage is connected, so no document can be kept or run.",
             next: "The operator connects protected storage.",
           },
+      this.cleanupItem(businessId),
       runtime?.available
         ? {
             key: "runtime",
@@ -875,6 +884,7 @@ export class CustomerUses {
         evaluated_at: iso(),
         items,
         next: items.find((i) => i.next !== null)?.next ?? null,
+        binding: b ? { network: b.network, account: b.account } : null,
         release: release
           ? {
               id: release.id,
@@ -885,6 +895,53 @@ export class CustomerUses {
           : null,
         offers: { active: counts.active ?? 0, retired: counts.retired ?? 0 },
       },
+    };
+  }
+
+  /**
+   * Job 003r1: retention, honestly. Every read refuses a result past its retention time (always
+   * enforced). Deleting it needs a deletion capability AND a retention pass; this server
+   * schedules none, so cleanup is "unknown" unless recorded deletions show a pass has run.
+   */
+  private cleanupItem(businessId: string) {
+    const label = "Result cleanup";
+    const enforced = "Every read refuses a result past its retention time.";
+    if (!this.protection?.delete)
+      return {
+        key: "cleanup",
+        label,
+        state: "unavailable" as const,
+        detail: `${enforced} No deletion is connected, so results past retention aren't deleted here.`,
+        next: "The operator connects storage that can delete and schedules the retention pass.",
+      };
+    const facts = this.db
+      .prepare(
+        `SELECT SUM(x.result_state = 'deleted') AS deleted, MAX(CASE WHEN x.result_state = 'deleted' THEN x.updated_at END) AS last,
+                SUM(x.result_state = 'stored' AND x.retention_until_ms <= ?) AS overdue
+         FROM customer_executions x JOIN customer_requests r ON r.id = x.request_id WHERE r.business_id = ?`,
+      )
+      .get(this.now(), businessId) as {
+      deleted: number | null;
+      last: string | null;
+      overdue: number | null;
+    };
+    const deleted = facts.deleted ?? 0;
+    const overdue = facts.overdue ?? 0;
+    const waiting = overdue > 0 ? ` ${overdue} past retention not yet deleted.` : "";
+    if (deleted > 0)
+      return {
+        key: "cleanup",
+        label,
+        state: "observed" as const,
+        detail: `${enforced} A retention pass deleted ${deleted}, most recently at ${facts.last}.${waiting} That shows it has run, not that it runs on a schedule.`,
+        next: null,
+      };
+    return {
+      key: "cleanup",
+      label,
+      state: "unknown" as const,
+      detail: `${enforced} Storage here can delete, but no retention pass is scheduled on this server and none has been recorded.${waiting}`,
+      next: "The operator schedules the retention pass; nothing to enter here.",
     };
   }
 
@@ -1174,10 +1231,24 @@ export class CustomerUses {
   }
 
   /** The customer's own view. The salt appears only inside the envelope, only while prepared. */
+  /**
+   * Job 003r1: whether a new request for these units may start, for a request that ended without
+   * being confirmed. While its unit allocation is held and its authorization deadline hasn't
+   * passed by this server's clock, the answer is "wait" with that deadline. Otherwise "check": a
+   * new request reads the contract first, which decides (the server clock alone never frees it).
+   */
+  private nextUse(r: RequestRow) {
+    if (r.state !== "cancelled" && r.state !== "expired") return null;
+    if (r.allocation !== null && this.now() <= Number(r.accept_by_ms))
+      return { state: "wait" as const, until_ms: r.accept_by_ms };
+    return { state: "check" as const, until_ms: null };
+  }
+
   private view(r: RequestRow) {
     const l = LABELS[r.state];
     return {
       headline: this.headline(r),
+      next_use: this.nextUse(r),
       id: r.id,
       state: r.state,
       label: l.label,
@@ -1443,8 +1514,22 @@ export class CustomerUses {
         // contract shows that sequence used (it then can't open either).
         const neverSent = held.state === "cancelled" || held.state === "expired";
         const dead = T > BigInt(held.accept_by_ms) || e.hold_seq >= held.hold_seq;
+        // 003r1: say why, and until when, without loosening the barrier. The deadline is the
+        // block time after which no block can accept the earlier authorization.
+        if (neverSent && !dead && held.person_id === viewer.id)
+          bad(
+            409,
+            "Your earlier request was stopped, but the authorization prepared for it stays valid on the contract until its deadline. To keep your units safe, a new request for them can start only after that, or once the contract shows it can't be used.",
+            "previous_window_open",
+            { request_id: held.id, until_ms: String(held.accept_by_ms) },
+          );
         if (!(neverSent && dead))
-          bad(409, "Another request of yours is still in progress", "use_in_progress");
+          bad(
+            409,
+            "Another request of yours is still in progress",
+            "use_in_progress",
+            held.person_id === viewer.id ? { request_id: held.id, until_ms: null } : undefined,
+          );
         this.db
           .prepare("UPDATE customer_requests SET allocation = NULL, updated_at = ? WHERE id = ?")
           .run(at, held.id);

@@ -31,6 +31,8 @@ export interface Readiness {
   evaluated_at: string;
   items: ReadinessItem[];
   next: string | null;
+  /** 003r1: the contract this business is bound to here, to tell whether a review still applies. */
+  binding: { network: string; account: string } | null;
   release: {
     id: string;
     artifact_digest: string;
@@ -38,6 +40,23 @@ export interface Readiness {
     product: ProductName;
   } | null;
   offers: { active: number; retired: number };
+}
+
+/**
+ * Job 003r1: a review is current only while every fact it names still holds: the same ownership
+ * generation, the same active release and artifact, and the same contract binding.
+ */
+export function reviewCurrent(i: Inspection, r: Readiness | null): boolean {
+  return (
+    r !== null &&
+    i.owner_generation === r.owner_generation &&
+    r.release !== null &&
+    i.release.id === r.release.id &&
+    i.release.artifact_digest === r.release.artifact_digest &&
+    r.binding !== null &&
+    i.source.network === r.binding.network &&
+    i.source.account === r.binding.account
+  );
 }
 
 export interface PlanTerms {
@@ -174,6 +193,7 @@ export function parseReadiness(raw: unknown): Readiness {
       };
     }),
     next: nullable(r.next, (n) => str(n, "readiness.next")),
+    binding: nullable(r.binding, parseSource),
     release,
     offers: {
       active: int(offers.active, "offers.active"),
@@ -272,7 +292,20 @@ export const offerHttp: OfferPort = {
 
 // ---------- the controller ----------
 
-export type OfferAction = "load" | "inspect" | "create" | "recover" | "retire";
+export type OfferAction = "load" | "check_access" | "inspect" | "create" | "recover" | "retire";
+
+/** What a create answer must name to be adopted as this request's offer (003r1). */
+interface Expected {
+  project_id: string;
+  artifact_digest: string;
+  network: string;
+  account: string;
+}
+
+interface Pending {
+  body: CreateBody;
+  expect: Expected | null;
+}
 
 export interface OfferNotice {
   tone: "ok" | "warn" | "error";
@@ -294,9 +327,18 @@ export interface OfferSetupState {
   created: string | null;
   /** The offer the owner asked to retire, waiting for a second, confirming click. */
   confirmRetire: string | null;
+  /**
+   * 003r1: "unconfirmed" after a refusal whose access check wasn't answered or couldn't be read.
+   * What was loaded stays visible as history, but nothing that changes anything runs until
+   * Check access succeeds.
+   */
+  access: "confirmed" | "unconfirmed";
   busy: OfferAction | null;
   notice: OfferNotice | null;
 }
+
+const ACCESS_UNCONFIRMED =
+  "We couldn't confirm that you still manage this business, so changes are paused and the review was set aside. Check access to continue; nothing was changed.";
 
 const LOST =
   "We didn't get an answer. Nothing is lost: recovering resends the same request and never creates a second offer.";
@@ -336,6 +378,7 @@ export class OfferSetup {
     unanswered: null,
     created: null,
     confirmRetire: null,
+    access: "confirmed",
     busy: null,
     notice: null,
   };
@@ -344,7 +387,7 @@ export class OfferSetup {
   /** Bumped on retirement of this page: older answers land nowhere. */
   private generation = 0;
   /** The create in flight or unanswered: its exact body, to resend the same request. */
-  private pending: CreateBody | null = null;
+  private pending: Pending | null = null;
 
   constructor(
     private readonly port: OfferPort,
@@ -377,35 +420,56 @@ export class OfferSetup {
     return `everstreet.offer.${this.opts.personId}.${this.opts.businessId}.${this.opts.projectId}`;
   }
   /** Only the owner's own create body (no secret, no customer data); denied storage never blocks. */
-  private remember(v: CreateBody | null) {
+  private remember(v: Pending | null) {
     const s = this.opts.storage;
     if (!s) return;
     try {
-      if (v) s.setItem(this.storeKey(), JSON.stringify(v));
+      if (v) s.setItem(this.storeKey(), JSON.stringify({ ...v.body, expect: v.expect }));
       else s.removeItem(this.storeKey());
     } catch {
       // Storage denied: recovery after a reload isn't available; in this page it still is.
     }
   }
-  private recall(): CreateBody | null {
+  private recall(): Pending | null {
     try {
-      const v = JSON.parse(this.opts.storage?.getItem(this.storeKey()) ?? "null") as CreateBody;
-      return v &&
-        typeof v.idempotency_key === "string" &&
-        /^[A-Za-z0-9_-]{8,80}$/.test(v.idempotency_key) &&
-        typeof v.release_id === "string" &&
-        Number.isSafeInteger(v.plan_id) &&
-        Number.isSafeInteger(v.retention_days) &&
-        typeof v.reviewed_terms === "string" &&
-        /^[0-9a-f]{64}$/.test(v.reviewed_terms)
-        ? {
-            idempotency_key: v.idempotency_key,
-            release_id: v.release_id,
-            plan_id: v.plan_id,
-            retention_days: v.retention_days,
-            reviewed_terms: v.reviewed_terms,
-          }
-        : null;
+      const v = JSON.parse(this.opts.storage?.getItem(this.storeKey()) ?? "null") as CreateBody & {
+        expect?: Partial<Expected> | null;
+      };
+      if (
+        !v ||
+        typeof v.idempotency_key !== "string" ||
+        !/^[A-Za-z0-9_-]{8,80}$/.test(v.idempotency_key) ||
+        typeof v.release_id !== "string" ||
+        !Number.isSafeInteger(v.plan_id) ||
+        !Number.isSafeInteger(v.retention_days) ||
+        typeof v.reviewed_terms !== "string" ||
+        !/^[0-9a-f]{64}$/.test(v.reviewed_terms)
+      )
+        return null;
+      const x = v.expect;
+      const expect =
+        x &&
+        typeof x.project_id === "string" &&
+        typeof x.artifact_digest === "string" &&
+        typeof x.network === "string" &&
+        typeof x.account === "string"
+          ? {
+              project_id: x.project_id,
+              artifact_digest: x.artifact_digest,
+              network: x.network,
+              account: x.account,
+            }
+          : null;
+      return {
+        body: {
+          idempotency_key: v.idempotency_key,
+          release_id: v.release_id,
+          plan_id: v.plan_id,
+          retention_days: v.retention_days,
+          reviewed_terms: v.reviewed_terms,
+        },
+        expect,
+      };
     } catch {
       return null;
     }
@@ -422,9 +486,30 @@ export class OfferSetup {
       unanswered: null,
       created: null,
       confirmRetire: null,
+      access: "confirmed",
       busy: null,
       notice: { tone: "warn", code: "access_ended", message: OFFER_ACCESS_ENDED },
     });
+  }
+
+  /** Access is in doubt: the review is set aside and changes wait for Check access (003r1). */
+  private unconfirmed() {
+    this.set({
+      access: "unconfirmed",
+      inspection: null,
+      confirmRetire: null,
+      notice: { tone: "warn", code: "access_unconfirmed", message: ACCESS_UNCONFIRMED },
+    });
+  }
+
+  /** Changes are refused while access is unconfirmed; the caller then does nothing. */
+  private paused() {
+    if (this.state.access !== "unconfirmed") return false;
+    this.set({
+      confirmRetire: null,
+      notice: { tone: "warn", code: "access_unconfirmed", message: ACCESS_UNCONFIRMED },
+    });
+    return true;
   }
 
   private async act(action: OfferAction, f: (gen: number) => Promise<void>) {
@@ -435,9 +520,17 @@ export class OfferSetup {
       await f(gen);
     } catch (e) {
       if (gen !== this.generation) return;
-      // A 404 may mean this person no longer manages the business: check, don't assume.
-      if (e instanceof ApiError && e.status === 404 && (await this.stillOwner(gen)) === false)
-        return this.gone();
+      // A 404, or control changing under us, may mean this person no longer manages the
+      // business: check, don't assume either way.
+      const doubt =
+        e instanceof ApiError &&
+        (e.status === 404 || (e.status === 409 && e.code === "control_changed"));
+      if (doubt && action !== "check_access") {
+        const owner = await this.stillOwner(gen);
+        if (gen !== this.generation) return;
+        if (owner === false) return this.gone();
+        if (owner === null) return this.unconfirmed();
+      }
       if (gen !== this.generation) return;
       this.set({
         notice: {
@@ -470,12 +563,29 @@ export class OfferSetup {
     const readiness = parseReadiness(r);
     const offers = parseOwnerOffers(o);
     if (gen !== this.generation) return;
-    // A review made under another ownership is no longer a review of these terms.
-    const inspection =
-      this.state.inspection?.owner_generation === readiness.owner_generation
-        ? this.state.inspection
-        : null;
-    this.set({ status: "ready", readiness, offers, inspection });
+    // A review stays only while its ownership, release, artifact and binding all still hold.
+    const i = this.state.inspection;
+    const inspection = i && reviewCurrent(i, readiness) ? i : null;
+    // A validated, successful read by this person is the access check.
+    this.set({ status: "ready", readiness, offers, inspection, access: "confirmed" });
+  }
+
+  /** 003r1: the explicit access check after an inconclusive one. Denied clears the page. */
+  checkAccess() {
+    return this.act("check_access", async (gen) => {
+      try {
+        await this.reload(gen);
+      } catch (e) {
+        if (gen !== this.generation) return;
+        if (e instanceof ApiError && e.status === 404) return this.gone();
+        this.set({ access: "unconfirmed" });
+        throw e;
+      }
+      if (gen === this.generation)
+        this.set({
+          notice: { tone: "ok", code: "access_confirmed", message: "Access confirmed." },
+        });
+    });
   }
 
   async start() {
@@ -483,7 +593,7 @@ export class OfferSetup {
     if (stored && !this.pending) {
       this.pending = stored;
       this.set({
-        unanswered: { plan_id: stored.plan_id, retention_days: stored.retention_days },
+        unanswered: { plan_id: stored.body.plan_id, retention_days: stored.body.retention_days },
       });
     }
     await this.act("load", async (gen) => {
@@ -514,6 +624,7 @@ export class OfferSetup {
 
   /** One bounded read of the typed plan number, with the typed retention. */
   inspect() {
+    if (this.paused()) return Promise.resolve();
     const problem = draftProblem(this.state.draft);
     if (problem) {
       this.set({ notice: { tone: "error", code: "draft_invalid", message: problem } });
@@ -547,16 +658,28 @@ export class OfferSetup {
         inspection.release.id !== release.id
       )
         throw new MalformedAnswer("The inspection answered for other terms.");
-      // Only if the draft still says what was inspected.
+      // Only if the draft still says what was inspected, and the facts it names still hold.
       const d = this.state.draft;
       if (d.plan.trim() !== String(plan_id) || d.retention.trim() !== String(retention_days))
         return;
+      if (!reviewCurrent(inspection, this.state.readiness) || this.state.access !== "confirmed") {
+        this.set({
+          notice: {
+            tone: "warn",
+            code: "review_outdated",
+            message:
+              "What this page knows about the release, contract or ownership changed while reading. Refresh and inspect again.",
+          },
+        });
+        return;
+      }
       this.set({ inspection });
     });
   }
 
   /** Create exactly the reviewed terms. While a create is unanswered, only it may be resent. */
   create() {
+    if (this.paused()) return Promise.resolve();
     if (this.pending) {
       this.set({
         notice: {
@@ -569,7 +692,8 @@ export class OfferSetup {
       return Promise.resolve();
     }
     const i = this.state.inspection;
-    if (!i) {
+    if (!i || !reviewCurrent(i, this.state.readiness)) {
+      if (i) this.set({ inspection: null });
       this.set({
         notice: {
           tone: "warn",
@@ -581,11 +705,19 @@ export class OfferSetup {
     }
     const key = (this.opts.makeKey ?? (() => `offer-${crypto.randomUUID()}`))();
     this.pending = {
-      idempotency_key: key,
-      release_id: i.release.id,
-      plan_id: i.plan_id,
-      retention_days: i.retention_days,
-      reviewed_terms: i.terms_digest,
+      body: {
+        idempotency_key: key,
+        release_id: i.release.id,
+        plan_id: i.plan_id,
+        retention_days: i.retention_days,
+        reviewed_terms: i.terms_digest,
+      },
+      expect: {
+        project_id: i.release.project_id,
+        artifact_digest: i.release.artifact_digest,
+        network: i.source.network,
+        account: i.source.account,
+      },
     };
     this.remember(this.pending);
     return this.act("create", (gen) => this.send(gen));
@@ -594,17 +726,36 @@ export class OfferSetup {
   /** Resend the unanswered create exactly as it was, whatever the draft says now. */
   recoverOriginal() {
     if (!this.pending) return Promise.resolve();
+    if (this.paused()) return Promise.resolve();
     return this.act("recover", (gen) => this.send(gen));
   }
 
+  /** 003r1: a success is adopted only if it names exactly this request's offer. */
+  private matches(offer: OwnerOffer, p: Pending) {
+    const b = p.body;
+    const x = p.expect;
+    return (
+      offer.release_id === b.release_id &&
+      offer.plan_id === b.plan_id &&
+      offer.retention_days === b.retention_days &&
+      offer.project_id === this.opts.projectId &&
+      (x === null ||
+        (offer.project_id === x.project_id &&
+          offer.artifact_digest === x.artifact_digest &&
+          offer.source.network === x.network &&
+          offer.source.account === x.account))
+    );
+  }
+
   private async send(gen: number) {
-    const p = this.pending as CreateBody;
+    const pending = this.pending as Pending;
+    const p = pending.body;
     let offer: OwnerOffer;
     try {
       const answer = obj(await this.port.create(this.opts.businessId, p), "answer");
       offer = parseOwnerOffer(answer.offer);
-      if (offer.plan_id !== p.plan_id || offer.retention_days !== p.retention_days)
-        throw new MalformedAnswer("The offer answered with other terms.");
+      if (!this.matches(offer, pending))
+        throw new MalformedAnswer("The answer named a different offer than this request.");
     } catch (e) {
       if (gen === this.generation) {
         if (unansweredError(e)) {
@@ -641,6 +792,7 @@ export class OfferSetup {
 
   /** First click asks; the second retires that exact offer. Repeating it is harmless. */
   retireOffer(offerId: string) {
+    if (this.paused()) return Promise.resolve();
     if (this.state.confirmRetire !== offerId) {
       this.set({ confirmRetire: offerId, notice: null });
       return Promise.resolve();

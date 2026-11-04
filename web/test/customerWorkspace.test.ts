@@ -31,7 +31,8 @@ function portFor(
   const go = async (path: string, method = "GET", body?: unknown) => {
     w.clock.now = Number(w.chain.ts);
     const r = await who(path, method, body);
-    if (r.status >= 400) throw new ApiError(r.status, r.body.error ?? "failed", r.body.code);
+    if (r.status >= 400)
+      throw new ApiError(r.status, r.body.error ?? "failed", r.body.code, r.body.detail);
     return r.body;
   };
   return {
@@ -548,5 +549,89 @@ describe("003q1 recovering the original request", () => {
       unit: "charged",
       headline: { title: "Completed" },
     });
+  });
+});
+
+describe("003r1 a cancelled use waits honestly for its authorization window", () => {
+  const ws = (w: CustomerWorld, offer: string) =>
+    new CustomerWorkspace(portFor(w.cara, w), {
+      personId: w.cara.id,
+      offerId: offer,
+      authorizer: () => testAuthorizer(),
+      now: () => w.clock.now,
+      makeKey,
+    });
+
+  it("after cancelling, it says wait (with the deadline) and offers Check again, not a new request", async () => {
+    const { w, offer } = await setup();
+    const s = ws(w, offer);
+    await s.start();
+    s.setDraft(INVOICE);
+    await s.prepare();
+    const acceptBy = s.getState().use?.envelope?.consent.accept_by_ms as string;
+    await s.cancel();
+    expect(s.getState().use?.state).toBe("cancelled");
+    expect(s.getState().use?.next_use).toEqual({ state: "wait", until_ms: acceptBy });
+    const next = nextStep(s.getState());
+    expect([next.action, next.label]).toEqual(["refresh", "Check again"]);
+    expect(next.why).toMatch(/stays valid/);
+    expect(next.why).not.toMatch(/charged|reserved/i);
+    // Checking before the deadline changes nothing and creates nothing.
+    const count = () =>
+      (
+        w.state.store.db.prepare("SELECT COUNT(*) AS n FROM customer_requests").get() as {
+          n: number;
+        }
+      ).n;
+    await s.refresh();
+    expect(nextStep(s.getState()).action).toBe("refresh");
+    expect(count()).toBe(1);
+    // After the deadline (both clocks), a new request is offered; the contract still decides.
+    w.chain.tick(BigInt(acceptBy) - w.chain.ts + 1n);
+    w.clock.now = Number(w.chain.ts);
+    await s.refresh();
+    expect(s.getState().use?.next_use).toEqual({ state: "check", until_ms: null });
+    expect(nextStep(s.getState()).action).toBe("start_another");
+    s.startAnother();
+    s.setDraft(`${INVOICE} (second)`);
+    await s.prepare();
+    expect(s.getState().use?.state).toBe("prepared");
+    expect(count()).toBe(2);
+  });
+
+  it("a new request refused inside the window keeps the next draft and explains the wait", async () => {
+    const { w, offer } = await setup();
+    const s = ws(w, offer);
+    await s.start();
+    s.setDraft(INVOICE);
+    await s.prepare();
+    const first = s.getState().use;
+    const acceptBy = first?.envelope?.consent.accept_by_ms as string;
+    await s.cancel();
+    s.startAnother(); // e.g. from a stale page that still offered it
+    const next = "Fictional invoice SH-2001 from Stackline Hosting Ltd, total 99.00 USD";
+    s.setDraft(next);
+    await s.prepare();
+    expect(s.getState()).toMatchObject({
+      use: null,
+      draft: next,
+      busy: null,
+      unanswered: null,
+      waiting: { request_id: first?.id, until_ms: acceptBy },
+      notice: { code: "previous_window_open" },
+    });
+    const step = nextStep(s.getState());
+    expect([step.action, step.label]).toEqual(["prepare", "Check again and review"]);
+    expect(step.why).toMatch(/stays valid/);
+    // At the deadline exactly, a block may still accept it: still refused (the barrier is kept).
+    w.chain.tick(BigInt(acceptBy) - w.chain.ts);
+    w.clock.now = Number(w.chain.ts);
+    await s.prepare();
+    expect(s.getState().notice?.code).toBe("previous_window_open");
+    w.chain.tick(1n);
+    w.clock.now = Number(w.chain.ts);
+    await s.prepare();
+    expect(s.getState()).toMatchObject({ waiting: null, use: { state: "prepared" } });
+    expect(s.getState().accepted).toBe(next);
   });
 });
