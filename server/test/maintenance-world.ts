@@ -5,6 +5,7 @@
 
 import type { CustomerUseOptions } from "../src/customerUse.ts";
 import { type MaintenanceOptions, MaintenanceSupervisor } from "../src/maintenance.ts";
+import type { ViewTransport } from "../src/v3read.ts";
 import {
   type CustomerWorld,
   customerWorld,
@@ -27,12 +28,18 @@ const letters = (n: number) => {
 };
 
 export async function maintenanceWorld(
-  opts: { customer?: Partial<CustomerUseOptions>; noWriter?: boolean } = {},
+  opts: {
+    customer?: Partial<CustomerUseOptions>;
+    noWriter?: boolean;
+    /** Job 003t: v3 observations and sale reconciliation (contract fixture views). */
+    v3Transport?: ViewTransport;
+  } = {},
 ) {
   const protection = new SyntheticProtection();
   const w = await customerWorld({
     customer: { protection, ...opts.customer },
     noWriter: opts.noWriter,
+    v3Transport: opts.v3Transport,
   });
   const pristine = structuredClone(w.chain.ent() as Json);
   const offer = await w.offer();
@@ -52,17 +59,17 @@ export async function maintenanceWorld(
     w.chain.tick(BigInt(ms));
     sync();
   };
-  const prepare = async (who: CustomerWorld["cara"], key: string) => {
+  const prepare = async (who: CustomerWorld["cara"], key: string, input = INVOICE) => {
     sync();
     const p = await who(`/api/customer/offers/${offer}/prepare`, "POST", {
       idempotency_key: key,
-      input: INVOICE,
+      input,
     });
     if (p.status !== 201) throw new Error(`prepare ${p.status} ${p.body.code}`);
     return p.body.use as Json;
   };
-  const reserve = async (who: CustomerWorld["cara"], key: string) => {
-    const u = await prepare(who, key);
+  const reserve = async (who: CustomerWorld["cara"], key: string, input = INVOICE) => {
+    const u = await prepare(who, key, input);
     const c = await who(`/api/customer/uses/${u.id}/confirm`, "POST", w.signed(u.envelope));
     if (c.body.use?.state !== "reserved") throw new Error(`confirm ${c.body.use?.state}`);
     return u.id as string;

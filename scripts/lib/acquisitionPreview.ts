@@ -47,7 +47,13 @@ const INVOICE =
 export const FIXTURE_START_MS = 1_793_577_600_000 + 10 * 60_000;
 
 /** `gated` uses the contract's Gated fixtures (closing by a closer); otherwise Direct. */
-export async function acquisitionPreview(opts: { gated?: boolean } = {}) {
+export async function acquisitionPreview(
+  opts: {
+    gated?: boolean;
+    /** Job 003t: a preview built on this one names itself. */
+    label?: { label: string; detail: string };
+  } = {},
+) {
   const t = new FixtureV3Transport();
   const gated = opts.gated === true;
   const GATED_CLOSING = gated ? v3Fixture("gated-closing") : null;
@@ -64,12 +70,14 @@ export async function acquisitionPreview(opts: { gated?: boolean } = {}) {
     withOffer: true,
     v3Transport: t,
     v3Now: fixtureClock,
-    label: {
+    label: opts.label ?? {
       label: "Preview only: synthetic sale evidence, customer chain and runtime",
       detail: `Sale views are the contract tests' fixtures, read on a fixture clock that started at ${new Date(FIXTURE_START_MS).toISOString()}; customer uses run on this computer's clock. Not testnet proof; nothing leaves this computer.`,
     },
   });
   const { w } = p;
+  // Job 003t: the fixture's funded entitlement before any use, for more fictional customers.
+  const pristineEntitlement = structuredClone(w.chain.ent());
   // The app's own account records (fixtures): the seller and the buyer named by the deal.
   w.link(w.f.ava.id, "founder.near");
   w.link(p.people.noah, "buyer.near");
@@ -153,5 +161,6 @@ export async function acquisitionPreview(opts: { gated?: boolean } = {}) {
     people: p.people,
     controls,
     fixtureClock,
+    pristineEntitlement,
   };
 }

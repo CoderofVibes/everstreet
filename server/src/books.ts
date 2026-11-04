@@ -581,7 +581,7 @@ export class Books {
         "Computed from the provider's reported tokens at the declared prices, to a millionth of a cent. Not an invoice. Requests whose usage wasn't reported keep their reservation and are counted as unknown, not zero.",
       runtime: {
         ...shape(by("runtime_invocations")),
-        note: "Running the product (owner trials, checks, released requests and customer requests: cost only, never their content). Shown apart from operating costs until customers are connected.",
+        note: "Running the product, all purposes together (owner trials, checks, released-version trials and customer uses: cost only, never their content). Digital operations above splits serving customers from founder trials and checks. Not added to the operating costs you entered.",
       },
       build: {
         ...shape(by("build_jobs")),

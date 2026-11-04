@@ -209,7 +209,9 @@ function Routes() {
   const helping = match("/help/:id", path);
   if (helping) return <Helping id={helping.id as string} />;
   const desk = match("/desk/:id", path);
-  if (desk) return <DeskPage id={desk.id as string} />;
+  // Job 003t: keyed by who is acting and which business, so the books and their operations
+  // figures are cleared on a switch and a late answer for the previous view lands nowhere.
+  if (desk) return <DeskPage key={`${person?.id ?? "anon"}:${desk.id}`} id={desk.id as string} />;
   if (path === "/inbox") return <Inbox />;
   if (path === "/explore") return <Explore />;
   if (path === "/activity") return <Activity />;

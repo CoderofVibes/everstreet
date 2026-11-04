@@ -16,6 +16,7 @@ import { Deals } from "./deals.ts";
 import { Evaluations } from "./evaluations.ts";
 import { type ImportInspector, Imports } from "./imports.ts";
 import { ManagedRuntime } from "./invocations.ts";
+import { customerOperations } from "./operations.ts";
 import { Opportunities } from "./opportunities.ts";
 import { Payments } from "./payments.ts";
 import { Products } from "./products.ts";
@@ -648,6 +649,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
       ...costs,
       now,
       spend: books.spend(id, n),
+      // Job 003t: owner-only digital operations, from this app's own customer and runtime records.
+      operations: customerOperations(store.db, id, n),
       basis: BOOKS_BASIS,
       period_months: n,
     });

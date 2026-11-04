@@ -1,6 +1,6 @@
 // Phase 4 calls: books, value, team and the helper's desk.
 
-import type { Inquiry, Receipt } from "./api.ts";
+import { ApiError, type Inquiry, type Receipt } from "./api.ts";
 import type { FinMonth } from "./finance.ts";
 
 /** A month of the books with its states and provenance (job 003f); see finance.ts. */
@@ -53,6 +53,53 @@ export interface SpendLedger {
   note: string;
 }
 
+/** Job 003t: digital operations, from this app's own customer and runtime records (owner only). */
+export interface OpsUsage {
+  requested: number;
+  charged: number;
+  returned: number;
+  settling: number;
+  needs_attention: number;
+  reserved_unsettled: number;
+  awaiting_reservation: number;
+  never_reserved: number;
+}
+export interface OpsExecution {
+  ran: number;
+  usable_result: number;
+  not_usable: number;
+  undecided: number;
+  unknown: number;
+}
+export interface OpsCost {
+  /** Exact millionths of a cent, as a decimal string. */
+  microcents: string;
+  calls: number;
+  unknown_cost_calls: number;
+  unknown_held_cents: number;
+}
+export interface OpsMonth {
+  yyyymm: number;
+  label: string;
+  so_far: boolean;
+  usage: OpsUsage;
+  execution: OpsExecution;
+  cost: { customers: OpsCost; founder: OpsCost };
+}
+export interface Operations {
+  state: "not_started" | "recorded";
+  period: { from: number; to: number; months: number; buckets: string };
+  months: OpsMonth[];
+  totals: {
+    usage: OpsUsage;
+    execution: OpsExecution;
+    cost: { customers: OpsCost; founder: OpsCost };
+  };
+  current: { settling: number; needs_attention: number };
+  products: { project_id: string; active_offers: number; retired_offers: number }[];
+  basis: { usage: string; execution: string; cost: string; value: string };
+}
+
 export interface BooksView {
   months: Month[];
   chain_error: string | null;
@@ -60,6 +107,7 @@ export interface BooksView {
   categories: { category: string; kind: string; hint: string }[];
   now: Balances;
   spend: { unit: "USD"; basis: string; runtime: SpendLedger; build: SpendLedger };
+  operations?: Operations;
   basis: string;
   period_months: number;
 }
@@ -159,7 +207,7 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
   return data as T;
 }
 

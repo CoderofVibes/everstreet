@@ -2,7 +2,7 @@
 // team: one helper appointed on the business's contract, revocable there.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Desk } from "../api.ts";
+import { ApiError, api, type Desk } from "../api.ts";
 import {
   api4,
   type Balances,
@@ -23,6 +23,7 @@ import {
 } from "../finance.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { DeskOperations } from "./DeskOperations.tsx";
 import { CashChart, CategoryBars, EarnedCostChart, Scroll } from "./FinanceChart.tsx";
 
 const thisMonth = () => {
@@ -105,7 +106,10 @@ export function DeskBooks({ desk }: { desk: Desk }) {
         setLoadError(null);
       })
       .catch((e) => {
-        if (n === seq.current) setLoadError((e as Error).message);
+        if (n !== seq.current) return;
+        // Job 003t: access lost (another owner after a sale, signed out): drop every figure.
+        if (e instanceof ApiError && [401, 403, 404].includes(e.status)) setData(null);
+        setLoadError((e as Error).message);
       });
   }, [id, period]);
   useEffect(() => {
@@ -268,6 +272,8 @@ export function DeskBooks({ desk }: { desk: Desk }) {
           </table>
         </Scroll>
       </details>
+
+      {data.operations && <DeskOperations ops={data.operations} businessId={id} />}
 
       <h3 style={{ fontSize: 15, marginTop: 18 }}>AI spend from Everstreet's own records</h3>
       <p className="muted" style={{ fontSize: 13 }}>
