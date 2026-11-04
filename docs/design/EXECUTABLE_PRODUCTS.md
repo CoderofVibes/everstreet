@@ -239,24 +239,51 @@ WorkerImplementationReview):
 - **Bounds.** Stdin is bounded and deadlined, hashes are streamed, and every subprocess has a
   timeout.
 
-**Lifecycle exclusion** (002e1, after Astra's follow-ups): **the kernel's flock(2)**.
+**Lifecycle exclusion** (002e2, after Astra reproduced the 002e1 form failing on Ubuntu): **the
+kernel's flock(2), held by the critical process itself**.
 - **Why not a file lock.** A file-based takeover lock was tried first and withdrawn. Astra
   reproduced two contenders both winning in its read-to-stat window, and a displaced owner's
   later refusal comes too late to protect its critical section.
-- **What holds it.** The `launch` wrapper runs every verb as
-  `flock -n -o -E 75 /var/lib/everstreet-worker/lifecycle.flock … host-launch.mjs`, and
-  `setup.sh uninstall` holds the same lock on fd 9:
-  - `-n -E 75`: a contender gets "busy" at once;
-  - `-o`: the descriptor isn't passed to the launcher, so a daemonized Firecracker can't inherit it.
-- **No stale lock.** The kernel releases the lock when the holding process ends, however it ends,
-  so there is nothing to take over.
-- **Orphans.** While a preflight holds the lock, no other lifecycle operation is live, so every
-  `es-*` leftover belongs to an ended launcher. A run refuses to start over leftovers ("preflight
-  first").
-- **Verified so far:** the uninstall side in the fake-root harness, plus a contract test
-  (`server/test/worker-lock.test.ts`).
-- **Pending on the real host:** exclusion itself, through conformance cases 9 (busy during a run)
-  and 10 (a killed launcher's process group gives an orphan that is cleaned).
+- **Why not `flock -o` (002e1, withdrawn).** With `flock -n -o … host-launch.mjs` the lock lived
+  in a SEPARATE flock parent. Killing only that parent freed the lock while the launcher child
+  kept running, and a second entrant acquired it (Astra, util-linux 2.41.3; reproduced again by
+  case 1 of the primitive harness). The earlier claims that the holder lives as long as the
+  launcher, and that every leftover is necessarily orphaned, were false for that form.
+- **What holds it now.** `launch` opens the lock file on fd 9 (it never creates it), takes
+  `flock -n 9`, then `exec`s the launcher. `exec` keeps the PID and fd 9, so the holder IS the
+  critical-section process for exactly its lifetime, and the kernel releases the lock when it
+  ends, however it ends. A contender gets "busy" (75) at once.
+- **Descendants.** The jailer, which daemonizes Firecracker, is started through
+  `sh -c 'exec 9>&-; exec "$@"'`, so no VM process inherits the lock. Short helpers the launcher
+  runs (`id`, `setpriv`, `rmdir`, each with a timeout) do inherit fd 9. That can only keep the
+  lock held a little longer, never release it early.
+- **Pending entrants, uninstall, reinstall.** After acquiring, `launch` checks that the inode it
+  holds is still the current lock file, and that `installed.json` exists. Uninstall takes the same
+  lock on fd 9 in its own shell, removes everything recorded, and unlinks the lock file WHILE
+  still holding it. Install creates the lock file once. So an entrant that opened the file before
+  an uninstall (or before a reinstall made a new inode) refuses (69) rather than entering on a
+  stale inode. A failed uninstall keeps its records and the lock file, and releases the lock when
+  its shell exits.
+- **Orphans.** While a preflight holds the lock, no launcher process is alive. Any `es-*`
+  leftover belongs to an ended launcher, though its VM may still be RUNNING (fd 9 closed), and
+  preflight cleans it. A run refuses to start over leftovers ("preflight first").
+- **Verified with real processes (002e2):** `scripts/worker-host/lock-primitive-harness.sh`. It
+  ran unprivileged on existing WSL Ubuntu (util-linux 2.41.3) through the real `launch` (non-root
+  test hooks) and the real `setup.sh uninstall` (fake root), with a harmless stand-in supervisor
+  and `sleep` children. It covers:
+  - the old `-o` form violating the invariant;
+  - two entrants;
+  - SIGKILL and normal release;
+  - wrapper failure versus a critical-child failure;
+  - an inheriting daemon (hazard shown) versus an fd-closed daemon;
+  - uninstall exclusion;
+  - pending entrants after uninstall and after reinstall;
+  - an interrupted and then repeated uninstall.
+
+  `server/test/worker-lock.test.ts` runs it on Linux and is skipped on Windows. This is NOT
+  engine conformance.
+- **Pending on the real host:** the root path through sudo, and conformance cases 9 (busy during
+  a run) and 10 (a killed launcher leaves an orphan that is cleaned).
 
 **The platform worker side** (after Astra's AppCheckLifecycleReview):
 - the lease is renewed on every poll tick from claim to end;
@@ -396,7 +423,8 @@ The cases:
   - **Confirmed removal.** Uninstall confirms each removal: the item is absent, or no longer
     enabled or installed. Otherwise the record and everything older stays, and uninstall fails.
   - **Conflicts.** Dangling symlinks and annotated `ip netns list` output count as conflicts.
-  - **Locking.** Uninstall takes the lifecycle flock.
+  - **Locking.** Uninstall takes the lifecycle flock. Since 002e2 it holds the lock in its own
+    shell and unlinks the lock file while holding it; see Lifecycle exclusion.
   - **The harness.** It is stateful (users, ACLs, units, packages, netns). It saves its baseline
     before the install it removes, and covers installs interrupted at each privileged step, a
     retained record on a failed removal, and live and dead locks.

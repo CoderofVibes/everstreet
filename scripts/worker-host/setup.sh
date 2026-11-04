@@ -69,10 +69,14 @@ record() { echo "$*" >> "$MANIFEST"; }
 
 netns_present() { ip netns list 2>/dev/null | awk '{print $1}' | grep -qx everstreet-none; }
 
-# 002e1: the launcher's lifecycle lock, the kernel's flock(2) on lifecycle.flock (see `launch`).
-# Uninstall holds it on fd 9 until it exits; the kernel releases it however this shell ends.
+# 002e2: the launcher's lifecycle lock, the kernel's flock(2) on lifecycle.flock (see `launch`).
+# Uninstall holds it on fd 9 in THIS shell until it exits (no separate holder process); the
+# kernel releases it however this shell ends. The file exists while installed. It is missing only
+# if an earlier uninstall unlinked it, and that happens only while holding the lock, after which
+# `launch` admits no one (no file, or an old inode), so recreating it here is safe.
 take_lock() {
-  exec 9>>"$MANIFEST_DIR/lifecycle.flock"
+  [ -f "$MANIFEST_DIR/lifecycle.flock" ] || : > "$MANIFEST_DIR/lifecycle.flock"
+  exec 9<"$MANIFEST_DIR/lifecycle.flock"
   flock -n 9 || { echo "a lifecycle operation is in progress; try again when it ends" >&2; return 1; }
 }
 
@@ -157,6 +161,9 @@ install_all() {
   echo "$ks  vmlinux" | sha256sum -c -
   echo "$rs  rootfs.squashfs" | sha256sum -c -
   mkdir -p "$MANIFEST_DIR"; : > "$MANIFEST"
+  # 002e2: the lifecycle lock file, created once here and never recreated while installed
+  # (`launch` only opens it; a fresh inode would split exclusion).
+  : > "$MANIFEST_DIR/lifecycle.flock"; chmod 0600 "$MANIFEST_DIR/lifecycle.flock"
   # Each line is written BEFORE its resource is created: a failure leaves a removable record.
 
   # 1. Only the missing packages, by name, so uninstall removes only those.
@@ -257,8 +264,9 @@ uninstall_all() {
     fi
     sed -i '$d' "$MANIFEST"
   done
-  # Everything recorded is gone; release the lock, then remove the bookkeeping itself.
-  exec 9>&-
+  # Everything recorded is gone. The lock file is unlinked while we STILL hold it (fd 9): an
+  # entrant that opened it earlier then locks a removed inode, and `launch` refuses it. The lock
+  # is released only when this shell exits.
   rm -f "$MANIFEST" "$MANIFEST_DIR/installed.json" "$MANIFEST_DIR/lifecycle.flock"; rmdir "$MANIFEST_DIR"
   echo "Removed exactly what the manifest recorded."
 }

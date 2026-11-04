@@ -14,7 +14,7 @@
 // - synthetic canaries stand for a host file and another job's file; per-file and aggregate disk
 //   limits are tested separately; preflight during a live run must say busy and kill nothing.
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { failedWith, makeJob, observed, selfTest } from "./conformance-lib.mjs";
@@ -34,13 +34,15 @@ const HARNESS_MS = 120_000;
 const OUT_MAX = 256 * 1024;
 
 /** One launcher call with its OWN deadline and bounds, independent of the engine's. */
-function launch(verb, stdin, killAfterMs = HARNESS_MS) {
+function launch(verb, stdin, killAfterMs = HARNESS_MS, onSpawn) {
   return new Promise((resolve) => {
     let p;
     try {
-      // Its own process group, so a harness kill reaches sudo, the wrapper, flock and the
-      // launcher together (the kernel then releases the lifecycle lock): a real orphan.
+      // Its own process group, so a harness kill reaches sudo and the launcher together (002e2:
+      // `launch` execs into the launcher, which itself holds the lifecycle lock; the kernel
+      // releases it when that process dies): a real orphan. Case 11 kills only part of the chain.
       p = spawn("sudo", ["-n", "/opt/everstreet-worker/bin/launch", verb], { stdio: ["pipe", "pipe", "pipe"], detached: true });
+      onSpawn?.(p);
     } catch (e) {
       return resolve({ harness_error: `spawn: ${e.message}` });
     }
@@ -86,12 +88,12 @@ const leftovers = () => {
     : [];
   return [...jails, ...cgs];
 };
-async function runCase(logic, checks, killAfterMs) {
+async function runCase(logic, checks, killAfterMs, onSpawn) {
   const job = makeJob(logic, checks);
   let ticks = 0;
   const timer = setInterval(() => ticks++, 100);
   const started = Date.now();
-  const o = await launch("run", JSON.stringify({ ...job, ids: undefined }), killAfterMs);
+  const o = await launch("run", JSON.stringify({ ...job, ids: undefined }), killAfterMs, onSpawn);
   clearInterval(timer);
   const secs = (Date.now() - started) / 1000;
   return { o, job, responsive: ticks >= Math.floor(secs * 10 * 0.8), secs };
@@ -224,6 +226,44 @@ if (!pre?.ok) fin();
   await runCase("export function spin(){for(;;){}}\n", [{ id: "spin", export: "spin", expect: 1 }], 2000);
   const after = await launch("preflight");
   record("orphan proven and cleaned", after?.ok === true && (after.removed ?? []).length >= 1 && leftovers().length === 0, { after, left: leftovers() });
+}
+// 11. (002e2) Part of the chain dies: only the outer sudo is SIGKILLed, not its group. While the
+// launcher (the lock holder) still runs, a preflight must NOT be admitted. If sudo's pty hangup
+// ends the launcher first, that branch wasn't exercised here (the primitive harness covers it).
+{
+  let sudoProc;
+  const running = runCase(
+    "export function nap(){const t=Date.now();while(Date.now()-t<4000){}return 1;}\n",
+    [{ id: "nap", export: "nap", expect: 1 }],
+    HARNESS_MS,
+    (p) => {
+      sudoProc = p;
+    },
+  );
+  await new Promise((r) => setTimeout(r, 1500));
+  const launcherAlive = () => {
+    try {
+      execFileSync("pgrep", ["-f", "^/opt/everstreet-worker/node/bin/node /opt/everstreet-worker/host-launch.mjs run"], { timeout: 5000, stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  try {
+    process.kill(sudoProc.pid, "SIGKILL");
+  } catch {}
+  await new Promise((r) => setTimeout(r, 200));
+  const before = launcherAlive();
+  const mid = await launch("preflight");
+  const afterMid = launcherAlive();
+  await running;
+  const end = await launch("preflight");
+  const exercised = before && afterMid;
+  record(
+    "a killed outer process does not free the lock while the launcher lives",
+    !(exercised && mid?.ok === true) && end?.ok === true && leftovers().length === 0,
+    { exercised, mid, end, left: leftovers() },
+  );
 }
 record("no leftovers at the end", leftovers().length === 0, { left: leftovers() });
 // Host VMM limits are verified by the launcher before every VM start (limits_unverified).

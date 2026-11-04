@@ -3,16 +3,27 @@
 # line for everstreet-runner. It passes exactly one fixed verb (and a validated id for cleanup)
 # to the launcher; nothing else from the caller reaches it. The environment is reset.
 #
-# 002e1 (Astra's WorkerImplementationReview: the file-based takeover lock let two contenders win):
-# every lifecycle operation runs under ONE kernel lock, flock(2) via flock(1), on
-# /var/lib/everstreet-worker/lifecycle.flock, also taken by `setup.sh uninstall`.
-#   -n -E 75  never wait: a held lock is an immediate "busy" (exit 75), reported as JSON below;
-#   -o        the lock descriptor is NOT passed to the launcher, so nothing it starts (a
-#             daemonized Firecracker) can inherit it. flock itself holds it exactly as long as
-#             the launcher process lives, and the kernel drops it when that process ends,
-#             however it ends: there is no stale lock and no takeover protocol.
+# 002e2 (Astra reproduced on Ubuntu util-linux 2.41.3: with `flock -o` the lock lives in a
+# SEPARATE flock parent; killing only that parent freed the lock while the critical child ran):
+# - This shell opens the lock file on fd 9, takes flock(2) on it, then EXECs the launcher. exec
+#   keeps the PID and fd 9, so the lock's holder IS the critical-section process, for exactly
+#   its lifetime; there is no separate holder to die. The kernel releases it when that process
+#   ends, however it ends.
+# - The launcher starts the jailer (which daemonizes Firecracker) through `exec 9>&-`, so no
+#   VM descendant inherits the lock (host-launch.mjs, closeLockFd).
+# - After acquiring, the inode held must still be the current lock file. An entrant that opened
+#   the old file before uninstall removed it (or before a reinstall recreated it) refuses rather
+#   than entering on a stale inode.
+# Verified with real processes by scripts/worker-host/lock-primitive-harness.sh (unprivileged).
 set -u
 LOCKFILE=/var/lib/everstreet-worker/lifecycle.flock
+STATE=/var/lib/everstreet-worker
+LAUNCHER="/opt/everstreet-worker/node/bin/node /opt/everstreet-worker/host-launch.mjs"
+# Test hooks for the unprivileged primitive harness ONLY: honoured only when not root, so the
+# production path (root, via sudo, which resets the environment anyway) can't be redirected.
+if [ "$(id -u)" != 0 ] && [ "${EVERSTREET_LOCK_TEST:-}" = 1 ]; then
+  LOCKFILE=$EVERSTREET_TEST_LOCKFILE; STATE=$(dirname "$LOCKFILE"); LAUNCHER=$EVERSTREET_TEST_SUPERVISOR
+fi
 case "${1:-}" in
   preflight|run) VERB="$1"; ARG="" ;;
   cleanup)
@@ -22,13 +33,23 @@ case "${1:-}" in
     esac ;;
   *) echo '{"error":"usage"}'; exit 2 ;;
 esac
-flock -n -o -E 75 "$LOCKFILE" env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
-  /opt/everstreet-worker/node/bin/node /opt/everstreet-worker/host-launch.mjs "$VERB" $ARG
-rc=$?
-if [ "$rc" -eq 75 ]; then
+busy() {
   case "$VERB" in
-    run) echo '{"error":"unavailable","detail":"another lifecycle operation is in progress"}' ;;
-    *) echo '{"ok":false,"busy":true,"reason":"another lifecycle operation is in progress"}' ;;
+    run) echo "{\"error\":\"unavailable\",\"detail\":\"$1\"}" ;;
+    *) echo "{\"ok\":false,\"busy\":true,\"reason\":\"$1\"}" ;;
   esac
-fi
-exit "$rc"
+  exit "$2"
+}
+# Open without creating: the lock file exists only while the worker is installed.
+[ -f "$LOCKFILE" ] || busy "the worker host isn't installed" 69
+exec 9<"$LOCKFILE" || busy "the lifecycle lock can't be opened" 69
+[ -n "${EVERSTREET_TEST_PAUSE:-}" ] && [ "$(id -u)" != 0 ] && sleep "$EVERSTREET_TEST_PAUSE"
+flock -n 9 || busy "another lifecycle operation is in progress" 75
+# The inode we hold must still be the current lock file (not one removed by uninstall or
+# replaced by a reinstall while we waited to lock it).
+held=$(stat -L -c '%d:%i' "/proc/$$/fd/9" 2>/dev/null || echo held-unknown)
+now=$(stat -c '%d:%i' "$LOCKFILE" 2>/dev/null || echo gone)
+[ "$held" = "$now" ] || busy "the worker host was changed while waiting; try again" 69
+[ -e "$STATE/installed.json" ] || busy "the worker host isn't installed" 69
+# shellcheck disable=SC2086
+exec env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin EVERSTREET_LOCK_FD=9 $LAUNCHER "$VERB" $ARG

@@ -4,10 +4,13 @@
 // caller. NEVER RUN in this repository's tests: it needs the reviewed host setup (setup.sh) and
 // is unverified until scripts/worker-host/conformance.mjs passes on that host.
 // Design: docs/design/EXECUTABLE_PRODUCTS.md §5. Revised after Astra's WorkerImplementationReview:
-// - (002e1) mutual exclusion is a kernel flock(2) held by the `launch` wrapper for this whole
-//   process (and by `setup.sh uninstall`): a contender is told busy at once; the kernel releases
-//   the lock when this process ends, however it ends, so there is no stale lock to take over,
-//   and any es-* leftover a preflight finds belongs to an ended launcher, an orphan;
+// - (002e2) mutual exclusion is a kernel flock(2) on lifecycle.flock that `launch` takes on fd 9
+//   and then EXECs into this process, so the holder is THIS process (same PID), not a separate
+//   wrapper (Astra showed a separate `flock -o` parent could die and free the lock while its child
+//   ran). The jailer is started with fd 9 closed, so no VM descendant holds it. Hence, and only
+//   because of both, a free lock means no launcher is alive: an es-* leftover a preflight finds
+//   belongs to an ended launcher. `setup.sh uninstall` holds the same lock. Verified with real
+//   processes by lock-primitive-harness.sh (not engine conformance);
 // - cleanup confirms the job's cgroup is empty before removing anything; otherwise it keeps the
 //   jail as evidence and fails (the platform then admits no more work until a preflight cleans);
 // - one validated identity (UUID check id, attempt 1..999999) is shared by run, cleanup and the
@@ -25,6 +28,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -40,6 +44,9 @@ const JAILER = join(ROOT, "bin/jailer");
 const KERNEL = join(ROOT, "guest/vmlinux");
 const IMAGE = join(ROOT, "guest/guest.ext4");
 const STATE = "/var/lib/everstreet-worker";
+const LIFECYCLE_LOCK = "/var/lib/everstreet-worker/lifecycle.flock";
+/** 002e2: run a long-lived descendant with the lifecycle lock descriptor closed. */
+const CLOSE_LOCK_FD = 'exec 9>&-; exec "$@"';
 const JAIL_BASE = "/srv/everstreet-jail";
 const CG_PARENT = "/sys/fs/cgroup/everstreet-worker";
 const NETNS = "/var/run/netns/everstreet-none";
@@ -116,10 +123,12 @@ async function readinessProblems() {
 
 // ---------- the single-run lock ----------
 
-// 002e1: mutual exclusion is the KERNEL's: the `launch` wrapper runs this whole process under
-// flock(2) on lifecycle.flock (also taken by `setup.sh uninstall`), released by the kernel when
-// this process ends. While this process runs, no other lifecycle operation is live, so every
-// es-* jail or cgroup found by a preflight is an orphan by construction. No file-based takeover.
+// 002e2: mutual exclusion is the KERNEL's: THIS process holds flock(2) on lifecycle.flock on fd 9
+// (`launch` took it and exec'd into us; `setup.sh uninstall` takes the same lock), released by the
+// kernel when this process ends. The jailer gets fd 9 closed (CLOSE_LOCK_FD); short helpers keep
+// it, which can only delay release. So while a preflight holds the lock no launcher is alive, and
+// an es-* jail or cgroup it finds belongs to an ended launcher (its VM may still be running, which
+// cleanOrphans kills and confirms). (002e1's `flock -o` holder could die first; withdrawn.)
 
 /**
  * Kills everything in a job's cgroup and confirms it is empty; only then removes the cgroup and
@@ -279,9 +288,15 @@ async function runInJail(job, id, root, engine) {
   for (const f of ["input.img", "output.img"]) chownSync(join(root, f), vm, vm);
 
   const cg = L.host_vmm_cgroup;
+  // 002e2: the jailer daemonizes Firecracker; it must not inherit the lifecycle lock (fd 9),
+  // or a VM could keep the lock after this supervisor has died.
   const jailer = spawn(
-    JAILER,
+    "/bin/sh",
     [
+      "-c",
+      CLOSE_LOCK_FD,
+      "sh",
+      JAILER,
       "--id", id,
       "--exec-file", FC,
       "--uid", String(vm),
@@ -343,6 +358,20 @@ async function runInJail(job, id, root, engine) {
   } catch (e) {
     return { error: "invalid_report", detail: String(e.message).slice(0, 200) };
   }
+}
+
+// 002e2: run only while THIS process holds the lifecycle lock that `launch` took on fd 9 and
+// exec'd into us (the holder is this process itself, not a separate wrapper).
+function holdsLifecycleLock() {
+  try {
+    return process.env.EVERSTREET_LOCK_FD === "9" && readlinkSync("/proc/self/fd/9") === LIFECYCLE_LOCK;
+  } catch {
+    return false;
+  }
+}
+if (!holdsLifecycleLock()) {
+  out({ error: "usage", detail: "run only through the launch wrapper, which holds the lifecycle lock" });
+  process.exit(2);
 }
 
 const verb = process.argv[2];

@@ -1,33 +1,35 @@
-// Job 002e1: the worker's lifecycle exclusion after Astra reproduced two winners in the earlier
-// file-based takeover lock. Exclusion is now the kernel's flock(2), which Windows tests can't
-// exercise; real exclusion is verified only on the Linux host (conformance cases 9 and 10), and
-// the uninstall side by the fake-root harness. This pins the contract those rely on: one lock file
-// for every lifecycle operation, never waiting, never inherited by what the launcher starts, and
-// no file-based takeover left anywhere.
+// Job 002e2: the worker's lifecycle lock is verified with REAL processes and the REAL kernel
+// flock(2), not by matching source text (002e1's source-shape assertions here pinned the flawed
+// `flock -o` form that Astra reproduced on Ubuntu). The evidence is
+// scripts/worker-host/lock-primitive-harness.sh: finite, unprivileged, harmless `sleep` children,
+// one temporary directory, an outer timeout. It needs Linux with util-linux flock, so on Windows
+// this test is SKIPPED (it is not counted as evidence there); the recorded run is in the 002e2
+// report, made in existing WSL Ubuntu. Real host and engine conformance remain open.
 
-import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
-const launch = readFileSync("scripts/worker-host/launch", "utf8");
-const hostLaunch = readFileSync("scripts/worker-host/host-launch.mjs", "utf8");
-const setup = readFileSync("scripts/worker-host/setup.sh", "utf8");
-const LOCKFILE = "/var/lib/everstreet-worker/lifecycle.flock";
+const linuxWithFlock =
+  process.platform === "linux" &&
+  process.getuid?.() !== 0 &&
+  spawnSync("flock", ["--version"]).status === 0;
 
-describe("002e1 lifecycle exclusion contract", () => {
-  it("every launcher verb runs inside one non-blocking, non-inherited flock on the lifecycle file", () => {
-    expect(launch).toContain(`LOCKFILE=${LOCKFILE}`);
-    expect(launch).toMatch(
-      /flock -n -o -E 75 "\$LOCKFILE" env -i [^\n]*\\\n\s*\/opt\/everstreet-worker\/node\/bin\/node \/opt\/everstreet-worker\/host-launch\.mjs "\$VERB"/,
-    );
-    expect(launch).not.toMatch(/^exec /m); // the wrapper stays to report busy (exit 75) as JSON
-    expect(launch).toContain('"busy":true');
-  });
-
-  it("uninstall takes the same lock; the launcher has no file-based takeover", () => {
-    expect(setup).toMatch(/exec 9>>"\$MANIFEST_DIR\/lifecycle\.flock"\n\s*flock -n 9/);
-    expect(setup).toContain("MANIFEST_DIR=$S/var/lib/everstreet-worker");
-    expect(setup).toContain("flock:util-linux");
-    expect(hostLaunch).not.toMatch(/run\.lock|lifecycleLock|renameSync|\.stale-/);
-    expect(existsSync("scripts/worker-host/lifecycle-lock.mjs")).toBe(false);
-  });
+describe("002e2 lifecycle lock: real flock(2), real processes (Linux only)", () => {
+  it.runIf(linuxWithFlock)(
+    "lock-primitive-harness: old -o form violates the invariant; the exec-held lock, fd-closed daemons, uninstall and inode checks hold",
+    () => {
+      const r = spawnSync(
+        "timeout",
+        ["120", "sh", "scripts/worker-host/lock-primitive-harness.sh"],
+        {
+          encoding: "utf8",
+          timeout: 130_000,
+        },
+      );
+      expect(r.stdout).toContain("lock-primitive-harness: 0 failure(s)");
+      expect(r.stdout).not.toContain("FAIL");
+      expect(r.status).toBe(0);
+    },
+    140_000,
+  );
 });
