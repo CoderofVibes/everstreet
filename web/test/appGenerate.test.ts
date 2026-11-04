@@ -50,6 +50,13 @@ class MemoryStorage {
   }
 }
 
+/**
+ * The kept request or job (the recovery envelope). 001k1: the unsent draft is kept apart, under its
+ * own entry, so these counts are about the envelope only.
+ */
+const requestEntries = (s: MemoryStorage) =>
+  [...s.m.keys()].filter((k) => k.startsWith("everstreet.app-generation.")).length;
+
 const BUDGET = {
   max_input_tokens: 10_000,
   max_output_tokens: 2_000,
@@ -167,7 +174,7 @@ describe("002e generation requests survive a lost answer (one paid build)", () =
     expect(g.getState().job?.state).toBe("succeeded");
     expect(w.jobs().n).toBe(1);
     expect(w.provider.calls).toBe(1);
-    expect(storage.m.size).toBe(0);
+    expect(requestEntries(storage)).toBe(0);
     expect(key).toMatch(/^app-test-key-/);
   });
 
@@ -210,7 +217,7 @@ describe("002e generation requests survive a lost answer (one paid build)", () =
       notice: "Not enough AI budget",
     });
     expect(w.jobs().n).toBe(0);
-    expect(storage.m.size).toBe(0);
+    expect(requestEntries(storage)).toBe(0);
   });
 });
 
@@ -233,7 +240,7 @@ describe("002e1 an acknowledged generation survives a reload until its outcome i
     ).toBeNull();
     await reloaded.refresh();
     expect(reloaded.getState().job).toMatchObject({ id, state: "queued" });
-    expect(storage.m.size).toBe(1);
+    expect(requestEntries(storage)).toBe(1);
     // It can't start another paid generation while this one is live.
     reloaded.setDraft("Something else");
     await reloaded.submit(w.base);
@@ -241,7 +248,7 @@ describe("002e1 an acknowledged generation survives a reload until its outcome i
     await w.worker.runNext();
     await reloaded.refresh();
     expect(reloaded.getState().job).toMatchObject({ id, state: "succeeded" });
-    expect(storage.m.size).toBe(0);
+    expect(requestEntries(storage)).toBe(0);
     expect(
       new Generations(w.port, { scope: "ava:p:0", storage, newKey }).getState().job,
     ).toBeNull();
@@ -258,13 +265,13 @@ describe("002e1 an acknowledged generation survives a reload until its outcome i
     w.failReads(3);
     for (let i = 0; i < 3; i++) await g.refresh();
     expect(g.getState()).toMatchObject({ job: { id }, readFailed: true });
-    expect(storage.m.size).toBe(1);
+    expect(requestEntries(storage)).toBe(1);
     await g.refresh(); // "Check progress"
     expect(g.getState()).toMatchObject({ job: { id, state: "queued" }, readFailed: false });
     w.failReads(1, 404);
     await g.refresh();
     expect(g.getState().job).toBeNull();
     expect(g.getState().notice).toMatch(/no longer available/);
-    expect(storage.m.size).toBe(0);
+    expect(requestEntries(storage)).toBe(0);
   });
 });

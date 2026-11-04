@@ -5,9 +5,13 @@
 // returns the job it already made), never a fresh one. The kept request survives a tab switch
 // (the view stays mounted) and a reload (session storage, scoped to person, project and owner
 // epoch; only the request, never a secret). A definite refusal (4xx) ends it.
+// Job 001k1: the UNSENT draft is kept the same way (composerDrafts.ts, its own versioned entry),
+// so leaving the Studio and coming back, or a reload, brings it back. It is never sent by itself;
+// a submitted draft is gone from it (the request is kept apart), and an emptied box stays empty.
 
 import { ApiError } from "./api.ts";
 import type { GenerationBudget, GenerationJob, GenerationRequest } from "./appApi.ts";
+import { clearScope, readDraft, writeDraft } from "./composerDrafts.ts";
 
 export interface GenerationPort {
   generate(r: GenerationRequest): Promise<{ job: GenerationJob }>;
@@ -53,6 +57,15 @@ export class Generations {
     readFailed: false,
   };
   private listeners = new Set<() => void>();
+  /**
+   * 001k1 (Astra's StudioDraftLifetimeReview): only the MOUNTED controller writes this scope's
+   * storage. After a route change the old instance is detached: a late answer to its request can
+   * no longer overwrite what the new instance holds (its kept envelope stays, so the new one
+   * recovers the same request under the same key). After forget() (access ended) nothing,
+   * however late, changes or restores anything.
+   */
+  private attached = true;
+  private ended = false;
 
   constructor(
     private readonly port: GenerationPort,
@@ -63,6 +76,7 @@ export class Generations {
       newKey: () => string;
     },
   ) {
+    this.state = { ...this.state, draft: readDraft(opts.storage, "app", opts.scope) };
     const kept = this.recall();
     if (kept?.kind === "request")
       this.state = { ...this.state, pending: kept.request, unanswered: true };
@@ -76,14 +90,29 @@ export class Generations {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   };
+  /** The view mounted (again): this instance owns the scope's storage. */
+  attach() {
+    if (!this.ended) this.attached = true;
+  }
+  /** The view unmounted: this instance never writes the scope's storage again. */
+  detach() {
+    this.attached = false;
+  }
+  private get writable() {
+    return this.attached && !this.ended;
+  }
   private set(patch: Partial<GenerationState>) {
+    if (this.ended) return;
     this.state = { ...this.state, ...patch };
+    if ("draft" in patch && this.writable)
+      writeDraft(this.opts.storage, "app", this.opts.scope, this.state.draft);
     for (const l of this.listeners) l();
   }
   private storeKey() {
     return `everstreet.app-generation.${this.opts.scope}`;
   }
   private remember(k: Kept | null) {
+    if (!this.writable) return;
     try {
       if (k) this.opts.storage?.setItem(this.storeKey(), JSON.stringify(k));
       else this.opts.storage?.removeItem(this.storeKey());
@@ -190,7 +219,10 @@ export class Generations {
       if (this.state.job?.id !== j.id) return;
       if (e instanceof ApiError && e.status === 404) {
         this.remember(null);
+        // 001k1: access definitely ended: the unsent draft goes too.
+        clearScope(this.opts.storage, this.opts.scope);
         this.set({
+          draft: "",
           job: null,
           readFailed: false,
           notice: "That generation is no longer available to you here.",
@@ -210,6 +242,25 @@ export class Generations {
     } catch (e) {
       this.set({ busy: false, notice: e instanceof Error ? e.message : "Couldn't cancel" });
     }
+  }
+
+  /**
+   * 001k1: access to this project definitely ended (the view got a 404): every private thing kept
+   * for this scope (the request, the job, the unsent draft) is removed here and in storage.
+   */
+  forget() {
+    this.remember(null);
+    clearScope(this.opts.storage, this.opts.scope);
+    this.set({
+      draft: "",
+      pending: null,
+      unanswered: false,
+      job: null,
+      busy: false,
+      notice: null,
+      readFailed: false,
+    });
+    this.ended = true;
   }
 
   /** The job finished (or the view is done with it): ready for the next generation. */

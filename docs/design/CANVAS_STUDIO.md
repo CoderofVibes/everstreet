@@ -96,7 +96,8 @@ The mode is per studio, not per view: switching between Preview and Brief keeps 
 | State | Lives in | Survives |
 |---|---|---|
 | Unsaved brief and screens (draft) | `ProductStudio`, plus this browser (per person, project, owner epoch) | view, mode, selection, companion toggle and narrow layout switches; reload (offered back) |
-| Conversation text, outbox, pending or lost request | `ConversationPanel`, mounted once, keyed by scope | every switch; a scope change starts it clean (as before) |
+| Conversation text, outbox, pending or lost request | `BriefComposer` (001k1), used by `ConversationPanel` (mounted once, keyed by scope), plus this tab's session storage | every switch, **leaving the Studio and returning, and reload** (001k1); a message in flight comes back "unknown" and is sent again only by the founder, under the same key; a scope change starts it clean |
+| Web app composer text | `Generations` (001k1: its own versioned entry in this tab's session storage, apart from the kept request or job) | the same as above; a submitted draft never returns as unsent text; an emptied box stays empty |
 | Sample entries | `ProductStudio` (`sample`) | mode and view switches |
 | Mode and selection | `ProductStudio` | view switches; a selection whose element no longer exists (after apply, restore, discard or remove) resolves to nothing, never to a different element |
 | Undo history | `ProductStudio`, in memory | until save, discard, restore, apply or reload; bounded at 50 steps; typing in one control coalesces into one step |
@@ -104,6 +105,25 @@ The mode is per studio, not per view: switching between Preview and Brief keeps 
 
 **Owner fencing is unchanged.** A proposal from before a sale still can't be used, and drafts and
 conversation stay keyed by owner epoch.
+
+**Kept composer text (job 001k1, `web/src/composerDrafts.ts`):**
+- **Where.** One entry per composer (app, brief, and the brief's unresolved message) and scope
+  (person, project, owner epoch), in **session storage**. It survives SPA routes and reload in
+  this tab, and doesn't outlive the browser session.
+- **Bounds.** Each entry is versioned (`everstreet.draft.v1.*`). Anything unreadable, of another
+  version, naming another scope, over 2000 characters or older than a week is ignored and
+  removed.
+- **Fail-safe.** Denied storage leaves the in-session behaviour exactly as before.
+- **Nothing is sent from it.** Requests in flight keep their own envelopes.
+- **Only the mounted instance writes** (after Astra's StudioDraftLifetimeReview). Each
+  controller is attached while its view is mounted and detached on unmount. A late answer
+  to a detached instance's request writes nothing, so it can't overwrite the newer instance's
+  draft or remove the kept envelope. The new instance recovers that same request under the same
+  key, and the server's answer to it decides. After `forget()` (access ended) nothing, however
+  late, restores anything.
+- **Access ends.** A definite 404 (the project, the web app, the conversation or a generation job)
+  clears this scope's entries. The studio's project 404 clears the person's entries for that
+  project in every owner epoch.
 
 **Undo is local to unsaved edits.** It never touches a saved revision, a release or a customer
 offer. Restoring a revision still creates a new revision and is refused while there are unsaved

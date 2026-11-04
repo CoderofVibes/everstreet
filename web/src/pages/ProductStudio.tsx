@@ -34,6 +34,7 @@ import {
   selectionKey,
   undoEdit,
 } from "../canvasEdit.ts";
+import { clearProject } from "../composerDrafts.ts";
 import { FOUNDATION_ICON, Icon } from "../icons.tsx";
 import { offerHttp } from "../offerSetup.ts";
 import type { ProjectSource } from "../opportunitiesApi.ts";
@@ -893,12 +894,16 @@ export function ProductStudio({ id }: { id: string }) {
           setOffered(local);
         else window.localStorage.removeItem(key);
       })
-      .catch((e) =>
+      .catch((e) => {
+        // 001k1: the project definitely isn't this person's (any owner epoch): their kept
+        // composer text and unresolved requests for it are removed from this tab.
+        if (e instanceof ApiError && e.status === 404)
+          clearProject(typeof sessionStorage === "undefined" ? null : sessionStorage, personId, id);
         setLoadError({
           status: e instanceof ApiError ? e.status : 0,
           message: (e as Error).message,
-        }),
-      );
+        });
+      });
   }, [id, adopt, personId]);
 
   useEffect(() => {
@@ -1360,6 +1365,7 @@ export function ProductStudio({ id }: { id: string }) {
             <div hidden={!briefComposerShown(tab)}>
               <ConversationPanel
                 key={scope}
+                scope={scope}
                 projectId={view.project.id}
                 businessId={view.business.id}
                 idea={view.project.idea}

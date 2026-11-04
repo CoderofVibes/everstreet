@@ -6,8 +6,19 @@
 // back with growing gaps (2 s up to 15 s), at most 60 times. The studio keeps this panel mounted
 // (hidden) while Brief or Screens is open, so the unsent thought and an unresolved request
 // survive panel switches; it is keyed by person, project and owner epoch (studioScope.ts).
+// Job 001k1: the unsent text and the unresolved message live in a BriefComposer, kept for this
+// scope in the tab's session storage, so they also survive leaving the Studio and a reload.
 
-import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { ApiError } from "../api.ts";
+import { BriefComposer } from "../briefComposer.ts";
 import { Icon } from "../icons.tsx";
 import {
   classify,
@@ -108,6 +119,7 @@ function Message({
 }
 
 export function ConversationPanel({
+  scope,
   projectId,
   businessId,
   idea,
@@ -115,6 +127,8 @@ export function ConversationPanel({
   onReview,
   onManual,
 }: {
+  /** person:project:owner-epoch (studioScope); the composer's kept text belongs to it alone. */
+  scope: string;
   projectId: string;
   businessId: string;
   idea: string;
@@ -125,9 +139,23 @@ export function ConversationPanel({
 }) {
   const [conv, setConv] = useState<Conversation | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [text, setText] = useState("");
-  /** The message in flight or unresolved; separate from the composer, which it never writes. */
-  const [outbox, setOutbox] = useState<Outbox | null>(null);
+  // 001k1: the unsent text and the message in flight or unresolved (kept apart from the text,
+  // which it never writes) come from the scope's BriefComposer, restored on remount and reload.
+  const [composer] = useState(
+    () =>
+      new BriefComposer({
+        scope,
+        storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
+      }),
+  );
+  const { text, outbox } = useSyncExternalStore(composer.subscribe, composer.getState);
+  // Only the mounted panel writes the scope's kept state (a late answer after unmount can't).
+  useEffect(() => {
+    composer.attach();
+    return () => composer.detach();
+  }, [composer]);
+  const setText = (t: string) => composer.setText(t);
+  const setOutbox = (o: Outbox | null) => composer.setOutbox(o);
   const inFlight = useRef(false);
   const [polls, setPolls] = useState(0);
   const seenProposal = useRef<string | null | undefined>(undefined);
@@ -156,16 +184,19 @@ export function ConversationPanel({
         setLoadError(null);
       })
       .catch((e) => {
-        if (seq === loadSeq.current) setLoadError((e as Error).message);
+        if (seq !== loadSeq.current) return;
+        // 001k1: access definitely ended: nothing private stays kept for this scope.
+        if (e instanceof ApiError && e.status === 404) composer.forget();
+        setLoadError((e as Error).message);
       });
-  }, [projectId]);
+  }, [projectId, composer]);
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
-    if (prefill) setText((t) => withPrefill(t, prefill.text));
-  }, [prefill]);
+    if (prefill) composer.updateText((t) => withPrefill(t, prefill.text));
+  }, [prefill, composer]);
 
   // A new proposal arriving opens it on the canvas (not on first load).
   const latest = conv?.proposals[0]?.id ?? null;

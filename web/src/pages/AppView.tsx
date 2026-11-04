@@ -390,6 +390,11 @@ export function AppView({
       }),
   );
   const g = useSyncExternalStore(gen.subscribe, gen.getState);
+  // 001k1: only the mounted view writes the scope's kept state (a late answer after unmount can't).
+  useEffect(() => {
+    gen.attach();
+    return () => gen.detach();
+  }, [gen]);
 
   // Ordered reads: only the newest answer lands. A definite 404 clears everything private; a
   // transient failure keeps the last view and offers Retry.
@@ -407,11 +412,13 @@ export function AppView({
         setGone(true);
         setView(null);
         dispatch({ type: "gone" });
+        // 001k1: access definitely ended: the kept draft, request and job go too.
+        gen.forget();
         return;
       }
       setLoadError(e instanceof Error ? e.message : "Couldn't load the web app");
     }
-  }, [projectId]);
+  }, [projectId, gen]);
   useEffect(() => {
     void load();
   }, [load]);
