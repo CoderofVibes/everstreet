@@ -9,6 +9,7 @@ import { HttpError, type Person, type Store } from "./store.ts";
 import {
   type BlockRef,
   isAccountId,
+  type OutcomeV3,
   type PeriodV3,
   readSnapshot,
   transitionProblem,
@@ -296,6 +297,61 @@ export class V3Observations {
     return this.db
       .prepare("SELECT * FROM v3_projection WHERE business_id = ?")
       .get(businessId) as unknown as ProjectionRow | undefined;
+  }
+
+  // ---------- read-only accessors for the v3 reconciler (job 003k) ----------
+  // None of these lets a caller write an observation: fresh evidence goes through readFresh and
+  // then the normal ordering rules in `record`.
+
+  /** The operator-configured binding, if any. */
+  bindingFor(businessId: string): V3Binding | undefined {
+    return this.bindings.get(businessId);
+  }
+
+  /** The recorded projection and its (core) snapshot, or null if nothing has been observed. */
+  latest(businessId: string): {
+    snapshot: CoreSnapshot;
+    flag: string | null;
+    source: { network: string; account: string; schema: string };
+  } | null {
+    const proj = this.projection(businessId);
+    if (!proj) return null;
+    const row = this.db
+      .prepare("SELECT snapshot FROM v3_observations WHERE id = ?")
+      .get(proj.observation_id) as { snapshot: string } | undefined;
+    if (!row) return null;
+    return {
+      snapshot: JSON.parse(row.snapshot) as CoreSnapshot,
+      flag: proj.flag,
+      source: { network: proj.network, account: proj.account, schema: proj.schema },
+    };
+  }
+
+  /** One coherent snapshot through the trusted transport; null when no transport is set. */
+  async readFresh(binding: V3Binding): Promise<V3Snapshot | null> {
+    if (this.upgradeError || !this.opts.transport) return null;
+    return readSnapshot(this.opts.transport, binding, { timeoutMs: this.opts.timeoutMs });
+  }
+
+  /** The immutable copy of a deal's outcome, if it was ever observed. */
+  storedOutcome(businessId: string, seq: string): OutcomeV3 | null {
+    const r = this.db
+      .prepare("SELECT outcome FROM v3_outcomes WHERE business_id = ? AND seq = ?")
+      .get(businessId, seq) as { outcome: string } | undefined;
+    return r ? (JSON.parse(r.outcome) as OutcomeV3) : null;
+  }
+
+  /** Whether `seq` ended unobserved (a history gap): it can't be judged, only reported. */
+  inHistoryGap(businessId: string, seq: string, s: CoreSnapshot): boolean {
+    if (this.storedOutcome(businessId, seq) || s.control.live_deal?.seq === seq) return false;
+    // At or below the highest deal number seen, with no outcome and not live: it ended unseen.
+    const highest = s.control.live_deal ? BigInt(s.control.live_deal.seq) : 0n;
+    const max = (
+      this.db.prepare("SELECT seq FROM v3_outcomes WHERE business_id = ?").all(businessId) as {
+        seq: string;
+      }[]
+    ).reduce((m, r) => (BigInt(r.seq) > m ? BigInt(r.seq) : m), highest);
+    return BigInt(seq) <= max;
   }
 
   private flag(businessId: string, code: RecordOutcome, detail: string) {

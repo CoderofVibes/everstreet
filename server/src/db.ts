@@ -484,6 +484,20 @@ CREATE TABLE IF NOT EXISTS need_project_requests (
   request_hash TEXT NOT NULL, project_id TEXT NOT NULL REFERENCES product_projects(id),
   created_at TEXT NOT NULL, PRIMARY KEY (person_id, idempotency_key)
 ) STRICT;
+-- Job 003k: an exact v3 acquisition intent, one per deal version (docs/design/V3_RECONCILIATION.md).
+-- Its terms come from the observed live deal; the digest is the contract's own.
+CREATE TABLE IF NOT EXISTS v3_intents (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  network TEXT NOT NULL, account TEXT NOT NULL, schema TEXT NOT NULL,
+  deal_seq TEXT NOT NULL, version INTEGER NOT NULL, digest TEXT NOT NULL, terms TEXT NOT NULL,
+  seller_account TEXT NOT NULL, buyer_account TEXT NOT NULL, expected_generation INTEGER NOT NULL,
+  seller_person_id TEXT NOT NULL REFERENCES people(id), buyer_person_id TEXT NOT NULL REFERENCES people(id),
+  local_epoch INTEGER NOT NULL, recorded_block TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('recorded','applied','ended','superseded')),
+  idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, result TEXT,
+  created_by TEXT NOT NULL REFERENCES people(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  UNIQUE (business_id, idempotency_key), UNIQUE (business_id, network, account, deal_seq, version)
+) STRICT;
 -- Job 003i: the stored observation format (key 'observation_format'); see V3_OBSERVATIONS.md §8.
 CREATE TABLE IF NOT EXISTS v3_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 -- Job 003h1: period evidence kept apart from the core snapshot: the newest per month, each with
@@ -556,6 +570,13 @@ export function openDb(path: string) {
     db.exec(
       "CREATE UNIQUE INDEX IF NOT EXISTS ownership_once_per_deal ON ownership(deal_id) WHERE deal_id IS NOT NULL",
     );
+  // Job 003k: a v3 sale's ownership entry names its intent (v2's deal_id references v2 deals),
+  // and there is at most one entry per intent.
+  if (!columns("ownership").has("v3_intent_id"))
+    db.exec("ALTER TABLE ownership ADD COLUMN v3_intent_id TEXT REFERENCES v3_intents(id)");
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS ownership_once_per_v3_intent ON ownership(v3_intent_id) WHERE v3_intent_id IS NOT NULL",
+  );
   // Job 002b: a second intent (`propose`) and a reference to the message a job answers.
   // SQLite cannot change a CHECK, so a table from before is rebuilt once, keeping every row.
   const sql = (

@@ -20,6 +20,7 @@ import { Payments } from "./payments.ts";
 import { Products } from "./products.ts";
 import { Releases } from "./releases.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
 import { type Overrides, Valuation } from "./value.ts";
 
@@ -71,6 +72,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const imports = new Imports(store.db, store, options.importInspectors);
   const opportunities = new Opportunities(store.db, store, community, products);
   const v3 = new V3Observations(store.db, store, options.v3);
+  const v3Intents = new V3Intents(store.db, store, v3);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const evaluations = new Evaluations(store.db, store, runtime);
   const releases = new Releases(store.db, store, runtime, evaluations);
@@ -230,6 +232,20 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/businesses/:id/v3", (c) => c.json(v3.view(me(c), c.req.param("id"))));
   app.post("/api/businesses/:id/v3/refresh", async (c) =>
     c.json(await v3.refresh(me(c), c.req.param("id"), await body(c))),
+  );
+  // Job 003k: exact acquisition intents (owner) and a participant's deliberate reconciliation.
+  app.get("/api/businesses/:id/v3/intents", (c) =>
+    c.json(v3Intents.list(me(c), c.req.param("id"))),
+  );
+  app.post("/api/businesses/:id/v3/intents", async (c) => {
+    const r = v3Intents.record(me(c), c.req.param("id"), await body(c));
+    return c.json(r, r.created ? 201 : 200);
+  });
+  app.get("/api/businesses/:id/v3/intents/:intent", (c) =>
+    c.json(v3Intents.read(me(c), c.req.param("id"), c.req.param("intent"))),
+  );
+  app.post("/api/businesses/:id/v3/intents/:intent/reconcile", async (c) =>
+    c.json(await v3Intents.reconcile(me(c), c.req.param("id"), c.req.param("intent"))),
   );
 
   // ---------- product studio: digital product projects and their revisions ----------
