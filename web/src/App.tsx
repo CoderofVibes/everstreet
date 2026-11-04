@@ -1,9 +1,11 @@
-// The shell: environment strip, the rail with the four entrances, the acting-context switcher,
-// and the routes.
+// The shell (job 001f): environment strip, a glass header with the four destinations (Discover,
+// Build, Operate, Acquire), contextual links and utilities, the acting-context switcher, and the
+// routes (unchanged: every earlier deep link resolves).
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api.ts";
 import { Icon, type IconName } from "./icons.tsx";
+import { DESTINATIONS, destinationOf, isCurrent, SUBNAV, UTILITIES } from "./nav.ts";
 import { Acquire } from "./pages/Acquire.tsx";
 import { AcquireListing } from "./pages/AcquireListing.tsx";
 import { AcquireRoom } from "./pages/AcquireRoom.tsx";
@@ -35,27 +37,26 @@ import { Link, match, useRouter } from "./router.tsx";
 import { useSession } from "./session.tsx";
 import { Avatar, SignInDialog } from "./ui.tsx";
 
-function Nav({
+/** Job 001f: a navigation link that says when it is the current page. */
+function NavLink({
   to,
-  label,
-  icon,
-  count,
+  children,
+  current,
+  className,
 }: {
   to: string;
-  label: string;
-  icon: IconName;
-  count?: number;
+  children: React.ReactNode;
+  current: boolean;
+  className?: string;
 }) {
-  const { path } = useRouter();
-  const active = to === "/" ? path === "/" : path === to || path.startsWith(`${to}/`);
   return (
-    <Link to={to} className={`nav${active ? " active" : ""}`}>
-      <Icon name={icon} />
-      <span className="label">{label}</span>
-      {count ? <span className="count">{count}</span> : null}
+    <Link to={to} className={className} aria-current={current ? "page" : undefined}>
+      {children}
     </Link>
   );
 }
+
+const UTILITY_ICON: Record<string, IconName> = { activity: "activity", inbox: "inbox" };
 
 function ActingContext() {
   const { person, setPerson, requireSignIn, localPreview } = useSession();
@@ -272,9 +273,9 @@ function Routes() {
 }
 
 /**
- * Job 001b: the narrow-screen navigation disclosure. Opening moves focus to the first link;
- * Escape closes and returns focus to the toggle; a route change closes it. On wide screens the
- * rail is always shown and the toggle is hidden by CSS, so the state has no effect there.
+ * Job 001b/001f: the compact-screen Menu disclosure (contextual links and utilities). Opening moves
+ * focus to the first link; Escape closes and returns focus to the toggle; a route change closes
+ * it. On wide screens the toggle is hidden by CSS, so the state has no effect there.
  */
 function useMenu(path: string) {
   const [open, setOpen] = useState(false);
@@ -283,20 +284,18 @@ function useMenu(path: string) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: path is a trigger: close on navigation
   useEffect(() => setOpen(false), [path]);
   useEffect(() => {
-    if (open) linksRef.current?.querySelector<HTMLElement>("a")?.focus();
+    if (!open) return;
+    linksRef.current?.querySelector<HTMLElement>("a")?.focus();
+    // Escape closes the open menu and returns focus to its toggle.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      toggleRef.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [open]);
-  return {
-    open,
-    toggleRef,
-    linksRef,
-    toggle: () => setOpen((o) => !o),
-    onKeyDown: (e: { key: string }) => {
-      if (e.key === "Escape" && open) {
-        setOpen(false);
-        toggleRef.current?.focus();
-      }
-    },
-  };
+  return { open, toggleRef, linksRef, toggle: () => setOpen((o) => !o) };
 }
 
 export function App() {
@@ -305,6 +304,7 @@ export function App() {
   const [counts, setCounts] = useState({ inbox: 0 });
   const { path } = useRouter();
   const menu = useMenu(path);
+  const dest = destinationOf(path);
   // biome-ignore lint/correctness/useExhaustiveDependencies: path is a trigger: recount unanswered messages on every navigation
   useEffect(() => {
     if (!person) return setCounts({ inbox: 0 });
@@ -330,57 +330,89 @@ export function App() {
           </span>
         </div>
       )}
-      <div className="shell">
-        {/* Job 001b: on narrow screens the rail is a compact bar with a Menu disclosure; the
-            links are not rendered as focusable until it is opened (display: none). */}
-        <nav
-          className={`rail${menu.open ? " open" : ""}`}
-          aria-label="Main"
-          onKeyDown={menu.onKeyDown}
-        >
-          <div className="rail-top">
-            <Link to="/" className="wordmark">
-              <img src="/favicon.svg" alt="" /> Everstreet
-            </Link>
-            <button
-              ref={menu.toggleRef}
-              type="button"
-              className="menu-toggle"
-              aria-expanded={menu.open}
-              aria-controls="rail-links"
-              onClick={menu.toggle}
-            >
-              <Icon name={menu.open ? "x" : "layers"} />
-              <span>{menu.open ? "Close" : "Menu"}</span>
-              {!menu.open && counts.inbox > 0 && <span className="count">{counts.inbox}</span>}
-            </button>
-          </div>
-          <div className="rail-links" id="rail-links" ref={menu.linksRef}>
-            <Nav to="/" label="Home" icon="home" />
-            <div className="rail-label">Build and run</div>
-            <Nav to="/build" label="Product studio" icon="studio" />
-            <Nav to="/start" label="Start a business" icon="rocket" />
-            <Nav to="/desk" label="My businesses" icon="briefcase" />
-            <Nav to="/inbox" label="Inbox" icon="inbox" count={counts.inbox} />
-            <div className="rail-label">As a customer</div>
-            <Nav to="/activity" label="My activity" icon="activity" />
-            <div className="rail-label">Discover</div>
-            <Nav to="/explore" label="Explore" icon="compass" />
-            <Nav to="/opportunities" label="Opportunities" icon="spark" />
-            <Nav to="/find" label="Find a solution" icon="search" />
-            <div className="rail-label">Buy and hand over</div>
-            <Nav to="/acquire" label="Acquisitions" icon="handshake" />
-            <Nav to="/handovers" label="Handovers" icon="history" />
-          </div>
-          <div className="rail-foot">Build it, run it, hand it over intact.</div>
-        </nav>
-        <div className="main">
-          <header className="topbar">
+      {/* Job 001f: a spacious glass header with the four destinations, contextual links for the
+          current one, and the utilities. Compact screens keep the four as a labelled row and
+          disclose the rest under Menu (not focusable until opened). */}
+      <header className="site-header">
+        <div className="site-header-inner">
+          <Link to="/" className="wordmark">
+            <img src="/favicon.svg" alt="" /> Everstreet
+          </Link>
+          <nav className="primary-nav" aria-label="Main">
+            {DESTINATIONS.map((d) => (
+              <NavLink key={d.id} to={d.to} current={dest === d.id}>
+                {d.label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="utilities">
+            {UTILITIES.map((u) => (
+              <NavLink key={u.id} to={u.to} current={isCurrent(u.to, path)} className="util">
+                <Icon name={UTILITY_ICON[u.id] ?? "layers"} />
+                {u.label}
+                {u.id === "inbox" && counts.inbox > 0 && (
+                  <span className="count">
+                    {counts.inbox}
+                    <span className="sr-only"> unanswered</span>
+                  </span>
+                )}
+              </NavLink>
+            ))}
             <ActingContext />
-          </header>
-          {ready ? <Routes /> : <div className="page muted">Loading…</div>}
+          </div>
+          <button
+            ref={menu.toggleRef}
+            type="button"
+            className="menu-toggle"
+            aria-expanded={menu.open}
+            aria-controls="mobile-panel"
+            onClick={menu.toggle}
+          >
+            <Icon name={menu.open ? "x" : "layers"} />
+            <span>{menu.open ? "Close" : "Menu"}</span>
+            {!menu.open && counts.inbox > 0 && <span className="count">{counts.inbox}</span>}
+          </button>
         </div>
-      </div>
+        {dest && (
+          <nav className="subnav" aria-label={`${DESTINATIONS.find((d) => d.id === dest)?.label}`}>
+            {SUBNAV[dest].map((l) => (
+              <NavLink key={l.to} to={l.to} current={isCurrent(l.to, path)}>
+                {l.label}
+              </NavLink>
+            ))}
+          </nav>
+        )}
+        <div
+          className={`mobile-panel${menu.open ? " open" : ""}`}
+          id="mobile-panel"
+          ref={menu.linksRef}
+        >
+          {dest && (
+            <>
+              <div className="group">{DESTINATIONS.find((d) => d.id === dest)?.label}</div>
+              {SUBNAV[dest].map((l) => (
+                <NavLink key={l.to} to={l.to} current={isCurrent(l.to, path)}>
+                  {l.label}
+                </NavLink>
+              ))}
+            </>
+          )}
+          <div className="group">You</div>
+          {UTILITIES.map((u) => (
+            <NavLink key={u.id} to={u.to} current={isCurrent(u.to, path)}>
+              <Icon name={UTILITY_ICON[u.id] ?? "layers"} />
+              {u.label}
+              {u.id === "inbox" && counts.inbox > 0 && (
+                <span className="count">{counts.inbox}</span>
+              )}
+            </NavLink>
+          ))}
+          <ActingContext />
+        </div>
+      </header>
+      <main className="main">
+        {ready ? <Routes /> : <div className="page muted">Loading…</div>}
+      </main>
       <SignInDialog />
     </>
   );

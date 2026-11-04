@@ -15,7 +15,7 @@ import { Link } from "../router.tsx";
 
 const TABS = ["Example input", "Example result"] as const;
 
-function Example({ e }: { e: NonNullable<DigitalPublic["example"]> }) {
+export function Example({ e }: { e: NonNullable<DigitalPublic["example"]> }) {
   const id = useId();
   const [tab, setTab] = useState(0);
   const refs = useRef<(HTMLButtonElement | null)[]>([]);

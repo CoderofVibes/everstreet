@@ -3,54 +3,13 @@
 
 import { useEffect, useState } from "react";
 import { api, type Need, type PublicBusiness } from "../api.ts";
+import { featured, marketOrder } from "../discover.ts";
 import { Icon, type IconName } from "../icons.tsx";
 import { type ProjectSummary, productsApi } from "../productsApi.ts";
-import { AVAILABILITY_LABEL } from "../publication.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
-import { FAMILY_LABEL, money, STAGE_LABEL } from "../ui.tsx";
 import { Composer, ProjectCard } from "./Build.tsx";
-
-const FAMILY_ICON: Record<string, IconName> = {
-  software: "api",
-  service: "user",
-  class: "doc",
-  product: "store",
-  undecided: "layers",
-};
-
-export function BusinessTile({ b }: { b: PublicBusiness }) {
-  return (
-    <Link to={`/b/${b.slug}?via=discovery`} className="card link tile">
-      <div className="tile-top">
-        <span className={`glyph${b.family === "software" ? " mint" : ""}`}>
-          <Icon name={FAMILY_ICON[b.family] ?? "layers"} />
-        </span>
-        {/* Job 001d: a digital profile shows its availability, not the old stage. */}
-        <span className="pill">
-          {b.digital ? AVAILABILITY_LABEL[b.digital.availability] : STAGE_LABEL[b.stage]}
-        </span>
-      </div>
-      <h3>{b.name}</h3>
-      {b.digital ? (
-        <p style={{ margin: 0, fontSize: 14, color: "var(--text-2)" }}>{b.digital.headline}</p>
-      ) : (
-        b.offer && (
-          <p style={{ margin: 0, fontSize: 14, color: "var(--text-2)" }}>{b.offer.title}</p>
-        )
-      )}
-      <div className="tile-meta">
-        {FAMILY_LABEL[b.family]} · by {b.founder.display_name}
-        {b.offer &&
-          (b.offer.first_free
-            ? " · first one free"
-            : b.offer.price_cents !== null
-              ? ` · ${money(b.offer.price_cents)} ${b.offer.price_unit}`
-              : "")}
-      </div>
-    </Link>
-  );
-}
+import { FeaturedProduct, MarketList } from "./Market.tsx";
 
 const STAGES: { icon: IconName; title: string; text: string; now: "now" | "partial" | "later" }[] =
   [
@@ -131,12 +90,11 @@ export function Home() {
       .catch(() => setMine([]));
   }, [person]);
 
-  // Software first; earlier examples (classes, services) stay visible after it.
-  const ordered = [...(shelf ?? [])].sort(
-    (a, b) => Number(b.family === "software") - Number(a.family === "software"),
-  );
-  const shown = ordered.filter((b) => category === "all" || b.family === category).slice(0, 6);
-  const hasSoftware = ordered.some((b) => b.family === "software");
+  // Digital products first (open ones first); earlier examples (classes, services) after them.
+  const ordered = marketOrder(shelf ?? []);
+  const shown = ordered.filter((b) => category === "all" || b.family === category).slice(0, 8);
+  const hasSoftware = ordered.some((b) => b.family === "software" || b.digital);
+  const lead = featured(shelf ?? []);
 
   const paths: { icon: IconName; title: string; text: string; to?: string; primary?: boolean }[] = [
     {
@@ -167,10 +125,12 @@ export function Home() {
 
   return (
     <div className="page">
-      <section className="home-hero">
-        <div>
+      {/* Job 001f: one stage: the composer, and beside it a real published product (with its
+          owner-written example) or, when nothing is published yet, what works today. */}
+      <section className="home-stage">
+        <div className="home-stage-main">
           <div className="eyebrow">Build, run and hand over digital businesses</div>
-          <h1>What do you want to build?</h1>
+          <h1 className="home-title">What do you want to build?</h1>
           <p className="lede">
             AI tools, SaaS, APIs, agents and online services. Shape it here, open it to customers,
             and if you ever sell, hand it over on NEAR without breaking what customers were
@@ -178,38 +138,40 @@ export function Home() {
           </p>
           <Composer variant="hero" />
         </div>
-        <aside className="lifecycle" aria-label="What works today">
-          <h2>From idea to handover: what works today</h2>
-          {STAGES.map((s) => (
-            <div className="lifecycle-row" key={s.title}>
-              <Icon name={s.icon} />
-              <span>
-                <strong>{s.title}</strong>
-                <span className="muted">{s.text}</span>
-              </span>
-              <span className={`state-tag ${s.now}`}>{TAG[s.now]}</span>
-            </div>
-          ))}
-        </aside>
+        {lead ? (
+          <FeaturedProduct b={lead} />
+        ) : (
+          <aside className="lifecycle" aria-label="What works today">
+            <h2>From idea to handover: what works today</h2>
+            {STAGES.map((s) => (
+              <div className="lifecycle-row" key={s.title}>
+                <Icon name={s.icon} />
+                <span>
+                  <strong>{s.title}</strong>
+                  <span className="muted">{s.text}</span>
+                </span>
+                <span className={`state-tag ${s.now}`}>{TAG[s.now]}</span>
+              </div>
+            ))}
+          </aside>
+        )}
       </section>
 
-      <section className="paths" aria-label="Ways in">
+      <nav className="entries" aria-label="Ways in">
         {paths.map((p) =>
           p.to ? (
-            <Link key={p.title} to={p.to} className="card link path">
-              <span className="icon-box">
-                <Icon name={p.icon} />
-              </span>
+            <Link key={p.title} to={p.to} className="entry">
+              <Icon name={p.icon} />
               <span>
-                <h3>{p.title}</h3>
-                <p>{p.text}</p>
+                <strong>{p.title}</strong>
+                <span>{p.text}</span>
               </span>
             </Link>
           ) : (
             <button
               key={p.title}
               type="button"
-              className="card link path primary"
+              className="entry primary"
               onClick={() => {
                 const box = document.getElementById("idea-hero");
                 if (box) {
@@ -218,17 +180,15 @@ export function Home() {
                 } else go("/build");
               }}
             >
-              <span className="icon-box">
-                <Icon name={p.icon} />
-              </span>
+              <Icon name={p.icon} />
               <span>
-                <h3>{p.title}</h3>
-                <p>{p.text}</p>
+                <strong>{p.title}</strong>
+                <span>{p.text}</span>
               </span>
             </button>
           ),
         )}
-      </section>
+      </nav>
 
       {mine.length > 0 && (
         <section className="home-section">
@@ -292,11 +252,12 @@ export function Home() {
                 No software products are published yet. These are the earlier examples.
               </p>
             )}
-            <div className="shelf">
-              {shown.map((b) => (
-                <BusinessTile key={b.slug} b={b} />
-              ))}
-            </div>
+            <MarketList list={shown} />
+            {ordered.length > shown.length && (
+              <p style={{ marginTop: 12 }}>
+                <Link to="/explore">See everything published on Explore</Link>
+              </p>
+            )}
           </>
         )}
       </section>

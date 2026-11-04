@@ -62,4 +62,60 @@ describe("001d publication preview: draft, review, publish, discover, use", () =
     expect(legacy.digital).toBeNull();
     expect((await cara(`/api/public/businesses/${p.slugs.briefOnly}`)).status).toBe(404);
   });
+
+  it("001e/001f: an owner-written example goes public only when reviewed and published, and comes down when removed", async () => {
+    const p = await publicationPreview();
+    const ava = await browser(p, p.people.ava);
+    const cara = await browser(p, p.people.cara);
+    const biz = `/api/businesses/${p.businesses.digital}`;
+    const base = {
+      headline: "Clean rows from supplier invoices",
+      summary: "Upload a fictional supplier invoice and get its fields back as clean rows.",
+      audience: "Bookkeepers at small fictional firms",
+      capabilities: ["Reads invoice numbers, dates and totals"],
+      products: [p.projects.digital],
+    };
+    const example = {
+      product: p.projects.digital,
+      input: "Fictional invoice NB-7 from Northbeam Paper Co, total 88.20 USD",
+      outputs: [
+        { label: "Invoice number", value: "NB-7" },
+        { label: "Total", value: "88.20 USD" },
+      ],
+    };
+    const publishCurrent = async () => {
+      const v = (await ava(`${biz}/public-profile`)).body;
+      return ava(`${biz}/public-profile/publish`, "POST", {
+        draft_rev: v.draft_rev,
+        review: v.review,
+      });
+    };
+    await ava(`${biz}/public-profile/draft`, "PUT", { base_rev: 0, draft: { ...base, example } });
+    expect((await publishCurrent()).status).toBe(200);
+    // Discovery carries the published example (the Home stage features it); Use is the real route.
+    const found = (await cara("/api/public/discover")).body.businesses as Json[];
+    const card = found.find((b) => b.slug === p.slugs.digital);
+    expect(card?.digital.example.outputs).toEqual(example.outputs);
+    expect(card?.digital.example.label).toMatch(/Not a live run/);
+    const target = card?.digital.products[0].use_offer_id as string;
+    expect((await cara(`/api/public/customer-offers/${target}`)).status).toBe(200);
+    // A private draft edit doesn't reach the public page.
+    await ava(`${biz}/public-profile/draft`, "PUT", {
+      base_rev: 1,
+      draft: { ...base, example: { ...example, input: "Fictional DRAFT-ONLY invoice" } },
+    });
+    const page = JSON.stringify((await cara(`/api/public/businesses/${p.slugs.digital}`)).body);
+    expect(page).not.toContain("DRAFT-ONLY");
+    // Removed and republished: gone from the page and from discovery.
+    await ava(`${biz}/public-profile/draft`, "PUT", {
+      base_rev: 2,
+      draft: { ...base, example: null },
+    });
+    expect((await publishCurrent()).status).toBe(200);
+    expect(
+      (await cara(`/api/public/businesses/${p.slugs.digital}`)).body.digital.example,
+    ).toBeNull();
+    // The legacy class business still has its offering and no digital section.
+    expect((await cara(`/api/public/businesses/${p.slugs.legacy}`)).body.digital).toBeNull();
+  });
 });

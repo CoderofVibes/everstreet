@@ -3,11 +3,13 @@
 
 import { type ReactNode, useEffect, useState } from "react";
 import { api, type Need, type PublicBusiness, type Update } from "../api.ts";
+import { marketOrder } from "../discover.ts";
 import { AVAILABILITY_LABEL } from "../publication.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { FAMILY_LABEL, money } from "../ui.tsx";
 import { ago } from "../via.ts";
+import { MarketList } from "./Market.tsx";
 
 export function Tile({
   b,
@@ -223,9 +225,7 @@ export function Explore() {
   return (
     <div className="page">
       <div className="eyebrow">Explore</div>
-      <h1 className="display" style={{ fontSize: 44 }}>
-        A street of things starting.
-      </h1>
+      <h1 className="display page-title">A street of things starting.</h1>
       <p className="muted" style={{ fontSize: 18 }}>
         New businesses testing an idea, ones you can use today, and things people have asked for.
         Nobody pays to appear here.
@@ -259,11 +259,7 @@ export function Explore() {
               These are still being shaped: you can tell the founder you're interested, but nothing
               can be booked yet.
             </p>
-            <div className="shelf">
-              {data.starting.map((b) => (
-                <Tile key={b.slug} b={b} />
-              ))}
-            </div>
+            <MarketList list={marketOrder(data.starting)} />
           </>
         )
       ) : tab === "open" ? (
@@ -272,11 +268,7 @@ export function Explore() {
             <h2>Nothing open yet</h2>
           </div>
         ) : (
-          <div className="shelf">
-            {data.open.map((b) => (
-              <Tile key={b.slug} b={b} />
-            ))}
-          </div>
+          <MarketList list={marketOrder(data.open)} />
         )
       ) : tab === "needs" ? (
         <>

@@ -58,7 +58,10 @@ console.log(
 );
 console.log(`  Bea's editor:         http://${HOST}:8826/desk/${p.businesses.briefOnly}/public`);
 console.log(`  Dee's legacy page:    http://${HOST}:8826/b/${p.slugs.legacy}`);
-console.log(`  Discover:             http://${HOST}:8826/explore`);
+console.log(
+  `  Discover (Home):      http://${HOST}:8826/   (the stage features a published product)`,
+);
+console.log(`  Explore:              http://${HOST}:8826/explore`);
 console.log(
   `    Ava ${p.people.ava} · Bea ${p.people.bea} · Dee ${p.people.dee} · Cara ${p.people.cara}`,
 );
