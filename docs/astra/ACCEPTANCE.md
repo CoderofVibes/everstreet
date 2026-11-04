@@ -238,6 +238,15 @@ heads itself Reserved, edited draft after lost prepare strands original recovery
 public offer empty state.003q1 corrects these before003r owner-offer setup. Synthetic preview is
 not live NEAR/provider/wallet evidence. All six milestones remain open.
 
+November4 at c184025: independent720 tests/59files/lint/types and web build pass.003q1 browser
+lost preparation + changed draft recovers exact original; cancellation preserves next draft;
+prepared says Nothing held.003r founder inspection/create lost-response recovery preserves
+30-day offer while keeping45-day draft. Unsuitable document returns unit to100free/0used with
+matching terminal headline. Desktop offer and390px customer inspected. Two independent probes
+retain stale inspection after release retirement and inconclusive ownership recheck; cancelled
+use offers new preparation before guarded window ends.003r1 required, then003s v3 acquisition
+workspace. Synthetic preview only, no live transaction/provider evidence; six milestones open.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.

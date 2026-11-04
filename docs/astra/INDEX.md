@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Offer setup review](2026-11-04_OfferSetupReview.md) | Independent720 tests; founder/customer lost-answer recovery passes; stale inspections and cancelled-use UX corrections, then digital acquisition workspace | Active; see local checkpoint |
 | 2026-11-04 | [Customer workspace review](2026-11-04_CustomerWorkspaceReview.md) | Independent679 app/73 contract tests; customer journey/sale privacy browser review; recovery corrections then owner offer setup | Active; see local checkpoint |
 | 2026-11-03 | [Settlement review](2026-11-03_SettlementReview.md) | Independent654 app/71 contract tests; two release races; guarded release/delivery then customer workspace | Active; see local checkpoint |
 | 2026-11-03 | [Execution review](2026-11-03_ExecutionReview.md) | Independent621 tests; three freshness/privacy probes; corrections then unit settlement/release | Active; see local checkpoint |
