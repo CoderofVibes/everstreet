@@ -6,7 +6,8 @@ The StudioDraftLifetimeReview findings arrived during the work and are covered h
 **Commits:**
 - `fe4b3b7`: Astra's eight paths, committed after the check passed (1198 passed and 1 skipped).
 - `31d1c9a`: the correction, its tests and the CANVAS_STUDIO state rules.
-- The third-finding correction (fenced deletions): the commit after `6cb83e1`, recorded in JOBS.
+- `5363aa8`: Astra's INDEX and StudioDraftLifetimeReview, committed after the check passed.
+- `2226246`: the third-finding correction (fenced deletions), its tests and this report's update.
 
 **Status: in review. Not browser-repeated by me** (no browser here). The evidence is the real
 controllers recreated in tests, plus a 25 s smoke run of the preview.
