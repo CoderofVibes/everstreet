@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-03 | [Continuity status review](2026-11-03_ContinuityStatusReview.md) | Independent519 tests; owner-status browser review; malformed recovery correction then v3 intent/reconciliation | Active; see local checkpoint |
+| 2026-11-03 | [Continuity integration preparation](2026-11-03_ContinuityIntegrationPrep.md) | Source review of v2 reconciliation, owner fencing and customer runtime gaps while003j builds | Preparation only; no duplicate builder |
 | 2026-11-03 | [Owner continuity](2026-11-03_OwnerContinuity.md) | Independent499-test pass; demand recovery browser repeat;003j makes NEAR ownership and obligations visible to owners | Active; see local checkpoint |
 | 2026-11-03 | [Local recovery](2026-11-03_LocalRecovery.md) | Terminal access restored;002a2/005a1 saved; resume interrupted003i and restore deliberate mutants before checks | Active; see local checkpoint |
 | 2026-11-03 | [Demand review](2026-11-03_DemandReview.md) | Opportunities/browser recovery verified; typed-ahead and metadata corrections, deterministic tests and read-only RPC adapter next | Active; see local checkpoint |

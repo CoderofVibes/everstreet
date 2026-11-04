@@ -189,6 +189,12 @@ project action. Direct fixture counters1 project/0 responses. Keyboard foundatio
 passes. Local demand bridge correction accepted for further development, not fullM5. Full
 mobile/error-state browser matrix remains partial.003j is next; all six milestones stay open.
 
+November3 at02f5f56: independent519-test check/types/lint and webbuild pass.003j browser month
+refresh preserves older month provenance; offline refusal preserves block/time; transfer then
+refresh clears private evidence. Harbor stale/conflict/mismatch presentation passes.1440/1280/
+390 document widths contained. Controller malformed recheck is stuck checking and malformed
+refresh claims success:003j1 required.003k is next integration, not live/M3 acceptance.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.
