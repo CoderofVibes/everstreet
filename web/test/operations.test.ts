@@ -42,7 +42,10 @@ describe("003t1 current work, settlement and the books' empty message say exactl
   });
 
   it("only a running worker is described as settling by itself", () => {
-    const s = (worker: "running" | "stopped" | "overdue" | "not_started" | "unknown", paused = 0) =>
+    const s = (
+      worker: "running" | "stopped" | "overdue" | "not_scheduled" | "not_started" | "unknown",
+      paused = 0,
+    ) =>
       settlementText({
         worker,
         heartbeat_at: "2026-11-04T13:45:10.000Z",
@@ -51,8 +54,11 @@ describe("003t1 current work, settlement and the books' empty message say exactl
     expect(s("running")).toContain("settles and returns units by itself");
     expect(s("running")).toContain("2026-11-04 13:45 UTC");
     expect(s("running", 2)).toContain("2 paused");
-    for (const w of ["stopped", "overdue", "not_started", "unknown"] as const)
+    for (const w of ["stopped", "overdue", "not_scheduled", "not_started", "unknown"] as const)
       expect(s(w)).not.toContain("by itself;");
+    // 002d2: a pass run on request is named as such, never as a schedule.
+    expect(s("not_scheduled")).toContain("No background worker is scheduled");
+    expect(s("not_scheduled")).toContain("ran only when asked");
     expect(s("overdue")).toContain("nothing settles by itself");
     expect(s("not_started")).toContain("No background worker has run");
     expect(s("unknown")).toContain("unknown");

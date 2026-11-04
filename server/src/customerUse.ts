@@ -1007,11 +1007,18 @@ export class CustomerUses {
         detail: `Overdue: the last heartbeat was ${h.worker.heartbeat_at}.${tail}`,
         next: "The operator checks the maintenance process; customers can still check their own uses.",
       };
+    // Job 002d2: a pass run on request is evidence that it ran, not a schedule.
+    const why =
+      h.worker.state === "stopped"
+        ? "Stopped"
+        : h.worker.state === "not_scheduled"
+          ? `Not scheduled: a pass ran only when asked${h.worker.last_pass_at ? ` (last at ${h.worker.last_pass_at})` : ""}${h.worker.in_flight ? "; one is in progress now" : ""}`
+          : "Not started on this server";
     return {
       key: "maintenance",
       label,
       state: "unavailable" as const,
-      detail: `${h.worker.state === "stopped" ? "Stopped" : "Not started on this server"}: reservations, units and cleanup advance only when a customer or owner asks.${tail}`,
+      detail: `${why}: reservations, units and cleanup advance only when another pass runs or a customer or owner asks.${tail}`,
       next: "The operator starts background maintenance; nothing to enter here.",
     };
   }

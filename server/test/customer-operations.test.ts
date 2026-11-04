@@ -97,8 +97,8 @@ describe("003t the owner's digital operations match the records", () => {
       awaiting_reservation: 0,
       awaiting_signature: 1,
     });
-    // The books read the worker's actual health: a pass just ran (heartbeat), so "running".
-    expect(ops.settlement.worker).toBe("running");
+    // The books read the worker's actual health: passes ran only when asked (002d2).
+    expect(ops.settlement.worker).toBe("not_scheduled");
     expect(ops.state).toBe("recorded");
     // Owner-safe: no identity, document, result or reference.
     const text = JSON.stringify(ops);

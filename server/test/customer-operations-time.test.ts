@@ -119,16 +119,16 @@ describe("003t1 current work in exclusive buckets, and an honest settlement clai
       health: null,
     });
     expect(later.current.awaiting_signature).toBe(0);
-    // A pass just ran, so the worker reads as running; a day later with no pass it is overdue;
-    // without a health reading it is unknown, never assumed.
-    expect(o.settlement.worker).toBe("running");
+    // 002d2: these passes ran only when asked, so nothing is scheduled (not "running"), now or a
+    // day later; without a health reading it is unknown, never assumed.
+    expect(o.settlement.worker).toBe("not_scheduled");
     const dayLater = now + 24 * 3_600_000;
     expect(
       customerOperations(t.w.state.store.db, t.w.f.business, 3, new Date(), {
         nowMs: dayLater,
         health: maintenanceHealth(t.w.state.store.db, t.w.f.business, dayLater),
       }).settlement.worker,
-    ).toBe("overdue");
+    ).toBe("not_scheduled");
     expect(later.settlement.worker).toBe("unknown");
   });
 

@@ -55,6 +55,9 @@ export function settlementText(s: Operations["settlement"]): string {
       return `The background worker is overdue${at}: nothing settles by itself until it runs again.${paused}`;
     case "stopped":
       return `The background worker is stopped${at}: units wait until it runs again or the customer settles.${paused}`;
+    // Job 002d2: a pass that was run on request is evidence it ran, not a schedule.
+    case "not_scheduled":
+      return `No background worker is scheduled: a maintenance pass ran only when asked${at}. Units wait until another pass runs or the customer settles.${paused}`;
     case "not_started":
       return "No background worker has run on this server: units wait until one runs or the customer settles.";
     default:

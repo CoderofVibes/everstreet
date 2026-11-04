@@ -101,7 +101,7 @@ export interface Operations {
   current: OpsCurrent;
   /** Whether anything settles customer units by itself, from the worker's health (003t1). */
   settlement: {
-    worker: "running" | "stopped" | "overdue" | "not_started" | "unknown";
+    worker: "running" | "stopped" | "overdue" | "not_scheduled" | "not_started" | "unknown";
     heartbeat_at: string | null;
     paused_by_authority: number;
   };

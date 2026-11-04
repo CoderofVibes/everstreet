@@ -594,7 +594,8 @@ CREATE TABLE IF NOT EXISTS maintenance_lease (
 CREATE TABLE IF NOT EXISTS maintenance_status (
   name TEXT PRIMARY KEY, holder TEXT, state TEXT NOT NULL CHECK (state IN ('running','stopped')),
   interval_ms INTEGER NOT NULL, started_ms INTEGER, heartbeat_ms INTEGER, last_pass_ms INTEGER,
-  last_pass TEXT
+  last_pass TEXT,
+  scheduled INTEGER NOT NULL DEFAULT 0 CHECK (scheduled IN (0, 1)), pass_started_ms INTEGER
 ) STRICT;
 -- Job 002d1: where the next pass starts its phase rotation (written only by the lease holder).
 CREATE TABLE IF NOT EXISTS maintenance_cursor (
@@ -685,6 +686,15 @@ export function openDb(path: string) {
     );
   if (!columns("customer_executions").has("delivery_started_ms"))
     db.exec("ALTER TABLE customer_executions ADD COLUMN delivery_started_ms INTEGER");
+  // Job 002d2: whether the holder's passes are scheduled, and when a pass in progress started. A
+  // row from before has neither: it reads as not scheduled (never as automatic processing).
+  const statusCols = columns("maintenance_status");
+  if (!statusCols.has("scheduled"))
+    db.exec(
+      "ALTER TABLE maintenance_status ADD COLUMN scheduled INTEGER NOT NULL DEFAULT 0 CHECK (scheduled IN (0, 1))",
+    );
+  if (!statusCols.has("pass_started_ms"))
+    db.exec("ALTER TABLE maintenance_status ADD COLUMN pass_started_ms INTEGER");
   // Job 003b: one ownership entry per closed deal, as a backstop to the reconciler. Installed
   // only when existing data allows it; earlier duplicates are reported, never deleted.
   if (ownershipConflicts(db).length === 0)

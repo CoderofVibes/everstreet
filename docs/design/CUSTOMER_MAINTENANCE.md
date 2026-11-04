@@ -175,6 +175,28 @@ next pass, and every phase starts first at least once every five passes. Limits,
 and the batch are unchanged; no loop runs until empty. A slow or unavailable metering phase
 therefore can't starve cleanup.
 
+## Corrections in 002d2
+
+**A completed pass is not a schedule.** `maintenance_status` gains two fields:
+- `scheduled`: written by the active holder, 1 only while `start()` is in effect and the holder
+  isn't stopping;
+- `pass_started_ms`: set by the heartbeat at pass start, cleared by the pass's finish or by stop.
+
+`maintenanceHealth` keeps four separate facts (no holder id is exposed):
+- **scheduling:** `running` only for a scheduled holder with a fresh heartbeat; `overdue` for a
+  scheduled holder with a stale one; `not_scheduled` when passes ran only when asked; `stopped`;
+  `not_started`;
+- **recent pass:** `last_pass_at` and `last_outcome`;
+- **in flight:** `in_flight`, a pass started within three intervals and not yet finished.
+
+**Consequences:**
+- Only `running` supports "settles by itself" in the books, desk and readiness.
+- A pass after `stop()` re-arms nothing and reads `not_scheduled`.
+- A row from before 002d2 gets `scheduled = 0` from the migration, so it reads `not_scheduled`,
+  never `running`.
+- The 002d1 fencing is unchanged. Every field is written inside `publish()`'s holder check, so a
+  standby, a late finish or a takeover race writes none of them.
+
 ## Built
 
 **Files.**

@@ -251,12 +251,13 @@ export class MaintenanceSupervisor {
     pass?: PassReport,
     release = false,
     nextPhase: number | null = null,
+    inFlight = false,
   ): boolean {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const ok = this.holds();
       if (ok) {
-        this.status(state, pass);
+        this.status(state, pass, inFlight);
         if (nextPhase !== null)
           this.db
             .prepare(
@@ -279,17 +280,24 @@ export class MaintenanceSupervisor {
     }
   }
 
-  private status(state: "running" | "stopped", pass?: PassReport) {
+  /**
+   * Job 002d2: `scheduled` says whether this holder's passes are scheduled (start() in effect),
+   * not merely that one ran; `pass_started_ms` marks a pass in progress and is cleared by its
+   * finish or by stop.
+   */
+  private status(state: "running" | "stopped", pass: PassReport | undefined, inFlight: boolean) {
     const now = this.now();
+    const scheduled = state === "running" && this.started && !this.stopping ? 1 : 0;
     this.db
       .prepare(
-        `INSERT INTO maintenance_status (name, holder, state, interval_ms, started_ms, heartbeat_ms, last_pass_ms, last_pass)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO maintenance_status (name, holder, state, interval_ms, started_ms, heartbeat_ms, last_pass_ms, last_pass, scheduled, pass_started_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET holder = excluded.holder, state = excluded.state, interval_ms = excluded.interval_ms,
            started_ms = CASE WHEN excluded.state = 'running' AND maintenance_status.state != 'running' THEN excluded.started_ms ELSE maintenance_status.started_ms END,
            heartbeat_ms = excluded.heartbeat_ms,
            last_pass_ms = COALESCE(excluded.last_pass_ms, maintenance_status.last_pass_ms),
-           last_pass = COALESCE(excluded.last_pass, maintenance_status.last_pass)`,
+           last_pass = COALESCE(excluded.last_pass, maintenance_status.last_pass),
+           scheduled = excluded.scheduled, pass_started_ms = excluded.pass_started_ms`,
       )
       .run(
         this.name,
@@ -302,6 +310,8 @@ export class MaintenanceSupervisor {
         pass
           ? JSON.stringify({ outcome: pass.outcome, counts: pass.counts, skipped: pass.skipped })
           : null,
+        scheduled,
+        inFlight ? now : null,
       );
   }
 
@@ -311,7 +321,9 @@ export class MaintenanceSupervisor {
     const started = this.now();
     const report: PassReport = { outcome: "done", started_ms: started, counts: {}, skipped: [] };
     if (!this.claim()) return { ...report, outcome: "standby" };
-    this.publish("running"); // the holder is alive (a heartbeat; not a completed pass)
+    // The holder is alive and a pass is in flight (a heartbeat; not a completed pass, and not a
+    // schedule unless start() is in effect).
+    this.publish("running", undefined, false, null, true);
     const bump = (k: string) => {
       report.counts[k] = (report.counts[k] ?? 0) + 1;
     };
@@ -520,10 +532,17 @@ export class MaintenanceSupervisor {
 
 export interface MaintenanceHealth {
   worker: {
-    state: "not_started" | "running" | "overdue" | "stopped";
+    /**
+     * running: a current holder's passes are scheduled and its heartbeat is fresh (the only state
+     * that supports "by itself"); overdue: scheduled, heartbeat stale; not_scheduled: passes ran
+     * only when asked (or a row from before 002d2); stopped; not_started: no pass ever recorded.
+     */
+    state: "not_started" | "running" | "overdue" | "stopped" | "not_scheduled";
     heartbeat_at: string | null;
     last_pass_at: string | null;
     last_outcome: string | null;
+    /** A pass is in progress now (its start is recent). */
+    in_flight: boolean;
   };
   /** This business only: aggregate counts, never ids, references or customer content. */
   work: {
@@ -551,7 +570,7 @@ export function maintenanceHealth(
 ): MaintenanceHealth {
   const st = db
     .prepare(
-      "SELECT state, interval_ms, heartbeat_ms, last_pass_ms, last_pass FROM maintenance_status WHERE name = ?",
+      "SELECT state, interval_ms, heartbeat_ms, last_pass_ms, last_pass, scheduled, pass_started_ms FROM maintenance_status WHERE name = ?",
     )
     .get(name) as
     | {
@@ -560,6 +579,8 @@ export function maintenanceHealth(
         heartbeat_ms: number | null;
         last_pass_ms: number | null;
         last_pass: string | null;
+        scheduled: number;
+        pass_started_ms: number | null;
       }
     | undefined;
   const at = (ms: number | null | undefined) => (ms ? new Date(ms).toISOString() : null);
@@ -575,9 +596,15 @@ export function maintenanceHealth(
     ? "not_started"
     : st.state === "stopped"
       ? "stopped"
-      : now - (st.heartbeat_ms ?? 0) > 3 * st.interval_ms
-        ? "overdue"
-        : "running";
+      : st.scheduled !== 1
+        ? "not_scheduled"
+        : now - (st.heartbeat_ms ?? 0) > 3 * st.interval_ms
+          ? "overdue"
+          : "running";
+  const inFlight =
+    st?.state === "running" &&
+    st.pass_started_ms !== null &&
+    now - st.pass_started_ms <= 3 * st.interval_ms;
   const n = (sql: string, ...args: (string | number)[]) =>
     (db.prepare(sql).get(...args) as { n: number | null }).n ?? 0;
   const backed = (tasks: string, cond: string) =>
@@ -592,6 +619,7 @@ export function maintenanceHealth(
       heartbeat_at: at(st?.heartbeat_ms),
       last_pass_at: at(st?.last_pass_ms),
       last_outcome: outcome,
+      in_flight: inFlight,
     },
     work: {
       reservations_pending: n(

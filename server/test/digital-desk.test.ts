@@ -12,13 +12,15 @@ import { FixtureV3Transport, V3_CLOSED, V3_DIGEST } from "./v3-fixture-transport
 
 const inert = { set: () => 1, clear: () => {} };
 
-async function digital(v3Transport?: FixtureV3Transport) {
+/** `scheduled`: the worker's passes are scheduled (start(), inert timers), not only run on request. */
+async function digital(v3Transport?: FixtureV3Transport, scheduled = true) {
   const t = await maintenanceWorld({ v3Transport });
   const biz = `/api/businesses/${t.w.f.business}`;
   const desk = async (who = t.w.owner, id = t.w.f.business) =>
     who(`/api/businesses/${id}/digital-desk`);
   // One charged use (by the worker), one awaiting settlement (lost answer), one reserved.
   const s = t.supervisor("worker-a", { timers: inert });
+  if (scheduled) s.start();
   const a = await t.reserve(t.w.cara, "desk-key-0001");
   await t.execute(t.w.cara, a);
   for (let i = 0; i < 3; i++) {
@@ -57,7 +59,7 @@ describe("001c a working digital business reads as one", () => {
     // The legacy offering is empty, so it isn't presented.
     expect(d.legacy_offering).toEqual({ configured: false, title: null });
     expect(d.current).toMatchObject({ awaiting_settlement: 1, reserved_not_settled: 1 });
-    // A pass just ran: the worker reads running, and that work is the system's, not a task.
+    // A scheduled worker's pass just ran: it reads running, and that work is the system's.
     expect(d.settlement.worker).toBe("running");
     const system = d.work.find((w: Json) => w.key === "system");
     expect(system).toMatchObject({ who: "system", count: 2, link: { to: "customers" } });
@@ -73,6 +75,13 @@ describe("001c a working digital business reads as one", () => {
     t.advance(24 * 3_600_000); // a day later, no pass
     const d = (await desk()).body as Json;
     expect(d.settlement.worker).toBe("overdue");
+    expect(d.work.find((w: Json) => w.key === "system").label).toContain("isn't running");
+  });
+
+  it("002d2: passes run only on request are not a running worker", async () => {
+    const { desk } = await digital(undefined, false);
+    const d = (await desk()).body as Json;
+    expect(d.settlement.worker).toBe("not_scheduled");
     expect(d.work.find((w: Json) => w.key === "system").label).toContain("isn't running");
   });
 });

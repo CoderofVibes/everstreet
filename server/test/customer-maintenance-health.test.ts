@@ -46,6 +46,8 @@ describe("002d1 health is written only by the active lease holder", () => {
     const db = t.w.state.store.db;
     const health = () => maintenanceHealth(db, t.w.f.business, t.w.clock.now).worker;
     const a = t.supervisor("worker-a", { timers: inert, intervalMs: 30_000, leaseMs: 600_000 });
+    // 002d2: A is a scheduled worker (start), so its staleness reads as overdue.
+    a.start();
     await a.runPass(); // A holds a long lease, then stalls
     const b = t.supervisor("worker-b", { timers: inert, intervalMs: 30_000, leaseMs: 600_000 });
     for (let i = 0; i < 5; i++) {
@@ -56,6 +58,7 @@ describe("002d1 health is written only by the active lease holder", () => {
     }
     expect(health().state).toBe("overdue");
     t.advance(500_000); // A's lease lapses
+    b.start(); // a scheduled standby takes over
     expect((await b.runPass()).outcome).toBe("done");
     expect(health().state).toBe("running");
     // A comes back late: its pass is standby and its stop changes nothing.
