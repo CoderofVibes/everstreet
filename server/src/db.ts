@@ -484,6 +484,8 @@ CREATE TABLE IF NOT EXISTS need_project_requests (
   request_hash TEXT NOT NULL, project_id TEXT NOT NULL REFERENCES product_projects(id),
   created_at TEXT NOT NULL, PRIMARY KEY (person_id, idempotency_key)
 ) STRICT;
+-- Job 003i: the stored observation format (key 'observation_format'); see V3_OBSERVATIONS.md §8.
+CREATE TABLE IF NOT EXISTS v3_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 -- Job 003h1: period evidence kept apart from the core snapshot: the newest per month, each with
 -- its own block and observation time; at most 24 months per business.
 CREATE TABLE IF NOT EXISTS v3_periods (

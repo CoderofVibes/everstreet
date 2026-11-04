@@ -96,6 +96,15 @@ const MESSAGES: Record<string, string> = {
   malformed: "The contract's answer wasn't in the expected form.",
   unknown_enum: "The contract's answer had a value this version doesn't know.",
   out_of_range: "The contract's answer had a value out of range.",
+  // Job 003i: what an RPC endpoint can report, in fixed words (never its own text).
+  unsupported: "That read isn't supported by the configured transport.",
+  block_unavailable: "The endpoint no longer has that block (an archival endpoint would).",
+  unknown_account: "The endpoint doesn't know the configured contract account.",
+  execution_failed: "The contract's view call failed at that block.",
+  rpc_error: "The endpoint refused the request.",
+  too_large: "The endpoint's answer was larger than allowed.",
+  format_upgrade_failed:
+    "Earlier observations couldn't be upgraded to the current format, so this capability is paused; nothing was changed.",
 };
 
 interface ProjectionRow {
@@ -123,8 +132,141 @@ export const coreDigest = (s: V3Snapshot | CoreSnapshot) => {
   return createHash("sha256").update(JSON.stringify(core)).digest("hex");
 };
 
+/** The stored observation format: 2 = core-only snapshots and digests, months in v3_periods. */
+export const OBSERVATION_FORMAT = "2";
+
+const MONTH_OK = (m: unknown) =>
+  typeof m === "number" &&
+  Number.isInteger(m) &&
+  m >= 197_001 &&
+  m <= 999_912 &&
+  m % 100 >= 1 &&
+  m % 100 <= 12;
+
+/**
+ * Job 003i: upgrades observations written by 003h, whose snapshots and digests included the
+ * optional month, to format 2. Every row is validated first; only then, in one transaction,
+ * snapshots are rewritten core-only with recomputed core digests, and each month moves to
+ * v3_periods with its original block and observation time (the newest per month wins, at most
+ * PERIOD_MONTHS months). Sources, high-water marks, outcomes, projections and flags are left as
+ * they are; a genuine conflict flag is never cleared. Safe to run again: once the format is
+ * recorded it does nothing, and recomputing an already-core row changes nothing.
+ */
+export function upgradeObservationFormat(db: Db): { upgraded: number; months: number } {
+  const done = db.prepare("SELECT value FROM v3_meta WHERE key = 'observation_format'").get() as
+    | { value: string }
+    | undefined;
+  if (done?.value === OBSERVATION_FORMAT) return { upgraded: 0, months: 0 };
+  const rows = db.prepare("SELECT * FROM v3_observations ORDER BY id").all() as {
+    id: number;
+    business_id: string;
+    network: string;
+    account: string;
+    schema: string;
+    block_height: string;
+    block_hash: string;
+    control_seq: string;
+    snapshot: string;
+    digest: string;
+    observed_at: string;
+  }[];
+  // 1. Validate everything; nothing is written if any row is malformed.
+  const plan = rows.map((r) => {
+    const bad = (what: string): never => {
+      throw new Error(
+        `v3 format upgrade: observation ${r.id} is malformed (${what}); nothing was changed`,
+      );
+    };
+    let s: Record<string, unknown>;
+    try {
+      s = JSON.parse(r.snapshot) as Record<string, unknown>;
+    } catch {
+      return bad("not JSON");
+    }
+    if (!s || typeof s !== "object" || Array.isArray(s)) bad("not an object");
+    const src = s.source as Record<string, unknown> | undefined;
+    if (!src || src.network !== r.network || src.account !== r.account || src.schema !== r.schema)
+      bad("source differs from its row");
+    const block = s.block as Record<string, unknown> | undefined;
+    if (!block || block.height !== r.block_height || block.hash !== r.block_hash)
+      bad("block differs from its row");
+    const control = s.control as Record<string, unknown> | undefined;
+    if (!control || typeof control !== "object" || control.control_seq !== r.control_seq)
+      bad("control differs from its row");
+    if (
+      !Array.isArray(s.outcomes) ||
+      !Array.isArray(s.pending) ||
+      !s.treasury ||
+      typeof s.treasury !== "object"
+    )
+      bad("a core view is missing");
+    const period = s.period;
+    if (period !== undefined && period !== null) {
+      const p = period as Record<string, unknown>;
+      if (typeof p !== "object" || !MONTH_OK(p.yyyymm) || typeof p.status !== "string")
+        bad("its month is malformed");
+    }
+    const { period: _p, ...core } = s;
+    return { row: r, core, period: (period ?? null) as PeriodV3 | null };
+  });
+  // 2. Rewrite, in one transaction.
+  let months = 0;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const { row, core, period } of plan) {
+      const digest = coreDigest(core as unknown as CoreSnapshot);
+      db.prepare("UPDATE v3_observations SET snapshot = ?, digest = ? WHERE id = ?").run(
+        JSON.stringify(core),
+        digest,
+        row.id,
+      );
+      if (!period) continue;
+      const have = db
+        .prepare("SELECT block_height FROM v3_periods WHERE business_id = ? AND yyyymm = ?")
+        .get(row.business_id, period.yyyymm) as { block_height: string } | undefined;
+      if (have && BigInt(have.block_height) >= BigInt(row.block_height)) continue;
+      db.prepare(
+        `INSERT INTO v3_periods (business_id, yyyymm, block_height, block_hash, period, digest, observed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(business_id, yyyymm) DO UPDATE SET block_height = excluded.block_height,
+           block_hash = excluded.block_hash, period = excluded.period, digest = excluded.digest,
+           observed_at = excluded.observed_at`,
+      ).run(
+        row.business_id,
+        period.yyyymm,
+        row.block_height,
+        row.block_hash,
+        JSON.stringify(period),
+        createHash("sha256").update(JSON.stringify(period)).digest("hex"),
+        row.observed_at,
+      );
+      months++;
+    }
+    // The same bound as live recording: at most PERIOD_MONTHS months, oldest evidence dropped.
+    const businesses = db.prepare("SELECT DISTINCT business_id FROM v3_periods").all() as {
+      business_id: string;
+    }[];
+    for (const { business_id } of businesses)
+      db.prepare(
+        `DELETE FROM v3_periods WHERE business_id = ? AND yyyymm NOT IN (
+           SELECT yyyymm FROM v3_periods WHERE business_id = ?
+           ORDER BY length(block_height) DESC, block_height DESC, observed_at DESC LIMIT ?)`,
+      ).run(business_id, business_id, PERIOD_MONTHS);
+    db.prepare(
+      "INSERT INTO v3_meta (key, value) VALUES ('observation_format', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).run(OBSERVATION_FORMAT);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+  return { upgraded: plan.length, months };
+}
+
 export class V3Observations {
   private readonly bindings: Map<string, V3Binding>;
+  /** Set when stored observations couldn't be upgraded: the capability pauses, the app runs. */
+  readonly upgradeError: string | null = null;
 
   constructor(
     private readonly db: Db,
@@ -133,6 +275,11 @@ export class V3Observations {
   ) {
     validateOptions(opts);
     this.bindings = new Map(opts.bindings.map((b) => [b.business_id, b]));
+    try {
+      upgradeObservationFormat(db);
+    } catch (e) {
+      this.upgradeError = (e as Error).message;
+    }
   }
 
   private clock() {
@@ -371,6 +518,12 @@ export class V3Observations {
         message:
           "This business isn't connected to a v3 contract here; its existing records are unchanged.",
       };
+    if (this.upgradeError)
+      return {
+        state: "paused" as const,
+        code: "format_upgrade_failed",
+        message: MESSAGES.format_upgrade_failed,
+      };
     const proj = this.projection(businessId);
     const transport = this.opts.transport ? "configured" : "unavailable";
     if (!proj)
@@ -394,6 +547,8 @@ export class V3Observations {
       block: s.block,
       finality: s.finality,
       provenance: "Reported by the configured read transport; not independently verified.",
+      network_identity:
+        "The network is named by operator configuration; which chain the endpoint serves isn't verified.",
       observed_at: row.observed_at,
       age_ms: age,
       freshness: age > staleAfter ? ("stale" as const) : ("fresh" as const),
@@ -514,6 +669,12 @@ export class V3Observations {
         throw new HttpError(400, "The period is a month written yyyymm");
       period = p;
     }
+    if (this.upgradeError)
+      return {
+        outcome: "refused" as const,
+        code: "format_upgrade_failed",
+        message: MESSAGES.format_upgrade_failed,
+      };
     const transport = this.opts.transport;
     if (!transport)
       return { outcome: "refused" as const, code: "unavailable", message: MESSAGES.unavailable };

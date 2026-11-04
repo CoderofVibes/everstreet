@@ -21,8 +21,14 @@ export interface BlockRef {
  * is not cryptographic proof. It can't sign, create accounts or broadcast: it has no such methods.
  */
 export interface ViewTransport {
-  /** The current final block. */
-  finalBlock(network: string): Promise<BlockRef>;
+  /**
+   * The one network this transport reads, if it is fixed (job 003i). A binding for another
+   * network is refused before anything is sent. This names the operator's configuration; it is
+   * not a verification of which chain the endpoint serves.
+   */
+  readonly network?: string;
+  /** The current final block. `signal` aborts the request when the snapshot's time is up. */
+  finalBlock(network: string, signal?: AbortSignal): Promise<BlockRef>;
   /** Calls a view method at exactly `block`; returns the raw result text and the block it ran at. */
   view(input: {
     network: string;
@@ -30,6 +36,7 @@ export interface ViewTransport {
     method: string;
     args: Record<string, unknown>;
     block: BlockRef;
+    signal?: AbortSignal;
   }): Promise<{ result: string; block: BlockRef }>;
 }
 
@@ -46,7 +53,14 @@ export type ReadFailure =
   | "mixed_blocks"
   | "malformed"
   | "unknown_enum"
-  | "out_of_range";
+  | "out_of_range"
+  // Job 003i: what an RPC endpoint can say, each kept distinct and truthful.
+  | "unsupported"
+  | "block_unavailable"
+  | "unknown_account"
+  | "execution_failed"
+  | "rpc_error"
+  | "too_large";
 
 /** A refused read. `code` is safe to show; nothing from the transport is carried in it. */
 export class V3ReadError extends Error {
@@ -500,16 +514,6 @@ function checkBlock(b: Raw, where: string): BlockRef {
   return { height, hash };
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    p,
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new V3ReadError("timeout", "the read took too long")), ms);
-    }),
-  ]).finally(() => clearTimeout(timer));
-}
-
 /**
  * Why a newer observation can't follow `prev` (both coherent, `next` at a higher block), or null.
  * Rules and the contract methods behind them: docs/design/V3_OBSERVATIONS.md §4a.
@@ -574,24 +578,64 @@ export async function readSnapshot(
   binding: V3Binding,
   opts: { period?: number; timeoutMs?: number } = {},
 ): Promise<V3Snapshot> {
+  // Job 003i: one deadline for the whole snapshot. When it passes (or the snapshot fails or
+  // finishes) the signal aborts every request still in flight, so a transport that honours it
+  // stops its network and body reads instead of carrying on unobserved.
   const timeout = opts.timeoutMs ?? 10_000;
-  const call = async <T>(p: () => Promise<T>): Promise<T> => {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new V3ReadError("timeout", "the read took too long")),
+    timeout,
+  );
+  const ended = new Promise<never>((_, reject) => {
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        const r = controller.signal.reason;
+        reject(r instanceof V3ReadError ? r : new V3ReadError("unavailable", "the read ended"));
+      },
+      { once: true },
+    );
+  });
+  ended.catch(() => {});
+  const call = async <T>(p: (signal: AbortSignal) => Promise<T>): Promise<T> => {
     try {
-      return await withTimeout(p(), timeout);
+      return await Promise.race([p(controller.signal), ended]);
     } catch (e) {
       if (e instanceof V3ReadError) throw e;
       throw new V3ReadError("unavailable", "the NEAR read failed");
     }
   };
-  const pinned = checkBlock(await call(() => transport.finalBlock(binding.network)), "final block");
+  try {
+    return await readPinned(transport, binding, opts.period, call);
+  } finally {
+    clearTimeout(timer);
+    controller.abort(new V3ReadError("unavailable", "the snapshot is over"));
+  }
+}
+
+async function readPinned(
+  transport: ViewTransport,
+  binding: V3Binding,
+  periodMonth: number | undefined,
+  call: <T>(p: (signal: AbortSignal) => Promise<T>) => Promise<T>,
+): Promise<V3Snapshot> {
+  const opts = { period: periodMonth };
+  if (transport.network !== undefined && transport.network !== binding.network)
+    fail("unsupported", "the binding names another network than the transport reads");
+  const pinned = checkBlock(
+    await call((signal) => transport.finalBlock(binding.network, signal)),
+    "final block",
+  );
   const read = async (method: string, args: Record<string, unknown>) => {
-    const answer = await call(() =>
+    const answer = await call((signal) =>
       transport.view({
         network: binding.network,
         account: binding.account,
         method,
         args,
         block: pinned,
+        signal,
       }),
     );
     const at = checkBlock(answer?.block, method);

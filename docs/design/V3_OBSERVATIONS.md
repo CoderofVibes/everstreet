@@ -259,3 +259,101 @@ this exists yet.
 
 **v2** businesses keep their `Chain` paths unchanged. A business is read as v3 only when a binding
 exists, and the two are never mixed.
+
+## 8. The read-only testnet RPC adapter (job 003i)
+
+`server/src/v3rpc.ts` holds `TestnetRpcTransport`, a `ViewTransport` over NEAR JSON-RPC. It is
+built only from the official documentation:
+
+- [contracts](https://docs.near.org/api/rpc/contracts);
+- [blocks](https://docs.near.org/api/rpc/block-chunk).
+
+It is not wired into `main.ts` or any configuration. Without an operator's explicit injection,
+observations stay unavailable.
+
+**Protocol.** Only two request shapes are ever sent:
+
+1. `block` with `{ finality: "final" }`, which pins the block. `finality` and `block_id` are never
+   combined.
+2. `query` with `{ request_type: "call_function", block_id: <the pinned hash>, account_id,
+   method_name, args_base64 }`, for exactly one of:
+   - `get_control`, `get_outcomes`, `get_treasury` and `get_pending`, each with `{}`;
+   - `get_period` with `{ yyyymm }`, a valid month.
+
+   Any other method, argument, account or network is refused (`unsupported`) before anything is
+   sent.
+
+**What is checked:**
+
+- the JSON-RPC envelope: `jsonrpc` 2.0, exactly one of `result` and `error`, and a fresh `id`
+  matched exactly;
+- block identity: heights must be exact safe integers (an unsafe number is refused, never
+  rounded), hashes must be base58, and every answer's `block_hash` must match the pinned one
+  (`mixed_blocks` otherwise);
+- the result bytes: integers from 0 to 255, at most 64 KiB, then strict UTF-8, then JSON for the
+  decoders.
+
+A contract failure arrives as HTTP 200 with `result.error`. It becomes `execution_failed`, and its
+text and logs are dropped.
+
+**What is asserted, not verified.** The endpoint is operator configuration. The configuration must
+name `testnet` and an `https` endpoint with no credentials, query or fragment, and a host naming
+mainnet is refused. Nothing proves which chain the endpoint actually serves: the answers are its
+report.
+
+I didn't add a chain-id check through node `status`, because the primary pages I could read don't
+document that field. That check (or genesis-hash pinning) remains a gate before any live use. The
+view carries `network_identity` saying so.
+
+**Resources and cancellation:**
+
+- **Deadlines.** Each snapshot has one deadline, and its `AbortSignal` reaches every request. Each
+  request also has its own deadline (8 s by default).
+- **Cancellation is real.** On abort the fetch is cancelled, and a body read in progress is
+  cancelled too (`reader.cancel()`). Nothing is left running unobserved.
+- **Bounded bodies.** A body is read as a stream and cut off at 512 KiB by default, without
+  trusting `Content-Length`; a declared length over the cap is refused before reading.
+- **Bounded concurrency.** At most 2 requests are in flight by default, and a waiting request is
+  released on abort.
+- **No redirects, no retries.** Fetches use `redirect: "error"`, and any 3xx is refused. There are
+  no retries and no failover.
+
+**Errors.** Each failure is a fixed code, and no URL, header, body, RPC message or log reaches a
+response or an audit event:
+
+| Code | When |
+|---|---|
+| `unavailable` | An HTTP error, a network failure, or `NOT_SYNCED_YET` |
+| `timeout` | A deadline passed |
+| `block_unavailable` | `UNKNOWN_BLOCK` or `GARBAGE_COLLECTED_BLOCK` (an archival endpoint would have the block) |
+| `unknown_account` | `UNKNOWN_ACCOUNT` or `INVALID_ACCOUNT` |
+| `rpc_error` | Any other handler error |
+| `execution_failed` | The contract call failed |
+| `too_large` | The response or result exceeded its cap |
+| `malformed` | The envelope, block identity or result didn't check out |
+| `mixed_blocks` | An answer came from another block |
+| `unsupported` | The request was outside the fixed set |
+
+The service still checks the owner's control epoch after the transport answers. A transport fixed
+to one network refuses a binding for another.
+
+**Stored observation format.** `v3_meta.observation_format` is `"2"`: core-only snapshots and
+digests, with months held in `v3_periods`.
+
+On construction, `V3Observations` runs `upgradeObservationFormat`:
+
+1. **Validate every row first.** The JSON, the source and block against the row's own columns, the
+   control sequence, the core views, and any month.
+2. **Then, in one transaction, rewrite.** Snapshots become core-only and core digests are
+   recomputed. Each month moves to `v3_periods` with its original block and observation time; the
+   newest per month wins, up to 24 months.
+3. **Record the format.**
+
+Untouched by the upgrade: sources, the high-water mark, outcomes, the projection, and flags. A
+genuine conflict flag is never cleared.
+
+It is idempotent: with the format recorded it does nothing, and an already-core row recomputes to
+the same digest.
+
+If any row is malformed, nothing is written. The v3 capability alone then reports
+`paused / format_upgrade_failed`; the rest of the app runs.
