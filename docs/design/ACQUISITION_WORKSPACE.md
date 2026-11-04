@@ -147,6 +147,97 @@ most once and answers `already`.
   deadline) is marked "already passed when this was read" when it was. That says nothing about
   how the sale ended; only a later reading of the outcome does.
 
+## Composition and states (job 001i)
+
+Claude, 2026-11-04. Authority: [001i](../astra/jobs/2026-11-04_001i_acquisition-workspace.md).
+Baseline: [AcquisitionDesignReview](../astra/2026-11-04_AcquisitionDesignReview.md).
+
+**Not changed:** controllers, routes, authority, evidence rules, raw units and recovery. This job
+changes composition and wording only. The one addition is that the owner's page reads the
+business's own name (`GET /api/businesses/:id`, owner-only; the same read the desk makes).
+
+### Sale and handover (`/desk/:id/handover`, the owner)
+
+```
+Business desk / Ownership and continuity
+SALE AND HANDOVER · BUSINESS CONTRACT ON NEAR TESTNET
+Ledgerline Invoice Reader                           [ one next action ]
+One sentence: where the sale stands, as read (e.g. "Deal 1, version 1 is proposed; nobody has
+accepted yet. Read at block 5000.")
+Progress: 1 Read the terms · 2 Review and record · 3 Contract closes · 4 Apply here · 5 Buyer takes over
+          each step labelled Completed / Current / Waiting / Blocked in words, never colour alone
+┌ main (opaque) ───────────────────────────┐ ┌ continuity (quieter) ───────────────────┐
+│ Exact terms (price in raw base units,    │ │ Authority that changes                   │
+│ accounts, deal/version/state, accepted,  │ │ Customer rights that stay                │
+│ expiry, how it closes) · Technical       │ │ Needs its own verified transfer          │
+│ Review → Record panel · Recorded versions│ │                                          │
+│ with Check the outcome…                  │ │                                          │
+└──────────────────────────────────────────┘ └──────────────────────────────────────────┘
+```
+
+On a phone the order is: identity, state sentence, next action, progress, terms, continuity.
+
+**The steps (pure: `saleSteps`, `web/src/saleView.ts`).** Titles name actions, never completed
+facts. "Completed" is only ever said from evidence:
+
+| Step | Completed when | Current when | Blocked when |
+|---|---|---|---|
+| Read the sale terms from the contract | a reading shows a live deal (or an intent exists) | no reading, or no deal at the reading | the binding is paused or absent |
+| Review and record the exact version | an intent for the shown deal and version exists | a deal is shown and not recorded | the reading can't be recorded from (`reviewProblem`) |
+| The contract closes the sale | an intent is **applied**; this page only knows a close from a reading of the outcome | a version is recorded | — |
+| Apply the close here | an intent is applied | a version is recorded | — |
+| The buyer takes over | — | an intent is applied | — |
+
+Anything else is "Waiting". Recording is never shown as a signature, and nothing is shown as
+closed before an applied intent.
+
+**The one next action (pure: `saleNext`).** First match wins:
+
+| State | Next action |
+|---|---|
+| Access unconfirmed | Check access |
+| An unanswered record | Recover my original request |
+| Load error | Try again |
+| No v3 contract | Go to Selling (the v2 path) |
+| Paused | None (the reason is shown) |
+| Reviewing | Record this exact version |
+| A shown deal that can be recorded and isn't (including a revised version) | Review this version (display only; recording is a separate click) |
+| A version recorded and not applied | Check the contract's outcome… (opens the existing confirmation with its effects) |
+| Otherwise (nothing read, stale, flagged, no deal) | Read the contract again |
+
+The buttons call the existing controller methods. No new action is invented.
+
+**The continuity panel**, built from the evidence and the existing `APPLY_EFFECTS`:
+- **Authority that changes.**
+  - The owner role on the contract moves to the buyer account, from the deal.
+  - The listed operator grants stay, with their capabilities. Every other operator, including
+    the platform's metering account, needs the new owner to appoint it.
+  - Here, the seller's team access, listing and data rooms end.
+- **Customer rights that stay.**
+  - Prepaid but unused, and reserved for uses in progress, as raw base units.
+  - Customers keep their requests, results and units; nobody gains access to them.
+- **Needs its own verified transfer:** domains, provider and model accounts, secrets, and anything
+  outside this app. None of it moves by applying a sale here.
+
+**Amounts.** They stay exact raw base units with the asset id. No human denomination is shown,
+because no verified denomination metadata reaches this page. The page says so once.
+
+### Evidence room (`/acquire/rooms/:id`, the buyer)
+
+- **Header.** Identity (family, name, tagline) first. Then a compact access strip: team, scopes
+  granted, until when, and Export a permitted snapshot. On phones the stats stack in one column.
+- **Tabs.** Only the granted scopes are tabs. The others are named once, in "Not in this grant:
+  …", instead of a row of disabled tabs.
+- **Where it stands.** The room is granted evidence only. Exact sale terms are recorded on the
+  contract and followed in Sale and handover, and are never inferred here.
+
+### Not in this job
+
+- the v2 Selling and Deal pages (legacy regression paths, unchanged);
+- a fiat denomination;
+- live NEAR;
+- customer composition (001j).
+
 ## Disposable preview
 
 ```

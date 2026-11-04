@@ -1089,11 +1089,34 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 /* Job 003s: the acquisition workspace and handover receipts. */
 .handover .facts { grid-template-columns: minmax(9em, 14em) minmax(0, 1fr); }
 .handover .wrap { overflow-wrap: anywhere; }
-.handover-steps { list-style: none; counter-reset: step; display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 12px 0 16px; }
-.handover-steps li { counter-increment: step; flex: 1 1 160px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13.5px; color: var(--text-3); }
-.handover-steps li::before { content: counter(step) ". "; font-weight: 600; }
-.handover-steps li.step-done { color: var(--mint-ink); border-color: var(--mint-line); background: var(--mint-soft); }
-.handover-steps li.step-now { color: var(--blue-ink); border-color: #c4d6fb; background: var(--blue-soft); font-weight: 600; }
+/* Job 001i: the sale workspace. Identity, state and one action first; status always in words. */
+.sale-head { margin: 6px 0 14px; }
+.sale-title-row { display: flex; gap: 12px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.sale-title { font-size: 32px; margin: 2px 0; overflow-wrap: anywhere; min-width: 0; }
+.sale-state { font-size: 15.5px; color: var(--text); margin: 8px 0 4px; max-width: 68ch; }
+.sale-scope { font-size: 13.5px; margin: 0; max-width: 68ch; }
+.sale-steps { list-style: none; counter-reset: step; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; padding: 0; margin: 0 0 18px; }
+.sale-step { counter-increment: step; display: grid; gap: 3px; align-content: start; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; background: var(--surface); font-size: 13px; color: var(--text-3); min-width: 0; overflow-wrap: anywhere; }
+.sale-step-status { font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.sale-step-status::before { content: counter(step) " · "; }
+.sale-step-title { color: var(--text-2); font-size: 13.5px; }
+.sale-step.is-completed { border-color: var(--success-line); background: var(--success-soft); }
+.sale-step.is-completed .sale-step-status { color: var(--success); }
+.sale-step.is-current { border: 2px solid var(--cobalt); padding: 8px 10px; background: var(--cobalt-soft); }
+.sale-step.is-current .sale-step-status, .sale-step.is-current .sale-step-title { color: var(--cobalt-ink); }
+.sale-step.is-waiting { border-style: dashed; background: transparent; }
+.sale-step.is-blocked { border-color: var(--error); border-left-width: 4px; background: var(--error-soft); }
+.sale-step.is-blocked .sale-step-status { color: var(--error); }
+.sale-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 16px; align-items: start; }
+.sale-main { display: grid; gap: 16px; min-width: 0; }
+.sale-main > * { margin: 0; }
+.sale-continuity { display: grid; gap: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); padding: 14px 16px; font-size: 13.5px; overflow-wrap: anywhere; }
+.sale-continuity ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.sale-continuity p { margin: 4px 0 0; }
+.sale-h3 { font-size: 14.5px; margin: 0; }
+@media (max-width: 980px) { .sale-grid { grid-template-columns: 1fr; } .sale-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
+@media (max-width: 760px) { .sale-title { font-size: 26px; } .sale-title-row .btn { width: 100%; justify-content: center; } .sale-steps { grid-template-columns: 1fr; gap: 6px; } .sale-step { grid-template-columns: 7.5em minmax(0, 1fr); column-gap: 8px; } .sale-step-detail { grid-column: 1 / -1; } }
+@media (prefers-reduced-motion: reduce) { .sale-step { transition: none; } }
 .handover-list { list-style: none; padding: 0; margin: 0; }
 .handover-list li { padding: 10px 0; border-top: 1px solid var(--line); }
 .handover-confirm { border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 10px 12px; margin-top: 8px; }
@@ -1117,3 +1140,16 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 @media (max-width: 760px) { .offer-readiness li { grid-template-columns: 1fr; gap: 4px; } }
 @media (max-width: 1240px) { .use-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .use-side { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) { .use-grid, .use-side { grid-template-columns: 1fr; } .use-head h1 { font-size: 28px; } .use-terms { grid-template-columns: 1fr; } .use-terms dt { margin-top: 6px; } }
+
+/* Job 001i: the evidence room's identity header and access strip (phone first). */
+.room-head { margin: 14px 0 12px; }
+.room-title { font-size: 40px; margin: 0 0 4px; overflow-wrap: anywhere; }
+.room-tagline { font-size: 18px; margin: 0; }
+.room-access { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; border: 1px solid var(--cobalt-line); border-radius: var(--radius); background: var(--cobalt-soft); padding: 12px 14px; margin-bottom: 16px; }
+.room-access-facts { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; font-size: 14px; }
+.room-access-facts dt { font-size: 12px; color: var(--text-3); }
+.room-access-facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.room-access-note { grid-column: 1 / -1; font-size: 13px; margin: 0; }
+.room-stats { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 12px; }
+.room-withheld { font-size: 13px; margin: -6px 0 14px; }
+@media (max-width: 760px) { .room-title { font-size: 28px; } .room-tagline { font-size: 16px; } .room-access { grid-template-columns: 1fr; } .room-access .btn { justify-self: start; } }

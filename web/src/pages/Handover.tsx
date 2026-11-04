@@ -4,6 +4,7 @@
 // each participant's own receipts. Nothing here signs, pays or closes a sale on NEAR.
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { api } from "../api.ts";
 import { APPLY_EFFECTS, Handovers, OwnerHandover, reviewProblem } from "../handover.ts";
 import {
   elapsedAt,
@@ -18,6 +19,7 @@ import {
 } from "../handoverApi.ts";
 import { type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link } from "../router.tsx";
+import { STEP_WORD, saleNext, saleSentence, saleSteps } from "../saleView.ts";
 import { useSession } from "../session.tsx";
 
 const STATUS: Record<IntentStatus, { label: string; tone: string }> = {
@@ -51,29 +53,107 @@ function Effects() {
   );
 }
 
-function Steps({ ev, intents }: { ev: SaleEvidence | null; intents: Intent[] }) {
-  const deal = ev?.observed?.deal ?? null;
-  const applied = intents.some((i) => i.status === "applied");
-  const recorded = intents.some((i) => i.status === "recorded");
-  const steps: [string, "done" | "now" | "later"][] = [
-    ["Sale terms observed on the contract", deal || applied || recorded ? "done" : "now"],
-    ["The exact version recorded here", applied || recorded ? "done" : deal ? "now" : "later"],
-    ["The contract's outcome", applied ? "done" : recorded ? "now" : "later"],
-    ["Applied here: the buyer manages the business", applied ? "done" : "later"],
-    ["The buyer's first steps", applied ? "now" : "later"],
-  ];
+/** Job 001i: where the sale stands, step by step, with its status in words (never colour alone). */
+export function SaleProgress({ ev, intents }: { ev: SaleEvidence | null; intents: Intent[] }) {
   return (
-    <ol className="handover-steps" aria-label="Where the sale stands">
-      {steps.map(([label, s]) => (
-        <li key={label} className={`step-${s}`}>
-          <span className="sr-only">
-            {s === "done" ? "Done: " : s === "now" ? "Now: " : "Later: "}
-          </span>
-          {label}
+    <ol className="sale-steps" aria-label="Where the sale stands">
+      {saleSteps({ evidence: ev, intents }).map((st) => (
+        <li key={st.key} className={`sale-step is-${st.status}`}>
+          <span className="sale-step-status">{STEP_WORD[st.status]}</span>
+          <strong className="sale-step-title">{st.title}</strong>
+          <span className="sale-step-detail">{st.detail}</span>
         </li>
       ))}
     </ol>
   );
+}
+
+/**
+ * Job 001i: the three continuity facts, kept apart: what authority changes, what customers keep,
+ * and what needs its own verified transfer. From the evidence and the existing APPLY_EFFECTS.
+ */
+export function Continuity({ ev }: { ev: SaleEvidence }) {
+  const o = ev.observed;
+  const d = o?.deal ?? null;
+  return (
+    <aside className="sale-continuity" aria-label="What changes and what stays">
+      <section>
+        <h2 className="sale-h3">Authority that changes</h2>
+        <ul>
+          <li>
+            {d ? (
+              <>
+                The owner role on the business's contract moves to{" "}
+                <span className="mono wrap">{d.buyer}</span>.
+              </>
+            ) : (
+              "The owner role on the business's contract moves to the buyer named in the sale."
+            )}
+          </li>
+          <li>
+            {d && d.grants.length > 0 ? (
+              <>
+                These operators keep their roles:{" "}
+                {d.grants.map((g, i) => (
+                  <span key={g.account}>
+                    {i > 0 && "; "}
+                    <span className="mono wrap">{g.account}</span> ({caps(g.caps)})
+                  </span>
+                ))}
+                . Any other operator, including the platform's metering account, needs the new owner
+                to appoint it.
+              </>
+            ) : (
+              "No operator keeps a role unless the sale lists it. The platform's metering account needs the new owner to appoint it."
+            )}
+          </li>
+          <li>
+            Here, the seller's team access, listing and data rooms end when the close is applied.
+          </li>
+        </ul>
+      </section>
+      <section>
+        <h2 className="sale-h3">Customer rights that stay</h2>
+        <ul>
+          {o ? (
+            <>
+              <li>
+                Prepaid, not yet used: <Amount v={o.customers.prepaid_unused} asset={o.asset} />
+              </li>
+              <li>
+                Reserved for uses in progress:{" "}
+                <Amount v={o.customers.reserved_in_use} asset={o.asset} />
+              </li>
+            </>
+          ) : (
+            <li>Customer money held by the contract is shown once the contract has been read.</li>
+          )}
+          <li>Customers keep their requests, results and units; nobody gains access to them.</li>
+        </ul>
+      </section>
+      <section>
+        <h2 className="sale-h3">Needs its own verified transfer</h2>
+        <p>{NOT_TRANSFERRED}</p>
+      </section>
+    </aside>
+  );
+}
+
+/** Job 001i: the business's own name for the owner's page (owner-only read; none if it fails). */
+function useBusinessName(id: string, enabled: boolean) {
+  const [name, setName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    api
+      .desk(id)
+      .then((d) => alive && setName(d.business.name))
+      .catch(() => alive && setName(null));
+    return () => {
+      alive = false;
+    };
+  }, [id, enabled]);
+  return name;
 }
 
 function DealTerms({ d, asset, ev }: { d: ObservedDeal; asset: string; ev: SaleEvidence }) {
@@ -205,6 +285,7 @@ export function HandoverWorkspace({ id }: { id: string }) {
     if (person) void c.start();
     return () => c.dispose();
   }, [c, person]);
+  const name = useBusinessName(id, Boolean(person) && s.status === "ready");
 
   if (!person)
     return (
@@ -262,8 +343,40 @@ export function HandoverWorkspace({ id }: { id: string }) {
       )
     : false;
 
+  const next = saleNext(s);
+  const runNext = () => {
+    switch (next.action) {
+      case "check_access":
+        return void c.checkAccess();
+      case "recover":
+        return void c.recoverOriginal();
+      case "retry":
+        return void c.start();
+      case "reconcile": {
+        // Only opens the existing confirmation (with its effects). The applying click is the one
+        // in that panel, next to what it does; this button never applies by itself.
+        if (!next.intent) return undefined;
+        if (s.confirmApply !== next.intent) void c.reconcile(next.intent);
+        window.setTimeout(() => {
+          const el = document.getElementById(`confirm-${next.intent}`);
+          el?.scrollIntoView({ block: "nearest" });
+          el?.focus({ preventScroll: true });
+        }, 0);
+        return undefined;
+      }
+      case "record":
+        return void c.record();
+      case "review":
+        return c.review();
+      case "refresh":
+        return void c.refreshEvidence();
+      default:
+        return undefined;
+    }
+  };
+
   return (
-    <div className="page handover">
+    <div className="page handover sale-workspace">
       <div className="row" style={{ marginBottom: 4 }}>
         <Link to={`/desk/${id}`} className="muted">
           Business desk
@@ -273,170 +386,205 @@ export function HandoverWorkspace({ id }: { id: string }) {
           Ownership and continuity
         </Link>
       </div>
-      <h1 className="display" style={{ fontSize: 32, margin: "6px 0" }}>
-        Sale and handover
-      </h1>
-      <p className="muted" style={{ maxWidth: "75ch" }}>
-        Follow a sale of this business on its NEAR contract. Nothing here signs, pays or closes a
-        sale: that happens on the contract. This page shows what the contract shows, records the
-        exact version you agree to, and applies a closed sale here only when you or the buyer ask.
-      </p>
+      {/* Job 001i: identity, where the sale stands, and one next action, together. */}
+      <header className="sale-head">
+        <div className="eyebrow">Sale and handover · business contract on NEAR testnet</div>
+        <div className="sale-title-row">
+          <h1 className="display sale-title">{name ?? "This business"}</h1>
+          {next.action === "selling" ? (
+            <Link to={`/desk/${id}/sale`} className="btn btn-primary">
+              {next.label}
+            </Link>
+          ) : (
+            next.action !== "none" && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={next.action === "check_access" ? busy : locked}
+                onClick={runNext}
+              >
+                {s.busy === "check_access"
+                  ? "Checking…"
+                  : s.busy === "record"
+                    ? "Recording…"
+                    : s.busy === "refresh"
+                      ? "Reading…"
+                      : s.busy === "recover"
+                        ? "Recovering…"
+                        : s.busy === "reconcile"
+                          ? "Checking the outcome…"
+                          : next.label}
+              </button>
+            )
+          )}
+        </div>
+        <p className="sale-state" role="status">
+          {saleSentence({ evidence: ev, intents: s.intents })}
+        </p>
+        <p className="muted sale-scope">
+          Nothing here signs, pays or closes a sale: that happens on the contract. This page shows
+          what the contract shows, records the exact version you agree to, and applies a closed sale
+          here only when you or the buyer ask.
+        </p>
+      </header>
 
       {s.access === "unconfirmed" && (
         <div className="notice" role="alert">
-          {s.notice?.message}{" "}
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={busy}
-            onClick={() => void c.checkAccess()}
-          >
-            {s.busy === "check_access" ? "Checking…" : "Check access"}
-          </button>
+          {s.notice?.message}
         </div>
       )}
 
-      <Steps ev={ev} intents={s.intents} />
+      <SaleProgress ev={ev} intents={s.intents} />
 
-      {ev.state === "unbound" && (
-        <section className="card">
-          <h2 style={{ fontSize: 18 }}>No v3 contract here</h2>
-          <p>{ev.message}</p>
-          <p>
-            A sale of a business on the earlier contract continues in{" "}
-            <Link to={`/desk/${id}/sale`}>Selling</Link>.
-          </p>
-        </section>
-      )}
-      {ev.state === "paused" && <p className="notice error">{ev.message}</p>}
-
-      {(ev.state === "observed" || ev.state === "never_observed") && (
-        <section className="card" aria-labelledby="ho-evidence">
-          <h2 id="ho-evidence" style={{ fontSize: 18 }}>
-            What the contract shows
-          </h2>
-          {o ? (
-            <p className={o.freshness === "stale" || o.flag ? "notice error" : "notice info"}>
-              Read at block <span className="mono">{o.block.height}</span> on{" "}
-              {new Date(o.observed_at).toLocaleString()} ({o.freshness}).
-              {o.flag && ` ${o.flag.message}`}
-            </p>
-          ) : (
-            <p className="muted">Nothing has been read from the contract yet.</p>
+      <div className="sale-grid">
+        <div className="sale-main">
+          {ev.state === "unbound" && (
+            <section className="card">
+              <h2 style={{ fontSize: 18 }}>No v3 contract here</h2>
+              <p>{ev.message}</p>
+              <p>
+                A sale of a business on the earlier contract continues in{" "}
+                <Link to={`/desk/${id}/sale`}>Selling</Link>.
+              </p>
+            </section>
           )}
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={locked}
-            onClick={() => void c.refreshEvidence()}
-          >
-            {s.busy === "refresh" ? "Reading…" : "Read the contract again"}
-          </button>
-          <p className="muted" style={{ fontSize: 13 }}>
-            Reading records evidence only. It never applies a sale.
-          </p>
+          {ev.state === "paused" && <p className="notice error">{ev.message}</p>}
 
-          {o && !deal && <p>No sale is in progress at the observed block.</p>}
-          {o && deal && (
-            <>
-              <h3 style={{ fontSize: 16, marginTop: 16 }}>Sale in progress</h3>
-              <DealTerms d={deal} asset={o.asset} ev={ev} />
-              {!recordedThis && problem && (
-                <p className="notice" role="note">
-                  {problem} The terms above are shown as last read, for reference.
+          {(ev.state === "observed" || ev.state === "never_observed") && (
+            <section className="card" aria-labelledby="ho-evidence">
+              <h2 id="ho-evidence" style={{ fontSize: 18 }}>
+                Exact terms, as the contract shows them
+              </h2>
+              {o ? (
+                <p className={o.freshness === "stale" || o.flag ? "notice error" : "notice info"}>
+                  Read at block <span className="mono">{o.block.height}</span> on{" "}
+                  {new Date(o.observed_at).toLocaleString()} ({o.freshness}).
+                  {o.flag && ` ${o.flag.message}`}
                 </p>
+              ) : (
+                <p className="muted">Nothing has been read from the contract yet.</p>
               )}
-              {!recordedThis && !s.reviewing && !problem && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={locked}
+                onClick={() => void c.refreshEvidence()}
+              >
+                {s.busy === "refresh" ? "Reading…" : "Read the contract again"}
+              </button>
+              <p className="muted" style={{ fontSize: 13 }}>
+                Reading records evidence only. It never applies a sale.
+              </p>
+
+              {o && !deal && <p>No sale is in progress at the observed block.</p>}
+              {o && deal && (
+                <>
+                  <h3 style={{ fontSize: 16, marginTop: 16 }}>Sale in progress</h3>
+                  <DealTerms d={deal} asset={o.asset} ev={ev} />
+                  <p className="muted" style={{ fontSize: 13 }}>
+                    Amounts are exact base units of <span className="mono">{o.asset}</span>, as the
+                    contract holds them. No dollar value is shown: this page has no verified
+                    denomination for the asset.
+                  </p>
+                  {!recordedThis && problem && (
+                    <p className="notice" role="note">
+                      {problem} The terms above are shown as last read, for reference.
+                    </p>
+                  )}
+                  {!recordedThis && !s.reviewing && !problem && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled={locked}
+                      onClick={() => c.review()}
+                    >
+                      Review this version
+                    </button>
+                  )}
+                  {recordedThis && <p className="muted">This exact version is recorded below.</p>}
+                </>
+              )}
+            </section>
+          )}
+
+          {s.reviewing && (
+            <section className="card" aria-labelledby="ho-review">
+              <h2 id="ho-review" style={{ fontSize: 18 }}>
+                Record version {s.reviewing.version} of deal {s.reviewing.seq}
+              </h2>
+              <p>
+                Recording doesn't sign or send anything. It lets this app apply exactly this sale
+                later, once the contract shows it closed. If the terms are revised, a new version
+                needs its own review.
+              </p>
+              <div className="row" style={{ gap: 8 }}>
                 <button
                   type="button"
-                  className="btn btn-primary"
-                  disabled={locked}
-                  onClick={() => c.review()}
+                  className="btn btn-secondary"
+                  disabled={locked || problem !== null}
+                  onClick={() => void c.record()}
                 >
-                  Review this version
+                  {s.busy === "record" ? "Recording…" : "Record this exact version"}
                 </button>
-              )}
-              {recordedThis && <p className="muted">This exact version is recorded below.</p>}
-            </>
+              </div>
+            </section>
           )}
-        </section>
-      )}
 
-      {s.reviewing && (
-        <section className="card" aria-labelledby="ho-review">
-          <h2 id="ho-review" style={{ fontSize: 18 }}>
-            Record version {s.reviewing.version} of deal {s.reviewing.seq}
-          </h2>
-          <p>
-            Recording doesn't sign or send anything. It lets this app apply exactly this sale later,
-            once the contract shows it closed. If the terms are revised, a new version needs its own
-            review.
-          </p>
-          <div className="row" style={{ gap: 8 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={locked || problem !== null}
-              onClick={() => void c.record()}
-            >
-              {s.busy === "record" ? "Recording…" : "Record this exact version"}
-            </button>
-          </div>
-        </section>
-      )}
+          {s.unanswered && (
+            <div className="notice info" role="note">
+              Your request to record deal {s.unanswered.seq}, version {s.unanswered.version}, wasn't
+              answered. Recover it first: it's the same request, so nothing is recorded twice.{" "}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={locked}
+                onClick={() => void c.recoverOriginal()}
+              >
+                {s.busy === "recover" ? "Recovering…" : "Recover my original request"}
+              </button>
+            </div>
+          )}
 
-      {s.unanswered && (
-        <div className="notice info" role="note">
-          Your request to record deal {s.unanswered.seq}, version {s.unanswered.version}, wasn't
-          answered. Recover it first: it's the same request, so nothing is recorded twice.{" "}
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={locked}
-            onClick={() => void c.recoverOriginal()}
-          >
-            {s.busy === "recover" ? "Recovering…" : "Recover my original request"}
-          </button>
+          {s.intents.length > 0 && (
+            <section className="card" aria-labelledby="ho-intents">
+              <h2 id="ho-intents" style={{ fontSize: 18 }}>
+                Recorded versions
+              </h2>
+              <ul className="handover-list">
+                {s.intents.map((i) => (
+                  <li key={i.id}>
+                    <div>
+                      <strong>
+                        Deal {i.deal.seq}, version {i.deal.version}
+                      </strong>{" "}
+                      <span className={`pill ${STATUS[i.status].tone}`}>
+                        {STATUS[i.status].label}
+                      </span>
+                    </div>
+                    <div className="muted" style={{ fontSize: 13.5 }}>
+                      Buyer <span className="mono wrap">{i.buyer_account}</span> · price{" "}
+                      <Amount v={i.terms.price} asset={o?.asset ?? "the business's asset"} /> ·
+                      recorded {new Date(i.created_at).toLocaleString()}
+                    </div>
+                    {i.status === "recorded" && (
+                      <ApplyControl
+                        id={i.id}
+                        confirming={s.confirmApply === i.id}
+                        busy={locked}
+                        onApply={() => void c.reconcile(i.id)}
+                        onCancel={() => c.cancelApply()}
+                      />
+                    )}
+                    <AnswerLine a={s.answers[i.id]} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
-      )}
+        <Continuity ev={ev} />
+      </div>
 
-      {s.intents.length > 0 && (
-        <section className="card" aria-labelledby="ho-intents">
-          <h2 id="ho-intents" style={{ fontSize: 18 }}>
-            Recorded versions
-          </h2>
-          <ul className="handover-list">
-            {s.intents.map((i) => (
-              <li key={i.id}>
-                <div>
-                  <strong>
-                    Deal {i.deal.seq}, version {i.deal.version}
-                  </strong>{" "}
-                  <span className={`pill ${STATUS[i.status].tone}`}>{STATUS[i.status].label}</span>
-                </div>
-                <div className="muted" style={{ fontSize: 13.5 }}>
-                  Buyer <span className="mono wrap">{i.buyer_account}</span> · price{" "}
-                  <Amount v={i.terms.price} asset={o?.asset ?? "the business's asset"} /> · recorded{" "}
-                  {new Date(i.created_at).toLocaleString()}
-                </div>
-                {i.status === "recorded" && (
-                  <ApplyControl
-                    confirming={s.confirmApply === i.id}
-                    busy={locked}
-                    onApply={() => void c.reconcile(i.id)}
-                    onCancel={() => c.cancelApply()}
-                  />
-                )}
-                <AnswerLine a={s.answers[i.id]} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <p className="muted" style={{ fontSize: 13 }}>
-        {NOT_TRANSFERRED}
-      </p>
       <div role="status" aria-live="polite">
         {s.notice && s.access !== "unconfirmed" && (
           <p
@@ -451,18 +599,21 @@ export function HandoverWorkspace({ id }: { id: string }) {
 }
 
 function ApplyControl({
+  id,
   confirming,
   busy,
   onApply,
   onCancel,
 }: {
+  /** Job 001i: the confirmation panel's id, so the header's next action can bring it into view. */
+  id?: string;
   confirming: boolean;
   busy: boolean;
   onApply: () => void;
   onCancel: () => void;
 }) {
   return confirming ? (
-    <div className="handover-confirm">
+    <div className="handover-confirm" id={id ? `confirm-${id}` : undefined} tabIndex={-1}>
       <strong>Before checking the outcome</strong>
       <Effects />
       <div className="row" style={{ gap: 8 }}>

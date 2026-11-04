@@ -326,35 +326,47 @@ export function AcquireRoom({ id }: { id: string }) {
   if (!room) return <div className="page muted">Opening the room…</div>;
   const r = room.request;
   const fin = room.financials;
+  const granted = TABS.filter(([k]) => room[k as keyof Room]);
+  const withheld = TABS.filter(([k]) => !room[k as keyof Room]);
   return (
     <div className="page">
       <Link to="/acquire">← Back to acquisitions</Link>
-      <div className="preview-banner" style={{ marginTop: 16 }}>
-        <span>
-          <strong>{r.buyer.name}</strong> · Evidence room · Access: {scopeList(r.granted ?? [])} ·
-          until {when(r.expires_at)} · Fictional example
-        </span>
-        <a
-          href={`/api/acquire/rooms/${id}/export`}
-          className="btn btn-secondary"
-          style={{ minHeight: 34 }}
-          download
-        >
+      {/* Job 001i: whose business this is first, then exactly what this grant lets you see. */}
+      <header className="room-head">
+        <div className="eyebrow">Evidence room · {room.business.family_label}</div>
+        <h1 className="display room-title">{room.business.name}</h1>
+        <p className="muted room-tagline">{room.business.tagline}</p>
+      </header>
+      <section className="room-access" aria-label="Your access to this room">
+        <dl className="room-access-facts">
+          <div>
+            <dt>Opened to</dt>
+            <dd>{r.buyer.name}</dd>
+          </div>
+          <div>
+            <dt>You can see</dt>
+            <dd>{scopeList(r.granted ?? [])}</dd>
+          </div>
+          <div>
+            <dt>Until</dt>
+            <dd>{when(r.expires_at)}</dd>
+          </div>
+          <div>
+            <dt>Opened</dt>
+            <dd>
+              {when(r.decided_at)} · for: {r.purpose}
+            </dd>
+          </div>
+        </dl>
+        <a href={`/api/acquire/rooms/${id}/export`} className="btn btn-secondary" download>
           Export a permitted snapshot
         </a>
-      </div>
-      <p className="muted" style={{ fontSize: 13, marginTop: -8 }}>
-        When access ends, this room stops working. A downloaded snapshot can't be recalled, so it
-        says when access was due to end.
-      </p>
-      <div className="eyebrow">{room.business.family_label}</div>
-      <h1 className="display" style={{ fontSize: 40, margin: "0 0 4px" }}>
-        {room.business.name}
-      </h1>
-      <p className="muted" style={{ fontSize: 18 }}>
-        {room.business.tagline}
-      </p>
-      <div className="stat-row" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: 20 }}>
+        <p className="muted room-access-note">
+          Fictional example. Access is checked on every visit; when it ends, this room stops
+          working. A downloaded snapshot can't be recalled, so it says when access was due to end.
+        </p>
+      </section>
+      <div className="stat-row room-stats">
         <div className="stat">
           <span className="muted" style={{ fontSize: 13 }}>
             Asking price
@@ -379,33 +391,31 @@ export function AcquireRoom({ id }: { id: string }) {
             {fin?.estimate.label ?? ""}
           </span>
         </div>
-        <div className="stat">
-          <span className="muted" style={{ fontSize: 13 }}>
-            Seller opened to you
-          </span>
-          <strong style={{ fontSize: 18 }}>{when(r.decided_at)}</strong>
-          <span className="muted" style={{ fontSize: 12 }}>
-            For: {r.purpose}
-          </span>
-        </div>
       </div>
+      <p className="muted" style={{ fontSize: 13 }}>
+        This room is evidence, not a sale. An actual sale's exact terms are on the business's
+        contract; once one closes, your record of it is in{" "}
+        <Link to="/handovers">your handover receipts</Link>.
+      </p>
       {room.chain_error && <p className="notice">{room.chain_error}</p>}
-      <div className="tabs">
-        {TABS.map(([k, label]) => (
+      <nav className="tabs" aria-label="Evidence opened to you">
+        {granted.map(([k, label]) => (
           <button
             key={k}
             type="button"
+            aria-pressed={tab === k}
             className={`tab${tab === k ? " active" : ""}`}
-            disabled={!room[k as keyof Room]}
-            title={room[k as keyof Room] ? undefined : "Not in this grant"}
-            style={room[k as keyof Room] ? undefined : { opacity: 0.45, cursor: "not-allowed" }}
             onClick={() => setTab(k)}
           >
             {label}
-            {!room[k as keyof Room] && " · not granted"}
           </button>
         ))}
-      </div>
+      </nav>
+      {withheld.length > 0 && (
+        <p className="muted room-withheld">
+          Not in this grant: {withheld.map(([, label]) => label).join(", ")}.
+        </p>
+      )}
 
       {tab === "financials" && fin && (
         <>
