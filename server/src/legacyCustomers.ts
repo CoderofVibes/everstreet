@@ -4,9 +4,9 @@
 // hidden on its own while totals and differences stayed published.
 //
 // Threat model (docs/design/LEGACY_CUSTOMER_EVIDENCE.md): an authorized buyer reads the complete
-// summary (room and export are the same projection). They must not be able to work out that any
-// group of customers, orders or bookings has exactly 1 or 2 members, whether from a published
-// count or from differences and bounds among published counts. Rule: compute every published
+// summary (room and export are the same projection). Within one summary, its listed counts and
+// defined group differences must not disclose exactly 1 or 2 members. This does not cover every
+// possible subgroup or differences between reports at different times. Rule: compute each listed
 // count and every difference that is itself a group; if any is 1 or 2, withhold EVERY count in
 // the summary together. A withheld value claims no size: withheld fields are all-or-nothing, so
 // they never say which field was small or whether a given field is small or large. Zero is shown
@@ -82,10 +82,12 @@ export function discloseLegacy(c: LegacyCounts): LegacyDisclosed {
 }
 
 export const LEGACY_NOTE =
-  '"Withheld" means not shown; it says nothing about any size. When any group these figures describe, or could be worked out from them, would have 1 or 2 members, every count here is withheld together. Zero is shown as zero.';
+  'The customer, order and booking counts here, plus selected differences between them, are checked for groups of 1 or 2. If found, all these counts are withheld together. "Withheld" does not identify the size of any particular count. Otherwise, zero is shown as zero.';
 
 export const LEGACY_LIMITS = [
   "Being withheld itself tells you some group here is small, not which one.",
+  "This checks one summary at a time and only its listed counts and documented group differences. It does not protect every possible subgroup.",
+  "Comparing reports from different times can reveal small changes, even when each report shows only larger counts.",
   "This doesn't make anyone anonymous against what you already know from elsewhere.",
   "Other evidence you may also be granted, such as monthly money in and out, can show exact amounts from which order counts follow; this summary can't prevent that.",
 ];

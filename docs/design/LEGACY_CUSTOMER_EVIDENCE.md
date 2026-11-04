@@ -27,9 +27,9 @@ The digital customer-use evidence is separate (`digital_performance`,
 **The reader.** An authorized buyer team member. They read the complete summary (room or
 export, which are identical) as often as the grant allows.
 
-**What must not be learnable from the summary.** That any group it describes has exactly 1 or 2
-members. A group is a set of customers, orders or bookings: each published count, and each
-difference of published counts that is itself a set. The differences counted are:
+**Single-summary guarantee.** No listed count or defined group difference below is disclosed as
+exactly 1 or 2. This does not cover every possible subgroup or repeated observations over time.
+The defined differences counted are:
 - orders neither delivered nor refunded;
 - customers with exactly one order;
 - orders beyond each customer's first;
@@ -37,6 +37,11 @@ difference of published counts that is itself a set. The differences counted are
 - bookings without an order, or orders without a booking.
 
 **What it does not cover:**
+- differences between reports at different times. Astra's two-snapshot probe publishes
+  (customers3,orders9,delivered3,refunded3,repeat3,bookings0), then the same counts with orders10
+  and delivered4; both pass the rule, so the reader learns exactly one new delivered order. No
+  external knowledge is needed. The buyer-facing limits explicitly disclose this boundary;
+- arbitrary subgroup inferences beyond the listed counts and defined differences;
 - what the buyer knows from elsewhere;
 - customer identity itself (the summary has no names);
 - other evidence the same buyer is granted. Financials publishes exact monthly money; with a

@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Legacy disclosure accepted](2026-11-04_LegacyDisclosureAccepted.md) |1037 tests; actual room/export match,1440/390, small/large/zero; temporal inference limits corrected |003u2 accepted;001h next; all live gates open |
+| 2026-11-04 | [Import recovery repeat](2026-11-04_ImportRecoveryRepeat.md) | Actual Save404/recheck503 settles; draft retained, Check access/save/reopen pass at390; remaining action paths explicit |003u2 sole writer active;004a3 partial browser gate advanced |
 | 2026-11-04 | [Studio phone and demand recovery](2026-11-04_StudioPhoneAndDemandReview.md) |1028 checks; phone edit/focus/long tools/save pass; demand original recovery preserves newer typing |001g1 accepted;003u2 next; broader gates remain |
 | 2026-11-04 | [Home fix independent review](2026-11-04_HomeFixIndependentReview.md) |1023 tests; actual delayed-response identity and catalog/foundation recovery pass;390 keyboard/fit |001f2 accepted;001g1 next |
 | 2026-11-04 | [Customer composition review](2026-11-04_CustomerCompositionReview.md) | Actual customer review1440/390; compact active step, exact units/recovery/continuity ->001j; broad functional gates preserved | Queued after001i; sole001f2 writer continues |
@@ -49,3 +51,4 @@
 | 2026-11-01 | [Intact businesses and living profiles](2026-11-01_IntactProfiles.md) | Extends Launch pad: business continuity from activation, profitable API and customer-cooperative journeys, living profiles and social layer, computed financials and valuation, owner rules, seven wireframes, v2 requirements and eight-phase update | Proposal complete; six Tony decisions with recommendations |
 | 2026-11-01 | [Launch pad](2026-11-01_LaunchPad.md) | Launch-first product: founder journey from idea to first customers, profiles and distribution, early valuations, acquisitions, service discovery, NEAR architecture, mobile UI and phased build order | Proposal complete; five Tony decisions with recommendations |
 | 2026-11-01 | [Platform vision](2026-11-01_PlatformVision.md) | Full platform: founder and customer journeys, acquisitions and valuations, NEAR architecture, UI, bold extensions and phased build order | Proposal complete; Tony decisions open |
+
