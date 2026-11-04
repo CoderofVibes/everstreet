@@ -121,6 +121,13 @@ export interface DigitalPublic {
     status: "available" | "not_open" | "in_development";
     use_offer_id: string | null;
   }[];
+  /** Job 001e: an owner-written illustrative example (never a live run), or null. */
+  example: {
+    product_name: string;
+    input: string;
+    outputs: { label: string; value: string }[];
+    label: string;
+  } | null;
   availability: "available" | "coming_soon";
   published_at: string | null;
 }

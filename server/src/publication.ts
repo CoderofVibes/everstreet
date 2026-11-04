@@ -16,7 +16,20 @@ export const PROFILE_LIMITS = {
   capability: 120,
   capabilities: 6,
   products: 6,
+  // Job 001e: an optional owner-written illustrative example.
+  exampleInput: 1200,
+  exampleOutputs: 8,
+  exampleLabel: 40,
+  exampleValue: 200,
 } as const;
+
+/** Job 001e: an owner-written, fictional example for one featured product (text only). */
+export interface ProfileExample {
+  /** A featured product project of this business (never shown publicly). */
+  product: string;
+  input: string;
+  outputs: { label: string; value: string }[];
+}
 
 export interface ProfileDraft {
   headline: string;
@@ -25,7 +38,23 @@ export interface ProfileDraft {
   capabilities: string[];
   /** Featured product projects of this business (ids; never shown publicly). */
   products: string[];
+  example: ProfileExample | null;
 }
+
+/** The fixed public label beside every example. */
+export const EXAMPLE_LABEL =
+  "Illustrative example written by the business. Not a live run; results from the real product can differ.";
+
+/** Plain text: control characters removed (newlines kept where allowed), trimmed. */
+const plain = (s: string, keepNewlines: boolean) =>
+  [...s.replace(/\r\n?/g, "\n")]
+    .filter((ch) => {
+      const c = ch.charCodeAt(0);
+      if (ch === "\n") return keepNewlines;
+      return c >= 32 && c !== 127;
+    })
+    .join("")
+    .trim();
 
 interface LiveProduct {
   project_id: string;
@@ -42,8 +71,14 @@ interface LiveProduct {
  */
 export const reviewIdentity = (rev: number, snap: unknown) =>
   createHash("sha256").update(JSON.stringify({ rev, snap })).digest("hex");
-interface LiveSnapshot extends Omit<ProfileDraft, "products"> {
+interface LiveSnapshot extends Omit<ProfileDraft, "products" | "example"> {
   products: LiveProduct[];
+  /** Job 001e: the reviewed example, with its product's reviewed public name. */
+  example?: {
+    product_name: string;
+    input: string;
+    outputs: { label: string; value: string }[];
+  } | null;
 }
 
 const EMPTY: ProfileDraft = {
@@ -52,6 +87,7 @@ const EMPTY: ProfileDraft = {
   audience: "",
   capabilities: [],
   products: [],
+  example: null,
 };
 const now = () => new Date().toISOString();
 const bad = (message: string, code?: string): never => {
@@ -110,13 +146,48 @@ export class Publications {
         .map((c, i) => text(c, PROFILE_LIMITS.capability, `Capability ${i + 1}`))
         .filter(Boolean),
       products: ids,
+      example: this.parseExample(input.example, ids),
     };
+  }
+
+  /** Job 001e: an optional example: text only, bounded, for a featured product. */
+  private parseExample(v: unknown, featured: string[]): ProfileExample | null {
+    if (v === undefined || v === null) return null;
+    if (typeof v !== "object" || Array.isArray(v)) bad("The example must be an object");
+    const e = v as Record<string, unknown>;
+    const product = String(e.product ?? "");
+    if (!featured.includes(product))
+      bad("The example must be for one of the featured products", "example_product");
+    if (typeof e.input !== "string") bad("The example input must be text");
+    const input = plain(e.input as string, true);
+    if (input.length < 1) bad("Write the example input");
+    if (input.length > PROFILE_LIMITS.exampleInput)
+      bad(`The example input can be at most ${PROFILE_LIMITS.exampleInput} characters`);
+    const rows = e.outputs;
+    if (!Array.isArray(rows) || rows.length < 1) bad("Add at least one example result");
+    if ((rows as unknown[]).length > PROFILE_LIMITS.exampleOutputs)
+      bad(`At most ${PROFILE_LIMITS.exampleOutputs} example results`);
+    const outputs = (rows as unknown[]).map((r, i) => {
+      const o = (r ?? {}) as Record<string, unknown>;
+      if (typeof o.label !== "string" || typeof o.value !== "string")
+        bad(`Example result ${i + 1} needs a label and a value`);
+      const label = plain(o.label as string, false);
+      const value = plain(o.value as string, false);
+      if (!label || !value) bad(`Example result ${i + 1} needs a label and a value`);
+      if (label.length > PROFILE_LIMITS.exampleLabel)
+        bad(`Example result labels can be at most ${PROFILE_LIMITS.exampleLabel} characters`);
+      if (value.length > PROFILE_LIMITS.exampleValue)
+        bad(`Example result values can be at most ${PROFILE_LIMITS.exampleValue} characters`);
+      return { label, value };
+    });
+    return { product, input, outputs };
   }
 
   private draftOf(businessId: string): { draft: ProfileDraft; rev: number } {
     const r = this.row(businessId);
+    // A draft saved before 001e has no example field: it has none.
     return r
-      ? { draft: JSON.parse(r.draft) as ProfileDraft, rev: r.draft_rev }
+      ? { draft: { ...EMPTY, ...(JSON.parse(r.draft) as Partial<ProfileDraft>) }, rev: r.draft_rev }
       : { draft: EMPTY, rev: 0 };
   }
 
@@ -190,12 +261,24 @@ export class Publications {
         released: Boolean(a),
       });
     }
+    // Job 001e: the example carries its product's reviewed public name (never its id).
+    const exampleProduct = d.example
+      ? products.find((p) => p.project_id === d.example?.product)
+      : undefined;
     return {
       headline: d.headline,
       summary: d.summary,
       audience: d.audience,
       capabilities: d.capabilities,
       products,
+      example:
+        d.example && exampleProduct
+          ? {
+              product_name: exampleProduct.name,
+              input: d.example.input,
+              outputs: d.example.outputs,
+            }
+          : null,
     };
   }
 
@@ -221,8 +304,8 @@ export class Publications {
     const r = this.row(businessId);
     const { draft, rev } = this.draftOf(businessId);
     const b = this.db
-      .prepare("SELECT published_at FROM businesses WHERE id = ?")
-      .get(businessId) as { published_at: string | null };
+      .prepare("SELECT published_at, slug, name FROM businesses WHERE id = ?")
+      .get(businessId) as { published_at: string | null; slug: string; name: string };
     const snap = this.snapshot(businessId, draft);
     const live = r?.live ? (JSON.parse(r.live) as LiveSnapshot) : null;
     // The live profile names a release that is no longer the product's active one.
@@ -239,6 +322,10 @@ export class Publications {
       live_rev: r?.live_rev ?? null,
       live_published_at: r?.live_published_at ?? null,
       page_published: b.published_at !== null,
+      /** Job 001e: for the editor's "View live page" link (the owner's own business). */
+      slug: b.slug,
+      /** Job 001e: the storefront preview shows the business name, as the public page does. */
+      business_name: b.name,
       live: live ? this.section(live, r?.live_published_at ?? null) : null,
       live_outdated: outdated,
       preview: this.section(snap, null),
@@ -374,6 +461,8 @@ function sectionOf(db: Db, snap: LiveSnapshot, publishedAt: string | null) {
     audience: snap.audience,
     capabilities: snap.capabilities,
     products,
+    // Job 001e: the reviewed example, always under the fixed illustrative label.
+    example: snap.example ? { ...snap.example, label: EXAMPLE_LABEL } : null,
     availability: products.some((p) => p.status === "available")
       ? ("available" as const)
       : ("coming_soon" as const),

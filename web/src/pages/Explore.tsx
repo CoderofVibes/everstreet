@@ -44,7 +44,16 @@ export function Tile({
         </div>
         <h3 style={{ fontSize: 18, marginBottom: 4 }}>{b.name}</h3>
         {b.digital ? (
-          <p style={{ marginBottom: 6 }}>{b.digital.headline}</p>
+          <>
+            <p style={{ marginBottom: 6 }}>{b.digital.headline}</p>
+            {/* Job 001e: only what was published: its first capability and whether an example is. */}
+            {b.digital.capabilities[0] && (
+              <p className="muted" style={{ fontSize: 13.5, margin: "0 0 6px" }}>
+                {b.digital.capabilities[0]}
+              </p>
+            )}
+            {b.digital.example && <span className="pill">Example included</span>}
+          </>
         ) : (
           b.offer && <p style={{ marginBottom: 6 }}>{b.offer.title}</p>
         )}

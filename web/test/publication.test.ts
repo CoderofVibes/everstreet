@@ -24,6 +24,7 @@ const draft: ProfileDraft = {
   audience: "Bookkeepers",
   capabilities: ["Reads totals"],
   products: ["p1"],
+  example: null,
 };
 const preview: DigitalPublic = {
   headline: draft.headline,

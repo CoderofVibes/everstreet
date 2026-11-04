@@ -10,12 +10,11 @@ import {
   type Receipt,
 } from "../api.ts";
 import { businessOffers, type OfferView } from "../customerApi.ts";
-import { AVAILABILITY_LABEL } from "../publication.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { Avatar, FAMILY_LABEL, money, OfferCard, STAGE_LABEL } from "../ui.tsx";
 import { ago, rememberVia, viaFor, when } from "../via.ts";
-import { DigitalProfile } from "./DigitalProfile.tsx";
+import { DigitalStorefront } from "./DigitalStorefront.tsx";
 
 function seatsText(s: PublicSession) {
   if (!s.available || s.seats_left === null) return "Availability can't be checked right now";
@@ -311,268 +310,286 @@ export function StorefrontView({
     setFollowing({ on: r.following, n: r.followers });
   };
 
+  // Job 001e: a published digital profile leads with one storefront header (no second hero, no
+  // empty booking card, no zero-follower or numbers placeholders); a mixed business keeps its
+  // legacy offering beside the rest.
+  const digital = page.digital ?? null;
+  const aside = !digital || Boolean(page.offer);
   return (
-    <div className="storefront">
-      <div>
-        <div className="storefront-hero">
-          <div className="row" style={{ marginBottom: 12 }}>
-            <span className="pill">{FAMILY_LABEL[page.family]}</span>
-            {/* Job 001d: a digital profile's state is its availability, not the old stage. */}
-            {page.digital ? (
-              <span
-                className={`pill ${page.digital.availability === "available" ? "lime" : "caution"}`}
-              >
-                {AVAILABILITY_LABEL[page.digital.availability]}
-              </span>
-            ) : (
-              <span className="pill lime">{STAGE_LABEL[page.stage]}</span>
-            )}
-            {page.new_here && <span className="pill">New here</span>}
-            <span className="spacer" />
-            {!page.viewer_is_owner && (
-              <button
-                type="button"
-                className={`btn ${following.on ? "btn-secondary" : "btn-primary"}`}
-                onClick={toggleFollow}
-                disabled={preview}
-              >
-                {following.on ? "Following" : "Follow"}
-              </button>
-            )}
-          </div>
-          <h1>{page.name}</h1>
-          {page.tagline && <p className="tagline">{page.tagline}</p>}
-          {page.digital && !page.tagline && <p className="tagline">{page.digital.headline}</p>}
-          <p className="muted" style={{ fontSize: 14 }}>
-            {following.n} {following.n === 1 ? "follower" : "followers"}
-          </p>
-        </div>
-
-        {page.idea && (page.idea.problem || page.idea.why_me || page.idea.evidence) && (
-          <section className="card prose">
-            <div className="eyebrow">The idea</div>
-            {page.idea.problem && (
-              <p style={{ fontSize: 18, color: "var(--ink)" }}>{page.idea.problem}</p>
-            )}
-            {(page.idea.why_me || page.idea.evidence) && (
-              <>
-                <h3 style={{ fontSize: 16, marginTop: 16 }}>
-                  {page.history?.length
-                    ? `Why ${page.history[0]?.from.split(" ")[0]} started it`
-                    : `Why ${first}`}
-                </h3>
-                <p>{page.idea.why_me || page.idea.evidence}</p>
-              </>
-            )}
-            {page.idea.ask && (
-              <p className="notice ok" style={{ marginTop: 12, marginBottom: 0 }}>
-                <strong>Right now:</strong> {page.idea.ask}
-              </p>
-            )}
-          </section>
-        )}
-
-        {(page.updates ?? []).length > 0 && (
-          <section className="card">
-            <div className="eyebrow">Updates</div>
-            {(page.updates ?? []).map((u) => (
-              <div key={u.id} className="message">
-                <div className="meta">{ago(u.created_at)}</div>
-                <p style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{u.body}</p>
+    <>
+      {digital && (
+        <DigitalStorefront
+          name={page.name}
+          d={digital}
+          family={FAMILY_LABEL[page.family] ?? "Digital product"}
+          founder={page.founder}
+          followers={following.n}
+          following={following.on}
+          onFollow={page.viewer_is_owner ? undefined : toggleFollow}
+          preview={preview}
+        />
+      )}
+      {digital && page.viewer_is_owner && !preview && (
+        <p className="notice ok">
+          This is your page. <Link to="/desk">Go to your desk</Link> to edit its public profile.
+        </p>
+      )}
+      <div className={`storefront${aside ? "" : " sf-single"}`}>
+        <div>
+          {!digital && (
+            <div className="storefront-hero">
+              <div className="row" style={{ marginBottom: 12 }}>
+                <span className="pill">{FAMILY_LABEL[page.family]}</span>
+                <span className="pill lime">{STAGE_LABEL[page.stage]}</span>
+                {page.new_here && <span className="pill">New here</span>}
+                <span className="spacer" />
+                {!page.viewer_is_owner && (
+                  <button
+                    type="button"
+                    className={`btn ${following.on ? "btn-secondary" : "btn-primary"}`}
+                    onClick={toggleFollow}
+                    disabled={preview}
+                  >
+                    {following.on ? "Following" : "Follow"}
+                  </button>
+                )}
               </div>
+              <h1>{page.name}</h1>
+              {page.tagline && <p className="tagline">{page.tagline}</p>}
+              <p className="muted" style={{ fontSize: 14 }}>
+                {following.n} {following.n === 1 ? "follower" : "followers"}
+              </p>
+            </div>
+          )}
+
+          {page.idea && (page.idea.problem || page.idea.why_me || page.idea.evidence) && (
+            <section className="card prose">
+              <div className="eyebrow">The idea</div>
+              {page.idea.problem && (
+                <p style={{ fontSize: 18, color: "var(--ink)" }}>{page.idea.problem}</p>
+              )}
+              {(page.idea.why_me || page.idea.evidence) && (
+                <>
+                  <h3 style={{ fontSize: 16, marginTop: 16 }}>
+                    {page.history?.length
+                      ? `Why ${page.history[0]?.from.split(" ")[0]} started it`
+                      : `Why ${first}`}
+                  </h3>
+                  <p>{page.idea.why_me || page.idea.evidence}</p>
+                </>
+              )}
+              {page.idea.ask && (
+                <p className="notice ok" style={{ marginTop: 12, marginBottom: 0 }}>
+                  <strong>Right now:</strong> {page.idea.ask}
+                </p>
+              )}
+            </section>
+          )}
+
+          {(page.updates ?? []).length > 0 && (
+            <section className="card">
+              <div className="eyebrow">Updates</div>
+              {(page.updates ?? []).map((u) => (
+                <div key={u.id} className="message">
+                  <div className="meta">{ago(u.created_at)}</div>
+                  <p style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{u.body}</p>
+                </div>
+              ))}
+            </section>
+          )}
+
+          {page.about && (
+            <section className="card prose">
+              <div className="eyebrow">About</div>
+              <p style={{ whiteSpace: "pre-wrap" }}>{page.about}</p>
+            </section>
+          )}
+
+          <section className="card">
+            <div className="eyebrow">Who runs it</div>
+            <div className="founder">
+              <Avatar name={page.founder.display_name} large />
+              <div>
+                <h3 style={{ marginBottom: 2 }}>
+                  {page.founder.id && !preview ? (
+                    <Link to={`/p/${page.founder.id}`}>{page.founder.display_name}</Link>
+                  ) : (
+                    page.founder.display_name
+                  )}
+                </h3>
+                {page.founder.headline && <p className="muted">{page.founder.headline}</p>}
+                {page.founder.bio && <p style={{ whiteSpace: "pre-wrap" }}>{page.founder.bio}</p>}
+              </div>
+            </div>
+            {page.history?.map((h) => (
+              <p key={h.at} className="near-note">
+                Changed hands{" "}
+                {new Date(h.at).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+                : {h.from} to {h.team ? `${h.team} (${h.to})` : h.to}, on NEAR testnet
+                {h.generation ? ` at control generation ${h.generation}` : ""}.{" "}
+                {h.tx_url && (
+                  <a href={h.tx_url} target="_blank" rel="noreferrer">
+                    The sale on NEAR
+                  </a>
+                )}
+                {". "}
+                Customers' bookings and refund rights carried over.
+              </p>
             ))}
           </section>
-        )}
 
-        {page.about && (
-          <section className="card prose">
-            <div className="eyebrow">About</div>
-            <p style={{ whiteSpace: "pre-wrap" }}>{page.about}</p>
-          </section>
-        )}
-
-        <section className="card">
-          <div className="eyebrow">Who runs it</div>
-          <div className="founder">
-            <Avatar name={page.founder.display_name} large />
-            <div>
-              <h3 style={{ marginBottom: 2 }}>
-                {page.founder.id && !preview ? (
-                  <Link to={`/p/${page.founder.id}`}>{page.founder.display_name}</Link>
-                ) : (
-                  page.founder.display_name
-                )}
-              </h3>
-              {page.founder.headline && <p className="muted">{page.founder.headline}</p>}
-              {page.founder.bio && <p style={{ whiteSpace: "pre-wrap" }}>{page.founder.bio}</p>}
-            </div>
-          </div>
-          {page.history?.map((h) => (
-            <p key={h.at} className="near-note">
-              Changed hands{" "}
-              {new Date(h.at).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-              : {h.from} to {h.team ? `${h.team} (${h.to})` : h.to}, on NEAR testnet
-              {h.generation ? ` at control generation ${h.generation}` : ""}.{" "}
-              {h.tx_url && (
-                <a href={h.tx_url} target="_blank" rel="noreferrer">
-                  The sale on NEAR
-                </a>
-              )}
-              {". "}
-              Customers' bookings and refund rights carried over.
-            </p>
-          ))}
-        </section>
-
-        {page.numbers ? (
-          <section className="card">
-            <div className="eyebrow">
-              Numbers, shared by {page.founder.display_name.split(" ")[0]}
-            </div>
-            {page.numbers.month ? (
-              <>
-                <p style={{ fontSize: 19, margin: "4px 0" }}>
-                  <strong>{page.numbers.month.label}:</strong>{" "}
-                  {money(page.numbers.month.revenue_cents)} revenue ·{" "}
-                  {money(page.numbers.month.direct_cents + page.numbers.month.overhead_cents)} costs
-                  · <strong>{money(page.numbers.month.profit_cents)} contribution</strong>
-                </p>
-                <p className="muted" style={{ fontSize: 13 }}>
-                  Revenue: {page.numbers.month.revenue_sources.join(" + ") || "none"} · Costs:{" "}
-                  {page.numbers.month.cost_sources.join(" + ") || "none recorded"}
-                  {page.numbers.month.revenue_sources.some((s) => s.includes("testnet")) &&
-                    " · Revenue on NEAR testnet is test dollars counted 1:1 against costs; not real profit."}
-                </p>
-              </>
-            ) : (
-              <p className="muted">No complete month yet.</p>
-            )}
-            {page.numbers.value.low_cents !== null && (
-              <div className="stat" style={{ marginTop: 8 }}>
-                <span className="muted" style={{ fontSize: 13 }}>
-                  Everstreet valuation estimate
-                </span>
-                <strong>
-                  {money(page.numbers.value.low_cents)}–{money(page.numbers.value.high_cents)}
-                </strong>
-                <span className="muted" style={{ fontSize: 12 }}>
-                  {page.numbers.value.label}. An estimate, not an appraisal or an offer.
-                </span>
+          {page.numbers ? (
+            <section className="card">
+              <div className="eyebrow">
+                Numbers, shared by {page.founder.display_name.split(" ")[0]}
               </div>
-            )}
-          </section>
-        ) : (
-          <section className="card">
-            <div className="eyebrow">Numbers</div>
-            <p className="muted" style={{ margin: 0 }}>
-              {page.interested > 0
-                ? `${page.interested} ${page.interested === 1 ? "person has" : "people have"} responded so far. `
-                : "No responses yet. "}
-              Revenue, costs and an estimate of what it's worth appear here if the founder chooses
-              to share them.
-            </p>
-          </section>
-        )}
-        {!preview && !page.viewer_is_owner && <Report slug={page.slug} />}
-      </div>
-
-      <aside className="studio-side">
-        {page.offer ? (
-          <>
-            {/* Job 001d: a mixed business also has its earlier offering. */}
-            {page.digital && <div className="eyebrow">Also offered</div>}
-            {hasSessions && <Sessions page={page} preview={preview} onBooked={() => onSent?.()} />}
-            <OfferCard
-              offer={page.offer}
-              family={page.family}
-              footer={
-                <div
-                  style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}
-                >
-                  {page.viewer_is_owner && !preview ? (
-                    <p className="notice ok" style={{ margin: 0 }}>
-                      This is your page. <Link to="/desk">Go to your desk</Link>
-                    </p>
-                  ) : sent ? (
-                    <p className="notice ok" style={{ margin: 0 }}>
-                      Sent. {first} will reply in your <Link to="/inbox">inbox</Link>.
-                    </p>
-                  ) : (
-                    <>
-                      <label className="field" style={{ marginBottom: 10 }}>
-                        <span>
-                          {hasSessions
-                            ? "A question first? (optional)"
-                            : page.action.kind === "interest"
-                              ? "Anything you'd like to say? (optional)"
-                              : "Your question or request"}
-                        </span>
-                        <textarea
-                          className="input"
-                          style={{ minHeight: 72 }}
-                          value={message}
-                          onChange={(e) => setMessage(e.target.value)}
-                          placeholder={
-                            page.action.kind === "interest"
-                              ? "e.g. Saturdays work for me"
-                              : "e.g. Can I bring a friend?"
-                          }
-                          disabled={preview}
-                        />
-                      </label>
-                      <label className="check" style={{ fontSize: 14 }}>
-                        <input
-                          type="checkbox"
-                          checked={share}
-                          onChange={(e) => setShare(e.target.checked)}
-                          disabled={preview}
-                        />
-                        <span>Share my name and contact with {first}</span>
-                      </label>
-                      {error && <p className="error-text">{error}</p>}
-                      <button
-                        type="button"
-                        className={`btn ${hasSessions ? "btn-secondary" : "btn-primary"}`}
-                        style={{ width: "100%" }}
-                        onClick={send}
-                        disabled={preview}
-                      >
-                        {hasSessions ? "Send a question" : page.action.label}
-                      </button>
-                      {page.action.kind === "interest" && (
-                        <p
-                          className="muted"
-                          style={{ fontSize: 13, marginTop: 8, marginBottom: 0 }}
-                        >
-                          Not open for bookings yet. You'll hear when it is; nothing is charged.
-                        </p>
-                      )}
-                    </>
-                  )}
+              {page.numbers.month ? (
+                <>
+                  <p style={{ fontSize: 19, margin: "4px 0" }}>
+                    <strong>{page.numbers.month.label}:</strong>{" "}
+                    {money(page.numbers.month.revenue_cents)} revenue ·{" "}
+                    {money(page.numbers.month.direct_cents + page.numbers.month.overhead_cents)}{" "}
+                    costs · <strong>{money(page.numbers.month.profit_cents)} contribution</strong>
+                  </p>
+                  <p className="muted" style={{ fontSize: 13 }}>
+                    Revenue: {page.numbers.month.revenue_sources.join(" + ") || "none"} · Costs:{" "}
+                    {page.numbers.month.cost_sources.join(" + ") || "none recorded"}
+                    {page.numbers.month.revenue_sources.some((s) => s.includes("testnet")) &&
+                      " · Revenue on NEAR testnet is test dollars counted 1:1 against costs; not real profit."}
+                  </p>
+                </>
+              ) : (
+                <p className="muted">No complete month yet.</p>
+              )}
+              {page.numbers.value.low_cents !== null && (
+                <div className="stat" style={{ marginTop: 8 }}>
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    Everstreet valuation estimate
+                  </span>
+                  <strong>
+                    {money(page.numbers.value.low_cents)}–{money(page.numbers.value.high_cents)}
+                  </strong>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {page.numbers.value.label}. An estimate, not an appraisal or an offer.
+                  </span>
                 </div>
-              }
-            />
-          </>
-        ) : page.digital ? (
-          <div className="card muted" data-testid="digital-only">
-            {page.digital.availability === "available"
-              ? "Use a product above. Nothing else is open to book here."
-              : "Its products aren't open for use yet. Follow to hear when they are."}
-          </div>
-        ) : digitalOffers > 0 ? (
-          <div className="card muted" data-testid="no-service-offer">
-            {digitalOffers === 1 ? "Its digital product is" : "Its digital products are"} offered
-            above. Nothing else is open to book here yet.
-          </div>
-        ) : (
-          <div className="card muted">No offer published yet.</div>
+              )}
+            </section>
+          ) : !digital ? (
+            <section className="card">
+              <div className="eyebrow">Numbers</div>
+              <p className="muted" style={{ margin: 0 }}>
+                {page.interested > 0
+                  ? `${page.interested} ${page.interested === 1 ? "person has" : "people have"} responded so far. `
+                  : "No responses yet. "}
+                Revenue, costs and an estimate of what it's worth appear here if the founder chooses
+                to share them.
+              </p>
+            </section>
+          ) : null}
+          {!preview && !page.viewer_is_owner && <Report slug={page.slug} />}
+        </div>
+
+        {aside && (
+          <aside className="studio-side">
+            {page.offer ? (
+              <>
+                {/* Job 001d: a mixed business also has its earlier offering. */}
+                {page.digital && <div className="eyebrow">Also offered</div>}
+                {hasSessions && (
+                  <Sessions page={page} preview={preview} onBooked={() => onSent?.()} />
+                )}
+                <OfferCard
+                  offer={page.offer}
+                  family={page.family}
+                  footer={
+                    <div
+                      style={{
+                        marginTop: 16,
+                        borderTop: "1px solid var(--border)",
+                        paddingTop: 16,
+                      }}
+                    >
+                      {page.viewer_is_owner && !preview ? (
+                        <p className="notice ok" style={{ margin: 0 }}>
+                          This is your page. <Link to="/desk">Go to your desk</Link>
+                        </p>
+                      ) : sent ? (
+                        <p className="notice ok" style={{ margin: 0 }}>
+                          Sent. {first} will reply in your <Link to="/inbox">inbox</Link>.
+                        </p>
+                      ) : (
+                        <>
+                          <label className="field" style={{ marginBottom: 10 }}>
+                            <span>
+                              {hasSessions
+                                ? "A question first? (optional)"
+                                : page.action.kind === "interest"
+                                  ? "Anything you'd like to say? (optional)"
+                                  : "Your question or request"}
+                            </span>
+                            <textarea
+                              className="input"
+                              style={{ minHeight: 72 }}
+                              value={message}
+                              onChange={(e) => setMessage(e.target.value)}
+                              placeholder={
+                                page.action.kind === "interest"
+                                  ? "e.g. Saturdays work for me"
+                                  : "e.g. Can I bring a friend?"
+                              }
+                              disabled={preview}
+                            />
+                          </label>
+                          <label className="check" style={{ fontSize: 14 }}>
+                            <input
+                              type="checkbox"
+                              checked={share}
+                              onChange={(e) => setShare(e.target.checked)}
+                              disabled={preview}
+                            />
+                            <span>Share my name and contact with {first}</span>
+                          </label>
+                          {error && <p className="error-text">{error}</p>}
+                          <button
+                            type="button"
+                            className={`btn ${hasSessions ? "btn-secondary" : "btn-primary"}`}
+                            style={{ width: "100%" }}
+                            onClick={send}
+                            disabled={preview}
+                          >
+                            {hasSessions ? "Send a question" : page.action.label}
+                          </button>
+                          {page.action.kind === "interest" && (
+                            <p
+                              className="muted"
+                              style={{ fontSize: 13, marginTop: 8, marginBottom: 0 }}
+                            >
+                              Not open for bookings yet. You'll hear when it is; nothing is charged.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  }
+                />
+              </>
+            ) : digitalOffers > 0 ? (
+              <div className="card muted" data-testid="no-service-offer">
+                {digitalOffers === 1 ? "Its digital product is" : "Its digital products are"}{" "}
+                offered above. Nothing else is open to book here yet.
+              </div>
+            ) : (
+              <div className="card muted">No offer published yet.</div>
+            )}
+          </aside>
         )}
-      </aside>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -606,8 +623,8 @@ export function PublicPage({ slug }: { slug: string }) {
   if (!page) return <div className="page muted">Loading…</div>;
   return (
     <div className="page">
-      {/* Job 001d: a published digital profile leads, with its own Use actions. */}
-      {page.digital ? <DigitalProfile d={page.digital} /> : <ProductOffers offers={offers} />}
+      {/* Job 001e: a digital profile leads inside the storefront; otherwise released offers. */}
+      {!page.digital && <ProductOffers offers={offers} />}
       <StorefrontView
         page={page}
         digitalOffers={offers.length}

@@ -742,6 +742,46 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .fin-table-wrap { overflow-x: auto; max-width: 100%; }
 .fin-table-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .sw-dots { background: radial-gradient(var(--mint-ink) 1px, var(--mint-soft) 1.5px) 0 0 / 5px 5px; border: 1px dashed var(--mint-ink); }
+/* Job 001e: the digital storefront: one header, then the example beside capabilities/products. */
+.sf { margin-bottom: 24px; }
+.sf-hero { background: var(--ink); color: #fff; border-radius: var(--radius-lg); padding: 28px 32px; }
+.sf-hero .pill { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.2); color: #fff; }
+.sf-hero .pill.mint { background: var(--mint); border-color: var(--mint); color: var(--ink); }
+.sf-hero .eyebrow { color: var(--mint); }
+.sf-hero .muted, .sf-hero .muted a { color: rgba(255, 255, 255, 0.72); }
+.sf-hero a { color: var(--mint); }
+.sf-name { font-size: 40px; line-height: 1.1; margin: 10px 0 6px; overflow-wrap: anywhere; color: #fff; }
+.sf-promise { font-size: 22px; margin: 0 0 8px; color: var(--mint); overflow-wrap: anywhere; }
+.sf-summary { font-size: 17px; margin: 0 0 6px; max-width: 70ch; overflow-wrap: anywhere; }
+.sf-audience { margin: 0 0 16px; }
+.sf-actions { align-items: center; }
+.sf-body { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 22px; margin-top: 22px; align-items: start; }
+.sf-body > *, .sf-side > * { min-width: 0; }
+.sf-side { display: grid; gap: 18px; }
+.sf-section-title { font-size: 17px; margin: 0 0 8px; }
+.sf-example { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 18px 20px; background: var(--surface); box-shadow: var(--shadow-1); }
+.sf-note { font-size: 13px; margin: 0 0 12px; }
+.sf-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.sf-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; font: inherit; cursor: pointer; color: var(--ink-2); }
+.sf-tab.active { border-bottom-color: var(--mint-ink); color: var(--ink); font-weight: 600; }
+.sf-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.sf-input { white-space: pre-wrap; overflow-wrap: anywhere; font: 13.5px/1.6 var(--mono); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; margin: 0; max-height: 360px; overflow: auto; }
+.sf-output { margin: 0; display: grid; gap: 8px; }
+.sf-output > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.sf-output dt { color: var(--ink-2); font-size: 14px; overflow-wrap: anywhere; }
+.sf-output dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.storefront.sf-single { grid-template-columns: minmax(0, 1fr); }
+.profile-preview { margin-top: 28px; border-top: 1px dashed var(--line); padding-top: 18px; }
+.example-editor { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; }
+.example-row { gap: 6px; margin-bottom: 6px; }
+.example-row .input { flex: 1; min-width: 0; }
+@media (max-width: 900px) {
+  .sf-body { grid-template-columns: minmax(0, 1fr); }
+  .sf-hero { padding: 22px 20px; }
+  .sf-name { font-size: 30px; }
+  .sf-promise { font-size: 19px; }
+}
+@media (max-width: 520px) { .sf-output > div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
 /* Job 001d: a published digital profile (public page and the owner's exact preview). */
 .digital-profile { margin-bottom: 22px; }
 .digital-profile .capabilities { margin: 0 0 6px; padding-left: 20px; display: grid; gap: 4px; }

@@ -4,12 +4,20 @@
 
 import { ApiError, type DigitalPublic } from "./api.ts";
 
+/** Job 001e: an owner-written fictional example for one featured product. */
+export interface ProfileExample {
+  product: string;
+  input: string;
+  outputs: { label: string; value: string }[];
+}
+
 export interface ProfileDraft {
   headline: string;
   summary: string;
   audience: string;
   capabilities: string[];
   products: string[];
+  example: ProfileExample | null;
 }
 
 export interface ProfileView {
@@ -19,6 +27,9 @@ export interface ProfileView {
   live_rev: number | null;
   live_published_at: string | null;
   page_published: boolean;
+  /** Job 001e: the business's public URL slug (for "View live page"). */
+  slug: string;
+  business_name: string;
   live: DigitalPublic | null;
   /** Job 001d1: the live profile names a release that is no longer the product's active one. */
   live_outdated: boolean;
@@ -40,6 +51,10 @@ export interface ProfileView {
     capability: number;
     capabilities: number;
     products: number;
+    exampleInput: number;
+    exampleOutputs: number;
+    exampleLabel: number;
+    exampleValue: number;
   };
   already?: boolean;
 }
@@ -140,11 +155,44 @@ export function unpublishOutcome(e: unknown): { tone: "ok" | "error" | "uncertai
 
 /** Trims the editor's text for saving; blank capability lines are dropped. */
 export function cleanDraft(d: ProfileDraft): ProfileDraft {
+  const e = d.example;
   return {
     headline: d.headline.trim(),
     summary: d.summary.trim(),
     audience: d.audience.trim(),
     capabilities: d.capabilities.map((c) => c.trim()).filter(Boolean),
     products: d.products,
+    // Job 001e: blank result rows are dropped; the example is kept for the server to validate.
+    example: e
+      ? {
+          product: e.product,
+          input: e.input.trim(),
+          outputs: e.outputs
+            .map((o) => ({ label: o.label.trim(), value: o.value.trim() }))
+            .filter((o) => o.label || o.value),
+        }
+      : null,
   };
+}
+
+/** Job 001e: keyboard movement in the example's tab list (arrows, Home, End), or null. */
+export function nextTab(index: number, key: string, count: number): number | null {
+  if (key === "ArrowRight" || key === "ArrowDown") return (index + 1) % count;
+  if (key === "ArrowLeft" || key === "ArrowUp") return (index - 1 + count) % count;
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  return null;
+}
+
+/**
+ * Job 001e: the storefront's one primary action: use the first product that is open now, or (when
+ * none is) follow for updates. Never a Use action without an active offer.
+ */
+export function primaryAction(
+  d: DigitalPublic,
+): { kind: "use"; label: string; offer_id: string } | { kind: "follow"; label: string } {
+  const open = d.products.find((p) => p.use_offer_id);
+  return open?.use_offer_id
+    ? { kind: "use", label: `Use ${open.name}`, offer_id: open.use_offer_id }
+    : { kind: "follow", label: "Follow for updates" };
 }
