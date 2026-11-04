@@ -14,7 +14,7 @@ import {
 } from "react";
 import { ApiError } from "../api.ts";
 import { FOUNDATION_ICON, Icon } from "../icons.tsx";
-import { offerHttp, parseOwnerOffers } from "../offerSetup.ts";
+import { offerHttp } from "../offerSetup.ts";
 import type { ProjectSource } from "../opportunitiesApi.ts";
 import {
   ago,
@@ -31,8 +31,9 @@ import {
 } from "../productsApi.ts";
 import { historyReducer, initialHistory, shownRevision } from "../revisionHistory.ts";
 import { Link, queryParam, useRouter } from "../router.tsx";
-import { type Releases, runtimeApi } from "../runtimeApi.ts";
+import { runtimeApi } from "../runtimeApi.ts";
 import { useSession } from "../session.tsx";
+import { type Records, type RecordsPort, type Source, StudioRecords } from "../studioRecords.ts";
 import { type Prefill, prefillFor, studioScope } from "../studioScope.ts";
 import { projectStatus, type Target } from "../studioStatus.ts";
 import { BuildsView } from "./Builds.tsx";
@@ -77,14 +78,26 @@ export function studioLayout(tab: Tab, editorOpen: boolean) {
   return { operate, editorShown: !operate || editorOpen };
 }
 
-const tabFromQuery = (): Tab => {
-  const v = queryParam("view");
-  return TABS.some((t) => t.id === v) ? (v as Tab) : "preview";
+/**
+ * Job 001b1: the view and Service task a query names (null when it names none). A query-only
+ * navigation, or Back/Forward between them, selects them on the mounted studio: nothing is
+ * remounted, so drafts and pending work stay.
+ */
+export function viewFromSearch(search: string): { tab: Tab; task: ServiceTask | null } {
+  const v = queryParam("view", search);
+  const t = queryParam("task", search);
+  return {
+    tab: TABS.some((x) => x.id === v) ? (v as Tab) : "preview",
+    task: SERVICE_TASKS.some((x) => x.id === t) ? (t as ServiceTask) : null,
+  };
+}
+const recordsHttp: RecordsPort = {
+  releases: (p) => runtimeApi.releases(p),
+  offers: (b) => offerHttp.list(b),
 };
-const taskFromQuery = (): ServiceTask => {
-  const v = queryParam("task");
-  return SERVICE_TASKS.some((t) => t.id === v) ? (v as ServiceTask) : "try";
-};
+
+const tabFromQuery = (): Tab => viewFromSearch(window.location.search).tab;
+const taskFromQuery = (): ServiceTask => viewFromSearch(window.location.search).task ?? "try";
 
 /** Stable JSON: same content, same string, whatever the key order. */
 function canon(value: unknown): string {
@@ -946,11 +959,8 @@ export function ProductStudio({ id }: { id: string }) {
   const [serviceTask, setServiceTask] = useState<ServiceTask>(taskFromQuery);
   /** Job 001b: on operating tabs the editor is shown only on request. */
   const [editorOpen, setEditorOpen] = useState(false);
-  /** Job 001b: the records the status strip is derived from (never a single boolean). */
-  const [records, setRecords] = useState<{
-    releases: Releases | "unknown";
-    offers: { active: number; retired: number } | "unknown";
-  } | null>(null);
+  /** Job 001b: the records the status is derived from (never a single boolean). */
+  const [records, setRecords] = useState<Records | null>(null);
   const [side, setSide] = useState<"assistant" | "brief" | "screens">("assistant");
   const [proposalId, setProposalId] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<Prefill | null>(null);
@@ -1000,36 +1010,40 @@ export function ProductStudio({ id }: { id: string }) {
     if (person) load();
   }, [person, load]);
 
-  // Job 001b: re-read the release and offer records when the person moves between views or
-  // saves (one read each, no polling). A failed read is "unknown", never assumed.
+  // Job 001b1: the status records, read on load and after a save, and again whenever a panel
+  // reports that its own records actually changed (a build finished, a check or release, an
+  // offer created or retired). Sequenced and coalesced; no polling; dropped on unmount.
   const projectId = view?.project.id;
   const businessId = view?.business.id;
   const headNumber = view?.head.number;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: tab and headNumber are triggers
+  const [store, setStore] = useState<StudioRecords | null>(null);
   useEffect(() => {
     if (!projectId || !businessId) return;
-    let live = true;
-    Promise.allSettled([runtimeApi.releases(projectId), offerHttp.list(businessId)]).then(
-      ([r, o]) => {
-        if (!live) return;
-        let offers: { active: number; retired: number } | "unknown" = "unknown";
-        if (o.status === "fulfilled")
-          try {
-            const mine = parseOwnerOffers(o.value).filter((x) => x.project_id === projectId);
-            offers = {
-              active: mine.filter((x) => x.state === "active").length,
-              retired: mine.filter((x) => x.state === "retired").length,
-            };
-          } catch {
-            offers = "unknown";
-          }
-        setRecords({ releases: r.status === "fulfilled" ? r.value : "unknown", offers });
-      },
-    );
+    const s = new StudioRecords(recordsHttp, { projectId, businessId });
+    setStore(s);
+    const off = s.subscribe(() => setRecords(s.getState().records));
     return () => {
-      live = false;
+      off();
+      s.dispose();
     };
-  }, [projectId, businessId, tab, headNumber]);
+  }, [projectId, businessId]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: headNumber is a trigger (a save)
+  useEffect(() => {
+    void store?.refresh();
+  }, [store, headNumber]);
+  const onRecords = useCallback(
+    (source: Source, signature: string) => store?.notice(source, signature),
+    [store],
+  );
+
+  // Job 001b1: a query-only navigation (or Back/Forward) selects its view and task here,
+  // without remounting the studio.
+  const { search } = useRouter();
+  useEffect(() => {
+    const q = viewFromSearch(search);
+    setTab(q.tab);
+    if (q.task) setServiceTask(q.task);
+  }, [search]);
 
   const dirty = Boolean(
     view &&
@@ -1197,101 +1211,8 @@ export function ProductStudio({ id }: { id: string }) {
   };
   const layout = studioLayout(tab, editorOpen);
   const item = (k: string) => status?.items.find((i) => i.key === k);
-  const stepState = (k: string): "done" | "open" | "blocked" => {
-    const t = item(k)?.tone;
-    return t === "done" ? "done" : t === "blocked" ? "blocked" : "open";
-  };
-
-  const steps: {
-    key: string;
-    label: string;
-    detail: string;
-    state: "done" | "open" | "blocked";
-    current: boolean;
-    act: () => void;
-  }[] = [
-    {
-      key: "shape",
-      label: "Shape",
-      detail: shapeDone ? "Brief in place" : "Brief to finish",
-      state: shapeDone ? "done" : "open",
-      current: tab === "brief",
-      act: () => {
-        setTab("brief");
-        setSide("brief");
-      },
-    },
-    {
-      key: "choose",
-      label: "Choose",
-      detail: view.foundation.label,
-      state: "done",
-      current: false,
-      act: () => setTab("brief"),
-    },
-    {
-      key: "build",
-      label: "Build",
-      // Job 001b: from the build records, not from whether building is connected.
-      detail:
-        item("build")?.tone === "done"
-          ? "Built"
-          : view.build.available
-            ? "Not built yet"
-            : "Not connected",
-      state: stepState("build"),
-      current: tab === "builds",
-      act: () => setTab("builds"),
-    },
-    {
-      key: "test",
-      label: "Test",
-      // A build's own release checks; the brief's rules stay on the Checks tab.
-      detail:
-        item("evaluation")?.tone === "done"
-          ? "Release checks passed"
-          : item("evaluation")?.tone === "now"
-            ? "Not checked yet"
-            : item("evaluation")?.tone === "unknown"
-              ? "Unknown"
-              : "Nothing passed yet",
-      state: stepState("evaluation"),
-      current: tab === "service" && serviceTask === "evaluate",
-      act: () => goTarget({ tab: "service", task: "evaluate" }),
-    },
-    {
-      key: "release",
-      label: "Release",
-      detail: item("release")?.tone === "done" ? "Released" : "Not released",
-      state: stepState("release"),
-      current: false,
-      act: () => goTarget({ tab: "service", task: "evaluate" }),
-    },
-    {
-      key: "customers",
-      label: "Customers",
-      detail: item("customers")?.tone === "done" ? "Offer active" : "No active offer",
-      state: stepState("customers"),
-      current: tab === "service" && serviceTask === "customers",
-      act: () => goTarget({ tab: "service", task: "customers" }),
-    },
-    {
-      key: "prepare",
-      label: "Continuity",
-      detail: "What transfers",
-      state: "open",
-      current: tab === "continuity",
-      act: () => setTab("continuity"),
-    },
-    {
-      key: "launch",
-      label: "Business",
-      detail: view.business.published_at ? "Page published" : "Page not published",
-      state: view.business.published_at ? "done" : "open",
-      current: false,
-      act: () => go(`/desk/${view.business.id}`),
-    },
-  ];
+  /** Job 001b1: whether the editor is visible now (on narrow screens it is opt-in everywhere). */
+  const editorVisible = layout.operate ? layout.editorShown : editorOpen;
 
   const onTabKey = (e: KeyboardEvent, i: number) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
@@ -1359,20 +1280,53 @@ export function ProductStudio({ id }: { id: string }) {
         )}
       </header>
 
+      {/* Job 001b1: one short line (release and customer offer), with the full progress behind a
+          disclosure; it replaces the separate status cards and the step rail. */}
       {status && (
-        <nav className="ps-status" aria-label="Where this product stands">
-          <ul>
-            {status.items.map((i) => (
-              <li key={i.key} className={`tone-${i.tone}`}>
-                <button type="button" onClick={() => goTarget(i.target)}>
-                  <span className="ps-status-label">{i.label}</span>
-                  <span className="ps-status-value">{i.value}</span>
+        <div className="ps-summary">
+          <span>
+            <span className="muted">Release:</span> {item("release")?.value}
+          </span>
+          <span>
+            <span className="muted">Customer offer:</span> {item("customers")?.value}
+          </span>
+          <details className="ps-progress">
+            <summary>Progress and status</summary>
+            <ul>
+              {status.items.map((i) => (
+                <li key={i.key} className={`tone-${i.tone}`}>
+                  <button type="button" onClick={() => goTarget(i.target)}>
+                    <span className="ps-status-label">{i.label}</span>
+                    <span className="ps-status-value">{i.value}</span>
+                  </button>
+                </li>
+              ))}
+              <li className={`tone-${shapeDone ? "done" : "now"}`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab("brief");
+                    setSide("brief");
+                  }}
+                >
+                  <span className="ps-status-label">Brief checks</span>
+                  <span className="ps-status-value">
+                    {view.checks.passed} of {total} rules met
+                  </span>
                 </button>
               </li>
-            ))}
-          </ul>
-          {status.releaseNote && <p className="muted ps-status-note">{status.releaseNote}</p>}
-        </nav>
+              <li className={`tone-${view.business.published_at ? "done" : "now"}`}>
+                <button type="button" onClick={() => go(`/desk/${view.business.id}`)}>
+                  <span className="ps-status-label">Business page</span>
+                  <span className="ps-status-value">
+                    {view.business.published_at ? "Published" : "Not published"}
+                  </span>
+                </button>
+              </li>
+            </ul>
+            {status.releaseNote && <p className="muted ps-status-note">{status.releaseNote}</p>}
+          </details>
+        </div>
       )}
 
       {offered && (
@@ -1439,26 +1393,7 @@ export function ProductStudio({ id }: { id: string }) {
 
       <StudioBody
         editorShown={layout.editorShown}
-        steps={
-          <nav className="ps-steps" aria-label="Project steps">
-            <div className="label">Steps</div>
-            {steps.map((s) => (
-              <button
-                key={s.key}
-                type="button"
-                className={`ps-step${s.current ? " current" : ""}`}
-                aria-current={s.current ? "step" : undefined}
-                onClick={s.act}
-              >
-                <span className={`marker ${s.state}`}>
-                  {s.state === "done" && <Icon name="check" />}
-                </span>
-                <strong>{s.label}</strong>
-                <small>{s.detail}</small>
-              </button>
-            ))}
-          </nav>
-        }
+        editorOpen={editorOpen}
         editor={
           <>
             <div className="ps-side-scroll">
@@ -1562,44 +1497,46 @@ export function ProductStudio({ id }: { id: string }) {
         }
         canvas={
           <section className="ps-canvas" aria-label="Canvas">
-            <div className="tabs" role="tablist" aria-label="Project views">
-              {TABS.map((t, i) => (
-                <button
-                  key={t.id}
-                  id={`tab-${t.id}`}
-                  type="button"
-                  role="tab"
-                  className="tab"
-                  aria-selected={tab === t.id}
-                  aria-controls="ps-view"
-                  tabIndex={tab === t.id ? 0 : -1}
-                  onClick={() => setTab(t.id)}
-                  onKeyDown={(e) => onTabKey(e, i)}
-                >
-                  {t.label}
-                  {t.id === "checks" && (
-                    <span className="badge" title="Brief rules met">
-                      brief {view.checks.passed}/{total}
-                    </span>
-                  )}
-                  {t.id === "versions" && <span className="badge">{view.revisions.length}</span>}
-                </button>
-              ))}
-              {layout.operate && (
-                <button
-                  type="button"
-                  className="btn btn-quiet btn-sm ps-editor-toggle"
-                  aria-expanded={layout.editorShown}
-                  aria-controls="ps-side"
-                  onClick={() => setEditorOpen((o) => !o)}
-                >
-                  {layout.editorShown
-                    ? "Hide the editor"
-                    : dirty
-                      ? "Show the editor (unsaved)"
-                      : "Show the editor"}
-                </button>
-              )}
+            <div className="ps-tabbar">
+              <div className="tabs" role="tablist" aria-label="Project views">
+                {TABS.map((t, i) => (
+                  <button
+                    key={t.id}
+                    id={`tab-${t.id}`}
+                    type="button"
+                    role="tab"
+                    className="tab"
+                    aria-selected={tab === t.id}
+                    aria-controls="ps-view"
+                    tabIndex={tab === t.id ? 0 : -1}
+                    onClick={() => setTab(t.id)}
+                    onKeyDown={(e) => onTabKey(e, i)}
+                  >
+                    {t.label}
+                    {t.id === "checks" && (
+                      <span className="badge" title="Brief rules met">
+                        brief {view.checks.passed}/{total}
+                      </span>
+                    )}
+                    {t.id === "versions" && <span className="badge">{view.revisions.length}</span>}
+                  </button>
+                ))}
+              </div>
+              {/* On wide screens shown for operating views only; on narrow screens the editor is
+                opt-in for every view, so the chosen task comes first. */}
+              <button
+                type="button"
+                className={`btn btn-quiet btn-sm ps-editor-toggle${layout.operate ? "" : " shaping"}`}
+                aria-expanded={editorVisible}
+                aria-controls="ps-side"
+                onClick={() => setEditorOpen((o) => !o)}
+              >
+                {editorVisible
+                  ? "Hide the editor"
+                  : dirty
+                    ? "Show the editor (unsaved)"
+                    : "Show the editor"}
+              </button>
             </div>
             <div className="ps-view" id="ps-view" role="tabpanel" aria-labelledby={`tab-${tab}`}>
               {tab === "preview" && (
@@ -1645,6 +1582,7 @@ export function ProductStudio({ id }: { id: string }) {
                   businessId={view.business.id}
                   headRevision={view.head.number}
                   dirty={dirty}
+                  onRecords={onRecords}
                 />
               )}
               {/* Job 002c1: once opened, Service stays mounted (hidden on other tabs) so a pending
@@ -1658,6 +1596,7 @@ export function ProductStudio({ id }: { id: string }) {
                     businessId={view.business.id}
                     task={serviceTask}
                     onTask={setServiceTask}
+                    onRecords={onRecords}
                   />
                 </div>
               )}
@@ -1677,18 +1616,18 @@ export function ProductStudio({ id }: { id: string }) {
  */
 export function StudioBody({
   editorShown,
-  steps,
+  editorOpen = false,
   editor,
   canvas,
 }: {
   editorShown: boolean;
-  steps: ReactNode;
+  /** Job 001b1: the person asked for the editor (narrow screens show it only then). */
+  editorOpen?: boolean;
   editor: ReactNode;
   canvas: ReactNode;
 }) {
   return (
-    <div className={`ps-body${editorShown ? "" : " operate"}`}>
-      {steps}
+    <div className={`ps-body${editorShown ? "" : " operate"}${editorOpen ? " editor-open" : ""}`}>
       <aside
         className="ps-side"
         id="ps-side"

@@ -38,6 +38,7 @@ import {
   usageLine,
 } from "../serviceView.ts";
 import { useSession } from "../session.tsx";
+import { releasesSignature } from "../studioRecords.ts";
 import { newKey } from "./Builds.tsx";
 import { CustomerOffers } from "./CustomerOffers.tsx";
 
@@ -181,12 +182,15 @@ export function ServiceView({
   businessId,
   task: chosen,
   onTask,
+  onRecords,
 }: {
   projectId: string;
   businessId: string;
   /** Job 001b: the task shown; the others stay mounted (hidden), so nothing pending is lost. */
   task?: ServiceTask;
   onTask?: (t: ServiceTask) => void;
+  /** Job 001b1: reports what releases/checks and offers now show, so the status follows them. */
+  onRecords?: (source: "service" | "offers", signature: string) => void;
 }) {
   const { person } = useSession();
   const [ownTask, setOwnTask] = useState<ServiceTask>("try");
@@ -264,6 +268,10 @@ export function ServiceView({
   useEffect(() => {
     load();
   }, [load]);
+  const recordsSig = rel ? releasesSignature(rel, runs[0]) : null;
+  useEffect(() => {
+    if (recordsSig !== null) onRecords?.("service", recordsSig);
+  }, [recordsSig, onRecords]);
 
   // Follow running work (a check, or a request started here or in another tab) with growing
   // gaps, only while the page is visible, and at most POLL.maxPolls times.
@@ -794,6 +802,7 @@ export function ServiceView({
             businessId={businessId}
             projectId={projectId}
             onAttention={setOfferAttention}
+            onRecords={onRecords}
           />
         </div>
       )}

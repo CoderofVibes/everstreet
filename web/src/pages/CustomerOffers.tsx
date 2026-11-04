@@ -14,6 +14,7 @@ import {
   type ReadinessItem,
 } from "../offerSetup.ts";
 import { Link } from "../router.tsx";
+import { offersSignature } from "../studioRecords.ts";
 
 const EVIDENCE: Record<Evidence, { label: string; tone: string }> = {
   observed: { label: "Observed", tone: "mint" },
@@ -197,10 +198,13 @@ export function CustomerOffers({
   businessId,
   projectId,
   onAttention,
+  onRecords,
 }: {
   personId: string;
   businessId: string;
   projectId: string;
+  /** Job 001b1: reports which offers the panel now shows, so the studio status follows them. */
+  onRecords?: (source: "offers", signature: string) => void;
   /** Job 001b: told when something here needs the owner (an unanswered create, unconfirmed access). */
   onAttention?: (needs: boolean) => void;
 }) {
@@ -220,6 +224,10 @@ export function CustomerOffers({
   }, [s]);
   const needs = offerNeedsAttention(st);
   useEffect(() => onAttention?.(needs), [needs, onAttention]);
+  const offersSig = st.status === "ready" ? offersSignature(st.offers) : null;
+  useEffect(() => {
+    if (offersSig !== null) onRecords?.("offers", offersSig);
+  }, [offersSig, onRecords]);
 
   const busy = st.busy !== null;
   // 003r1: while access is unconfirmed, nothing that changes anything can be pressed.

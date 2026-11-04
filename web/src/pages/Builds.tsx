@@ -18,6 +18,7 @@ import {
   productsApi,
   usd,
 } from "../productsApi.ts";
+import { buildsSignature } from "../studioRecords.ts";
 
 export const MAX_POLLS = 60;
 export const newKey = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
@@ -489,16 +490,23 @@ export function BuildsView({
   businessId,
   headRevision,
   dirty,
+  onRecords,
 }: {
   projectId: string;
   businessId: string;
   headRevision: number;
   dirty: boolean;
+  /** Job 001b1: reports what the build list now shows, so the studio status follows it. */
+  onRecords?: (source: "builds", signature: string) => void;
 }) {
   const [list, setList] = useState<BuildList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [polls, setPolls] = useState(0);
+  const signature = list ? buildsSignature(list.jobs) : null;
+  useEffect(() => {
+    if (signature !== null) onRecords?.("builds", signature);
+  }, [signature, onRecords]);
 
   const load = useCallback(
     () =>

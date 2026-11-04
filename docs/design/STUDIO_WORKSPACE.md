@@ -93,6 +93,40 @@ one offers read. There is no polling.
 - The buyer's handover receipt lists each owned product with a **Customer access** link (read
   through the owner's own project list).
 
+## Corrections in 001b1
+
+- **Status follows actual events.** `StudioRecords` (`web/src/studioRecords.ts`) holds the
+  releases and offers the status is derived from.
+  - **Signatures.** Builds, Service (releases, candidates, checks, the latest run) and the offer
+    setup each report a small signature of what they now show, after reloading their own records
+    following an action.
+  - **When it re-reads.** On a real change, the store reads both records again. A panel's first
+    report counts as its load, not a change. A failed action changes no signature, so it triggers
+    no read.
+  - **Reading rules.** Reads are sequenced and coalesced: at most one in flight and one queued,
+    however many events arrive. They are dropped after the page closes. A 404 clears the records
+    and stops reading. Other failures read "unknown".
+  - **Triggers.** Load, a save, or a reported change. Tab switches no longer read; there is no
+    polling.
+  - Retiring an offer now updates "Customer offer" at once.
+- **Density.**
+  - **The summary line.** The step rail and the status cards are gone. One line under the header
+    shows **Release** and **Customer offer**. **Progress and status** is a native
+    `<details>`/`<summary>` disclosure holding every status item, plus brief checks and the
+    business page, each going to its view.
+  - **Still visible:** unsaved, pending and error indicators (the save state and Save, banners,
+    Service task badges).
+  - **On desktop** the canvas starts right after the header, the summary line and the tab bar.
+  - **At 1000 px and below:**
+    - the editor is opt-in for every view (kept mounted, shown with **Show the editor**);
+    - tabs scroll horizontally;
+    - the chosen view and its first control come right after the header and the summary line.
+  - **The editor toggle** moved out of the tablist into a tab bar.
+- **Query-only navigation.** The router tracks the query as well as the path. Routes match the
+  path, so `/build/:id?view=…&task=…` (including Back/Forward) keeps the studio mounted and only
+  selects the view and task (`viewFromSearch`). A plain URL returns to Preview and leaves the
+  Service task unchanged.
+
 ## Preview
 
 ```
@@ -113,8 +147,7 @@ it is synthetic.
 
 - **Builds unmount.** The Builds view still unmounts when you leave its tab, as before. Its jobs
   are server-side and reload.
-- **Mobile layout.** On narrow screens the studio's shaping tabs still put the editor above the
-  canvas.
+- **Mobile layout.** Since 001b1, the editor on narrow screens is opt-in for every view.
 - **Not verified by tests:** browser layout at 1440/1280/390, 200 % zoom and the menu's keyboard
   behaviour. They need Astra's visual and keyboard review; the tests are structural and logical.
 - **Handover status.** No aggregate handover status is shown in the studio: the strip links to

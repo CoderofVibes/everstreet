@@ -7,14 +7,19 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { offerNeedsAttention } from "../src/pages/CustomerOffers.tsx";
-import { OPERATE_TABS, StudioBody, studioLayout } from "../src/pages/ProductStudio.tsx";
+import {
+  OPERATE_TABS,
+  StudioBody,
+  studioLayout,
+  viewFromSearch,
+} from "../src/pages/ProductStudio.tsx";
 import { serviceAttention } from "../src/pages/Service.tsx";
+import { splitLocation } from "../src/router.tsx";
 
 const body = (editorShown: boolean) =>
   renderToStaticMarkup(
     <StudioBody
       editorShown={editorShown}
-      steps={<nav>steps</nav>}
       editor={<textarea defaultValue="an unsent thought" data-testid="outbox" />}
       canvas={<section>canvas</section>}
     />,
@@ -41,6 +46,44 @@ describe("001b the studio layout keeps the editor mounted", () => {
     expect(shaping).not.toMatch(/<aside[^>]*hidden/);
     expect(operating).toMatch(/<aside[^>]*hidden/);
     expect(operating).toContain('class="ps-body operate"');
+  });
+});
+
+describe("001b1 query-only navigation and the narrow-screen editor", () => {
+  it("a link's path is what routes match; its query selects the view and task", () => {
+    expect(splitLocation("/build/p1?view=service&task=customers")).toEqual({
+      path: "/build/p1",
+      search: "?view=service&task=customers",
+    });
+    expect(splitLocation("/build/p1")).toEqual({ path: "/build/p1", search: "" });
+    expect(splitLocation("/build/p1?view=builds#top")).toEqual({
+      path: "/build/p1",
+      search: "?view=builds",
+    });
+    expect(splitLocation("?view=service")).toEqual({ path: "/", search: "?view=service" });
+    expect(viewFromSearch("?view=service&task=customers")).toEqual({
+      tab: "service",
+      task: "customers",
+    });
+    expect(viewFromSearch("?view=service&task=evaluate")).toEqual({
+      tab: "service",
+      task: "evaluate",
+    });
+    // Back to the plain URL: the default view; the Service task is left as it was.
+    expect(viewFromSearch("")).toEqual({ tab: "preview", task: null });
+    expect(viewFromSearch("?view=nonsense&task=nope")).toEqual({ tab: "preview", task: null });
+  });
+
+  it("asking for the editor marks the body so narrow screens show it; it stays rendered either way", () => {
+    const closed = renderToStaticMarkup(
+      <StudioBody editorShown editor={<i>draft</i>} canvas={<b>canvas</b>} />,
+    );
+    const open = renderToStaticMarkup(
+      <StudioBody editorShown editorOpen editor={<i>draft</i>} canvas={<b>canvas</b>} />,
+    );
+    expect(closed).toContain('class="ps-body"');
+    expect(open).toContain('class="ps-body editor-open"');
+    for (const html of [closed, open]) expect(html).toContain("draft");
   });
 });
 
