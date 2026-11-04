@@ -2,6 +2,9 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Customer recovery review](2026-11-04_CustomerRecoveryReview.md) |1100 checks; actual390 lost execute -> keyboard Check -> same result, no stale Run/return | Primary recovery verified; small pre-dispatch/unknown copy finish with002e next |
+| 2026-11-04 | [Application composition plan](2026-11-04_ApplicationCompositionPlan.md) | Normal main lacks digital customer/v3 wiring;003w durable configured composition and restart integration | Queued after002e/003v; JOBS row pending active writer; no runtime/key access |
+| 2026-11-04 | [Worker setup review](2026-11-04_WorkerSetupReview.md) | Official jailer cgroup-v2 absent-parent trap; matched engine/image and host-versus-guest resource checks |002e implementation input; no host settings/packages changed;001j1 sole writer |
 | 2026-11-04 | [Customer composition review](2026-11-04_CustomerCompositionReview.md) |1095 check; actual1440/390, keyboard review and synthetic sale preserves customer result/99free1used |001j1 required: lost execute leaves stale Run/return controls; broader/live gates remain |
 | 2026-11-04 | [Customer step review](2026-11-04_CustomerStepReview.md) | In-progress pure probe: pending return claims returned; reserved protocol persists after settlement | Recheck final001j; narrow UI wording correction, backend distinctions preserved |
 | 2026-11-04 | [Worker host capabilities](2026-11-04_WorkerHostCapabilities.md) | Actual brief WSL probe: KVM device exists but inaccessible; engine tools absent on PATH; cgroup2 present | Ubuntu stopped afterward;002e real-engine/setup gates open;001j sole writer |
