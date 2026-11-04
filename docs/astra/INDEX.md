@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Executable design review](2026-11-04_ExecutableDesignReview.md) | Actual opaque iframe module fails proposed headers; working CORS comparison; guest/host/report/preview distinctions |002e corrections before engine acceptance; finite canary cleaned up; full roadmap retained |
+| 2026-11-04 | [Customer recovery accepted](2026-11-04_CustomerRecoveryAccepted.md) |1102 checks/build, finishing3509a91 reviewed; phone Studio open-menu Enter/Escape focus pass |001j1 accepted locally;002e active; actual zoom/reduced-motion and full/live gates remain |
 | 2026-11-04 | [Customer recovery review](2026-11-04_CustomerRecoveryReview.md) |1100 checks; actual390 lost execute -> keyboard Check -> same result, no stale Run/return | Primary recovery verified; small pre-dispatch/unknown copy finish with002e next |
 | 2026-11-04 | [Application composition plan](2026-11-04_ApplicationCompositionPlan.md) | Normal main lacks digital customer/v3 wiring;003w durable configured composition and restart integration | Queued after002e/003v; JOBS row pending active writer; no runtime/key access |
 | 2026-11-04 | [Worker setup review](2026-11-04_WorkerSetupReview.md) | Official jailer cgroup-v2 absent-parent trap; matched engine/image and host-versus-guest resource checks |002e implementation input; no host settings/packages changed;001j1 sole writer |
