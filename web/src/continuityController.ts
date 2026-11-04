@@ -35,7 +35,8 @@ export interface ContinuityPort {
 }
 
 export interface RefreshStatus {
-  state: "idle" | "sending" | "done" | "refused" | "unknown";
+  /** "info": a plain notice (job 003j2: access confirmed again), not a refresh result. */
+  state: "idle" | "sending" | "done" | "refused" | "unknown" | "info";
   /** The server's outcome for a completed refresh (accepted, duplicate, stale, conflict...). */
   outcome: string | null;
   code: string | null;
@@ -65,6 +66,10 @@ const IDLE: RefreshStatus = {
 
 export const ACCESS_ENDED =
   "This business's ownership evidence is no longer available to you. Nothing private from it is kept on this page.";
+
+/** Replaces the access notice once a valid read confirms access again (job 003j2). */
+export const ACCESS_CONFIRMED =
+  "Access confirmed. The evidence shown is unchanged, with its original time; you can refresh again.";
 
 export const ACCESS_UNCONFIRMED =
   "We couldn't check whether this business is still yours. The evidence below may be out of date, and nothing can be refreshed until access is checked.";
@@ -156,6 +161,11 @@ export class ContinuityController {
       view: v,
       receivedAt: this.now(),
       access: "current",
+      // Job 003j2: a valid read confirms access, so only the notice that said access was
+      // unconfirmed is replaced. Any other result (a newer refusal included) is left alone.
+      ...(s.refresh.code === "access_unconfirmed"
+        ? { refresh: { ...IDLE, state: "info" as const, message: ACCESS_CONFIRMED } }
+        : {}),
       // Another control epoch: nothing typed or reported for the previous one carries over.
       ...(changed ? { refresh: IDLE, month: "" } : {}),
     }));
@@ -271,7 +281,7 @@ export class ContinuityController {
         if (r === "ended") return;
         if (r === "failed" || r === "malformed") {
           this.set((s) => ({ ...s, access: "unconfirmed" }));
-          settle({ state: "unknown", message: ACCESS_UNCONFIRMED });
+          settle({ state: "unknown", code: "access_unconfirmed", message: ACCESS_UNCONFIRMED });
           return;
         }
         settle({ state: "refused", message: (e as Error).message });

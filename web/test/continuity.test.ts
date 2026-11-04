@@ -6,7 +6,9 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "../src/api.ts";
 import { groupDigits, MalformedView, monthLabel, parseView } from "../src/continuityApi.ts";
 import {
+  ACCESS_CONFIRMED,
   ACCESS_ENDED,
+  ACCESS_UNCONFIRMED,
   ContinuityController,
   type ContinuityPort,
   parseMonth,
@@ -570,5 +572,67 @@ describe("003j1 the whole refresh answer is validated at the browser boundary", 
     await stale;
     expect(c.getState()).toMatchObject({ access: "current", status: "ready", message: null });
     expect(c.getState().view).toMatchObject({ state: "never_observed" });
+  });
+});
+
+// ---------- 003j2: the access notice after a successful check ----------
+
+describe("003j2 a successful check replaces the obsolete access notice", () => {
+  it("Astra's browser sequence: refresh 404, recheck 503, malformed check, valid check", async () => {
+    const { api, c } = await opened(); // valid evidence
+    const r = c.refresh();
+    api.take("refresh").fail(new ApiError(404, "No such business"));
+    await new Promise((x) => setTimeout(x, 0));
+    api.take("get").fail(new ApiError(503, "Unavailable"));
+    await r;
+    expect(c.getState().refresh.message).toBe(ACCESS_UNCONFIRMED);
+    let check = c.checkAccess();
+    api.take("get").ok({ state: "observed" }); // malformed
+    await check;
+    expect(c.getState().refresh.message).toBe(ACCESS_UNCONFIRMED); // still true: not confirmed
+    check = c.checkAccess();
+    api.take("get").ok(observed());
+    await check;
+    const s = c.getState();
+    expect(s.access).toBe("current");
+    expect(c.blocked).toBeNull();
+    // The status no longer says refreshing is impossible; it says what happened, truthfully.
+    expect(s.refresh.message).not.toBe(ACCESS_UNCONFIRMED);
+    expect(s.refresh.message).not.toMatch(/nothing can be refreshed/);
+    expect(s.refresh).toMatchObject({ state: "info", message: ACCESS_CONFIRMED });
+    expect((s.view as Json).observed_at).toBe("2026-11-03T09:58:00.000Z"); // original time
+  });
+
+  it("an unrelated refusal is never replaced by an access confirmation", async () => {
+    const { api, c } = await opened();
+    const r = c.refresh();
+    api
+      .take("refresh")
+      .ok({ outcome: "refused", code: "timeout", message: "The NEAR read took too long." });
+    await r;
+    const reread = c.load();
+    api.take("get").ok(observed());
+    await reread;
+    expect(c.getState().refresh).toMatchObject({ state: "refused", code: "timeout" });
+  });
+
+  it("a newer refusal after the access problem is kept when an older confirming read lands", async () => {
+    const { api, c } = await unconfirmed();
+    const older = c.load(); // a read started before the newer refusal, not yet answered
+    const check = c.checkAccess();
+    const [olderGet, checkGet] = [api.take("get"), api.take("get")];
+    checkGet.ok(NEVER);
+    await check;
+    expect(c.getState().refresh.state).toBe("info");
+    // A newer refresh is refused...
+    const r = c.refresh();
+    api
+      .take("refresh")
+      .ok({ outcome: "refused", code: "timeout", message: "The NEAR read took too long." });
+    await r;
+    // ...and the older read finishing later doesn't clear that refusal.
+    olderGet.ok(NEVER);
+    await older;
+    expect(c.getState().refresh).toMatchObject({ state: "refused", code: "timeout" });
   });
 });

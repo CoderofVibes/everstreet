@@ -262,6 +262,7 @@ function RefreshPanel({ c, blocked }: { c: ContinuityController; blocked: string
             {r.message}
           </p>
         )}
+        {r.state === "info" && <p className="notice info">{r.message}</p>}
       </div>
     </section>
   );
