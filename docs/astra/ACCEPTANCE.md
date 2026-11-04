@@ -178,6 +178,17 @@ context; committed-but-lost reply recovers once (2 projects total for2 intended 
 typing and strictly bound request constraints; API reproduction copied arbitrary extra fields.
 Independent full check467/468 with intermittent flood-test timeout;002a2 required. NoM5 claim.
 
+November3 at80d2144: independent full499-test check (38files), lint/types and web build passed.
+003i read-only HTTP adapter and upgrade reviewed; synthetic transport only, operator-asserted
+network identity, no live/wiring/reconciliation acceptance. Finite4MiB test fixture replaces
+unbounded stream after the interrupted mutation run. See2026-11-03_OwnerContinuity.md.
+
+005a1 independent browser repeat:503 after commit + changed working name retains original
+recovery; Check original request finds the project and keeps newer edits with explicit separate
+project action. Direct fixture counters1 project/0 responses. Keyboard foundation selection
+passes. Local demand bridge correction accepted for further development, not fullM5. Full
+mobile/error-state browser matrix remains partial.003j is next; all six milestones stay open.
+
 ## M6: expanded capability and continuity
 
 - Additional product families meet the same creation, operation and transfer gates.

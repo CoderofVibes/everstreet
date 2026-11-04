@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-03 | [Owner continuity](2026-11-03_OwnerContinuity.md) | Independent499-test pass; demand recovery browser repeat;003j makes NEAR ownership and obligations visible to owners | Active; see local checkpoint |
 | 2026-11-03 | [Local recovery](2026-11-03_LocalRecovery.md) | Terminal access restored;002a2/005a1 saved; resume interrupted003i and restore deliberate mutants before checks | Active; see local checkpoint |
 | 2026-11-03 | [Demand review](2026-11-03_DemandReview.md) | Opportunities/browser recovery verified; typed-ahead and metadata corrections, deterministic tests and read-only RPC adapter next | Active; see local checkpoint |
 | 2026-11-03 | [Observation and demand](2026-11-03_ObservationAndDemand.md) | Import access-loss browser repeat passes; reproduced recheck and v3 observation failures;004a3/003h1 then demand-to-studio005a | Active; see local checkpoint |
