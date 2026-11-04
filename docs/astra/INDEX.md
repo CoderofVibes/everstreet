@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Studio phone and demand recovery](2026-11-04_StudioPhoneAndDemandReview.md) |1028 checks; phone edit/focus/long tools/save pass; demand original recovery preserves newer typing |001g1 accepted;003u2 next; broader gates remain |
 | 2026-11-04 | [Home fix independent review](2026-11-04_HomeFixIndependentReview.md) |1023 tests; actual delayed-response identity and catalog/foundation recovery pass;390 keyboard/fit |001f2 accepted;001g1 next |
 | 2026-11-04 | [Customer composition review](2026-11-04_CustomerCompositionReview.md) | Actual customer review1440/390; compact active step, exact units/recovery/continuity ->001j; broad functional gates preserved | Queued after001i; sole001f2 writer continues |
 | 2026-11-04 | [Canvas independent review](2026-11-04_CanvasIndependentReview.md) |1007 tests; actual desktop edit/focus/undo/save pass; phone editor covered ->001g1 |001g remains review;001f2 priority next |
