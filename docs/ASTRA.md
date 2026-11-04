@@ -27,6 +27,11 @@ as Tony's other projects: Astra is the creative lead and second seat.
 - **Never work where Claude is editing.** Run `git status` first. If files you'd touch already
   have changes you didn't make, leave them and say so.
 - **Read what you need**, not the whole tree. Never open `node_modules/`, `target/`.
+- **Scope searches before reading.** Search explicit allowed files/directories. Never use a
+  recursive search over the repository and filter forbidden paths afterward: that already reads
+  them. `docs/research/` is ignored, local-only and outside development searches/assessments until
+  Tony explicitly requests its assessment. Use scoped `rg` or tracked-file `git grep`; do not
+  use unrestricted `grep -r .`, `--no-ignore` or search secret/runtime/dependency directories.
 - **Keys and secrets.** Never open `.env`, `.near-credentials/`, `~/.near-credentials/` or
   `data/runtime/`. Never print an environment variable.
 - **Nothing that signs, spends or deploys.** Never run `setup:*`, `smoke:*`, `seed:*`, `handoff`,

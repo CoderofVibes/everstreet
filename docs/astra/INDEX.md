@@ -2,6 +2,9 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Discovery repeat and Studio dispatch](2026-11-04_DiscoveryRepeatAndStudioDispatch.md) |988 independent tests; actual availability/keyboard and outage/retry pass; scoped-search boundary reinforced;001g next,003u2/001h queued | Active; see local checkpoint |
+| 2026-11-04 | [Operations design review](2026-11-04_OperationsDesignReview.md) | Actual1440/390 operating UI baseline; data series collapse to same cobalt, chart/overview hierarchy and released identity ->001h | Queued after Studio/evidence correction; sole001f1 writer active |
+| 2026-11-04 | [Legacy disclosure API reproduction](2026-11-04_LegacyDisclosureReproduction.md) | Real granted room/export reveal4 orders,3 delivered,hidden refund uniquely1; finite13-request in-memory probe; source provenance note also overstates configured services | Correction queued;001f1 builder remains sole writer |
 | 2026-11-04 | [Continuous goal and UI review](2026-11-04_ContinuousGoalAndUIReview.md) | Goal active, interval paused; independent976 tests; publication/example/mobile/keyboard review; Explore availability failure ->001f1, Studio001g queued | Active; see local checkpoint |
 | 2026-11-04 | [UI approval and restart](2026-11-04_UIApproval.md) | Tony approved complete luminous UI direction; durable design/vision/decision updates;001f implementation begins after repair of interrupted001e | Authorized; see local checkpoint |
 | 2026-11-04 | [Legacy disclosure review](2026-11-04_LegacyDisclosureReview.md) | 001d1 source review/6 loader tests; legacy exact-small-count inference counterexample; full check caught active001e partial edits, recheck when complete | Independent review while Claude90429 builds001e; see local checkpoint |
