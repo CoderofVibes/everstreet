@@ -5,6 +5,7 @@
 // the only signal: patterns, outlines and labels carry the same meaning.
 
 import { useId, useState } from "react";
+import { CHART_SERIES, seriesFill, seriesStroke, swatchClass } from "../chartSeries.ts";
 import {
   beforeOpening,
   type FinMonth,
@@ -16,6 +17,7 @@ import {
   segments,
   yOf,
 } from "../finance.ts";
+import { SeriesPatterns } from "./SeriesPatterns.tsx";
 
 /**
  * Charts scroll inside their own region on narrow screens instead of shrinking, so axis and
@@ -131,6 +133,7 @@ export function EarnedCostChart({ months, title }: { months: FinMonth[]; title: 
               <rect width="5" height="5" fill="var(--mint-soft)" />
               <circle cx="2.5" cy="2.5" r="1" fill="var(--mint-ink)" />
             </pattern>
+            <SeriesPatterns chartId={id} keys={CHART_SERIES["earned and costs"] ?? []} />
           </defs>
           <Axis scale={scale} label="US dollars (test dollars 1:1)" />
           {months.map((m, i) => {
@@ -187,7 +190,10 @@ export function EarnedCostChart({ months, title }: { months: FinMonth[]; title: 
                     {...rect(m.revenue_cents)}
                     width={bar}
                     // Fictional example history: its own dotted pattern, never the observed fill.
-                    fill={m.revenue_basis === "seeded" ? `url(#${id}-dots)` : "var(--mint)"}
+                    data-series="earned"
+                    fill={
+                      m.revenue_basis === "seeded" ? `url(#${id}-dots)` : seriesFill("primary", id)
+                    }
                     stroke={
                       m.revenue_basis === "seeded"
                         ? "var(--mint-ink)"
@@ -199,11 +205,12 @@ export function EarnedCostChart({ months, title }: { months: FinMonth[]; title: 
                   />
                 )}
                 <rect
+                  data-series="costs"
                   x={cx + 2}
                   {...rect(costs)}
                   width={bar}
-                  fill="var(--blue)"
-                  stroke={isPartial ? "var(--ink-2)" : "none"}
+                  fill={seriesFill("cost", id)}
+                  stroke={isPartial ? "var(--ink-2)" : seriesStroke("cost")}
                   strokeDasharray={isPartial ? "4 3" : undefined}
                 />
                 <text x={cx} y={H - 16} fontSize="11" textAnchor="middle" fill="var(--ink-2)">
@@ -255,10 +262,10 @@ export function EarnedCostChart({ months, title }: { months: FinMonth[]; title: 
       </Scroll>
       <div className="fin-legend" aria-hidden="true">
         <span>
-          <i className="sw sw-mint" /> Earned (test dollars)
+          <i className={swatchClass("primary")} /> Earned (test dollars; solid, left)
         </span>
         <span>
-          <i className="sw sw-blue" /> Costs (US dollars you entered)
+          <i className={swatchClass("cost")} /> Costs (US dollars you entered; lined, right)
         </span>
         <span>
           <i className="sw sw-line" /> Contribution (demo, 1:1)
@@ -346,7 +353,7 @@ export function CashChart({ months }: { months: FinMonth[] }) {
                       y={at(m.cash.cash_in_cents)}
                       width={bar}
                       height={Math.max(1, zero - at(m.cash.cash_in_cents))}
-                      fill="var(--mint)"
+                      fill={seriesFill("primary", id)}
                     />
                     <rect
                       x={cx - bar / 2}
@@ -379,7 +386,7 @@ export function CashChart({ months }: { months: FinMonth[] }) {
       </Scroll>
       <div className="fin-legend" aria-hidden="true">
         <span>
-          <i className="sw sw-mint" /> In: orders and prepayments
+          <i className={swatchClass("primary")} /> In: orders and prepayments (above the line)
         </span>
         <span>
           <i className="sw sw-amber" /> Out: returned before delivery and owner withdrawals

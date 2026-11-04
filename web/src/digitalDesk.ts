@@ -27,7 +27,33 @@ export function deskStatusLine(d: Pick<DigitalDeskView, "work">): string {
   return `${parts.join(" · ")}.`;
 }
 
-/** Where a work item leads: an existing route, or an anchor on this desk. */
+// ---------- job 001h: the operating workspace's views ----------
+
+export type DeskView = "overview" | "performance" | "products" | "growth";
+
+export const DESK_VIEWS: { id: DeskView; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "performance", label: "Performance" },
+  { id: "products", label: "Products" },
+  { id: "growth", label: "Customers and growth" },
+];
+
+/** The view a query names; anything else (or nothing) is the overview. */
+export function deskViewFromSearch(search: string): DeskView {
+  let v: string | null = null;
+  try {
+    v = new URLSearchParams(search).get("view");
+  } catch {
+    v = null;
+  }
+  return DESK_VIEWS.some((x) => x.id === v) ? (v as DeskView) : "overview";
+}
+
+/** A link to one view of this desk (optionally to a section in it). */
+export const deskViewHref = (businessId: string, view: DeskView, section?: string) =>
+  `/desk/${businessId}${view === "overview" ? "" : `?view=${view}`}${section ? `#${section}` : ""}`;
+
+/** Where a work item leads: an existing route, or a section in one of this desk's views. */
 export function workHref(w: Pick<DeskWorkItem, "link">, businessId: string): string {
   const p = w.link.project;
   switch (w.link.to) {
@@ -38,9 +64,9 @@ export function workHref(w: Pick<DeskWorkItem, "link">, businessId: string): str
     case "continuity":
       return `/desk/${businessId}/continuity`;
     case "inquiries":
-      return "#desk-inquiries";
+      return deskViewHref(businessId, "growth", "desk-inquiries");
     default:
-      return "#desk-checklist";
+      return deskViewHref(businessId, "growth", "desk-checklist");
   }
 }
 
@@ -53,8 +79,56 @@ export function studioAction(
   if (d.products.total === 1 && only)
     return { label: "Open product studio", to: `/build/${only.project_id}`, anchor: false };
   if (d.products.total > 1)
-    return { label: "Choose a product", to: "#desk-products", anchor: true };
+    return {
+      label: "Choose a product",
+      to: deskViewHref(businessId, "products", "desk-products"),
+      anchor: false,
+    };
   return { label: "Start a product in Studio", to: `/build?business=${businessId}`, anchor: false };
+}
+
+/**
+ * Job 001h: the header's one next action. The first thing that needs the founder, else the studio
+ * action. A "system" item is never offered as something to do.
+ */
+export function nextAction(
+  d: Pick<DigitalDeskView, "products" | "work">,
+  businessId: string,
+): { label: string; to: string } {
+  const first = d.work.find((w) => w.who === "you");
+  if (first)
+    return {
+      label: first.key.includes(":") ? first.label : `${first.count} ${first.label}`,
+      to: workHref(first, businessId),
+    };
+  const s = studioAction(d, businessId);
+  return { label: s.label, to: s.to };
+}
+
+/**
+ * Job 001h: a product's identity. With an active release, its title is the released name (what
+ * customers see); a draft brief named differently is labelled as a draft, never shown as the
+ * product. Without a release, the brief's name is the title and it is a draft.
+ */
+export function productIdentity(p: DeskProduct): {
+  title: string;
+  released: boolean;
+  draft: string | null;
+} {
+  const brief = p.name ?? "Unnamed product";
+  const r = p.released;
+  if (!r) return { title: brief, released: false, draft: null };
+  const title = r.name ?? `Released build of revision ${r.revision}`;
+  const differs = p.name !== null && p.name !== r.name;
+  return {
+    title,
+    released: true,
+    draft: differs
+      ? `Draft brief (revision ${p.revision}): ${p.name}`
+      : p.revision > r.revision
+        ? `Draft brief (revision ${p.revision}) changed since this release (revision ${r.revision})`
+        : null,
+  };
 }
 
 /** The header's product facts: releases and customer offers, apart from the page's state. */

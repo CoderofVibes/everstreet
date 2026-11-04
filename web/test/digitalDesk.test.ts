@@ -57,8 +57,13 @@ describe("001c links and choices", () => {
     );
     expect(workHref(item({ link: { to: "studio", project: "p2" } }), "b1")).toBe("/build/p2");
     expect(workHref(item({ link: { to: "continuity" } }), "b1")).toBe("/desk/b1/continuity");
-    expect(workHref(item({ link: { to: "inquiries" } }), "b1")).toBe("#desk-inquiries");
-    expect(workHref(item({ link: { to: "checklist" } }), "b1")).toBe("#desk-checklist");
+    // Job 001h: inquiries and the checklist live in the workspace's growth view.
+    expect(workHref(item({ link: { to: "inquiries" } }), "b1")).toBe(
+      "/desk/b1?view=growth#desk-inquiries",
+    );
+    expect(workHref(item({ link: { to: "checklist" } }), "b1")).toBe(
+      "/desk/b1?view=growth#desk-checklist",
+    );
   });
 
   it("one product opens its studio; several are a choice; none starts one", () => {
@@ -72,7 +77,11 @@ describe("001c links and choices", () => {
         { products: { total: 2, shown: [product(), product({ project_id: "p2" })] } },
         "b1",
       ),
-    ).toEqual({ label: "Choose a product", to: "#desk-products", anchor: true });
+    ).toEqual({
+      label: "Choose a product",
+      to: "/desk/b1?view=products#desk-products",
+      anchor: false,
+    });
     expect(studioAction({ products: { total: 0, shown: [] } }, "b1").to).toBe("/build?business=b1");
   });
 });

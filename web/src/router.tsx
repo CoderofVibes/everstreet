@@ -80,10 +80,13 @@ export function Link({
   to,
   className,
   children,
+  current,
 }: {
   to: string;
   className?: string;
   children: ReactNode;
+  /** Job 001h: marks the link for the place you are (aria-current="page"). */
+  current?: boolean;
 }) {
   const { go } = useRouter();
   const onClick = (e: MouseEvent) => {
@@ -92,7 +95,12 @@ export function Link({
     go(to);
   };
   return (
-    <a href={to} className={className} onClick={onClick}>
+    <a
+      href={to}
+      className={className}
+      onClick={onClick}
+      aria-current={current ? "page" : undefined}
+    >
       {children}
     </a>
   );

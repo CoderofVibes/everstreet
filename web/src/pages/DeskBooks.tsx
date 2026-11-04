@@ -83,19 +83,14 @@ function BalanceTiles({ now }: { now: Balances }) {
   );
 }
 
-export function DeskBooks({ desk }: { desk: Desk }) {
-  const id = desk.business.id;
+/**
+ * Job 001h: the books read, lifted so the operating workspace's Overview and Performance share one
+ * sequenced read (only the newest answer lands; losing access drops every figure, 003t).
+ */
+export function useBooks(id: string) {
   const [period, setPeriod] = useState(6);
   const [data, setData] = useState<BooksView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [f, setF] = useState({
-    category: "AI model usage",
-    amount: "",
-    recurring: false,
-    month: monthInput(thisMonth()),
-    note: "",
-  });
-  const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
   const load = useCallback(() => {
     const n = ++seq.current;
@@ -115,7 +110,42 @@ export function DeskBooks({ desk }: { desk: Desk }) {
   }, [id, period]);
   useEffect(() => {
     load();
+    // A page that unmounts ignores any answer still in flight.
+    return () => {
+      seq.current++;
+    };
   }, [load]);
+  return { id, period, setPeriod, data, loadError, load };
+}
+export type BooksRead = ReturnType<typeof useBooks>;
+
+/** The legacy desk's books: reads its own (unchanged behaviour). */
+export function DeskBooks({ desk }: { desk: Desk }) {
+  const books = useBooks(desk.business.id);
+  return <BooksPanel books={books} />;
+}
+
+/**
+ * The books, from a read. `deliberate`: the operating workspace opens Add a cost on request
+ * (job 001h); the legacy desk keeps the form open as before.
+ */
+export function BooksPanel({
+  books,
+  deliberate = false,
+}: {
+  books: BooksRead;
+  deliberate?: boolean;
+}) {
+  const { id, period, setPeriod, data, loadError, load } = books;
+  const [f, setF] = useState({
+    category: "AI model usage",
+    amount: "",
+    recurring: false,
+    month: monthInput(thisMonth()),
+    note: "",
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(!deliberate);
   if (loadError && !data)
     return (
       <section className="card">
@@ -126,7 +156,14 @@ export function DeskBooks({ desk }: { desk: Desk }) {
         </button>
       </section>
     );
-  if (!data) return null;
+  if (!data)
+    return (
+      <section className="card">
+        <p className="muted" style={{ margin: 0 }}>
+          Loading the books…
+        </p>
+      </section>
+    );
   const shown = data.months;
   const [prev, last] = latestPair(shown);
   const costRows = categories(shown);
@@ -300,63 +337,79 @@ export function DeskBooks({ desk }: { desk: Desk }) {
         ))}
       </ul>
 
-      <h3 style={{ fontSize: 15, marginTop: 18 }}>Add a cost</h3>
-      <div className="filters">
-        <label className="field" style={{ margin: 0 }}>
-          <span style={{ fontSize: 14 }}>What for</span>
-          <select
-            className="input"
-            value={f.category}
-            onChange={(e) => setF({ ...f, category: e.target.value })}
+      <div className="row" style={{ marginTop: 18, gap: 8 }}>
+        <h3 style={{ fontSize: 15, margin: 0 }}>Add a cost</h3>
+        {deliberate && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            aria-expanded={formOpen}
+            aria-controls={`cost-form-${id}`}
+            onClick={() => setFormOpen((o) => !o)}
           >
-            {data.categories.map((c) => (
-              <option key={c.category}>{c.category}</option>
-            ))}
-          </select>
-          {hint && <small>{hint}</small>}
-        </label>
-        <label className="field" style={{ margin: 0 }}>
-          <span style={{ fontSize: 14 }}>Amount ($)</span>
-          <input
-            className="input"
-            inputMode="decimal"
-            value={f.amount}
-            onChange={(e) => setF({ ...f, amount: e.target.value })}
-          />
-        </label>
-        <label className="field" style={{ margin: 0 }}>
-          <span style={{ fontSize: 14 }}>Month</span>
-          <input
-            className="input"
-            type="month"
-            max={monthInput(thisMonth())}
-            value={f.month}
-            onChange={(e) => setF({ ...f, month: e.target.value })}
-          />
-        </label>
-        <label className="field" style={{ margin: 0 }}>
-          <span style={{ fontSize: 14 }}>Note (optional)</span>
-          <input
-            className="input"
-            value={f.note}
-            onChange={(e) => setF({ ...f, note: e.target.value })}
-          />
-        </label>
+            {formOpen ? "Close" : f.amount || f.note ? "Continue adding a cost" : "Add a cost"}
+          </button>
+        )}
       </div>
-      <div className="row" style={{ marginTop: 10 }}>
-        <label className="check" style={{ margin: 0 }}>
-          <input
-            type="checkbox"
-            checked={f.recurring}
-            onChange={(e) => setF({ ...f, recurring: e.target.checked })}
-          />
-          <span>Every month from then on</span>
-        </label>
-        <button type="button" className="btn btn-primary" onClick={add}>
-          Add cost
-        </button>
+      {/* Job 001h: hidden, never unmounted, so a half-filled cost survives closing it. */}
+      <div id={`cost-form-${id}`} hidden={!formOpen}>
+        <div className="filters">
+          <label className="field" style={{ margin: 0 }}>
+            <span style={{ fontSize: 14 }}>What for</span>
+            <select
+              className="input"
+              value={f.category}
+              onChange={(e) => setF({ ...f, category: e.target.value })}
+            >
+              {data.categories.map((c) => (
+                <option key={c.category}>{c.category}</option>
+              ))}
+            </select>
+            {hint && <small>{hint}</small>}
+          </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span style={{ fontSize: 14 }}>Amount ($)</span>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={f.amount}
+              onChange={(e) => setF({ ...f, amount: e.target.value })}
+            />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span style={{ fontSize: 14 }}>Month</span>
+            <input
+              className="input"
+              type="month"
+              max={monthInput(thisMonth())}
+              value={f.month}
+              onChange={(e) => setF({ ...f, month: e.target.value })}
+            />
+          </label>
+          <label className="field" style={{ margin: 0 }}>
+            <span style={{ fontSize: 14 }}>Note (optional)</span>
+            <input
+              className="input"
+              value={f.note}
+              onChange={(e) => setF({ ...f, note: e.target.value })}
+            />
+          </label>
+        </div>
+        <div className="row" style={{ marginTop: 10 }}>
+          <label className="check" style={{ margin: 0 }}>
+            <input
+              type="checkbox"
+              checked={f.recurring}
+              onChange={(e) => setF({ ...f, recurring: e.target.checked })}
+            />
+            <span>Every month from then on</span>
+          </label>
+          <button type="button" className="btn btn-primary" onClick={add}>
+            Add cost
+          </button>
+        </div>
+        {error && <p className="error-text">{error}</p>}
       </div>
-      {error && <p className="error-text">{error}</p>}
       {data.costs.filter((c) => c.origin === "founder").length > 0 && (
         <details style={{ marginTop: 12 }}>
           <summary className="muted">Costs you entered</summary>

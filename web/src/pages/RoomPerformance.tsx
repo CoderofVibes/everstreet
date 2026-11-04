@@ -6,6 +6,7 @@
 
 import { useId, useState } from "react";
 import type { PerformanceEvidence } from "../api5.ts";
+import { type SeriesKey, seriesFill, seriesStroke, swatchClass } from "../chartSeries.ts";
 import { intScale, microcentsUsd } from "../operations.ts";
 import {
   costShown,
@@ -15,6 +16,7 @@ import {
   shownText,
 } from "../performance.ts";
 import { Scroll } from "./FinanceChart.tsx";
+import { SeriesPatterns } from "./SeriesPatterns.tsx";
 
 const W = 640;
 const H = 200;
@@ -33,7 +35,8 @@ function MonthlyChart({
 }: {
   months: Month[];
   title: string;
-  series: { label: string; fill: string; value: (m: Month) => number }[];
+  /** Job 001h: each a data series (colour and pattern), never two the same. */
+  series: { label: string; series: SeriesKey; value: (m: Month) => number }[];
   axis: string;
   fmt: (t: number) => string;
 }) {
@@ -53,6 +56,9 @@ function MonthlyChart({
       <Scroll label={`${title} (scrolls sideways on small screens)`}>
         <svg viewBox={`0 0 ${W} ${H}`} className="fin-svg">
           <title>{title}</title>
+          <defs>
+            <SeriesPatterns chartId={id} keys={series.map((s) => s.series)} />
+          </defs>
           {scale.ticks.map((t) => {
             const y = TOP + PLOT - (t / scale.max) * PLOT;
             return (
@@ -98,8 +104,9 @@ function MonthlyChart({
                     y={TOP + PLOT - h}
                     width={bar}
                     height={Math.max(1, h)}
-                    fill={s.fill}
-                    stroke={m.so_far ? "var(--ink-2)" : "none"}
+                    data-series={s.series}
+                    fill={seriesFill(s.series, id)}
+                    stroke={m.so_far ? "var(--ink-2)" : seriesStroke(s.series)}
                     strokeDasharray={m.so_far ? "4 3" : undefined}
                   />
                 );
@@ -119,7 +126,7 @@ function MonthlyChart({
       <div className="fin-legend" aria-hidden="true">
         {series.map((s) => (
           <span key={s.label}>
-            <i className="sw" style={{ background: s.fill }} /> {s.label}
+            <i className={swatchClass(s.series)} /> {s.label}
           </span>
         ))}
         <span>
@@ -202,7 +209,7 @@ export function RoomPerformance({ p }: { p: PerformanceEvidence | undefined }) {
           series={[
             {
               label: "Customer uses",
-              fill: "var(--mint)",
+              series: "primary",
               value: (m) => (isWithheld(m.requested) ? 0 : m.requested),
             },
           ]}
@@ -223,14 +230,14 @@ export function RoomPerformance({ p }: { p: PerformanceEvidence | undefined }) {
             : [
                 {
                   label: "Serving customers",
-                  fill: "var(--mint)",
+                  series: "primary" as const,
                   value: (m: Month) =>
                     isWithheld(m.customers.microcents) ? 0 : Number(m.customers.microcents),
                 },
               ]),
           {
             label: "Founder trials and checks",
-            fill: "var(--blue)",
+            series: "founder",
             value: (m) => Number(m.founder.microcents),
           },
         ]}

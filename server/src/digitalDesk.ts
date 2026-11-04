@@ -68,6 +68,27 @@ export function digitalDesk(
   const newestOffer = db.prepare(
     "SELECT id, plan_id, plan, asset FROM customer_offers WHERE project_id = ? AND state = 'active' ORDER BY created_at DESC, id LIMIT 1",
   );
+  // Job 001h: the active release's own identity (its built artifact's name and the brief revision
+  // it was built from), the same source customers see (customerUse.productName). A newer draft
+  // brief never relabels it.
+  const releasedOf = db.prepare(
+    `SELECT a.content, j.revision FROM runtime_releases r
+       JOIN build_artifacts a ON a.job_id = r.artifact_job
+       JOIN build_jobs j ON j.id = r.artifact_job
+      WHERE r.project_id = ? AND r.state = 'active'`,
+  );
+  const released = (projectId: string): { name: string | null; revision: number } | null => {
+    const a = releasedOf.get(projectId) as { content: string; revision: number } | undefined;
+    if (!a) return null;
+    let name: string | null = null;
+    try {
+      const n = (JSON.parse(a.content) as { name?: unknown }).name;
+      name = typeof n === "string" && n.trim() ? n.trim().slice(0, 120) : null;
+    } catch {
+      name = null;
+    }
+    return { name, revision: a.revision };
+  };
   const products = rows.map((r) => {
     let name: string | null = null;
     try {
@@ -108,6 +129,7 @@ export function digitalDesk(
       offers: { active: r.active_offers, retired: r.retired_offers },
       // Exact contract base units and the asset's identity, as recorded with the offer.
       offer: o ? { id: o.id, plan_id: o.plan_id, unit_price: unitPrice, asset: o.asset } : null,
+      released: r.active_since ? released(r.id) : null,
       status,
     };
   });

@@ -19,9 +19,10 @@ const INVOICE =
   "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD";
 const UNSUPPORTED = "A fictional shopping list: oat milk, rye bread, two lemons";
 
-export async function operationsPreview() {
+/** Job 001h: a preview built on this one may state its own label (it adds other records). */
+export async function operationsPreview(opts: { label?: { label: string; detail: string } } = {}) {
   const p = await acquisitionPreview({
-    label: {
+    label: opts.label ?? {
       label: "Preview only: synthetic customers, runtime, worker and sale evidence",
       // 003t1: the fixture sale clock is stated here too (as in 003s1), never the wall clock.
       detail: `Fictional customer uses recorded by the app's own routes this month; earlier months are recorded zeros, not history. Sale views are the contract tests' fixtures, read on a fixture clock that started at ${new Date(FIXTURE_START_MS).toISOString()}; customer uses run on this computer's clock. Not testnet or production evidence; nothing leaves this computer.`,

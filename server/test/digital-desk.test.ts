@@ -70,6 +70,26 @@ describe("001c a working digital business reads as one", () => {
       expect(text).not.toContain(secret);
   });
 
+  it("001h: the released product keeps its own name when a newer draft brief is renamed", async () => {
+    const { t, desk } = await digital();
+    const first = (await desk()).body.products.shown[0] as Json;
+    // The released identity is the built artifact's, as customers see it.
+    expect(first.released).toEqual({ name: "Invoice reader", revision: expect.any(Number) });
+    const releasedRevision = first.released.revision as number;
+    const v = (await t.w.owner(`/api/product-projects/${t.w.f.project}`)).body as Json;
+    const saved = await t.w.owner(`/api/product-projects/${t.w.f.project}/revisions`, "POST", {
+      base_revision: v.head.number,
+      brief: { ...v.head.brief, name: "Ledgerline Rows (draft)" },
+      prototype: v.head.prototype,
+      note: "Rename the draft",
+    });
+    expect([200, 201]).toContain(saved.status);
+    const after = (await desk()).body.products.shown[0] as Json;
+    expect(after.name).toBe("Ledgerline Rows (draft)");
+    expect(after.released).toEqual({ name: "Invoice reader", revision: releasedRevision });
+    expect(after.revision).toBeGreaterThan(releasedRevision);
+  });
+
   it("an overdue worker isn't presented as settling", async () => {
     const { t, desk } = await digital();
     t.advance(24 * 3_600_000); // a day later, no pass
