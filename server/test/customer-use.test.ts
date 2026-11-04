@@ -233,6 +233,7 @@ describe("003m customer preparation and reservation (real API, injected adapters
       idempotency_key: "offer-key-0001",
       release_id: w.release,
       plan_id: 1,
+      reviewed_terms: "0".repeat(64),
     });
     expect([r.status, r.body.code]).toEqual([503, "customer_use_unavailable"]);
     expect(rows(w, "SELECT * FROM customer_offers")).toHaveLength(0);
@@ -242,7 +243,12 @@ describe("003m customer preparation and reservation (real API, injected adapters
   it("offers are the owner's, fenced, exact and idempotent; they carry no customer data", async () => {
     const w = await customerWorld();
     const stranger = w.person("Noah Fenn");
-    const body = { idempotency_key: "offer-key-0001", release_id: w.release, plan_id: 1 };
+    const body = {
+      idempotency_key: "offer-key-0001",
+      release_id: w.release,
+      plan_id: 1,
+      reviewed_terms: await w.reviewed(),
+    };
     expect(
       (await stranger(`/api/businesses/${w.f.business}/customer-offers`, "POST", body)).status,
     ).toBe(404);

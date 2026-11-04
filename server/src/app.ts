@@ -266,6 +266,15 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/businesses/:id/customer-offers/:offer/retire", (c) =>
     c.json(customerUses.retireOffer(me(c), c.req.param("id"), c.req.param("offer"))),
   );
+  // Job 003r: the owner's readiness summary (local facts only) and the bounded plan inspector.
+  app.get("/api/businesses/:id/customer-offer-readiness", (c) =>
+    c.json(
+      customerUses.offerReadiness(me(c), c.req.param("id"), c.req.query("project") || undefined),
+    ),
+  );
+  app.post("/api/businesses/:id/customer-offer-inspections", async (c) =>
+    c.json(await customerUses.inspectOffer(me(c), c.req.param("id"), await body(c))),
+  );
   app.post("/api/customer/offers/:offer/prepare", async (c) => {
     const r = await customerUses.prepare(me(c), c.req.param("offer"), await body(c));
     return c.json(r, r.created ? 201 : 200);

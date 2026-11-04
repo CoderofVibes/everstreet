@@ -825,12 +825,29 @@ export async function customerWorld(
   const owner = caller(f.ava.id);
   const cara = person("Cara Okafor");
   link(cara.id, CUSTOMER);
+  /** Job 003r: inspect a plan as the owner and return the digest a create must present. */
+  const reviewed = async (
+    terms: { plan_id?: number; retention_days?: number; release_id?: string } = {},
+    by = owner,
+  ) => {
+    const r = await by(`/api/businesses/${f.business}/customer-offer-inspections`, "POST", {
+      release_id: release.id,
+      plan_id: 1,
+      retention_days: 30,
+      ...terms,
+    });
+    if (r.status !== 200) throw new Error(`inspect: ${r.body.error}`);
+    return r.body.inspection.terms_digest as string;
+  };
+  let firstReview: string | null = null; // offer() is the same idempotent request every time
   const offer = async () => {
+    firstReview ??= await reviewed();
     const r = await owner(`/api/businesses/${f.business}/customer-offers`, "POST", {
       idempotency_key: "offer-key-0001",
       release_id: release.id,
       plan_id: 1,
       retention_days: 30,
+      reviewed_terms: firstReview,
     });
     if (r.status !== 201 && r.status !== 200) throw new Error(`offer: ${r.body.error}`);
     return r.body.offer.id as string;
@@ -858,6 +875,8 @@ export async function customerWorld(
     link,
     caller,
     offer,
+    reviewed,
+    v3,
     signed,
     sign1,
     provider,

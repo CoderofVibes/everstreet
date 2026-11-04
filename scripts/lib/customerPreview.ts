@@ -35,15 +35,30 @@ window.__everstreetAuthorizer = {
 };
 `;
 
-export type LoseRoute = "prepare" | "confirm" | "execute" | "units";
+export type LoseRoute = "prepare" | "confirm" | "execute" | "units" | "offer" | "retire";
+export const LOSE_ROUTES: LoseRoute[] = [
+  "prepare",
+  "confirm",
+  "execute",
+  "units",
+  "offer",
+  "retire",
+];
 const ROUTES: Record<LoseRoute, RegExp> = {
   prepare: /^\/api\/customer\/offers\/[^/]+\/prepare$/,
   confirm: /^\/api\/customer\/uses\/[^/]+\/confirm$/,
   execute: /^\/api\/customer\/uses\/[^/]+\/execute$/,
   units: /^\/api\/customer\/uses\/[^/]+\/units\/reconcile$/,
+  // Job 003r: the owner's offer creation and retirement.
+  offer: /^\/api\/businesses\/[^/]+\/customer-offers$/,
+  retire: /^\/api\/businesses\/[^/]+\/customer-offers\/[^/]+\/retire$/,
 };
 
-export async function customerPreview() {
+/**
+ * `withOffer` (003q's quick start) creates the offer as the founder would; without it (003r) the
+ * founder sets it up in the studio's Service tab.
+ */
+export async function customerPreview(opts: { withOffer?: boolean } = {}) {
   const protection = new SyntheticProtection();
   const w = await customerWorld({ customer: { protection } });
   // The synthetic chain and the server follow this computer's clock (plus any preview offset),
@@ -60,11 +75,11 @@ export async function customerPreview() {
     return finalBlock();
   };
   sync();
-  // A fictional, published business with one released product offer.
+  // A fictional, published business with one tested release (and, for 003q's quick start, its offer).
   w.state.store.db
     .prepare("UPDATE businesses SET name = ?, slug = ?, published_at = ? WHERE id = ?")
     .run("Ledgerline Invoice Reader", "ledgerline", new Date().toISOString(), w.f.business);
-  const offerId = await w.offer();
+  const offerId = opts.withOffer ? await w.offer() : null;
   const noah = w.person("Noah Fenn");
 
   const state = {
@@ -124,6 +139,15 @@ export async function customerPreview() {
     authorizer: (on: boolean) => {
       state.authorizer = on;
     },
+    /** Job 003r: the synthetic plan's price changes (a reviewed offer must then be reviewed again). */
+    planPrice: (unitPrice: string) => {
+      if (!/^[1-9][0-9]{0,20}$/.test(unitPrice)) throw new Error("a base-unit amount");
+      w.chain.plan = { ...w.chain.plan, unit_price: unitPrice };
+    },
+    /** Job 003r: the next contract read fails (an unreachable endpoint), once. */
+    readFails: () => {
+      w.reader.failNext = 1;
+    },
     /** A completed sale: Ava's business moves to Noah; the platform keeps metering (regranted). */
     sale: () => {
       w.rw.transfer(w.f.business, w.f.ava.id, noah.id);
@@ -147,6 +171,12 @@ export async function customerPreview() {
       settle_calls: w.writer.settleCalls,
       authorizer: state.authorizer,
       lose_next: [...state.lose],
+      plan_unit_price: w.chain.plan.unit_price,
+      offers: w.state.store.db
+        .prepare(
+          "SELECT id, state, plan_id, retention_days FROM customer_offers ORDER BY created_at",
+        )
+        .all(),
     }),
   };
 
@@ -154,6 +184,7 @@ export async function customerPreview() {
     site,
     w,
     offerId,
+    projectId: w.f.project,
     people: { cara: w.cara.id, ava: w.f.ava.id, noah: noah.id },
     controls,
   };

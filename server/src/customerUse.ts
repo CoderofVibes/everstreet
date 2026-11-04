@@ -154,6 +154,8 @@ export const LIMITS = {
   eventsPerRequest: 50,
   duePerPass: 25,
   offersPerBusiness: 50,
+  /** Job 003r: plan inspections per business per minute (each is one bounded contract read). */
+  inspectionsPerMinute: 12,
 } as const;
 
 const KEY = /^[A-Za-z0-9_-]{8,80}$/;
@@ -281,7 +283,7 @@ const LABELS: Record<State, { label: string; explanation: string }> = {
   },
 };
 
-function bad(status: 400 | 404 | 409 | 422 | 503, message: string, code?: string): never {
+function bad(status: 400 | 404 | 409 | 422 | 429 | 503, message: string, code?: string): never {
   throw new HttpError(status, message, code);
 }
 
@@ -502,6 +504,7 @@ export class CustomerUses {
       release_id: o.release_id,
       project_id: o.project_id,
       artifact_digest: o.artifact_digest,
+      product: this.productName(o.release_id),
       source: { network: o.network, account: o.account },
       plan_id: o.plan_id,
       plan: JSON.parse(o.plan) as PlanV3,
@@ -513,11 +516,8 @@ export class CustomerUses {
     };
   }
 
-  async createOffer(viewer: Person, businessId: string, input: Record<string, unknown>) {
-    const epoch = this.store.controlEpoch(viewer, businessId); // the owner, or 404
-    const key = typeof input.idempotency_key === "string" ? input.idempotency_key : "";
-    if (!KEY.test(key))
-      bad(400, "idempotency_key must be 8 to 80 letters, digits, dashes or underscores");
+  /** The terms a founder is asked to review (003r): what is offered, on which plan, for how long. */
+  private offerInput(input: Record<string, unknown>) {
     const releaseId = typeof input.release_id === "string" ? input.release_id : "";
     const planId = input.plan_id;
     if (
@@ -535,57 +535,404 @@ export class CustomerUses {
       retention > 365
     )
       bad(400, "retention_days must be 1 to 365");
-    const hash = sha256Hex(JSON.stringify({ releaseId, planId, retention }));
-    const prior = this.db
-      .prepare("SELECT * FROM customer_offers WHERE business_id = ? AND idempotency_key = ?")
-      .get(businessId, key) as unknown as OfferRow | undefined;
-    if (prior) {
-      if (prior.request_hash !== hash)
-        bad(409, "That key was used for a different offer", "idempotency_conflict");
-      return { created: false, offer: this.offerView(prior) };
-    }
+    return { releaseId, planId, retention };
+  }
+
+  /** The active release, exactly, or a refusal (offers name one tested version). */
+  private activeRelease(businessId: string, releaseId: string) {
     const release = this.db
       .prepare("SELECT * FROM runtime_releases WHERE id = ? AND business_id = ?")
       .get(releaseId, businessId) as
-      | { id: string; project_id: string; artifact_digest: string; state: string }
+      | {
+          id: string;
+          project_id: string;
+          artifact_digest: string;
+          artifact_job: string;
+          state: string;
+          activated_at: string;
+        }
       | undefined;
     if (!release) bad(404, "No such release for this business");
     if (release.state !== "active")
       bad(409, "Only the active release can be offered", "release_not_active");
     if (!HEX32.test(release.artifact_digest))
       bad(409, "That release has no exact artifact digest", "release_not_active");
+    return release;
+  }
+
+  /**
+   * Job 003r: one fresh, bounded read of the plan and treasury for exact offer terms, checked
+   * after the await: the same owner epoch, the same release and the same contract binding, and
+   * a block recent by both clocks. The digest names everything a founder reviews; creating an
+   * offer requires it to match a fresh read, so changed terms always need a fresh review.
+   */
+  private async readTerms(
+    viewer: Person,
+    businessId: string,
+    v: { releaseId: string; planId: number; retention: number },
+  ) {
+    const epoch = this.store.controlEpoch(viewer, businessId); // the owner, or 404
+    const release = this.activeRelease(businessId, v.releaseId);
     const b = this.v3.bindingFor(businessId);
     if (!b) bad(409, "This business isn't bound to a contract here", "not_bound");
     if (!this.reader) unavailable();
     const read = await readCustomerViews(
       this.reader,
       b,
-      { control: true, treasury: true, plan: planId },
+      { control: true, treasury: true, plan: v.planId },
       this.readTimeoutMs,
     ).catch(readFailed);
-    // Still the owner after the read, before anything is written.
+    // Still the owner, release and binding after the read.
     this.store.stillControls(viewer, epoch);
+    this.sameRelease(businessId, release);
+    this.sameBinding(businessId, b);
+    this.fresh(read.block);
     if (!read.plan) bad(409, "The contract has no such plan", "no_such_plan");
+    const terms = {
+      release_id: release.id,
+      artifact_digest: release.artifact_digest,
+      network: b.network,
+      account: b.account,
+      plan_id: v.planId,
+      plan: read.plan,
+      asset: (read.treasury as { asset: string }).asset,
+      retention_days: v.retention,
+      owner_generation: epoch.generation,
+    };
+    return { epoch, release, b, read, terms, digest: sha256Hex(JSON.stringify(terms)) };
+  }
+
+  private sameRelease(businessId: string, r: { id: string; artifact_digest: string }) {
+    const live = this.db
+      .prepare(
+        "SELECT 1 FROM runtime_releases WHERE id = ? AND business_id = ? AND state = 'active' AND artifact_digest = ?",
+      )
+      .get(r.id, businessId, r.artifact_digest);
+    if (!live) bad(409, "The release changed while this was loading", "release_not_active");
+  }
+
+  private sameBinding(businessId: string, b: { network: string; account: string }) {
+    const now = this.v3.bindingFor(businessId);
+    if (!now || now.network !== b.network || now.account !== b.account)
+      bad(
+        409,
+        "This business's contract binding changed while this was loading; nothing was saved.",
+        "binding_changed",
+      );
+  }
+
+  private readonly inspections = new Map<string, number[]>();
+
+  /** A bounded number of inspections per business per minute: each is a contract read. */
+  private inspectionAllowed(businessId: string) {
+    const now = this.now();
+    const recent = (this.inspections.get(businessId) ?? []).filter((t) => now - t < 60_000);
+    if (recent.length >= LIMITS.inspectionsPerMinute)
+      bad(429, "Too many plan inspections just now; wait a minute.", "too_many_inspections");
+    recent.push(now);
+    this.inspections.set(businessId, recent);
+    if (this.inspections.size > 1000) this.inspections.clear(); // bounded memory
+  }
+
+  private productName(releaseId: string) {
+    const a = this.db
+      .prepare(
+        "SELECT a.content, j.revision FROM runtime_releases r JOIN build_artifacts a ON a.job_id = r.artifact_job JOIN build_jobs j ON j.id = r.artifact_job WHERE r.id = ?",
+      )
+      .get(releaseId) as { content: string; revision: number } | undefined;
+    let name = "Released product";
+    try {
+      const n = a ? (JSON.parse(a.content) as { name?: unknown }).name : undefined;
+      if (typeof n === "string" && n.trim()) name = n.slice(0, 120);
+    } catch {
+      // an unreadable artifact keeps the neutral name
+    }
+    return { name, revision: a?.revision ?? null };
+  }
+
+  /**
+   * Job 003r: the owner's plan inspector. One plan number, one bounded read; it returns the
+   * observed terms with their block and the digest a create must present. Nothing is written.
+   */
+  async inspectOffer(viewer: Person, businessId: string, input: Record<string, unknown>) {
+    this.store.controlEpoch(viewer, businessId); // the owner, or 404, before any read
+    const v = this.offerInput(input);
+    this.inspectionAllowed(businessId);
+    const t = await this.readTerms(viewer, businessId, v);
+    const existing = this.db
+      .prepare(
+        "SELECT id FROM customer_offers WHERE release_id = ? AND plan_id = ? AND state = 'active'",
+      )
+      .get(t.release.id, v.planId) as { id: string } | undefined;
+    return {
+      inspection: {
+        release: {
+          id: t.release.id,
+          project_id: t.release.project_id,
+          artifact_digest: t.release.artifact_digest,
+          activated_at: t.release.activated_at,
+          product: this.productName(t.release.id),
+        },
+        source: { network: t.b.network, account: t.b.account },
+        plan_id: v.planId,
+        plan: t.terms.plan,
+        asset: t.terms.asset,
+        retention_days: v.retention,
+        block: t.read.block,
+        metering: {
+          operator: this.operator,
+          platform_meters:
+            this.operator !== null && t.read.control
+              ? platformMeters(t.read.control, this.operator)
+              : null,
+        },
+        owner_generation: t.epoch.generation,
+        terms_digest: t.digest,
+        active_offer: existing?.id ?? null,
+      },
+    };
+  }
+
+  /**
+   * Job 003r: what is configured here, what is unavailable and what is unknown, in order, from
+   * local facts only. It never claims a plan exists or that anything is live: plan terms are
+   * observed only by an inspection, and live use only by a customer's completed use.
+   */
+  offerReadiness(viewer: Person, businessId: string, projectId: string | undefined) {
+    const epoch = this.store.controlEpoch(viewer, businessId);
+    const business = this.db
+      .prepare("SELECT published_at FROM businesses WHERE id = ?")
+      .get(businessId) as { published_at: string | null };
+    const release = (
+      projectId
+        ? this.db
+            .prepare(
+              "SELECT id, project_id, artifact_digest, activated_at FROM runtime_releases WHERE business_id = ? AND project_id = ? AND state = 'active'",
+            )
+            .get(businessId, projectId)
+        : undefined
+    ) as
+      | { id: string; project_id: string; artifact_digest: string; activated_at: string }
+      | undefined;
+    const b = this.v3.bindingFor(businessId);
+    const runtime = this.runtime?.availability() ?? null;
+    const counts = this.db
+      .prepare(
+        "SELECT SUM(state = 'active') AS active, SUM(state = 'retired') AS retired FROM customer_offers WHERE business_id = ? AND (? IS NULL OR project_id = ?)",
+      )
+      .get(businessId, projectId ?? null, projectId ?? null) as {
+      active: number | null;
+      retired: number | null;
+    };
+    type Item = {
+      key: string;
+      label: string;
+      state: "observed" | "configured" | "unavailable" | "unknown";
+      detail: string;
+      next: string | null;
+    };
+    const items: Item[] = [
+      release
+        ? {
+            key: "release",
+            label: "Tested release",
+            state: "configured",
+            detail: `${this.productName(release.id).name} is the active release here, since ${release.activated_at}.`,
+            next: null,
+          }
+        : {
+            key: "release",
+            label: "Tested release",
+            state: "unavailable",
+            detail: "No version of this product is released.",
+            next: "Run checks and release a version above.",
+          },
+      business.published_at
+        ? {
+            key: "page",
+            label: "Business page",
+            state: "configured",
+            detail: "Published: customers can find this business's page.",
+            next: null,
+          }
+        : {
+            key: "page",
+            label: "Business page",
+            state: "unavailable",
+            detail: "Not published, so customers can't open any offer.",
+            next: "Publish the business page from the studio.",
+          },
+      b
+        ? {
+            key: "binding",
+            label: "Contract",
+            state: "configured",
+            detail: `Bound here to ${b.account} on ${b.network}.`,
+            next: null,
+          }
+        : {
+            key: "binding",
+            label: "Contract",
+            state: "unavailable",
+            detail: "This business isn't connected to a v3 contract on this server.",
+            next: "Connect the business's contract before offering anything.",
+          },
+      {
+        key: "plan",
+        label: "Plan and price",
+        state: "unknown",
+        detail: "Not read yet. Terms are only shown as observed from a fresh inspection.",
+        next: "Inspect a plan number below.",
+      },
+      this.reader
+        ? {
+            key: "reader",
+            label: "Reading NEAR",
+            state: "configured",
+            detail:
+              "A reader is set on this server; it's observed only when an inspection succeeds.",
+            next: null,
+          }
+        : {
+            key: "reader",
+            label: "Reading NEAR",
+            state: "unavailable",
+            detail: "Reading the contract isn't connected on this server.",
+            next: "The operator connects a NEAR reader; nothing can be offered or used until then.",
+          },
+      this.writer && this.operator
+        ? {
+            key: "metering",
+            label: "Metering",
+            state: "configured",
+            detail: `The platform submits as ${this.operator}; whether the contract lets it meter is read at inspection.`,
+            next: null,
+          }
+        : {
+            key: "metering",
+            label: "Metering",
+            state: "unavailable",
+            detail: "No metering account is connected, so no unit can be reserved or charged.",
+            next: "The operator connects a metering account.",
+          },
+      this.protection
+        ? {
+            key: "protection",
+            label: "Protected storage",
+            state: "configured",
+            detail: `Documents and results are protected at rest (${this.protection.scheme}).`,
+            next: null,
+          }
+        : {
+            key: "protection",
+            label: "Protected storage",
+            state: "unavailable",
+            detail: "No protected storage is connected, so no document can be kept or run.",
+            next: "The operator connects protected storage.",
+          },
+      runtime?.available
+        ? {
+            key: "runtime",
+            label: "Running the product",
+            state: "configured",
+            detail: "The managed runtime is available here.",
+            next: null,
+          }
+        : {
+            key: "runtime",
+            label: "Running the product",
+            state: "unavailable",
+            detail: runtime?.reason ?? "Running products isn't connected on this server.",
+            next: "The operator connects the runtime.",
+          },
+      {
+        key: "authorization",
+        label: "Customer authorization",
+        state: "unavailable",
+        detail:
+          "The app ships no signer or wallet connection, so customers can't authorize a use here yet.",
+        next: "A wallet connection is a later, reviewed step; nothing to enter here.",
+      },
+      (counts.active ?? 0) > 0
+        ? {
+            key: "offer",
+            label: "Customer offer",
+            state: "configured",
+            detail: `${counts.active} active here. An offer is a local configuration, not proof that use works.`,
+            next: null,
+          }
+        : {
+            key: "offer",
+            label: "Customer offer",
+            state: "unknown",
+            detail: "None active for this product.",
+            next: "Review an inspected plan and create the offer.",
+          },
+    ];
+    return {
+      readiness: {
+        owner_generation: epoch.generation,
+        evaluated_at: iso(),
+        items,
+        next: items.find((i) => i.next !== null)?.next ?? null,
+        release: release
+          ? {
+              id: release.id,
+              artifact_digest: release.artifact_digest,
+              activated_at: release.activated_at,
+              product: this.productName(release.id),
+            }
+          : null,
+        offers: { active: counts.active ?? 0, retired: counts.retired ?? 0 },
+      },
+    };
+  }
+
+  async createOffer(viewer: Person, businessId: string, input: Record<string, unknown>) {
+    this.store.controlEpoch(viewer, businessId); // the owner, or 404
+    const key = typeof input.idempotency_key === "string" ? input.idempotency_key : "";
+    if (!KEY.test(key))
+      bad(400, "idempotency_key must be 8 to 80 letters, digits, dashes or underscores");
+    const v = this.offerInput(input);
+    const reviewed = typeof input.reviewed_terms === "string" ? input.reviewed_terms : "";
+    if (!HEX32.test(reviewed))
+      bad(400, "reviewed_terms must be the digest of an inspection you reviewed", "not_reviewed");
+    const { releaseId, planId, retention } = v;
+    const hash = sha256Hex(JSON.stringify({ releaseId, planId, retention, reviewed }));
+    const replay = () => {
+      const prior = this.db
+        .prepare("SELECT * FROM customer_offers WHERE business_id = ? AND idempotency_key = ?")
+        .get(businessId, key) as unknown as OfferRow | undefined;
+      if (!prior) return null;
+      if (prior.request_hash !== hash)
+        bad(409, "That key was used for a different offer", "idempotency_conflict");
+      // The original, as it is now: a retired offer is never reactivated by a retry.
+      return { created: false, offer: this.offerView(prior) };
+    };
+    const first = replay();
+    if (first) return first;
+    const t = await this.readTerms(viewer, businessId, v);
+    if (t.digest !== reviewed)
+      bad(
+        409,
+        "The terms changed since you reviewed them; nothing was created. Inspect again and review the new terms.",
+        "terms_changed",
+      );
+    const { epoch, release, b, read } = t;
     const id = randomUUID();
     const at = iso();
-    this.tx(() => {
+    const done = this.tx(() => {
+      const again = replay(); // a concurrent retry of this same request
+      if (again) return again;
       this.store.stillControls(viewer, epoch);
-      const again = this.db
-        .prepare("SELECT id FROM customer_offers WHERE business_id = ? AND idempotency_key = ?")
-        .get(businessId, key);
-      if (again) bad(409, "That key was just used; read the offers again", "idempotency_conflict");
+      this.sameRelease(businessId, release);
+      this.sameBinding(businessId, b);
       const n = (
         this.db
           .prepare("SELECT COUNT(*) AS n FROM customer_offers WHERE business_id = ?")
           .get(businessId) as { n: number }
       ).n;
       if (n >= LIMITS.offersPerBusiness) bad(409, "This business has the most offers allowed");
-      const live = this.db
-        .prepare(
-          "SELECT state FROM runtime_releases WHERE id = ? AND business_id = ? AND state = 'active'",
-        )
-        .get(release.id, businessId);
-      if (!live) bad(409, "The release changed while this was loading", "release_not_active");
       const dup = this.db
         .prepare(
           "SELECT id FROM customer_offers WHERE release_id = ? AND plan_id = ? AND state = 'active'",
@@ -616,14 +963,18 @@ export class CustomerUses {
           epoch.generation,
           at,
         );
+      return null;
     });
+    if (done) return done;
     return { created: true, offer: this.offerView(this.offer(id) as OfferRow) };
   }
 
   listOffers(viewer: Person, businessId: string) {
     this.store.ownedBusiness(viewer, businessId);
     const rows = this.db
-      .prepare("SELECT * FROM customer_offers WHERE business_id = ? ORDER BY created_at, id")
+      .prepare(
+        `SELECT * FROM customer_offers WHERE business_id = ? ORDER BY created_at, id LIMIT ${LIMITS.offersPerBusiness}`,
+      )
       .all(businessId) as unknown as OfferRow[];
     return { offers: rows.map((o) => this.offerView(o)) };
   }

@@ -37,7 +37,9 @@ import {
   short,
   usageLine,
 } from "../serviceView.ts";
+import { useSession } from "../session.tsx";
 import { newKey } from "./Builds.tsx";
+import { CustomerOffers } from "./CustomerOffers.tsx";
 
 const SCORE_CLASS = { pass: "mint", fail: "caution", error: "caution", not_applicable: "" };
 const SCORE_TEXT = {
@@ -150,6 +152,7 @@ function Result({ i, onSaveCase }: { i: Invocation; onSaveCase?: () => void }) {
 }
 
 export function ServiceView({ projectId, businessId }: { projectId: string; businessId: string }) {
+  const { person } = useSession();
   const [list, setList] = useState<RuntimeList | null>(null);
   const [rel, setRel] = useState<Releases | null>(null);
   const [fix, setFix] = useState<Fixtures | null>(null);
@@ -693,6 +696,15 @@ export function ServiceView({ projectId, businessId }: { projectId: string; busi
           </>
         )}
       </section>
+
+      {person && (
+        <CustomerOffers
+          key={`${person.id}:${businessId}:${projectId}:${rel.active?.id ?? "none"}`}
+          personId={person.id}
+          businessId={businessId}
+          projectId={projectId}
+        />
+      )}
 
       {latestRun && (
         <section className="card">

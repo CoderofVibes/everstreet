@@ -706,5 +706,18 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .use-offer { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .use-offer + .use-offer { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 14px; }
 .use-offers + .card { margin-top: 16px; }
+/* Job 003r: the studio's customer-offer section. */
+.offer-sub { font-size: 15px; margin: 18px 0 8px; }
+.offer-readiness { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.offer-readiness li { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 10px; align-items: start; font-size: 14px; overflow-wrap: anywhere; }
+.offer-readiness .pill { justify-self: start; }
+.offer-next { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+.offer-form { gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.offer-form .field { flex: 1 1 200px; margin: 0; }
+.offer-review { margin: 14px 0 12px; }
+.offer-list { list-style: none; padding: 0; margin: 0; }
+.offer-row { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); }
+.offer-row-main { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .offer-readiness li { grid-template-columns: 1fr; gap: 4px; } }
 @media (max-width: 1240px) { .use-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .use-side { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) { .use-grid, .use-side { grid-template-columns: 1fr; } .use-head h1 { font-size: 28px; } .use-terms { grid-template-columns: 1fr; } .use-terms dt { margin-top: 6px; } }

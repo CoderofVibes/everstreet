@@ -1,7 +1,9 @@
 // Job 003q: a disposable local preview of the customer product workspace, for review in a browser.
+// Job 003r: it starts with no offer, so the founder sets one up in the studio first.
 //
 //   npm run web:build
-//   npx tsx scripts/preview-customer.ts
+//   npx tsx scripts/preview-customer.ts            (founder setup first)
+//   npx tsx scripts/preview-customer.ts --with-offer   (003q's quick start)
 //
 // FICTIONAL and SYNTHETIC (scripts/lib/customerPreview.ts): an in-memory database, the real app
 // and routes, the labelled chain double (seeded from contract JSON), a scripted extractor, an
@@ -14,10 +16,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { customerPreview, type LoseRoute } from "./lib/customerPreview.ts";
+import { customerPreview, LOSE_ROUTES, type LoseRoute } from "./lib/customerPreview.ts";
 
 const HOST = "127.0.0.1";
-const p = await customerPreview();
+// Job 003r: the founder sets the offer up in the studio. `--with-offer` keeps 003q's quick start.
+const p = await customerPreview({ withOffer: process.argv.includes("--with-offer") });
 const dist = "web/dist";
 const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -51,8 +54,7 @@ const control = new Hono();
 control.get("/", (c) => c.json(p.controls.summary()));
 control.post("/lose/:route", (c) => {
   const r = c.req.param("route") as LoseRoute;
-  if (!["prepare", "confirm", "execute", "units"].includes(r))
-    return c.json({ error: "unknown route" }, 400);
+  if (!LOSE_ROUTES.includes(r)) return c.json({ error: "unknown route" }, 400);
   p.controls.lose(r);
   return c.json({ lose_next: r });
 });
@@ -81,19 +83,30 @@ control.post("/sale", (c) => {
   p.controls.sale();
   return c.json({ sold_to: "Noah Fenn", platform: "regranted METERING" });
 });
+control.post("/plan/price/:units", (c) => {
+  const units = c.req.param("units");
+  if (!/^[1-9][0-9]{0,20}$/.test(units)) return c.json({ error: "a base-unit amount" }, 400);
+  p.controls.planPrice(units);
+  return c.json({ plan_1_unit_price: units });
+});
+control.post("/read/fail", (c) => {
+  p.controls.readFails();
+  return c.json({ next_contract_read: "fails" });
+});
 serve({ fetch: control.fetch, port: 8813, hostname: HOST });
 
 console.log(
   "Customer workspace preview: FICTIONAL, SYNTHETIC, in memory. Nothing is real or sent.",
 );
-console.log(`  Site:     http://${HOST}:8812/b/ledgerline   (Use this product)`);
-console.log(`  Direct:   http://${HOST}:8812/use/${p.offerId}`);
+console.log(
+  `  Founder:  http://${HOST}:8812/build/${p.projectId}   (as Ava: Service tab, Customer offer)`,
+);
+console.log(`  Site:     http://${HOST}:8812/b/ledgerline   (Use this product, once offered)`);
+if (p.offerId) console.log(`  Direct:   http://${HOST}:8812/use/${p.offerId}`);
 console.log("  People (switch with the acting-context menu, local preview):");
 console.log(`    Cara Okafor, the customer (100 units)  ${p.people.cara}`);
 console.log(`    Ava Chen, the owner                    ${p.people.ava}`);
 console.log(`    Noah Fenn, the buyer after /sale       ${p.people.noah}`);
-console.log(
-  `  Controls: http://${HOST}:8813/  GET state; POST /lose/prepare|confirm|execute|units,`,
-);
+console.log(`  Controls: http://${HOST}:8813/  GET state; POST /lose/${LOSE_ROUTES.join("|")},`);
 console.log("            /storage/fail, /hold/expire, /key/revoke, /provider/fail,");
-console.log("            /authorizer/off|on, /sale");
+console.log("            /authorizer/off|on, /plan/price/:units, /read/fail, /sale");

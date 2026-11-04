@@ -389,7 +389,7 @@ export function parseResult(raw: unknown): ResultView {
 
 // ---------- requests ----------
 
-async function call(path: string, method = "GET", body?: unknown): Promise<unknown> {
+export async function call(path: string, method = "GET", body?: unknown): Promise<unknown> {
   const res = await fetch(path, {
     method,
     credentials: "same-origin",
