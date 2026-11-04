@@ -1,24 +1,32 @@
 #!/bin/sh
-# Job 002e: PROPOSED host setup for the isolated check worker. NOT RUN. Nothing in this
-# repository runs it; it needs Tony's explicit approval after Astra's review, on a chosen WSL2
-# distribution (a dedicated one is recommended). Design: docs/design/EXECUTABLE_PRODUCTS.md §8.
+# Job 002e: PROPOSED host setup for the isolated check worker. NOT RUN on any real host. It needs
+# Tony's explicit approval after Astra's review, on a chosen WSL2 distribution (a dedicated one is
+# recommended). Design: docs/design/EXECUTABLE_PRODUCTS.md §8. Revised after Astra's
+# WorkerImplementationReview: every target is checked for conflicts before any change; each
+# resource is recorded in the manifest BEFORE it is created (a failed install is recoverable);
+# uninstall refuses while a run is live, removes entries one by one and is safe to repeat.
+# Exercised only in a fake root by setup-harness.sh (EVERSTREET_SYSROOT); never by tests.
 #
-#   setup.sh check              read-only: lists what is present and what install would change
+#   setup.sh check              read-only: what is present, what install would add or refuse
 #   setup.sh fetch <dir>        downloads ONLY into <dir>, verifies official checksums and the
 #                               lock's sizes/ETags, prints sha256 values for the reviewer
-#   setup.sh install <dir>      root; requires every lock digest filled; records each change in
-#                               /var/lib/everstreet-worker/manifest
+#   setup.sh install <dir>      root; requires every lock digest; refuses any conflict
 #   setup.sh uninstall          root; reverses ONLY the manifest's entries, newest first
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
+S=${EVERSTREET_SYSROOT:-}            # a fake root for the harness; empty on a real host
 LOCK="$HERE/worker.lock.json"
-MANIFEST_DIR=/var/lib/everstreet-worker
+MANIFEST_DIR=$S/var/lib/everstreet-worker
 MANIFEST=$MANIFEST_DIR/manifest
-ROOT=/opt/everstreet-worker
+ROOT=$S/opt/everstreet-worker
+JAILS=$S/srv/everstreet-jail
+UNIT=$S/etc/systemd/system/everstreet-worker-host.service
+SUDOERS=$S/etc/sudoers.d/everstreet-worker
+CGROUP=$S/sys/fs/cgroup/everstreet-worker
+KVM=$S/dev/kvm
 
 # Pinned values (must match worker.lock.json; checked below).
-FC_VER=v1.17.0
 FC_TGZ=firecracker-v1.17.0-x86_64.tgz
 FC_URL=https://github.com/firecracker-microvm/firecracker/releases/download/v1.17.0/$FC_TGZ
 FC_SHA=06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558
@@ -43,27 +51,43 @@ done
 NEEDS="curl:curl sha256sum:coreutils tar:tar xz:xz-utils unsquashfs:squashfs-tools mkfs.ext4:e2fsprogs \
 setfacl:acl getfacl:acl ip:iproute2 sudo:sudo visudo:sudo useradd:passwd userdel:passwd \
 setpriv:util-linux prlimit:util-linux install:coreutils timeout:coreutils truncate:coreutils \
-systemctl:systemd"
+systemctl:systemd dpkg:dpkg"
 
-lock_sha() { # lock_sha kernel|rootfs -> the reviewer-filled sha256 (empty if not yet)
+lock_sha() { # kernel|rootfs -> the reviewer-filled sha256 (empty if not yet)
+  if [ -n "$S" ] && [ -n "${EVERSTREET_TEST_PINS:-}" ]; then
+    # Harness only (fake root): its fake inputs' digests. A real host never takes this path.
+    sed -n "s/^$1=//p" "$EVERSTREET_TEST_PINS"; return
+  fi
   tr -d '\n' < "$LOCK" | sed -n "s/.*\"$1\": *{[^}]*\"sha256\": *\"\\([0-9a-f]*\\)\".*/\\1/p"
+}
+pin() { # fc|node -> the pinned sha256 (the harness's fake inputs have their own)
+  if [ -n "$S" ] && [ -n "${EVERSTREET_TEST_PINS:-}" ]; then sed -n "s/^$1=//p" "$EVERSTREET_TEST_PINS"; return; fi
+  case "$1" in fc) echo "$FC_SHA" ;; node) echo "$N_SHA" ;; esac
 }
 
 record() { echo "$*" >> "$MANIFEST"; }
 
+# Everything install would create; any that exists is a conflict (nothing is adopted).
+conflicts() {
+  c=""
+  for u in everstreet-runner everstreet-vm; do id "$u" >/dev/null 2>&1 && c="$c user:$u"; done
+  for p in "$ROOT" "$JAILS" "$UNIT" "$SUDOERS" "$CGROUP" "$MANIFEST_DIR"; do [ -e "$p" ] && c="$c path:$p"; done
+  ip netns list 2>/dev/null | grep -qx everstreet-none && c="$c netns:everstreet-none"
+  getfacl -p "$KVM" 2>/dev/null | grep -q "^user:everstreet-vm:" && c="$c acl:$KVM"
+  echo "$c"
+}
+
 check() {
-  echo "distro: $(. /etc/os-release && echo "$PRETTY_NAME"); kernel: $(uname -r)"
+  echo "kernel: $(uname -r)"
   missing=""
   for pair in $NEEDS; do
     cmd=${pair%%:*}; pkg=${pair#*:}
     if command -v "$cmd" >/dev/null 2>&1; then echo "present: $cmd"; else echo "MISSING: $cmd (package $pkg)"; missing="$missing $pkg"; fi
   done
   echo "packages install would add:$(echo "$missing" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-  [ -e /dev/kvm ] && ls -l /dev/kvm || echo "MISSING: /dev/kvm"
-  echo "cgroup2 controllers: $(cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null || echo none)"
-  for u in everstreet-runner everstreet-vm; do id "$u" >/dev/null 2>&1 && echo "EXISTS already: user $u"; done
-  [ -e "$ROOT" ] && echo "EXISTS already: $ROOT"
-  [ -e "$MANIFEST" ] && echo "EXISTS already: $MANIFEST (a previous install)"
+  [ -e "$KVM" ] && ls -l "$KVM" || echo "MISSING: $KVM"
+  echo "cgroup2 controllers: $(cat "$S/sys/fs/cgroup/cgroup.controllers" 2>/dev/null || echo none)"
+  c=$(conflicts); [ -n "$c" ] && echo "CONFLICTS (install would refuse):$c" || echo "no conflicts"
   echo "check made no changes."
 }
 
@@ -79,8 +103,9 @@ fetch() {
   curl -fsSL --proto '=https' -o SHASUMS256.txt "$N_SUMS"
   grep -q "^$N_SHA  $N_TAR\$" SHASUMS256.txt || { echo "official node checksum differs from the lock" >&2; exit 1; }
   echo "$N_SHA  $N_TAR" | sha256sum -c -
-  for spec in "vmlinux:$K_URL:$K_SIZE:$K_ETAG" "rootfs.squashfs:$R_URL:$R_SIZE:$R_ETAG"; do
-    name=${spec%%:*}; rest=${spec#*:}; url="${rest%:*:*}"; size=$(echo "$rest" | awk -F: '{print $(NF-1)}'); etag=${rest##*:}
+  for spec in "vmlinux|$K_URL|$K_SIZE|$K_ETAG" "rootfs.squashfs|$R_URL|$R_SIZE|$R_ETAG"; do
+    name=$(echo "$spec" | cut -d'|' -f1); url=$(echo "$spec" | cut -d'|' -f2)
+    size=$(echo "$spec" | cut -d'|' -f3); etag=$(echo "$spec" | cut -d'|' -f4)
     head=$(curl -fsSI --proto '=https' "$url")
     echo "$head" | grep -qi "^content-length: $size" || { echo "$name size differs from the lock" >&2; exit 1; }
     echo "$head" | grep -qi "^etag: \"$etag\"" || { echo "$name ETag differs from the lock" >&2; exit 1; }
@@ -93,32 +118,38 @@ fetch() {
 
 install_all() {
   dir=$1
-  [ "$(id -u)" = 0 ] || { echo "install must run as root" >&2; exit 1; }
+  [ -n "$S" ] || [ "$(id -u)" = 0 ] || { echo "install must run as root" >&2; exit 1; }
   ks=$(lock_sha kernel); rs=$(lock_sha rootfs)
   [ -n "$ks" ] && [ -n "$rs" ] || { echo "fill kernel.sha256 and rootfs.sha256 in the lock first" >&2; exit 1; }
-  [ ! -e "$MANIFEST" ] || { echo "already installed (manifest exists); uninstall first" >&2; exit 1; }
+  c=$(conflicts)
+  [ -z "$c" ] || { echo "refusing: these already exist and are not adopted:$c" >&2; exit 1; }
   cd "$dir"
-  echo "$FC_SHA  $FC_TGZ" | sha256sum -c -
-  echo "$N_SHA  $N_TAR" | sha256sum -c -
+  echo "$(pin fc)  $FC_TGZ" | sha256sum -c -
+  echo "$(pin node)  $N_TAR" | sha256sum -c -
   echo "$ks  vmlinux" | sha256sum -c -
   echo "$rs  rootfs.squashfs" | sha256sum -c -
-  mkdir -p "$MANIFEST_DIR"; : > "$MANIFEST"; record "dir $MANIFEST_DIR"
+  mkdir -p "$MANIFEST_DIR"; : > "$MANIFEST"
+  # Each line is written BEFORE its resource is created: a failure leaves a removable record.
 
-  # 1. Only the missing packages, recorded by name so uninstall removes only those.
+  # 1. Only the missing packages, by name, so uninstall removes only those.
   for pair in $NEEDS; do
     cmd=${pair%%:*}; pkg=${pair#*:}
     if ! command -v "$cmd" >/dev/null 2>&1 && ! dpkg -s "$pkg" >/dev/null 2>&1; then
-      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$pkg"; record "package $pkg"
+      record "package $pkg"; DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$pkg"
     fi
   done
   # 2. Two service accounts, no login, no home.
   for u in everstreet-runner everstreet-vm; do
-    id "$u" >/dev/null 2>&1 && { echo "user $u already exists; refusing to adopt it" >&2; exit 1; }
-    useradd --system --no-create-home --shell /usr/sbin/nologin "$u"; record "user $u"
+    record "user $u"; useradd --system --no-create-home --shell /usr/sbin/nologin "$u"
   done
-  # 3. KVM access for everstreet-vm only (ACL), re-applied at boot by a unit.
-  setfacl -m u:everstreet-vm:rw /dev/kvm; record "acl /dev/kvm everstreet-vm"
-  cat > /etc/systemd/system/everstreet-worker-host.service <<'UNIT'
+  # 3. KVM access for everstreet-vm only (ACL).
+  record "acl $KVM everstreet-vm"; setfacl -m u:everstreet-vm:rw "$KVM"
+  # 4. Files, then the boot unit (re-applies the ACL, creates the cgroup parent and empty netns).
+  record "dir $ROOT"; install -d -m 0755 "$ROOT"
+  record "dir $JAILS"; install -d -m 0700 "$JAILS"
+  record "file $UNIT"
+  mkdir -p "$(dirname "$UNIT")"
+  cat > "$UNIT" <<'UNITFILE'
 [Unit]
 Description=Everstreet check worker: KVM ACL, cgroup parent, empty netns
 [Service]
@@ -129,18 +160,17 @@ ExecStart=/bin/sh -c 'mkdir -p /sys/fs/cgroup/everstreet-worker && echo "+cpu +m
 ExecStart=/bin/sh -c 'ip netns list | grep -qx everstreet-none || ip netns add everstreet-none'
 [Install]
 WantedBy=multi-user.target
-UNIT
-  record "file /etc/systemd/system/everstreet-worker-host.service"
-  systemctl daemon-reload; systemctl enable --now everstreet-worker-host.service; record "unit everstreet-worker-host.service"
-  # 4 and 5 are done by the unit just started: the cgroup parent and the empty netns.
-  record "cgroup /sys/fs/cgroup/everstreet-worker"; record "netns everstreet-none"
-  # 6. Binaries, host node, guest kernel and the built guest image; all root-owned.
-  install -d -m 0755 "$ROOT" "$ROOT/bin" "$ROOT/guest" "$ROOT/node"; record "dir $ROOT"
+UNITFILE
+  record "cgroup $CGROUP"; record "netns everstreet-none"; record "unit everstreet-worker-host.service"
+  systemctl daemon-reload; systemctl enable --now everstreet-worker-host.service
+  # 5. Binaries, host node, guest kernel, guest image, launcher, conformance suite; root-owned.
+  install -d -m 0755 "$ROOT/bin" "$ROOT/guest" "$ROOT/node"
   tar -xzf "$FC_TGZ" -O "$FC_BIN" > "$ROOT/bin/firecracker"; tar -xzf "$FC_TGZ" -O "$JL_BIN" > "$ROOT/bin/jailer"
   chmod 0755 "$ROOT/bin/firecracker" "$ROOT/bin/jailer"
   tar -xJf "$N_TAR" -C "$ROOT/node" --strip-components=1
   install -m 0755 "$HERE/launch" "$ROOT/bin/launch"
   install -m 0644 "$HERE/host-launch.mjs" "$ROOT/host-launch.mjs"
+  install -m 0644 "$HERE/conformance.mjs" "$ROOT/conformance.mjs"
   install -m 0644 "$LOCK" "$ROOT/worker.lock.json"
   install -m 0644 "$HERE/guest/wire.mjs" "$ROOT/guest/wire.mjs"
   install -m 0644 vmlinux "$ROOT/guest/vmlinux"
@@ -149,6 +179,7 @@ UNIT
   install -d "$work/rootfs/opt/node" "$work/rootfs/opt/everstreet" "$work/rootfs/work"
   tar -xJf "$N_TAR" -C "$work/rootfs/opt/node" --strip-components=1
   for f in init supervisor.mjs case-runner.mjs wire.mjs; do install -m 0755 "$HERE/guest/$f" "$work/rootfs/opt/everstreet/$f"; done
+  mkdir -p "$work/rootfs/etc"; touch "$work/rootfs/etc/passwd" "$work/rootfs/etc/group"
   grep -q '^app:' "$work/rootfs/etc/passwd" || echo 'app:x:1000:1000::/work:/usr/sbin/nologin' >> "$work/rootfs/etc/passwd"
   grep -q '^app:' "$work/rootfs/etc/group" || echo 'app:x:1000:' >> "$work/rootfs/etc/group"
   truncate -s 1G "$ROOT/guest/guest.ext4"
@@ -157,30 +188,38 @@ UNIT
   cat > "$MANIFEST_DIR/installed.json" <<JSON
 {"firecracker_sha256":"$(sha256sum "$ROOT/bin/firecracker" | cut -d' ' -f1)","jailer_sha256":"$(sha256sum "$ROOT/bin/jailer" | cut -d' ' -f1)","guest_image_sha256":"$(sha256sum "$ROOT/guest/guest.ext4" | cut -d' ' -f1)"}
 JSON
-  install -d -m 0700 /srv/everstreet-jail; record "dir /srv/everstreet-jail"
-  # 7. One sudoers line, validated before it is placed.
+  # 6. One sudoers line, validated before it is placed.
   tmp=$(mktemp); echo 'everstreet-runner ALL=(root) NOPASSWD: /opt/everstreet-worker/bin/launch' > "$tmp"
-  visudo -cf "$tmp"; install -m 0440 "$tmp" /etc/sudoers.d/everstreet-worker; rm -f "$tmp"
-  record "file /etc/sudoers.d/everstreet-worker"
-  echo "Installed. Next: scripts/worker-host/conformance.sh (as everstreet-runner via the launcher)."
+  visudo -cf "$tmp"
+  record "file $SUDOERS"; mkdir -p "$(dirname "$SUDOERS")"; install -m 0440 "$tmp" "$SUDOERS"; rm -f "$tmp"
+  echo "Installed. Next, as everstreet-runner: /opt/everstreet-worker/node/bin/node /opt/everstreet-worker/conformance.mjs"
 }
 
 uninstall_all() {
-  [ "$(id -u)" = 0 ] || { echo "uninstall must run as root" >&2; exit 1; }
-  [ -e "$MANIFEST" ] || { echo "nothing recorded; nothing to remove" >&2; exit 0; }
-  tac "$MANIFEST" | while read -r kind what rest; do
+  [ -n "$S" ] || [ "$(id -u)" = 0 ] || { echo "uninstall must run as root" >&2; exit 1; }
+  [ -e "$MANIFEST" ] || { echo "nothing recorded; nothing to remove"; exit 0; }
+  # Never under a live run: its lock names a live process, or a job cgroup still has processes.
+  if [ -e "$MANIFEST_DIR/run.lock" ]; then echo "a run lock exists; run preflight first (it proves orphans) or stop the run" >&2; exit 1; fi
+  for d in "$CGROUP"/es-*; do
+    [ -d "$d" ] && [ -n "$(cat "$d/cgroup.procs" 2>/dev/null)" ] && { echo "a job is still running ($d)" >&2; exit 1; }
+  done
+  while [ -s "$MANIFEST" ]; do
+    line=$(tail -n 1 "$MANIFEST"); kind=${line%% *}; rest=${line#* }; what=${rest%% *}; who=${rest#* }
     case "$kind" in
       file) rm -f "$what" ;;
-      unit) systemctl disable --now "$what" || true; systemctl daemon-reload ;;
+      unit) systemctl disable --now "$what" 2>/dev/null || true; systemctl daemon-reload ;;
       netns) ip netns delete "$what" 2>/dev/null || true ;;
-      cgroup) rmdir "$what" 2>/dev/null || true ;;
-      acl) setfacl -x "u:$rest" "$what" 2>/dev/null || true ;;
-      user) userdel "$what" ;;
+      cgroup) [ ! -d "$what" ] || rmdir "$what" ;;
+      acl) setfacl -x "u:$who" "$what" 2>/dev/null || true ;;
+      user) ! id "$what" >/dev/null 2>&1 || userdel "$what" ;;
       package) DEBIAN_FRONTEND=noninteractive apt-get remove -y "$what" ;;
-      dir) [ "$what" = "$MANIFEST_DIR" ] || rm -rf "$what" ;;
+      dir) rm -rf "$what" ;;
+      *) echo "unknown manifest entry: $line" >&2; exit 1 ;;
     esac
+    # Only a removed entry leaves the manifest; a failure above stops here with the rest recorded.
+    sed -i '$d' "$MANIFEST"
   done
-  rm -rf "$MANIFEST_DIR"
+  rm -f "$MANIFEST" "$MANIFEST_DIR/installed.json"; rmdir "$MANIFEST_DIR"
   echo "Removed exactly what the manifest recorded."
 }
 
@@ -189,5 +228,5 @@ case "${1:-}" in
   fetch) [ -n "${2:-}" ] || { echo "usage: setup.sh fetch <dir>" >&2; exit 2; }; fetch "$2" ;;
   install) [ -n "${2:-}" ] || { echo "usage: setup.sh install <dir>" >&2; exit 2; }; install_all "$2" ;;
   uninstall) uninstall_all ;;
-  *) sed -n '2,13p' "$0"; exit 2 ;;
+  *) sed -n '2,16p' "$0"; exit 2 ;;
 esac

@@ -192,6 +192,7 @@ async function main() {
     let detail = "";
     if (r.timedOut) detail = "Took longer than 5 seconds and was stopped";
     else if (r.over) detail = "Returned more than 8 KB";
+    else if (r.signal) detail = `killed by signal ${r.signal}`;
     else if (r.code !== 0) detail = r.err.split("\n")[0]?.slice(0, 200) || `exited ${r.code}`;
     else {
       const line = r.out.split("\n")[0] ?? "";

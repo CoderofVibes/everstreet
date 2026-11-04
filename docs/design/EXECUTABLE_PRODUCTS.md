@@ -223,6 +223,28 @@ A mismatch, or a missing parent (the jailer's fail-open trap), refuses the job w
 9. A `trap` always removes the jail and the cgroup. `cleanup` and every `preflight` remove stale
    `es-*` leftovers.
 
+**One run at a time, and cleanup only of proven orphans** (after Astra's
+WorkerImplementationReview):
+- **The run lock.** A run takes `/var/lib/everstreet-worker/run.lock` holding its pid, process
+  start time and jail id.
+- **Preflight.** It answers `busy` while that process lives and touches nothing. It cleans only
+  orphans: a lock whose process is gone, and `es-*` leftovers with no live run.
+- **Cleanup.** It kills the job cgroup and must confirm it empty before removing it and the
+  jail. If it can't confirm, it keeps both as evidence, keeps the lock and fails. The platform
+  worker then admits nothing until a preflight succeeds.
+- **Signals.** SIGTERM, SIGINT and SIGHUP clean up before exit. A SIGKILLed launcher leaves a
+  stale lock that the next preflight proves orphaned.
+- **One identity.** The check id must be a UUID, the attempt 1–999999, and the jail id
+  `es-<12 hex>-<attempt>` is derived the same way by the launcher and the adapter.
+- **Bounds.** Stdin is bounded and deadlined, hashes are streamed, and every subprocess has a
+  timeout.
+
+**The platform worker side** (after Astra's AppCheckLifecycleReview):
+- the lease is renewed on every poll tick from claim to end;
+- a cancel is checked in the transactional dispatch gate and before an outcome is applied;
+- every engine call is hard-bounded whether or not it settles;
+- an unconfirmed cleanup blocks claims.
+
 **The host never mounts a guest-written filesystem.** It parses at most 64 KiB, and nothing the
 worker writes chooses a host path.
 
@@ -269,7 +291,22 @@ worker writes chooses a host path.
 ## 7. Conformance suite (`scripts/worker-host/conformance.sh`, authorized host only)
 
 Each case runs through the real launcher, and the results go to `conformance-<date>.json` with
-the lock identity:
+the lock identity.
+
+**Evidence rules** (after Astra's WorkerImplementationReview):
+- **A probe counts only if it ran.** The report must be complete and bound, with exactly the
+  declared cases, and the probe case *passed*: it returned the exact expected structured
+  observation.
+- **Never evidence:** an import failure, a timeout, a missing case or an unavailable engine.
+- **Self-test first.** The helpers are checked against negative controls before any run.
+- **The harness has its own bounds:** its own deadline, output limit and spawn-error handling.
+- **Additional cases:**
+  - synthetic host and other-job canary files;
+  - per-file (`RLIMIT_FSIZE`) and aggregate (tmpfs) limits tested separately;
+  - a busy preflight during a finite live run;
+  - a real orphan proven and cleaned.
+
+The cases:
 1. **Benign:** the quote calculator, all cases pass, plus the measured `memory.peak`.
 2. **Canary:** a synthetic host canary file, and another job's drive, are not visible.
 3. **Network:** `10.0.2.2`, `169.254.169.254` and a public IP all fail (no NIC).
@@ -315,6 +352,20 @@ the lock identity:
 - **`uninstall`.** Reverses **only the manifest's entries**, in reverse order. It removes packages
   only if the manifest says setup installed them, and never touches pre-existing users,
   packages, ACLs or Tony's account.
+
+**Revised after Astra's WorkerImplementationReview:**
+- **Conflicts first.** `install` refuses if any target already exists: the users, the paths, the
+  unit, the sudoers file, the cgroup, the netns, the ACL or the manifest. Nothing is adopted.
+- **Recorded before created.** Each resource is recorded in the manifest *before* it is
+  created, so a failed install is removable.
+- **Safe uninstall.** It refuses while a run lock exists or a job cgroup has processes. It
+  removes entries one at a time, newest first, dropping each from the manifest only once
+  removed, and is safe to repeat.
+- **Fake-root harness.** `setup-harness.sh` runs all of this in a temporary fake root with
+  logging shims for every system command: read-only check, conflict refusal, an interrupted
+  install, repeat uninstall, refusal under a run lock, and a clean full cycle. **It has not been
+  run in this session** (running it needed an approval). It proves bookkeeping only, not the
+  real commands.
 
 Decisions for Tony, after Astra's review:
 - a dedicated distro (recommended) or the existing Ubuntu;

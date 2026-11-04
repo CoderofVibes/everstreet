@@ -125,10 +125,23 @@ export class WslFirecrackerEngine implements CheckEngine {
     return this.call(launchArgs(this.opts.distro, "run"), JSON.stringify(job), signal);
   }
 
+  /**
+   * Asks the launcher to clean up a stopped job. Throws unless the launcher confirms it (an
+   * empty cgroup, jail removed): the worker then admits no more work until a preflight succeeds.
+   */
   async cleanup(job: CheckJob) {
     const c = new AbortController();
-    await this.call(launchArgs(this.opts.distro, "cleanup", jailId(job)), "", c.signal).catch(
-      () => {},
-    );
+    const r = (await this.call(
+      launchArgs(this.opts.distro, "cleanup", jailId(job)),
+      "",
+      c.signal,
+    )) as {
+      ok?: unknown;
+      reason?: unknown;
+    } | null;
+    if (r?.ok !== true)
+      throw new Error(
+        `Cleanup wasn't confirmed: ${typeof r?.reason === "string" ? r.reason.slice(0, 200) : "no answer"}`,
+      );
   }
 }
