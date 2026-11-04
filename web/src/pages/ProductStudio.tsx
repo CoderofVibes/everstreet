@@ -836,6 +836,9 @@ export function ProductStudio({ id }: { id: string }) {
   /** Service stays mounted once opened (job 002c1); see the Service tab below. */
   const [serviceOpened, setServiceOpened] = useState(false);
   if (tab === "service" && !serviceOpened) setServiceOpened(true);
+  /** Job 002e: the Web app view also stays mounted once opened (its draft and pending request). */
+  const [appOpened, setAppOpened] = useState(false);
+  if (tab === "app" && !appOpened) setAppOpened(true);
   const [serviceTask, setServiceTask] = useState<ServiceTask>(taskFromQuery);
   /** Job 001b: on operating tabs the editor is shown only on request. */
   const [editorOpen, setEditorOpen] = useState(false);
@@ -1483,8 +1486,15 @@ export function ProductStudio({ id }: { id: string }) {
                 />
               )}
               {/* Job 002e: keyed by person, project and owner epoch: another scope starts clean. */}
-              {tab === "app" && (
-                <AppView key={scope} projectId={view.project.id} headRevision={view.head.number} />
+              {appOpened && (
+                <div hidden={tab !== "app"}>
+                  <AppView
+                    key={scope}
+                    scope={scope}
+                    projectId={view.project.id}
+                    headRevision={view.head.number}
+                  />
+                </div>
               )}
               {/* Job 002c1: once opened, Service stays mounted (hidden on other tabs) so a pending
                 request, its text and target survive switching tabs. Keyed by person, project

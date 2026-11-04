@@ -5,9 +5,17 @@
 // from a separate site. Ordinary preview needs a real engine's pass; an unchecked version opens
 // only through an explicit, warned choice. A preview is never presented as an isolation result.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { ApiError } from "../api.ts";
-import { type AppVersion, type AppVersionsView, appApi } from "../appApi.ts";
+import { type AppVersion, type AppVersionsView, appApi, newGenerationKey } from "../appApi.ts";
+import { Generations } from "../appGenerate.ts";
 import { changedFiles, checkWords, lineDiff, previewMessage } from "../appView.ts";
 
 const BUDGET = {
@@ -26,6 +34,7 @@ export function AppVersionRow({
   onCheck,
   onPreview,
   onCompare,
+  children,
 }: {
   v: AppVersion;
   busy: boolean;
@@ -33,6 +42,8 @@ export function AppVersionRow({
   onCheck: () => void;
   onPreview: () => void;
   onCompare: () => void;
+  /** The version's check details, inside its list item. */
+  children?: ReactNode;
 }) {
   const c = checkWords(v.latest_check?.state ?? null, v.latest_check?.test_double ?? false);
   const running = v.latest_check?.state === "queued" || v.latest_check?.state === "running";
@@ -88,6 +99,7 @@ export function AppVersionRow({
           </button>
         )}
       </div>
+      {children}
     </li>
   );
 }
@@ -214,38 +226,115 @@ function Compare({
   );
 }
 
-export function AppView({ projectId, headRevision }: { projectId: string; headRevision: number }) {
+/** A version's latest logic check in detail: each case and file, and cancel while it runs. */
+export function CheckDetails({
+  check,
+  onCancel,
+}: {
+  check: AppVersionsView["checks"][number];
+  onCancel: () => void;
+}) {
+  const r = check.result;
+  return (
+    <div className="app-check">
+      <p className="muted app-note">
+        Logic checks run this version's own declared cases on its logic module, in an isolated
+        worker. They don't check the screens: use Preview for that, and try it yourself.
+      </p>
+      {check.failure && (
+        <p className="notice" role="status">
+          {check.failure.detail || check.failure.code}
+        </p>
+      )}
+      {r && (
+        <ul className="app-cases">
+          {r.syntax
+            .filter((s) => !s.ok)
+            .map((s) => (
+              <li key={`s-${s.path}`}>
+                <span className="pill error">Doesn't parse</span>{" "}
+                <span className="mono">{s.path}</span> <span className="muted">{s.detail}</span>
+              </li>
+            ))}
+          {r.cases.map((c) => (
+            <li key={c.id}>
+              <span className={`pill ${c.passed ? "mint" : "error"}`}>
+                {c.passed ? "Matched" : "Didn't match"}
+              </span>{" "}
+              <span className="mono">{c.id}</span> <span className="muted">{c.detail}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {check.can_cancel && (
+        <button type="button" className="btn btn-quiet btn-sm" onClick={onCancel}>
+          Cancel this check
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function AppView({
+  projectId,
+  headRevision,
+  scope,
+}: {
+  projectId: string;
+  headRevision: number;
+  /** person:project:owner-epoch (the parent's scope fence). */
+  scope: string;
+}) {
   const [view, setView] = useState<AppVersionsView | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [gone, setGone] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [instructions, setInstructions] = useState("");
-  const [generating, setGenerating] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ url: string; checked: boolean } | null>(null);
   const [offerUnchecked, setOfferUnchecked] = useState<AppVersion | null>(null);
   const [compare, setCompare] = useState<AppVersion | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [costCents, setCostCents] = useState(100);
   const polls = useRef(0);
-
-  // Stable per project, so loading runs once per project (the view is keyed by scope).
-  const load = useCallback(
+  const seq = useRef(0);
+  const [gen] = useState(
     () =>
-      appApi.versions(projectId).then(
-        (v) => {
-          setView(v);
-          setError(null);
-        },
-        (e: unknown) => setError(e instanceof Error ? e.message : "Couldn't load the web app"),
-      ),
-    [projectId],
+      new Generations(appApi, {
+        scope,
+        storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
+        newKey: newGenerationKey,
+      }),
   );
+  const g = useSyncExternalStore(gen.subscribe, gen.getState);
+
+  // Ordered reads: only the newest answer lands. A definite 404 clears everything private; a
+  // transient failure keeps the last view and offers Retry.
+  const load = useCallback(async () => {
+    const mine = ++seq.current;
+    try {
+      const v = await appApi.versions(projectId);
+      if (mine !== seq.current) return;
+      setView(v);
+      setLoadError(null);
+    } catch (e) {
+      if (mine !== seq.current) return;
+      if (e instanceof ApiError && e.status === 404) {
+        setGone(true);
+        setView(null);
+        setPreview(null);
+        setCompare(null);
+        return;
+      }
+      setLoadError(e instanceof Error ? e.message : "Couldn't load the web app");
+    }
+  }, [projectId]);
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Poll only while something is in flight, and finitely.
+  // Poll finitely, only while something is in flight.
+  const jobLive = g.job !== null && ["queued", "running", "validating"].includes(g.job.state);
   const inFlight =
-    generating !== null ||
-    (view?.checks ?? []).some((c) => c.state === "queued" || c.state === "running");
+    jobLive || (view?.checks ?? []).some((c) => c.state === "queued" || c.state === "running");
   useEffect(() => {
     if (!inFlight) {
       polls.current = 0;
@@ -253,17 +342,7 @@ export function AppView({ projectId, headRevision }: { projectId: string; headRe
     }
     const t = setTimeout(async () => {
       if (++polls.current > MAX_POLLS) return;
-      if (generating) {
-        const j = await appApi.build(generating).catch(() => null);
-        if (
-          j &&
-          ["succeeded", "failed", "cancelled", "needs_reconciliation"].includes(j.job.state)
-        ) {
-          setGenerating(null);
-          if (j.job.state !== "succeeded")
-            setNote(j.job.failure?.detail ?? `The generation ended: ${j.job.state}`);
-        }
-      }
+      if (g.job) await gen.refresh();
       await load();
     }, POLL_MS);
     return () => clearTimeout(t);
@@ -276,8 +355,8 @@ export function AppView({ projectId, headRevision }: { projectId: string; headRe
       await f();
       await load();
     } catch (e) {
-      if (e instanceof ApiError && e.code === "not_checked") return;
-      setNote(e instanceof Error ? e.message : "That didn't work");
+      if (!(e instanceof ApiError && e.code === "not_checked"))
+        setNote(e instanceof Error ? e.message : "That didn't work");
     } finally {
       setBusy(false);
     }
@@ -294,51 +373,122 @@ export function AppView({ projectId, headRevision }: { projectId: string; headRe
         throw e;
       }
     });
+  const budget = { ...BUDGET, max_cost_cents: costCents };
 
-  if (error) return <p className="notice error">{error}</p>;
-  if (!view) return <p className="muted">Loading the web app…</p>;
+  if (gone) return <p className="notice">This web app is no longer available to you here.</p>;
+  if (!view)
+    return loadError ? (
+      <p className="notice error">
+        {loadError}{" "}
+        <button type="button" className="btn btn-quiet btn-sm" onClick={() => void load()}>
+          Retry
+        </button>
+      </p>
+    ) : (
+      <p className="muted">Loading the web app…</p>
+    );
   return (
     <div className="app-view">
+      {loadError && (
+        <p className="notice" role="status">
+          Couldn't refresh: {loadError}. Showing what was last read.{" "}
+          <button type="button" className="btn btn-quiet btn-sm" onClick={() => void load()}>
+            Retry
+          </button>
+        </p>
+      )}
       <section className="card">
         <h2>Web app</h2>
         <p className="muted app-note">
-          A small browser app generated from this product. Each version is kept. Logic checks run in
-          an isolated worker and cost nothing; generating uses this business's AI budget.
+          A small browser app generated from this product. Each version is kept. Generating uses
+          this business's AI budget; logic checks cost nothing.
         </p>
+        {g.pending && g.unanswered ? (
+          <div className="notice" role="status">
+            <p>{g.notice ?? "Your earlier generation request didn't get an answer."}</p>
+            <p className="muted app-note">Asked: “{g.pending.instructions.slice(0, 200)}”</p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={g.busy}
+              onClick={() =>
+                void gen.submit({
+                  project_id: projectId,
+                  revision: headRevision,
+                  base_job: current?.job_id ?? null,
+                  budget,
+                })
+              }
+            >
+              Recover my request
+            </button>
+          </div>
+        ) : null}
         <label className="field">
           <span>{current ? "What should change?" : "Describe the app"}</span>
           <textarea
             className="input"
             rows={3}
             maxLength={2000}
-            value={instructions}
-            onChange={(e) => setInstructions(e.target.value)}
+            value={g.draft}
+            onChange={(e) => gen.setDraft(e.target.value)}
           />
         </label>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={busy || generating !== null || !instructions.trim()}
-          onClick={() =>
-            act(async () => {
-              const r = await appApi.generate(
-                projectId,
-                headRevision,
-                instructions.trim(),
-                current?.job_id ?? null,
-                BUDGET,
-              );
-              setGenerating(r.job.id);
-              setInstructions("");
-            })
-          }
-        >
-          {generating
-            ? "Generating…"
-            : current
-              ? "Generate a changed version"
-              : "Generate the first version"}
-        </button>
+        <label className="field app-budget">
+          <span>Spend at most (cents of this business's AI budget)</span>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            max={100000}
+            value={costCents}
+            onChange={(e) =>
+              setCostCents(Math.max(1, Math.min(100_000, Math.floor(Number(e.target.value) || 1))))
+            }
+          />
+          <small className="muted">
+            Up to {BUDGET.max_input_tokens.toLocaleString()} input and{" "}
+            {BUDGET.max_output_tokens.toLocaleString()} output tokens, {BUDGET.max_seconds} seconds.
+            The provider's prices decide whether this limit fits.
+          </small>
+        </label>
+        <div className="app-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={g.busy || jobLive || g.pending !== null || !g.draft.trim()}
+            onClick={() =>
+              void gen.submit({
+                project_id: projectId,
+                revision: headRevision,
+                base_job: current?.job_id ?? null,
+                budget,
+              })
+            }
+          >
+            {current ? "Generate a changed version" : "Generate the first version"}
+          </button>
+          {jobLive && (
+            <button
+              type="button"
+              className="btn btn-quiet"
+              disabled={g.busy}
+              onClick={() => void gen.cancel()}
+            >
+              Cancel the generation
+            </button>
+          )}
+        </div>
+        {g.job && (
+          <p className="notice" role="status">
+            {jobLive
+              ? `Generating: ${g.job.state}.`
+              : g.job.state === "succeeded"
+                ? "The new version is ready below."
+                : `The generation ended (${g.job.state})${g.job.failure ? `: ${g.job.failure.detail}` : "."}`}
+          </p>
+        )}
+        {g.notice && !g.unanswered && <p className="notice">{g.notice}</p>}
         {note && (
           <p className="notice" role="status">
             {note}
@@ -369,6 +519,7 @@ export function AppView({ projectId, headRevision }: { projectId: string; headRe
       )}
       {preview && (
         <PreviewFrame
+          key={preview.url}
           url={preview.url}
           checked={preview.checked}
           onStop={(why) => {
@@ -393,19 +544,29 @@ export function AppView({ projectId, headRevision }: { projectId: string; headRe
           <p className="muted">No version yet.</p>
         ) : (
           <ul className="app-versions">
-            {view.versions.map((v) => (
-              <AppVersionRow
-                key={v.job_id}
-                v={v}
-                busy={busy}
-                onCurrent={() =>
-                  act(() => appApi.setCurrent(projectId, v.job_id, "Restored in Studio"))
-                }
-                onCheck={() => act(() => appApi.check(projectId, v.job_id))}
-                onPreview={() => openPreview(v, false)}
-                onCompare={() => setCompare(v)}
-              />
-            ))}
+            {view.versions.map((v) => {
+              const check = view.checks.find((c) => c.id === v.latest_check?.id) ?? null;
+              return (
+                <AppVersionRow
+                  key={v.job_id}
+                  v={v}
+                  busy={busy}
+                  onCurrent={() =>
+                    act(() => appApi.setCurrent(projectId, v.job_id, "Restored in Studio"))
+                  }
+                  onCheck={() => act(() => appApi.check(projectId, v.job_id))}
+                  onPreview={() => openPreview(v, false)}
+                  onCompare={() => setCompare(v)}
+                >
+                  {check && (
+                    <CheckDetails
+                      check={check}
+                      onCancel={() => act(() => appApi.cancelCheck(check.id))}
+                    />
+                  )}
+                </AppVersionRow>
+              );
+            })}
           </ul>
         )}
       </section>

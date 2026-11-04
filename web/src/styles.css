@@ -1196,3 +1196,6 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .app-diff-add { color: var(--success); background: var(--success-soft); }
 .app-diff-del { color: var(--error); background: var(--error-soft); }
 @media (max-width: 760px) { .app-preview-frame { height: 380px; } }
+.app-check { margin-top: 8px; }
+.app-cases { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; overflow-wrap: anywhere; }
+.app-budget input { max-width: 12em; }

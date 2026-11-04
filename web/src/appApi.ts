@@ -104,33 +104,45 @@ export const appApi = {
       "POST",
       { unchecked },
     ),
-  /** A generation is a build job (paid, budgeted); never re-run by a check. */
-  generate: (
-    projectId: string,
-    revision: number,
-    instructions: string,
-    baseJob: string | null,
-    budget: {
-      max_input_tokens: number;
-      max_output_tokens: number;
-      max_seconds: number;
-      max_cost_cents: number;
-    },
-  ) =>
-    call<{ job: { id: string; state: string } }>(
-      `/api/product-projects/${projectId}/builds`,
-      "POST",
-      {
-        idempotency_key: key("app"),
-        revision,
-        intent: "app",
-        instructions,
-        ...(baseJob ? { base_job: baseJob } : {}),
-        budget,
-      },
-    ),
-  build: (jobId: string) =>
-    call<{ job: { id: string; state: string; failure: { code: string; detail: string } | null } }>(
-      `/api/builds/${jobId}`,
-    ),
+  /**
+   * A generation is a build job (paid, budgeted); never re-run by a check. The caller supplies
+   * the idempotency key and keeps it until the request is answered, so a lost reply is recovered
+   * by sending the SAME request again, never a second paid one (Astra's AppStudioReview).
+   */
+  generate: (r: GenerationRequest) =>
+    call<{ job: GenerationJob }>(`/api/product-projects/${r.project_id}/builds`, "POST", {
+      idempotency_key: r.key,
+      revision: r.revision,
+      intent: "app",
+      instructions: r.instructions,
+      ...(r.base_job ? { base_job: r.base_job } : {}),
+      budget: r.budget,
+    }),
+  build: (jobId: string) => call<{ job: GenerationJob }>(`/api/builds/${jobId}`),
+  cancelBuild: (jobId: string) =>
+    call<{ job: GenerationJob }>(`/api/builds/${jobId}/cancel`, "POST"),
 };
+
+export const newGenerationKey = () => key("app");
+
+export interface GenerationBudget {
+  max_input_tokens: number;
+  max_output_tokens: number;
+  max_seconds: number;
+  max_cost_cents: number;
+}
+export interface GenerationRequest {
+  key: string;
+  project_id: string;
+  revision: number;
+  instructions: string;
+  base_job: string | null;
+  budget: GenerationBudget;
+}
+export interface GenerationJob {
+  id: string;
+  state: string;
+  failure: { code: string; detail: string } | null;
+  can_cancel?: boolean;
+  reserved_cents?: number;
+}
