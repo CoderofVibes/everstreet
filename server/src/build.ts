@@ -40,8 +40,16 @@ export interface BuildRequest {
   contentHash: string;
   /** The validated revision snapshot: the provider works from content, not ids. */
   content: { foundation: Foundation; brief: Brief; prototype: Prototype };
-  /** `build` drafts a service specification; `propose` drafts a revised brief and screens. */
-  intent: "build" | "propose";
+  /**
+   * `build` drafts a service specification; `propose` drafts a revised brief and screens; `app`
+   * (job 002e) drafts a small browser web app as a `web_app_bundle/1` file list.
+   */
+  intent: "build" | "propose" | "app";
+  /**
+   * For `app`: the founder's instructions (data, never platform instructions) and, for a change,
+   * the version it changes (its validated canonical bundle).
+   */
+  app?: { instructions: string; base: { job: string; digest: string; bundle: unknown } | null };
   /**
    * For `propose`: the business's product work log, oldest first, bounded. The founder's words
    * are data to answer, never instructions to the platform.
@@ -49,7 +57,7 @@ export interface BuildRequest {
   conversation: { role: "founder" | "assistant"; text: string }[];
   limits: BuildLimits;
   /** The only artifact the platform accepts for this intent. */
-  outputSchema: "extraction_spec/1" | "product_proposal/1";
+  outputSchema: "extraction_spec/1" | "product_proposal/1" | "web_app_bundle/1";
 }
 
 /** What a provider may report. Everything else (state, success, cost) the platform decides. */

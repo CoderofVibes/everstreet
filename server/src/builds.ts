@@ -12,6 +12,7 @@
 // ("build"), separate from any customer runtime usage.
 
 import { createHash, randomUUID } from "node:crypto";
+import { APP_SCHEMA, MAX_BUNDLE_BYTES, validateBundle } from "./appBundle.ts";
 import { MAX_ARTIFACT_BYTES, validateArtifact } from "./artifacts.ts";
 import {
   conversationFor,
@@ -76,10 +77,13 @@ interface JobRow {
   business_id: string;
   revision: number;
   content_hash: string;
-  intent: "build" | "propose";
+  intent: "build" | "propose" | "app";
   idempotency_key: string;
   fingerprint: string;
   request_ref: string | null;
+  /** Job 002e: for `app`, the version a change starts from, and the founder's instructions. */
+  base_job: string | null;
+  instructions: string | null;
   provider: string;
   provider_config: string;
   budget: string;
@@ -109,6 +113,17 @@ interface JobRow {
   created_at: string;
   updated_at: string;
   finished_at: string | null;
+}
+
+/** Job 002e: the version an app change starts from, as validated data (or none). */
+function baseVersion(db: Db, jobId: string | null) {
+  if (!jobId) return null;
+  const a = db
+    .prepare(
+      "SELECT digest, content FROM build_artifacts WHERE job_id = ? AND kind = 'web_app_bundle'",
+    )
+    .get(jobId) as { digest: string; content: string } | undefined;
+  return a ? { job: jobId, digest: a.digest, bundle: JSON.parse(a.content) as unknown } : null;
 }
 
 // ---------- plain-data hygiene for anything a provider says ----------
@@ -496,9 +511,28 @@ export class Builds {
     if (!KEY.test(key))
       bad("idempotency_key must be 8 to 80 letters, digits, dashes or underscores");
     const asked = input.intent ?? "build";
-    if (asked !== "build" && asked !== "propose") bad("Unknown build intent");
-    const intent = asked as "build" | "propose";
+    if (asked !== "build" && asked !== "propose" && asked !== "app") bad("Unknown build intent");
+    const intent = asked as "build" | "propose" | "app";
     if (intent === "propose" && !requestRef) bad("A proposal answers a message in the work log");
+    // Job 002e: an `app` job may change a base version; the founder's words are data.
+    let baseJob: string | null = null;
+    let instructions: string | null = null;
+    if (intent === "app") {
+      const raw = input.instructions ?? "";
+      if (typeof raw !== "string" || raw.length > 2000)
+        bad("instructions must be text of at most 2,000 characters");
+      instructions = (raw as string).trim() || null;
+      if (input.base_job !== undefined && input.base_job !== null) {
+        const base = this.db
+          .prepare(
+            "SELECT j.id FROM build_jobs j JOIN build_artifacts a ON a.job_id = j.id WHERE j.id = ? AND j.project_id = ? AND j.intent = 'app' AND j.state = 'succeeded' AND a.kind = 'web_app_bundle'",
+          )
+          .get(String(input.base_job), project.id) as { id: string } | undefined;
+        if (!base) throw new HttpError(404, "No such app version in this project");
+        baseJob = base.id;
+      }
+    } else if (input.base_job !== undefined || input.instructions !== undefined)
+      bad("base_job and instructions belong to an app build");
     const revision = whole(input.revision, 1, 1_000_000, "The revision");
     const budget = parseBudget(input.budget);
     const rev = this.db
@@ -520,6 +554,8 @@ export class Builds {
         budget,
         retry_of: retryOf?.id ?? null,
         request_ref: requestRef,
+        // Job 002e: the base version and instructions are part of an app request's identity.
+        ...(intent === "app" ? { base_job: baseJob, instructions } : {}),
       }),
     );
     const same = (j: JobRow) => {
@@ -575,8 +611,8 @@ export class Builds {
         const t = this.iso();
         this.db
           .prepare(
-            `INSERT INTO build_jobs (id, project_id, business_id, revision, content_hash, intent, idempotency_key, fingerprint, provider, provider_config, budget, pricing, retry_of, requested_by, owner_id, owner_generation, state, reserved_cents, created_at, updated_at, request_ref)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
+            `INSERT INTO build_jobs (id, project_id, business_id, revision, content_hash, intent, idempotency_key, fingerprint, provider, provider_config, budget, pricing, retry_of, requested_by, owner_id, owner_generation, state, reserved_cents, created_at, updated_at, request_ref, base_job, instructions)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             id,
@@ -599,6 +635,8 @@ export class Builds {
             t,
             t,
             requestRef,
+            baseJob,
+            instructions,
           );
         this.ledger(id, 0, "reservation", worst, "Worst case at declared prices and limits");
         this.event({ id }, 0, "queued", {
@@ -770,6 +808,8 @@ export class Builds {
         ? { code: job.failure_code, detail: job.failure_detail ?? "" }
         : null,
       retry_of: job.retry_of,
+      base_job: job.base_job,
+      instructions: job.instructions,
       requested_by: requester?.display_name ?? "Someone",
       artifact_digest: job.artifact_digest,
       artifact: artifact
@@ -1075,7 +1115,20 @@ export class BuildWorker {
             maxOutputTokens: budget.max_output_tokens,
             maxSeconds: budget.max_seconds,
           },
-          outputSchema: job.intent === "propose" ? PROPOSAL_SCHEMA : "extraction_spec/1",
+          outputSchema:
+            job.intent === "propose"
+              ? PROPOSAL_SCHEMA
+              : job.intent === "app"
+                ? APP_SCHEMA
+                : "extraction_spec/1",
+          ...(job.intent === "app"
+            ? {
+                app: {
+                  instructions: job.instructions ?? "",
+                  base: baseVersion(this.db, job.base_job),
+                },
+              }
+            : {}),
         },
         controller.signal,
       );
@@ -1181,11 +1234,13 @@ export class BuildWorker {
               } catch {
                 size = Number.POSITIVE_INFINITY;
               }
-              if (size > MAX_ARTIFACT_BYTES)
+              // Job 002e: an app bundle has its own bound; every other artifact stays at 64 KB.
+              const limit = j.intent === "app" ? MAX_BUNDLE_BYTES : MAX_ARTIFACT_BYTES;
+              if (size > limit)
                 abort({
                   kind: "fail",
                   code: "invalid_output",
-                  detail: "The output is larger than 64 KB",
+                  detail: `The output is larger than ${limit / 1024} KB`,
                 });
               else {
                 artifact = ev.artifact;
@@ -1359,6 +1414,26 @@ export class BuildWorker {
                 ok: false as const,
                 reason: r.reason,
                 checks: [{ id: "proposal_schema", passed: false }],
+              };
+        }
+        // Job 002e: an app job accepts only a web app bundle, rebuilt and hashed by the platform.
+        if (intent === "app") {
+          const a = validateBundle(raw);
+          return a.ok
+            ? {
+                ok: true as const,
+                kind: "web_app_bundle",
+                schema: APP_SCHEMA,
+                digest: a.digest,
+                bytes: a.bytes,
+                canonical: a.canonical,
+                checks: a.checks.map((c) => ({ id: c.id, passed: c.passed })),
+                proposal: null,
+              }
+            : {
+                ok: false as const,
+                reason: a.reason,
+                checks: [{ id: "web_app_bundle", passed: false }],
               };
         }
         const r = validateArtifact(raw, prototype);

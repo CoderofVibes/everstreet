@@ -213,6 +213,30 @@ export const EXTRACTION_JSON_SCHEMA = obj({
   },
 });
 
+/**
+ * Job 002e: `web_app_bundle/1`. Check inputs and expected values are any JSON, which a closed
+ * schema can't describe, so they travel as JSON text and are parsed back (`reshapeApp`); the
+ * platform's validator then rebuilds and checks everything.
+ */
+export const APP_JSON_SCHEMA = obj({
+  kind: { type: "string", const: "web_app_bundle" },
+  schema_version: { type: "integer", const: 1 },
+  name: str,
+  description: str,
+  files: { type: "array", items: obj({ path: str, text: str }) },
+  checks: {
+    type: "array",
+    items: obj({
+      id: str,
+      label: str,
+      module: str,
+      export: str,
+      input_json: str,
+      expect_json: str,
+    }),
+  },
+});
+
 export const SYSTEM_PROMPT = [
   "You help a founder shape a small digital product on Everstreet. You only produce the JSON",
   "object the response format requires; nothing else.",
@@ -236,11 +260,16 @@ export function userContent(request: BuildRequest): string {
   const task =
     request.intent === "propose"
       ? "Propose a revised brief and screens answering the founder's latest message. reply: a short, friendly answer to them. summary: one or two sentences on what changes."
-      : "Write the extraction_spec for this product: the fields it returns, instructions and one to three fictional worked examples.";
+      : request.intent === "app"
+        ? "Write a small browser-only web app for this product as web_app_bundle files: index.html plus local .js modules and .css, no external URLs, no inline scripts, styles or event handlers, no network calls. Put the core logic in a pure exported function and give one to five checks: module, export name, input_json and expect_json (JSON text) the function must return exactly. If base is given, change that version as the founder's instructions ask and keep everything else."
+        : "Write the extraction_spec for this product: the fields it returns, instructions and one to three fictional worked examples.";
   return JSON.stringify({
     task,
     product: request.content,
     work_log: request.intent === "propose" ? conversation : [],
+    ...(request.intent === "app" && request.app
+      ? { founder_instructions: request.app.instructions, base: request.app.base?.bundle ?? null }
+      : {}),
   });
 }
 
@@ -256,7 +285,12 @@ export function requestBody(request: BuildRequest, model: SupportedModel) {
       effort: model.effort,
       format: {
         type: "json_schema",
-        schema: request.intent === "propose" ? PROPOSAL_JSON_SCHEMA : EXTRACTION_JSON_SCHEMA,
+        schema:
+          request.intent === "propose"
+            ? PROPOSAL_JSON_SCHEMA
+            : request.intent === "app"
+              ? APP_JSON_SCHEMA
+              : EXTRACTION_JSON_SCHEMA,
       },
     },
   };
@@ -421,9 +455,37 @@ export class AnthropicProvider implements BuildProvider {
     }
     yield {
       type: "output",
-      artifact: request.intent === "build" ? reshapeExamples(parsed) : parsed,
+      artifact:
+        request.intent === "build"
+          ? reshapeExamples(parsed)
+          : request.intent === "app"
+            ? reshapeApp(parsed)
+            : parsed,
     };
   }
+}
+
+/** Job 002e: check values arrive as JSON text; unreadable text stays as-is and fails validation. */
+export function reshapeApp(bundle: unknown): unknown {
+  if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) return bundle;
+  const b = bundle as { checks?: unknown };
+  if (!Array.isArray(b.checks)) return bundle;
+  const json = (s: unknown) => {
+    if (typeof s !== "string") return s;
+    try {
+      return JSON.parse(s) as unknown;
+    } catch {
+      return { unreadable_json: s.slice(0, 200) };
+    }
+  };
+  return {
+    ...b,
+    checks: b.checks.map((c) => {
+      const x = (c ?? {}) as Record<string, unknown>;
+      const { input_json, expect_json, ...rest } = x;
+      return { ...rest, input: json(input_json), expect: json(expect_json) };
+    }),
+  };
 }
 
 /** Turns key/value example pairs into the record form `extraction_spec/1` stores. */

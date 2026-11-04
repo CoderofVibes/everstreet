@@ -8,7 +8,7 @@ function buildJobsTable(name: string) {
   return `CREATE TABLE IF NOT EXISTS ${name} (
   id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
   business_id TEXT NOT NULL REFERENCES businesses(id), revision INTEGER NOT NULL,
-  content_hash TEXT NOT NULL, intent TEXT NOT NULL CHECK (intent IN ('build','propose')),
+  content_hash TEXT NOT NULL, intent TEXT NOT NULL CHECK (intent IN ('build','propose','app')),
   idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, provider TEXT NOT NULL,
   budget TEXT NOT NULL, pricing TEXT NOT NULL, retry_of TEXT REFERENCES build_jobs(id),
   requested_by TEXT NOT NULL REFERENCES people(id), owner_id TEXT NOT NULL REFERENCES people(id),
@@ -24,6 +24,7 @@ function buildJobsTable(name: string) {
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT,
   usage_final INTEGER NOT NULL DEFAULT 0, charged_microcents INTEGER NOT NULL DEFAULT 0,
   provider_config TEXT NOT NULL DEFAULT '', request_ref TEXT,
+  base_job TEXT, instructions TEXT,
   UNIQUE (project_id, idempotency_key)
 ) STRICT;`;
 }
@@ -643,6 +644,9 @@ export function openDb(path: string) {
     db.exec("ALTER TABLE build_jobs ADD COLUMN charged_microcents INTEGER NOT NULL DEFAULT 0");
   if (!jobCols.has("provider_config"))
     db.exec("ALTER TABLE build_jobs ADD COLUMN provider_config TEXT NOT NULL DEFAULT ''");
+  // Job 002e: an `app` job may change a base version, with the founder's instructions.
+  if (!jobCols.has("base_job")) db.exec("ALTER TABLE build_jobs ADD COLUMN base_job TEXT");
+  if (!jobCols.has("instructions")) db.exec("ALTER TABLE build_jobs ADD COLUMN instructions TEXT");
   // Job 003p: evidence access. `access_version` changes on every decision about a request, so a
   // read that started under one grant can tell the grant changed while it was in flight.
   // `scope_version` and `disclose_version` record which wording a grant or listing was agreed
@@ -758,8 +762,14 @@ export function openDb(path: string) {
       .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'build_jobs'")
       .get() as { sql: string } | undefined
   )?.sql;
-  if (sql && !sql.includes("'propose'")) {
-    const cols = BUILD_JOB_COLUMNS.join(", ");
+  // Job 002e: the third intent (`app`). The copy keeps every column the old table has.
+  if (sql && !sql.includes("'app'")) {
+    const have = new Set(
+      (db.prepare("PRAGMA table_info(build_jobs)").all() as { name: string }[]).map((c) => c.name),
+    );
+    const cols = [...BUILD_JOB_COLUMNS, "request_ref", "base_job", "instructions"]
+      .filter((c) => have.has(c))
+      .join(", ");
     db.exec("PRAGMA foreign_keys = OFF");
     try {
       db.exec("BEGIN IMMEDIATE");
