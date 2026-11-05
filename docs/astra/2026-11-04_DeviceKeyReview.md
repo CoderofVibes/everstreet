@@ -164,3 +164,30 @@ and compares it at the next read. Its current map is keyed by serialized call fi
 review for the same slot replaces that observation; keep review lifetime/caller binding in the
 final audit rather than assuming byte-identical revoke calls identify a particular key. The
 slot-based contract race remains explicitly open; a guarded on-chain method is follow-up work.
+
+## Follow-up: the serialized-call observation can be overwritten
+
+Astra extended the actual controller probe to three orderings. Original replacement still passes.
+Two new orderings fail (one wallet request each, expected zero): prepare key A, replace with B,
+then either prepare a newer review before submitting A's old call, or submit A's old review twice
+after the first attempt correctly returns changed. Both calls have identical serialized bytes;
+the map now holds B's observation, silently relabelling A's old review as B's. Targeted test at
+18:12 Pacific: 1 passed, 2 failed, 216ms. No network/signature/real transaction.
+
+This is controller evidence, not a reproduced UI exploit: the current panel replaces the shown
+review on changed and disables actions while busy. Still, a reviewed call alone cannot identify
+the key it was reviewed for. Bind an immutable review object/token plus observed identity to each
+confirmation, and validate that original observation without overwriting it under equal bytes.
+Adapting this probe to the complete review object is appropriate; weakening no-send is not.
+Preserve the separate acknowledged on-chain slot race. The test and this appendix are Astra's
+pending changes for the sole Claude writer to review alongside 003wea browser corrections.
+
+Required full check83328: lint/types pass; 1331 tests passed, 1 skipped, 3 failed. Two failures
+are the new revoke orderings above; the other is protected-store concurrent/repeated writes
+at its 5-second timeout (5253ms), matching the separately recorded contended-run issue. No
+unrelated implementation failure is inferred from that timeout, and no clean full pass claimed.
+
+At the immutable-review correction, Astra adapted its probe to pass the entire original review,
+not its now-insufficient bare call (otherwise universal bare-call refusal would pass vacuously).
+All three original no-send assertions independently pass,489ms. Actual browser repeat and final
+full check remain pending; this does not close the separate on-chain race.

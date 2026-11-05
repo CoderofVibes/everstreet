@@ -50,3 +50,18 @@ protection. Worker remains disabled, all six milestones open and the complete ro
 
 Files changed this pass: this review records evidence and corrections; BUILD_STATE and INDEX
 link the current handoff. No application changes or Git writes by Astra.
+
+Further independent audit while Claude9680 corrects the browser: expanded
+server/test/astra-revoke-review.test.ts and appended DeviceKeyReview with two reproduced
+observation-map lifetime failures. Fullcheck83328 lint/types pass,1331pass/1skip/3fail (those two
+plus known protected-store5s timeout). Claude owns fixes and commits; no concurrent full check.
+
+Prepared jobs/2026-11-04_003wec_guarded-device-revocation.md from actual revoke_key/install_key
+and Rust s04b source, to close the separate acknowledged transaction-inclusion race. Queued after
+003web, before003wf, not dispatched. JOBS registration deferred to safe handoff because Claude
+owns that file during003wea. This preserves the exact reviewed-key promise; no contract edits,
+deployment or external action by Astra.
+
+Updated ACCEPTANCE's current checkpoint to link later narrow acceptances and unresolved wallet,
+worker and integration gates; older entries remain historical. This prevents stale early review
+notes from being mistaken for present milestone acceptance. No broader completion claim added.

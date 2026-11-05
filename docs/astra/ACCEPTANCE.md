@@ -1,4 +1,24 @@
 # Product acceptance ledger
+## Current checkpoint: November 4 customer integration review
+
+All six milestone gates remain open. The older entries below retain their historical evidence;
+their unresolved wording is not a substitute for the later bounded reviews linked here.
+
+- [Studio drafts](2026-11-04_StudioDraftsAccepted.md): 001k1 accepted at2226246 after actual
+  route/reload/lost-response recovery. This does not prove live generation or full accessibility.
+- [Protected storage](2026-11-04_ProtectedStorageAccepted.md): 003v accepted atda404a0 within
+  encrypted-adapter and synthetic-route scope; production configuration remains an integration gate.
+- [Customer writer](2026-11-04_CustomerWriterReview.md): 003wd correction accepted at373a17c;
+  configured process concurrency, full customer journey and live-chain evidence remain003wf.
+- [Worker conformance](2026-11-04_WorkerConformanceReview.md): actual13/15, engine disabled;
+  boot, memory/orphan and host VMM evidence remain002f1. Setup approval is already exercised.
+- [Wallet browser repeat](2026-11-04_WalletBrowserRepeat.md): actual synthetic enroll/use/settle
+  reaches99free/1used after reload; lost-answer revocation readback passes. First-sign-in Loading,
+  phone clipping and two immutable-review controller regressions keep003wea unaccepted.
+- Fresh purchase003web, guarded revocation003wec and configured100/20/80 acquisition003wf remain
+  implementation/verification work, not completed features. Import, network, portfolios and M6
+  remain in the roadmap. No local fixture result establishes live NEAR or provider execution.
+
 ## November4 approved scoped evidence and publication review
 
 At295ec50, independent887tests/90files and types passed; lint exited0 with one useMathMinMax
