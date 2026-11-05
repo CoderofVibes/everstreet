@@ -245,6 +245,8 @@ describe("003wf2 the sale page over the configured composition (actual child pro
       "the new owner's header",
     );
     expect(text()).not.toContain("you are the seller");
-    expect(button("Prepare terms")).toBeTruthy();
+    // Aftercare: operating comes first; resale stays a secondary action.
+    expect(button("Open your business")).toBeTruthy();
+    expect(button("Propose a resale")).toBeTruthy();
   }, 60_000);
 });

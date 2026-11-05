@@ -467,7 +467,7 @@ describe("003wf2 who you are IN THE DEAL SHOWN, apart from what you may do next 
     expect((await words(s.stranger)).words).toBe("the buyer");
   });
 
-  it("the page header says it, and the new owner keeps the Prepare terms action", async () => {
+  it("the page header says it; the new owner's primary action is the business, and resale stays reachable", async () => {
     const h = await signedIn(BUYER, async (x) => {
       await (await apiAs(x, SELLER)).act("propose", proposal());
       const b = await apiAs(x, BUYER);
@@ -479,7 +479,10 @@ describe("003wf2 who you are IN THE DEAL SHOWN, apart from what you may do next 
     await wait(() => text().includes("you are the new owner (buyer in deal 1)"), "the header");
     expect(text()).not.toContain("you are the seller");
     expect(h.world.control()).toMatchObject({ owner: BUYER, generation: 2 });
-    // The permission to start a resale is unchanged: the action is still offered.
-    expect(button("Prepare terms")).toBeTruthy();
+    // Astra's aftercare (003wf3): the primary action is operating the business; the permission
+    // to start a resale is unchanged and stays reachable as a secondary action that opens the form.
+    expect(button("Open your business")).toBeTruthy();
+    await click("Propose a resale");
+    await wait(() => Boolean(fieldInput("Buyer's NEAR account")), "the resale form");
   });
 });

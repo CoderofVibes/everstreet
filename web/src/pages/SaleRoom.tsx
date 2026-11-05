@@ -6,7 +6,7 @@
 // transaction, a close or a payout that its own evidence doesn't show.
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
-import { Link } from "../router.tsx";
+import { Link, useRouter } from "../router.tsx";
 import {
   type SaleAction,
   type SaleKind,
@@ -145,6 +145,118 @@ function TermsDocument({ text, hash }: { text: string; hash: string }) {
 }
 
 /** An absolute time, readable, with its time zone, and the exact UTC instant. */
+// ---------- job 003wf3: the managed handover, in plain words ----------
+
+const HANDOVER_STATE: Record<string, string> = {
+  gated: "Checking the handover",
+  ready: "Ready to close",
+  ordering: "Close sent; confirming on NEAR",
+  outcome_unknown: "Close sent; its answer didn't arrive, so it's confirmed from the contract",
+  closed_observed: "Closed on the contract; applying it here",
+  reconciled: "Applied here",
+  attention: "Needs attention",
+  released_to_buyer: "Handed over to the buyer",
+  released_to_seller: "The closing ended; the seller keeps the business",
+  released_current: "Settled to the business's current owner",
+  ended: "Ended (a newer sale is closing)",
+};
+
+/** What the handover is waiting for, without internal codes (the code stays in the details). */
+function waitingWords(code: string | null): string | null {
+  if (!code) return null;
+  const c = code.replace(/^not_ready:/, "");
+  if (c.startsWith("customers_") || c === "holds_active")
+    return "Customer uses already in progress are finishing and settling. New uses are paused.";
+  if (c === "owner_work_running") return "An owner check or trial already running is finishing.";
+  if (c === "below_floor") return "The business's available balance is below the agreed floor.";
+  if (c === "too_late")
+    return "Too little time is left before the deadline to send the close safely. After the deadline either party can end the closing.";
+  if (c === "order_outstanding") return "The close was sent; waiting for the contract to show it.";
+  if (c.startsWith("capability_"))
+    return "The managed close isn't available on this server right now; nothing was sent.";
+  if (c.startsWith("read_") || c.startsWith("evidence_"))
+    return "The contract couldn't be read just now; it is read again shortly.";
+  return "Checking the handover.";
+}
+
+const SERVICE_WORDS: Record<string, string> = {
+  handover_in_progress: "the handover is still in progress",
+  no_active_offer: "no customer offer is active",
+  release_not_active: "the offer's release isn't the active one",
+  writer_unavailable: "reserving and settling units isn't connected on this server",
+  protection_unavailable: "private results can't be kept on this server",
+  metering_not_appointed: "the platform's metering account isn't appointed for the new owner",
+  runtime_budget_unset: "no running budget is set",
+  runtime_budget_exhausted: "the running budget is used up",
+};
+const serviceWord = (r: string) =>
+  SERVICE_WORDS[r] ??
+  (r.startsWith("runtime_unavailable")
+    ? "the product can't run on this server now"
+    : r.startsWith("release_")
+      ? "the released product can't serve as it is configured now"
+      : r);
+
+/**
+ * The managed handover's progress (MANAGED_HANDOVER.md §8, §16): what is being checked, the deadline,
+ * the close order(s) and their own transactions, the outcome, and (after the close) whether
+ * customers are eligible to be served, kept apart from "applied here".
+ */
+export function HandoverPanel({ s }: { s: SaleSetup }) {
+  const h = s.handover;
+  if (!h) return null;
+  const waiting = waitingWords(h.waiting_for);
+  return (
+    <section className="card sale-handover" aria-label="The handover">
+      <h2 className="sale-h3">Handover: {HANDOVER_STATE[h.state] ?? h.state}</h2>
+      <dl className="facts">
+        <dt>Deal</dt>
+        <dd>
+          Number {h.deal_seq}, version {h.version}
+        </dd>
+        <dt>Close deadline</dt>
+        <dd>
+          <When ms={h.deadline_ms} />
+        </dd>
+      </dl>
+      {waiting && !h.state.startsWith("released") && <p>{waiting}</p>}
+      {h.state === "attention" && (
+        <p className="error-text">
+          The contract's evidence and this server's records don't agree yet, so nothing was changed
+          and the business stays paused until they do.
+        </p>
+      )}
+      {h.orders.length > 0 && (
+        <details>
+          <summary>Close orders ({h.orders.length})</summary>
+          <ul>
+            {h.orders.map((o) => (
+              <li key={o.n}>
+                Order {o.n}, issued <When ms={o.issued_at_ms} />:{" "}
+                {o.attempt === null
+                  ? "prepared"
+                  : o.attempt.state === "success"
+                    ? "its transaction succeeded"
+                    : o.attempt.state === "failure"
+                      ? `its transaction was refused (${o.attempt.code ?? "refused"})`
+                      : "sent; its outcome is read from its own transaction"}
+                {o.attempt && <span className="muted mono wrap"> · {o.attempt.tx_hash}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {h.service && (
+        <p>
+          {h.service.eligible
+            ? "Customer service: eligible (the runtime, release, budget and metering checks pass). A customer's next use is what proves it."
+            : `Customer service: paused: ${h.service.reasons.map(serviceWord).join("; ")}.`}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function When({ ms }: { ms: string }) {
   const d = new Date(Number(ms));
   return (
@@ -969,6 +1081,7 @@ export function SaleRoom({ id }: { id: string }) {
     () => EMPTY,
   );
   const [showTerms, setShowTerms] = useState(false);
+  const router = useRouter();
   // After a review is set aside, focus returns to the control it was opened from.
   useEffect(() => {
     if (!flow || !st.focus || st.review) return;
@@ -1018,6 +1131,8 @@ export function SaleRoom({ id }: { id: string }) {
         return void flow.apply(next.intent);
       case "terms":
         return setShowTerms(true);
+      case "operate":
+        return router.go(next.href);
       case "none":
         return undefined;
       default:
@@ -1069,6 +1184,13 @@ export function SaleRoom({ id }: { id: string }) {
           {saleSentence(s)}
         </p>
         {next.action === "none" && <p className="muted">{next.why}</p>}
+        {next.action === "operate" && s.roles.seller && !s.control.live_deal && !showTerms && (
+          <p>
+            <button type="button" className="btn btn-secondary" onClick={() => setShowTerms(true)}>
+              Propose a resale
+            </button>
+          </p>
+        )}
         <p aria-live="polite" className={st.notice?.tone === "warn" ? "error-text" : "muted"}>
           {status ?? st.notice?.text ?? ""}
         </p>
@@ -1088,6 +1210,7 @@ export function SaleRoom({ id }: { id: string }) {
       <div className="sale-grid">
         <div className="sale-main">
           <Review flow={flow} st={st} s={s} />
+          {s.handover && <HandoverPanel s={s} />}
           {flow.resumableId && (
             <section className="card" aria-label="A request your wallet wasn't asked for yet">
               <p>

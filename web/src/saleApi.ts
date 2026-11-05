@@ -79,6 +79,26 @@ export interface LiveDeal {
   closing_control_seq: string;
 }
 
+/** Job 003wf3: the business's newest managed handover (participants only). */
+export interface SaleHandover {
+  id: string;
+  state: string;
+  deal_seq: string;
+  version: number;
+  closing_started_ms: string;
+  deadline_ms: string;
+  waiting_for: string | null;
+  checked_at_ms: number | null;
+  attention_reason: string | null;
+  outcome: unknown;
+  orders: {
+    n: number;
+    issued_at_ms: string;
+    attempt: { state: string; code: string | null; tx_hash: string } | null;
+  }[];
+  service: { eligible: boolean; reasons: string[]; note: string } | null;
+}
+
 export interface SaleSetup {
   business: { id: string; name: string };
   network: string;
@@ -154,6 +174,7 @@ export interface SaleSetup {
   intents: { id: string; deal_seq: string; version: number; digest: string; status: string }[];
   actions: SaleAction[];
   open: SaleAction[];
+  handover?: SaleHandover | null;
 }
 
 export interface SalePreview {

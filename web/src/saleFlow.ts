@@ -541,6 +541,8 @@ export type Next =
   | { action: "apply"; label: string; intent: string }
   | { action: SaleKind; label: string; input?: Record<string, unknown> }
   | { action: "terms"; label: string }
+  /** Job 003wf3 (aftercare): the new owner's primary action is operating the business. */
+  | { action: "operate"; label: string; href: string }
   | { action: "none"; label: string; why: string };
 
 /** DIRECT_SALE.md §7: first match wins. */
@@ -600,6 +602,17 @@ export function saleNext(st: SaleFlowState): Next {
     return { action: "appoint", label: "Appoint metering so customers continue" };
   if (d) {
     const expired = BigInt(s.block.timestamp_ms) >= BigInt(d.expires_at_ms);
+    // Job 003wf3: a Gated sale that is closing changes only by its close or, after its deadline,
+    // by either party ending it. The deadline alone reopens nothing.
+    if (d.state === "closing" && (r.buyer || r.seller || r.former_seller)) {
+      if (BigInt(s.block.timestamp_ms) >= BigInt(d.deadline_ms))
+        return { action: "abort", label: "End the closing" };
+      return {
+        action: "none",
+        label: "",
+        why: "The sale is closing: Everstreet is checking the handover. Ownership changes only when the contract shows the close.",
+      };
+    }
     if (r.buyer || r.seller) {
       if (expired) return { action: "expire", label: "End the expired offer" };
       if (r.buyer && !s.token.registered)
@@ -610,7 +623,9 @@ export function saleNext(st: SaleFlowState): Next {
         return {
           action: "accept",
           label: other
-            ? `Accept version ${d.version} and close the sale`
+            ? s.control.close_mode === "gated"
+              ? `Accept version ${d.version} and start the closing`
+              : `Accept version ${d.version} and close the sale`
             : `Accept version ${d.version}`,
         };
       }
@@ -623,6 +638,10 @@ export function saleNext(st: SaleFlowState): Next {
       };
     }
   }
+  // Astra's aftercare: after a close applied here, the new owner's primary action is running the
+  // business; proposing a resale stays a secondary action on this page.
+  if (r.new_owner && s.local_owner && !d)
+    return { action: "operate", label: "Open your business", href: `/desk/${s.business.id}` };
   if (r.seller && !d) return { action: "terms", label: "Prepare terms" };
   return { action: "none", label: "", why: "Nothing needs you here now." };
 }
