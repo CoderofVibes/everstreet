@@ -36,6 +36,7 @@ import {
 } from "./customerSigning.ts";
 import type { Db } from "./db.ts";
 import type { Extraction } from "./extract.ts";
+import { armHandover, openHandover, pauseError, requireCustomerAdmission } from "./handover.ts";
 import type { InvocationRow, ManagedRuntime } from "./invocations.ts";
 import { maintenanceHealth } from "./maintenance.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
@@ -1554,6 +1555,18 @@ export class CustomerUses {
     const e = read.entitlement as EntitlementV3 | null;
     // Deadlines are computed from this block's time: it must be recent by the local clock (003n1).
     this.fresh(read.block);
+    // Job 003wf3 (MANAGED_HANDOVER.md §16.3): a Gated deal Closing arms this business's handover
+    // gate from this very read; while it is open, nothing new is prepared (nothing is signed).
+    const paused = armHandover(this.db, {
+      businessId: o.business_id,
+      network: o.network,
+      account: o.account,
+      block: read.block,
+      control,
+      source: "customer_prepare",
+      now: this.now(),
+    });
+    if (paused) throw pauseError("none", paused);
     // Unknown or lost authority fails closed (§6); a live deal alone never pauses service.
     // Platform policy (narrower than the contract's owner-or-operator rule): a granted operator.
     if (!platformMeters(control, this.operator))
@@ -1681,6 +1694,8 @@ export class CustomerUses {
       if (now.state !== "active") bad(409, "This offer was withdrawn", "offer_retired");
       if (!this.releaseActive(now))
         bad(409, "This release isn't the active one", "release_not_active");
+      // Job 003wf3: the handover gate, inside the admission's own write transaction.
+      requireCustomerAdmission(this.db, now.business_id, "none");
       // Mappings rechecked after the await: a changed account or binding authorizes nothing.
       if (this.accountOf(viewer.id) !== customer)
         bad(409, "Your linked NEAR account changed; prepare again", "account_changed");
@@ -1952,6 +1967,8 @@ export class CustomerUses {
       if (!this.releaseActive(o))
         bad(409, "This release isn't the active one", "release_not_active");
       this.binding(o);
+      // Job 003wf3: nothing is reserved while this business is changing hands.
+      requireCustomerAdmission(this.db, r.business_id, "none");
       const c = this.db
         .prepare(
           "UPDATE customer_requests SET state = 'reserve_requested', hold_sig = ?, use_sig = ?, updated_at = ? WHERE id = ? AND state = 'prepared'",
@@ -2021,11 +2038,19 @@ export class CustomerUses {
     });
   }
 
-  private async submit(r: RequestRow, gen: number): Promise<"sent" | "stale"> {
+  private async submit(r: RequestRow, gen: number): Promise<"sent" | "stale" | "handover_paused"> {
     const writer = this.writer;
     if (!writer) return "sent";
-    // Intent first, under the lease: once the call starts its outcome is unknown.
+    // Job 003wf3 (§3 W3/W4): while this business is changing hands nothing is submitted. A request
+    // with no writer attempt at all can't land, so it is cancelled (its allocation freed); one
+    // already submitted keeps its exact readback and is never resent.
+    let paused = false;
     const ok = this.underLease(r.id, gen, (cur) => {
+      if (openHandover(this.db, cur.business_id)) {
+        paused = true;
+        this.cancelUnsentInTx(cur);
+        return;
+      }
       this.db
         .prepare(
           "UPDATE customer_requests SET state = 'reserve_unknown', submissions = submissions + 1, updated_at = ? WHERE id = ?",
@@ -2034,6 +2059,7 @@ export class CustomerUses {
       this.event(cur.id, "submit", { code: String(cur.submissions + 1), lease: gen });
     });
     if (!ok) return "stale";
+    if (paused) return "handover_paused";
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.writeTimeoutMs);
     let answer: WriterAnswer;
@@ -2119,7 +2145,12 @@ export class CustomerUses {
         finish();
         return "writer_unavailable";
       }
-      if ((await this.submit(r, gen)) === "stale") return "stale";
+      const sent = await this.submit(r, gen);
+      if (sent === "stale") return "stale";
+      if (sent === "handover_paused") {
+        finish();
+        return "handover_paused";
+      }
     }
     if (!this.reader) {
       finish();
@@ -2230,7 +2261,12 @@ export class CustomerUses {
         const canSend =
           cur.submissions < this.maxSubmissions && this.now() <= Number(cur.accept_by_ms);
         set("reserve_unknown", d.blocked, null, false);
-        resend = canSend && d.blocked === null && this.writer !== null;
+        // Job 003wf3: never resent while this business is changing hands (readback continues).
+        resend =
+          canSend &&
+          d.blocked === null &&
+          this.writer !== null &&
+          openHandover(this.db, cur.business_id) === null;
         if (resend)
           this.db
             .prepare("UPDATE customer_requests SET lease_until = ? WHERE id = ?")
@@ -2239,9 +2275,10 @@ export class CustomerUses {
     });
     if (!applied) return "stale";
     if (!resend) return d.kind;
-    if ((await this.submit(this.request(id) as RequestRow, gen)) === "stale") return "stale";
+    const again = await this.submit(this.request(id) as RequestRow, gen);
+    if (again === "stale") return "stale";
     finish();
-    return "resent";
+    return again === "handover_paused" ? "handover_paused" : "resent";
   }
 
   // ---------- execution of a reserved request (job 003n, design §13) ----------
@@ -2440,6 +2477,22 @@ export class CustomerUses {
     };
     if (problem !== null) sticky(problem);
     const control = read.control as NonNullable<typeof read.control>;
+    // Job 003wf3 (§16.3, §16.11 D6): arm from this read. While the business changes hands this
+    // reserved use can't run: its unit is returned (nothing is charged), and the answer states
+    // what the request's own records show about that unit.
+    const paused = armHandover(this.db, {
+      businessId: o.business_id,
+      network: o.network,
+      account: o.account,
+      block: read.block,
+      control,
+      source: "customer_execute",
+      now: this.now(),
+    });
+    if (paused) {
+      this.releaseForHandover(id);
+      throw pauseError(this.pauseUnitOf(id), paused);
+    }
     if (!platformMeters(control, this.operator))
       bad(
         409,
@@ -2524,6 +2577,8 @@ export class CustomerUses {
             "Control of this business changed while this was checked; nothing was run",
             "control_changed",
           );
+        // Job 003wf3 (Astra 00:48 #2): the gate at the atomic dispatch, after every await.
+        requireCustomerAdmission(this.db, o.business_id, this.pauseUnitOf(id));
         const t = iso();
         this.db
           .prepare(
@@ -2970,6 +3025,120 @@ export class CustomerUses {
       this.event(id, `unit_${kind}_intent`, {});
       return this.settlement(id);
     });
+  }
+
+  // ---------- job 003wf3: the business handover (MANAGED_HANDOVER.md §3, §16.11) ----------
+
+  /** What this request's own records show about its unit, for a pause answer (D6). */
+  pauseUnitOf(id: string): "none" | "returning" | "returned" | "unknown" {
+    const r = this.request(id);
+    if (r?.state !== "reserved") return "none";
+    const s = this.settlement(id);
+    if (!s) return "returning";
+    if (s.state === "returned") return "returned";
+    if (s.state === "unknown" || s.state === "unresolved" || s.state === "conflict")
+      return "unknown";
+    return s.kind === "release" ? "returning" : "unknown";
+  }
+
+  /**
+   * In the caller's transaction: a confirmed request that was never submitted (no writer attempt
+   * exists for it, so no hold can land) is cancelled and its allocation freed (§3 W3).
+   */
+  private cancelUnsentInTx(r: RequestRow) {
+    if (r.state !== "reserve_requested" || r.submissions !== 0) return false;
+    const attempt = this.db
+      .prepare("SELECT 1 FROM chain_tx_attempts WHERE operation LIKE ? LIMIT 1")
+      .get(`${r.id}|%`);
+    if (attempt) return false;
+    const c = this.db
+      .prepare(
+        "UPDATE customer_requests SET state = 'cancelled', reason = 'handover_pause', allocation = NULL, lease_until = NULL, updated_at = ? WHERE id = ? AND state = 'reserve_requested' AND submissions = 0",
+      )
+      .run(iso(), r.id);
+    if (c.changes) this.event(r.id, "cancelled_for_handover", {});
+    return c.changes === 1;
+  }
+
+  /**
+   * A reserved request that hasn't run gets a release intent (its unit goes back; §3 W5). A request
+   * already executed or with an intent is left to its own settlement.
+   */
+  releaseForHandover(id: string) {
+    return this.tx(() => {
+      const r = this.request(id);
+      if (r?.state !== "reserved" || r.conflict || this.settlement(id) || this.execution(id))
+        return false;
+      const t = iso();
+      this.db
+        .prepare(
+          "INSERT INTO customer_settlements (request_id, kind, state, reason, eligibility, created_at, updated_at) VALUES (?, 'release', 'requested', 'handover_pause', ?, ?, ?)",
+        )
+        .run(id, JSON.stringify({ executed: false, handover: true }), t, t);
+      this.event(id, "unit_release_intent", { code: "handover_pause" });
+      return true;
+    });
+  }
+
+  /**
+   * One bounded drain pass for a business with an open handover, through the existing leased
+   * operations only: never-sent confirmations cancelled, unexecuted reserved units released,
+   * pending reservations read back (never resent), decidable settlements stepped.
+   */
+  async drainForHandover(businessId: string, limit: number = LIMITS.duePerPass) {
+    const n = Math.max(1, Math.min(LIMITS.duePerPass, Math.floor(limit)));
+    const out: Record<string, string> = {};
+    const rows = this.db
+      .prepare(
+        `SELECT r.id, r.state FROM customer_requests r LEFT JOIN customer_settlements s ON s.request_id = r.id
+          WHERE r.business_id = ? AND r.conflict IS NULL
+            AND (r.state IN ('reserve_requested','reserve_unknown')
+              OR (r.state = 'reserved' AND (s.request_id IS NULL OR s.state IN ('requested','unknown'))))
+          ORDER BY r.updated_at, r.id LIMIT ?`,
+      )
+      .all(businessId, n) as { id: string; state: string }[];
+    for (const row of rows) {
+      if (row.state === "reserved") {
+        this.releaseForHandover(row.id);
+        if (!this.ensureIntent(row.id)) {
+          out[row.id] = "not_decidable";
+          continue;
+        }
+        out[row.id] = await this.unitStep(row.id);
+      } else out[row.id] = await this.step(row.id);
+    }
+    return out;
+  }
+
+  /**
+   * What is still in flight for a business, by category, from durable rows only (§4.2
+   * readiness): counts, never customer content. Final states are not counted.
+   */
+  handoverInventory(businessId: string) {
+    const one = (sql: string) => (this.db.prepare(sql).get(businessId) as { n: number }).n;
+    return {
+      reservations_pending: one(
+        "SELECT COUNT(*) AS n FROM customer_requests WHERE business_id = ? AND state IN ('reserve_requested','reserve_unknown')",
+      ),
+      reserved_unexecuted: one(
+        "SELECT COUNT(*) AS n FROM customer_requests r WHERE r.business_id = ? AND r.state = 'reserved' AND NOT EXISTS (SELECT 1 FROM customer_executions x WHERE x.request_id = r.id) AND NOT EXISTS (SELECT 1 FROM customer_settlements s WHERE s.request_id = r.id AND s.state IN ('charged','returned'))",
+      ),
+      executions_running: one(
+        "SELECT COUNT(*) AS n FROM customer_executions x JOIN customer_requests r ON r.id = x.request_id JOIN runtime_invocations i ON i.id = x.invocation_id WHERE r.business_id = ? AND i.state = 'running'",
+      ),
+      deliveries_pending: one(
+        "SELECT COUNT(*) AS n FROM customer_executions x JOIN customer_requests r ON r.id = x.request_id WHERE r.business_id = ? AND (x.delivery IS NULL OR x.delivery = 'protecting')",
+      ),
+      settlements_pending: one(
+        "SELECT COUNT(*) AS n FROM customer_settlements s JOIN customer_requests r ON r.id = s.request_id WHERE r.business_id = ? AND s.state IN ('requested','unknown')",
+      ),
+      settlements_unsettled: one(
+        "SELECT COUNT(*) AS n FROM customer_requests r WHERE r.business_id = ? AND r.state = 'reserved' AND NOT EXISTS (SELECT 1 FROM customer_settlements s WHERE s.request_id = r.id AND s.state IN ('charged','returned'))",
+      ),
+      unresolved: one(
+        "SELECT COUNT(*) AS n FROM customer_requests r WHERE r.business_id = ? AND (r.conflict IS NOT NULL OR r.state = 'unresolved' OR EXISTS (SELECT 1 FROM customer_settlements s WHERE s.request_id = r.id AND s.state IN ('conflict','unresolved')))",
+      ),
+    };
   }
 
   /** The customer abandons a reserved request that hasn't run (or ran ineligibly): release it. */

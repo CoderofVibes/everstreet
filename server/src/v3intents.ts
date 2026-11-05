@@ -6,6 +6,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import type { Db } from "./db.ts";
+import { resolveFromEvidence } from "./handover.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import type { CoreSnapshot, V3Observations } from "./v3observe.ts";
 import { type OutcomeV3, V3ReadError, type V3Snapshot } from "./v3read.ts";
@@ -230,7 +231,9 @@ export class V3Intents {
     const t = now();
     this.store.tx(() => {
       if (replay()) return;
-      this.store.stillControls(viewer, epoch);
+      // Job 003wf3: recording the exact intent stays possible during a handover (it is evidence
+      // the reconciliation needs, not an owner change).
+      this.store.stillControls(viewer, epoch, { handover: "allow" });
       const n = (
         this.db
           .prepare("SELECT COUNT(*) AS n FROM v3_intents WHERE business_id = ?")
@@ -315,13 +318,33 @@ export class V3Intents {
 
   // ---------- reconciling (a participant: the intent's seller or buyer person) ----------
 
-  async reconcile(viewer: Person, businessId: string, intentId: string) {
+  /**
+   * `system` (job 003wf3, Q9): the managed handover's own entry, never a route. It must name the
+   * stored handover whose intent, deal, version and digest are exactly this intent's; it runs the
+   * same decide/apply code with every monotonic check, and is attributed to `system:handover`.
+   */
+  async reconcile(
+    viewer: Person | null,
+    businessId: string,
+    intentId: string,
+    system?: { handoverId: string },
+  ) {
     const first = this.row(businessId, intentId);
-    if (!first || (viewer.id !== first.seller_person_id && viewer.id !== first.buyer_person_id))
-      bad(404, "No such intent");
+    const allowed =
+      first &&
+      (system
+        ? this.handoverNames(first, system.handoverId)
+        : viewer !== null &&
+          (viewer.id === first.seller_person_id || viewer.id === first.buyer_person_id));
+    if (!first || !allowed) bad(404, "No such intent");
     const answer = (state: ReconcileState, code: string | null, r: IntentRow = first) => {
       const fresh = this.row(businessId, intentId) ?? r;
-      return { state, code, message: MESSAGES[state], receipt: this.receipt(fresh, viewer) };
+      return {
+        state,
+        code,
+        message: MESSAGES[state],
+        receipt: viewer ? this.receipt(fresh, viewer) : null,
+      };
     };
     if (first.status === "applied") return answer("already", null);
     if (first.status === "ended") return answer("ended", null);
@@ -464,13 +487,42 @@ export class V3Intents {
             }),
             t,
           );
+        if (system)
+          this.db
+            .prepare(
+              "INSERT INTO events (type, subject, actor, payload, at) VALUES ('v3.reconciled_by_handover', ?, 'system:handover', ?, ?)",
+            )
+            .run(
+              businessId,
+              JSON.stringify({ v3_intent: first.id, handover: system.handoverId }),
+              t,
+            );
         return true;
+      });
+      // Job 003wf3: the handover follows the same evidence, now that it is applied here.
+      resolveFromEvidence(this.db, {
+        businessId,
+        network: first.network,
+        account: first.account,
+        evidence: { block: s.block, control: s.control, outcomes: s.outcomes },
+        source: system ? "handover_reconcile" : "reconcile",
+        now: Date.now(),
       });
       return answer(won ? "applied" : "already", null);
     } catch (e) {
       if (e instanceof Stale) return answer("conflict", "local_owner_changed");
       throw e;
     }
+  }
+
+  /** Whether a stored handover names exactly this intent, deal, version and digest (Q9). */
+  private handoverNames(r: IntentRow, handoverId: string) {
+    const h = this.db
+      .prepare(
+        "SELECT 1 FROM business_handovers WHERE id = ? AND business_id = ? AND intent_id = ? AND deal_seq = ? AND version = ? AND digest = ?",
+      )
+      .get(handoverId, r.business_id, r.id, r.deal_seq, r.version, r.digest);
+    return Boolean(h);
   }
 
   /** Matches the intent against fresh evidence (§4.2 of the design); changes nothing. */

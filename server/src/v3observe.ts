@@ -5,6 +5,7 @@
 
 import { createHash } from "node:crypto";
 import type { Db } from "./db.ts";
+import { resolveFromEvidence } from "./handover.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import {
   type BlockRef,
@@ -369,6 +370,17 @@ export class V3Observations {
   record(businessId: string, s: V3Snapshot, observedAtMs = this.clock()): RecordResult {
     const { period, ...core } = s;
     const outcome = this.recordCore(businessId, core, observedAtMs);
+    // Job 003wf3 (§16.3): accepted evidence of a Gated deal Closing arms the business's
+    // handover gate in this same transaction, with or without a configured closer.
+    if (outcome === "accepted" || outcome === "duplicate")
+      resolveFromEvidence(this.db, {
+        businessId,
+        network: s.source.network,
+        account: s.source.account,
+        evidence: { block: s.block, control: s.control, outcomes: s.outcomes },
+        source: "observation",
+        now: observedAtMs,
+      });
     if (!period) return { outcome, period: null };
     const usable = outcome === "accepted" || outcome === "duplicate" || outcome === "stale";
     return {
@@ -752,15 +764,15 @@ export class V3Observations {
     try {
       snapshot = await readSnapshot(transport, binding, { period, timeoutMs: this.opts.timeoutMs });
     } catch (e) {
-      this.store.stillControls(viewer, epoch);
+      this.store.stillControls(viewer, epoch, { handover: "allow" });
       const code = e instanceof V3ReadError ? e.code : "unavailable";
       this.event("v3.read_refused", businessId, viewer.id, { code });
       return { outcome: "refused" as const, code, message: MESSAGES[code] ?? MESSAGES.unavailable };
     }
-    // Control may have changed while reading.
-    this.store.stillControls(viewer, epoch);
+    // Control may have changed while reading. Recording evidence is allowed during a handover.
+    this.store.stillControls(viewer, epoch, { handover: "allow" });
     const r = this.store.tx(() => {
-      this.store.stillControls(viewer, epoch);
+      this.store.stillControls(viewer, epoch, { handover: "allow" });
       const result = this.record(businessId, snapshot);
       this.event("v3.observed", businessId, viewer.id, {
         outcome: result.outcome,

@@ -14,6 +14,7 @@ import {
   type InterviewAnswers,
   missingFacts,
 } from "./drafting.ts";
+import { requireNoHandover } from "./handover.ts";
 import { digitalPublic } from "./publication.ts";
 
 export class HttpError extends Error {
@@ -915,7 +916,16 @@ export class Store {
     return { businessId, generation: n };
   }
 
-  stillControls(viewer: Person, epoch: { businessId: string; generation: number }) {
+  /**
+   * Job 003wf3: also refuses while this business is changing hands (MANAGED_HANDOVER.md §4.3), so
+   * every owner write that checks control inside its write transaction is gated there too. Reads
+   * and evidence recording opt out with `{ handover: "allow" }`.
+   */
+  stillControls(
+    viewer: Person,
+    epoch: { businessId: string; generation: number },
+    opts: { handover?: "allow" } = {},
+  ) {
     this.ownedBusiness(viewer, epoch.businessId); // a former owner: 404
     const now = this.controlEpoch(viewer, epoch.businessId);
     if (now.generation !== epoch.generation)
@@ -924,6 +934,12 @@ export class Store {
         "Control of this business changed while this was loading, so nothing was shown or saved. Try again.",
         "control_changed",
       );
+    if (opts.handover !== "allow") requireNoHandover(this.db, epoch.businessId);
+  }
+
+  /** Job 003wf3: refuses an owner change while this business is changing hands (in the write tx). */
+  requireNoHandover(businessId: string) {
+    requireNoHandover(this.db, businessId);
   }
 
   isOwnerOf(viewer: Person, businessId: string) {

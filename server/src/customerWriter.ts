@@ -326,17 +326,26 @@ export interface WriterOptions {
   now?: () => number;
   /** TEST INSTRUMENTATION ONLY: called after an attempt is persisted, before it is broadcast. */
   afterPersist?: () => void;
+  /**
+   * Job 003wf3: the durable attempts table. The customer writer's is `chain_tx_attempts`; the
+   * closer's is its own `closer_tx_attempts` (same columns and rules, MANAGED_HANDOVER.md §16).
+   */
+  table?: "chain_tx_attempts" | "closer_tx_attempts";
+  /** Job 003wf3: refuse a full-access key (the closer must sign with its function-call key). */
+  functionCallKeyOnly?: boolean;
 }
 
 export class TestnetCustomerWriter implements CustomerChainWriter {
   readonly network = "testnet";
   readonly signer: string;
-  private readonly now: () => number;
+  protected readonly now: () => number;
+  protected readonly table: "chain_tx_attempts" | "closer_tx_attempts";
 
   constructor(
-    private readonly db: Db,
-    private readonly opts: WriterOptions,
+    protected readonly db: Db,
+    protected readonly opts: WriterOptions,
   ) {
+    this.table = opts.table ?? "chain_tx_attempts";
     if (opts.network !== "testnet") throw new Error("writer: only testnet is supported");
     if (!isAccountId(opts.signer) || !opts.signer.endsWith(".testnet"))
       throw new Error("writer: the operator must be a testnet account");
@@ -426,10 +435,27 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
       return refused("E_ARGS");
     if (typeof input.operation !== "string" || !OPERATION.test(input.operation))
       return refused("E_OPERATION");
-    const op = `${input.operation}|${method}`;
-    const payload = JSON.stringify({ method, receiver: input.account, args });
+    const success = method === "open_hold" ? "opened" : "applied";
+    return this.submit(input.operation, method, input.account, args, input.signal, success);
+  }
+
+  /**
+   * One durable submission of exactly (method, receiver, args) under `operation`: the same
+   * attempt rules for every caller (job 003wf3 shares them with the closer).
+   */
+  protected async submit(
+    operation: string,
+    method: string,
+    receiver: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+    success: "opened" | "applied",
+  ): Promise<WriterAnswer> {
+    const refused = (code: string): WriterAnswer => ({ status: "refused", code });
+    const op = `${operation}|${method}`;
+    const payload = JSON.stringify({ method, receiver, args });
     const digest = createHash("sha256").update(payload).digest("hex");
-    const success: WriterAnswer["status"] = method === "open_hold" ? "opened" : "applied";
+    const input = { account: receiver, signal };
 
     const latest = this.latest(op);
     if (latest && latest.payload_digest !== digest) return refused("E_PAYLOAD_MISMATCH");
@@ -465,6 +491,8 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
       return { status: "unknown", detail: "read_failed" }; // nothing was signed
     }
     if (!key || !permits(key.permission, input.account, method)) return refused("E_SIGNER_KEY");
+    if (this.opts.functionCallKeyOnly && key.permission === "FullAccess")
+      return refused("E_FULL_ACCESS_KEY");
     const blockHash = base58Decode(block.hash);
     if (blockHash.length !== 32) return { status: "unknown", detail: "read_failed" };
     const created = this.persistAttempt(
@@ -487,9 +515,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
   private latest(op: string): Attempt | null {
     return (
       (this.db
-        .prepare(
-          "SELECT * FROM chain_tx_attempts WHERE operation = ? ORDER BY attempt DESC LIMIT 1",
-        )
+        .prepare(`SELECT * FROM ${this.table} WHERE operation = ? ORDER BY attempt DESC LIMIT 1`)
         .get(op) as unknown as Attempt | undefined) ?? null
     );
   }
@@ -498,7 +524,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
   private freshAllowed(op: string): boolean {
     const r = this.db
       .prepare(
-        "SELECT COUNT(*) AS n FROM chain_tx_attempts WHERE operation = ? AND NOT (state = 'invalid' AND history = 'counted' AND reconcile IS NULL)",
+        `SELECT COUNT(*) AS n FROM ${this.table} WHERE operation = ? AND NOT (state = 'invalid' AND history = 'counted' AND reconcile IS NULL)`,
       )
       .get(op) as { n: number };
     return r.n === 0;
@@ -521,7 +547,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
     if (o.kind !== "success" && o.kind !== "failure") return unresolved;
     const changed = this.db
       .prepare(
-        "UPDATE chain_tx_attempts SET state = ?, code = ?, reconcile = NULL, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'invalid' AND reconcile = 'legacy_invalid'",
+        `UPDATE ${this.table} SET state = ?, code = ?, reconcile = NULL, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'invalid' AND reconcile = 'legacy_invalid'`,
       )
       .run(o.kind, o.kind === "failure" ? o.code : null, this.now(), a.operation, a.attempt);
     if (changed.changes !== 1) return this.fromRow(a);
@@ -571,7 +597,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
     return (
       this.db
         .prepare(
-          "UPDATE chain_tx_attempts SET state = ?, code = ?, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed'",
+          `UPDATE ${this.table} SET state = ?, code = ?, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed'`,
         )
         .run(state, code, this.now(), a.operation, a.attempt).changes === 1
     );
@@ -581,7 +607,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
   private fromRow(a: Attempt): "success" | WriterAnswer {
     const r = this.db
       .prepare(
-        "SELECT state, code, reconcile FROM chain_tx_attempts WHERE operation = ? AND attempt = ?",
+        `SELECT state, code, reconcile FROM ${this.table} WHERE operation = ? AND attempt = ?`,
       )
       .get(a.operation, a.attempt) as
       | { state: Attempt["state"]; code: string | null; reconcile: string | null }
@@ -614,7 +640,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
   private async send(a: Attempt, signal: AbortSignal): Promise<"success" | WriterAnswer> {
     const claimed = this.db
       .prepare(
-        "UPDATE chain_tx_attempts SET broadcasts = broadcasts + 1, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' RETURNING broadcasts, history",
+        `UPDATE ${this.table} SET broadcasts = broadcasts + 1, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' RETURNING broadcasts, history`,
       )
       .get(this.now(), a.operation, a.attempt) as
       | { broadcasts: number; history: Attempt["history"] }
@@ -629,7 +655,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
       claimed.broadcasts === 1 &&
       this.db
         .prepare(
-          "UPDATE chain_tx_attempts SET state = 'invalid', code = ?, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' AND history = 'counted' AND broadcasts = 1",
+          `UPDATE ${this.table} SET state = 'invalid', code = ?, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' AND history = 'counted' AND broadcasts = 1`,
         )
         .run(o.reason, this.now(), a.operation, a.attempt).changes === 1
     )
@@ -703,7 +729,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
         reconcile: null,
       };
       db.prepare(
-        `INSERT INTO chain_tx_attempts (operation, attempt, payload_digest, method, receiver, signer, public_key, nonce,
+        `INSERT INTO ${this.table} (operation, attempt, payload_digest, method, receiver, signer, public_key, nonce,
            block_hash, block_height, tx_hash, signed_tx, history, state, code, created_ms, updated_ms)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'counted', 'signed', NULL, ?, ?)`,
       ).run(
@@ -749,4 +775,60 @@ export function permits(permission: unknown, receiver: string, method: string): 
   if (!fc || fc.receiver_id !== receiver) return false;
   const names = Array.isArray(fc.method_names) ? fc.method_names : [];
   return names.length === 0 || names.includes(method);
+}
+
+/**
+ * Job 003wf3 (MANAGED_HANDOVER.md §7, §16.3): the configured closer. It submits exactly one call,
+ * `close_sale({ order })` on the bound business account, with no deposit, signed by a
+ * FUNCTION-CALL access key (a full-access key is refused), through the same durable attempt rules
+ * as the customer writer, in its own `closer_tx_attempts`. Its answer is an event only: the
+ * contract's outcome ring decides whether the business closed.
+ */
+export class TestnetCloserWriter extends TestnetCustomerWriter {
+  constructor(db: Db, opts: Omit<WriterOptions, "table" | "functionCallKeyOnly">) {
+    super(db, { ...opts, table: "closer_tx_attempts", functionCallKeyOnly: true });
+  }
+
+  closeSale(input: {
+    operation: string;
+    account: string;
+    order: Record<string, unknown>;
+    signal: AbortSignal;
+  }): Promise<WriterAnswer> {
+    const o = input.order;
+    const keys = [
+      "deal_seq",
+      "version",
+      "digest",
+      "expected_generation",
+      "closing_control_seq",
+      "manifest",
+      "manifest_seq",
+      "issued_at_ms",
+    ];
+    const ok =
+      Object.keys(o).length === keys.length &&
+      keys.every((k) => k in o) &&
+      U64_DEC.test(String(o.deal_seq)) &&
+      Number.isInteger(o.version) &&
+      HEX64.test(String(o.digest)) &&
+      Number.isInteger(o.expected_generation) &&
+      U64_DEC.test(String(o.closing_control_seq)) &&
+      HEX64.test(String(o.manifest)) &&
+      U64_DEC.test(String(o.manifest_seq)) &&
+      U64_DEC.test(String(o.issued_at_ms));
+    if (!isAccountId(input.account) || !input.account.endsWith(".testnet"))
+      return Promise.resolve({ status: "refused", code: "E_ACCOUNT" });
+    if (!ok) return Promise.resolve({ status: "refused", code: "E_ARGS" });
+    if (!OPERATION.test(input.operation))
+      return Promise.resolve({ status: "refused", code: "E_OPERATION" });
+    return this.submit(
+      input.operation,
+      "close_sale",
+      input.account,
+      { order: o },
+      input.signal,
+      "applied",
+    );
+  }
 }

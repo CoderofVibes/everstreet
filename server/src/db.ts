@@ -920,7 +920,156 @@ export function openDb(path: string) {
       db.exec("PRAGMA foreign_keys = ON");
     }
   }
+  migrateHandover(db, columns);
   return db;
+}
+
+/**
+ * Job 003wf3 (docs/design/MANAGED_HANDOVER.md): the states in which a business's handover gate is
+ * closed. Terminal states (released_*, ended) open it.
+ */
+export const HANDOVER_OPEN_STATES = [
+  "gated",
+  "ready",
+  "ordering",
+  "outcome_unknown",
+  "closed_observed",
+  "reconciled",
+  "attention",
+] as const;
+export const HANDOVER_STATES = [
+  ...HANDOVER_OPEN_STATES,
+  "released_to_buyer",
+  "released_to_seller",
+  "released_current",
+  "ended",
+] as const;
+export type HandoverState = (typeof HANDOVER_STATES)[number];
+const OPEN = HANDOVER_OPEN_STATES.map((s) => `'${s}'`).join(",");
+/** The SQL condition "this business has an open handover", for the backstop triggers. */
+const gated = (businessExpr: string) =>
+  `EXISTS (SELECT 1 FROM business_handovers h WHERE h.business_id = ${businessExpr} AND h.state IN (${OPEN}))`;
+/** The message every backstop refusal carries; app.ts maps it to 409 handover_in_progress. */
+export const HANDOVER_REFUSAL = "handover_in_progress";
+
+function migrateHandover(db: DatabaseSync, columns: (t: string) => Set<string>) {
+  // §16.9 (D3): which capabilities a live process has. Older code writes NULL.
+  if (!columns("process_presence").has("capabilities"))
+    db.exec("ALTER TABLE process_presence ADD COLUMN capabilities TEXT");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS business_handovers (
+      id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+      network TEXT NOT NULL, account TEXT NOT NULL,
+      deal_seq TEXT NOT NULL, version INTEGER NOT NULL, digest TEXT NOT NULL,
+      expected_generation INTEGER NOT NULL, closing_control_seq TEXT NOT NULL,
+      closing_started_ms TEXT NOT NULL, deadline_ms TEXT NOT NULL,
+      manifest TEXT NOT NULL, manifest_seq TEXT NOT NULL,
+      price TEXT NOT NULL, available_floor TEXT NOT NULL, grants TEXT NOT NULL, closer TEXT,
+      seller_account TEXT NOT NULL, buyer_account TEXT NOT NULL,
+      seller_person_id TEXT, buyer_person_id TEXT, intent_id TEXT, local_epoch INTEGER,
+      armed_block TEXT NOT NULL, armed_source TEXT NOT NULL, evidence_height TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN (${HANDOVER_STATES.map((s) => `'${s}'`).join(",")})),
+      attention_reason TEXT, outcome TEXT,
+      check_ms INTEGER, check_reason TEXT, check_counts TEXT, check_repeat INTEGER NOT NULL DEFAULT 0,
+      journal_full INTEGER NOT NULL DEFAULT 0, rev INTEGER NOT NULL DEFAULT 0,
+      created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
+      UNIQUE (business_id, deal_seq, version)
+    ) STRICT;
+    CREATE UNIQUE INDEX IF NOT EXISTS business_handovers_one_open ON business_handovers(business_id)
+      WHERE state IN (${OPEN});
+    CREATE TRIGGER IF NOT EXISTS business_handovers_identity BEFORE UPDATE ON business_handovers
+    WHEN NEW.id IS NOT OLD.id OR NEW.business_id IS NOT OLD.business_id OR NEW.network IS NOT OLD.network
+      OR NEW.account IS NOT OLD.account OR NEW.deal_seq IS NOT OLD.deal_seq OR NEW.version IS NOT OLD.version
+      OR NEW.digest IS NOT OLD.digest OR NEW.expected_generation IS NOT OLD.expected_generation
+      OR NEW.closing_control_seq IS NOT OLD.closing_control_seq OR NEW.closing_started_ms IS NOT OLD.closing_started_ms
+      OR NEW.deadline_ms IS NOT OLD.deadline_ms OR NEW.manifest IS NOT OLD.manifest
+      OR NEW.manifest_seq IS NOT OLD.manifest_seq OR NEW.price IS NOT OLD.price
+      OR NEW.available_floor IS NOT OLD.available_floor OR NEW.grants IS NOT OLD.grants
+      OR NEW.closer IS NOT OLD.closer OR NEW.seller_account IS NOT OLD.seller_account
+      OR NEW.buyer_account IS NOT OLD.buyer_account OR NEW.armed_block IS NOT OLD.armed_block
+      OR NEW.created_ms IS NOT OLD.created_ms
+    BEGIN SELECT RAISE(ABORT, 'the identity of a handover is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS business_handovers_terminal BEFORE UPDATE ON business_handovers
+    WHEN OLD.state NOT IN (${OPEN})
+    BEGIN SELECT RAISE(ABORT, 'a finished handover is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS business_handovers_no_delete BEFORE DELETE ON business_handovers
+    BEGIN SELECT RAISE(ABORT, 'handovers are kept'); END;
+    CREATE TABLE IF NOT EXISTS handover_lease (
+      business_id TEXT PRIMARY KEY, holder TEXT NOT NULL, gen INTEGER NOT NULL, until_ms INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS close_orders (
+      handover_id TEXT NOT NULL REFERENCES business_handovers(id), n INTEGER NOT NULL CHECK (n >= 1),
+      order_json TEXT NOT NULL, order_digest TEXT NOT NULL, read_height TEXT NOT NULL, read_hash TEXT NOT NULL,
+      created_ms INTEGER NOT NULL, PRIMARY KEY (handover_id, n)
+    ) STRICT;
+    CREATE TRIGGER IF NOT EXISTS close_orders_no_update BEFORE UPDATE ON close_orders
+    BEGIN SELECT RAISE(ABORT, 'close orders are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS close_orders_no_delete BEFORE DELETE ON close_orders
+    BEGIN SELECT RAISE(ABORT, 'close orders are immutable'); END;
+    CREATE TABLE IF NOT EXISTS closer_tx_attempts (
+      operation TEXT NOT NULL, attempt INTEGER NOT NULL, payload_digest TEXT NOT NULL,
+      method TEXT NOT NULL CHECK (method = 'close_sale'),
+      receiver TEXT NOT NULL, signer TEXT NOT NULL, public_key TEXT NOT NULL, nonce TEXT NOT NULL,
+      block_hash TEXT NOT NULL, block_height TEXT NOT NULL, tx_hash TEXT NOT NULL UNIQUE,
+      signed_tx TEXT NOT NULL, broadcasts INTEGER NOT NULL DEFAULT 0,
+      history TEXT NOT NULL DEFAULT 'counted' CHECK (history IN ('counted', 'uncounted')),
+      reconcile TEXT CHECK (reconcile IS NULL OR reconcile IN ('legacy_invalid')),
+      state TEXT NOT NULL CHECK (state IN ('signed', 'success', 'failure', 'invalid')),
+      code TEXT, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
+      PRIMARY KEY (operation, attempt)
+    ) STRICT;
+    CREATE UNIQUE INDEX IF NOT EXISTS closer_tx_one_nonce ON closer_tx_attempts (signer, public_key, nonce);
+    CREATE TABLE IF NOT EXISTS handover_journal (
+      handover_id TEXT NOT NULL REFERENCES business_handovers(id), seq INTEGER NOT NULL,
+      kind TEXT NOT NULL, code TEXT, block TEXT, lease_gen INTEGER, at_ms INTEGER NOT NULL,
+      PRIMARY KEY (handover_id, seq)
+    ) STRICT;
+    CREATE TRIGGER IF NOT EXISTS handover_journal_no_update BEFORE UPDATE ON handover_journal
+    BEGIN SELECT RAISE(ABORT, 'the handover journal is append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS handover_journal_no_delete BEFORE DELETE ON handover_journal
+    BEGIN SELECT RAISE(ABORT, 'the handover journal is append-only'); END;
+    CREATE TABLE IF NOT EXISTS handover_evidence (
+      handover_id TEXT NOT NULL REFERENCES business_handovers(id), seq INTEGER NOT NULL,
+      kind TEXT NOT NULL, evidence TEXT NOT NULL, at_ms INTEGER NOT NULL,
+      PRIMARY KEY (handover_id, seq)
+    ) STRICT;
+    CREATE TRIGGER IF NOT EXISTS handover_evidence_no_update BEFORE UPDATE ON handover_evidence
+    BEGIN SELECT RAISE(ABORT, 'handover evidence is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS handover_evidence_no_delete BEFORE DELETE ON handover_evidence
+    BEGIN SELECT RAISE(ABORT, 'handover evidence is immutable'); END;
+  `);
+  // The backstop (§3.1): whichever code path or process writes, these admissions of new work for
+  // a business with an open handover are refused at their commit. The services check first, with
+  // exact messages; these only catch what reaches the database anyway.
+  const backstop: [string, string][] = [
+    ["build_jobs", "NEW.business_id"],
+    ["eval_runs", "NEW.business_id"],
+    ["runtime_invocations", "NEW.business_id"],
+    ["runtime_releases", "NEW.business_id"],
+    ["customer_offers", "NEW.business_id"],
+    ["app_checks", "NEW.business_id"],
+    ["app_preview_tokens", "NEW.business_id"],
+    ["customer_requests", "NEW.business_id"],
+    ["product_revisions", "(SELECT business_id FROM product_projects WHERE id = NEW.project_id)"],
+    [
+      "customer_executions",
+      "(SELECT business_id FROM customer_requests WHERE id = NEW.request_id)",
+    ],
+  ];
+  for (const [table, biz] of backstop)
+    db.exec(
+      `CREATE TRIGGER IF NOT EXISTS handover_gate_${table} BEFORE INSERT ON ${table} WHEN ${gated(biz)}
+       BEGIN SELECT RAISE(ABORT, '${HANDOVER_REFUSAL}'); END;`,
+    );
+  // Retiring an offer, and confirming a prepared customer request (its reservation admission).
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS handover_gate_customer_offers_retire BEFORE UPDATE OF state ON customer_offers
+    WHEN NEW.state = 'retired' AND OLD.state = 'active' AND ${gated("NEW.business_id")}
+    BEGIN SELECT RAISE(ABORT, '${HANDOVER_REFUSAL}'); END;
+    CREATE TRIGGER IF NOT EXISTS handover_gate_customer_requests_confirm BEFORE UPDATE OF state ON customer_requests
+    WHEN OLD.state = 'prepared' AND NEW.state = 'reserve_requested' AND ${gated("NEW.business_id")}
+    BEGIN SELECT RAISE(ABORT, '${HANDOVER_REFUSAL}'); END;
+  `);
 }
 
 export type Db = DatabaseSync;
