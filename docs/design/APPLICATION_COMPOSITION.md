@@ -62,8 +62,8 @@ A missing one never blocks the others.
 | v3 observation (owner reads, sale reconciliation) | `TestnetRpcTransport` (003i), read-only | real |
 | Customer reads (timestamped final block, plan, entitlement, check_use) | `TestnetCustomerRpcTransport` (**003w-c**), read-only | real (new) |
 | Customer hold/settle writer | none yet | **unavailable: sub-job 003w-d** |
-| Account sign-in | NEP-413 verifier + `TestnetAccessKeyReader` (**003w-b**) | real server side (new); the browser wallet adapter is **003w-e** |
-| Customer use authorization (device use key) | page-supplied seam | **unavailable: 003w-e** |
+| Account sign-in | NEP-413 verifier + `TestnetAccessKeyReader` (**003w-b**), browser: pinned Wallet Selector + MyNearWallet (**003w-e1**) | real (new); live wallet not yet rehearsed |
+| Customer use authorization (device use key) | this device's enrolled WebCrypto key (`web/src/deviceKey.ts`, **003w-e2**); the preview keeps its labelled page seam | real in the browser (new); live wallet enrollment not yet rehearsed |
 | Model build/runtime | the Anthropic provider, only with an AI config file **and** a named key variable **and** a budget | unavailable without them; never enabled to test |
 | Isolated logic checks | WSL worker engine | **unavailable: 002f is partial (13/15); never enabled from that evidence** |
 | Maintenance supervisor | `MaintenanceSupervisor`, bounded, explicit interval | on when configured and customer use is on; stopped by `stop()` |
@@ -503,23 +503,75 @@ Steps 2–4 are prepared transactions shown to the customer. Their exact prepara
 003w-e3) is listed in 9.9. The end-to-end path is **not** called complete from a pre-seeded
 entitlement.
 
-### 9.8 Review harness
+### 9.8 Review harness (as built; corrected from the plan above)
 
-`scripts/wallet-harness.ts` composes the **normal configured application** with a labelled
-synthetic RPC and synthetic chain state, so **no network** is used. It listens on loopback for a
-bounded time, then stops and deletes its temporary files.
-- **The browser runs the production controllers.** Only the Wallet Selector *module* differs: a
-  synthetic module that implements the official `WalletModule` interface, signs with an
-  ephemeral in-page key, and submits to the harness's synthetic chain.
-- **It is accepted only when** `/api/env` says the server is the harness. The page then shows a
-  permanent "Synthetic review wallet" banner.
+The plan said "the normal configured application", but what was built is narrower:
+`scripts/wallet-harness.ts` serves **the real app routes (`everstreetApi`) with verified
+identity**. It uses the real `AccountSignIn` with the harness's exact callback URL, over the
+customer test world (`server/test/customer-world.ts`):
+- an in-memory database;
+- the contract-JSON chain double;
+- a published fictional offer.
 
-### 9.9 Child slices
+It does not use `composeApplication`, because seeding a published offer and its entitlement there
+needs the integrated journey (003w-f).
 
-| Slice | Covers | Gate |
+**The wallet is injected at the Wallet Selector module boundary.** `/__harness/wallet.js` defines
+a `WalletModuleFactory` with the official shape, so the browser runs the production `selectorWallet`,
+`SignInController` and `DeviceKeys`. The module's `signMessage` and transactions are answered by the
+**harness process**:
+- an ephemeral account key made at start signs NEP-413 there;
+- `install_key` and `revoke_key` are applied to the chain double by lib.rs's rules: the plan and its
+  hold limit on install, and on revoke the active hold stops serving now, while uses already signed
+  stay settleable;
+- the curve-point and weak-key checks are only the hex shape, so the double can't stand in for the
+  contract's key validation.
+
+**Bounds:**
+- It listens on loopback only, on `:8814`, with controls on `:8815` (cancel next, lose next,
+  switch account).
+- It stops by itself after `--minutes` (1–120, default 30) or on a signal, and keeps no files.
+- The page's Content-Security-Policy allows connections only to the harness (`connect-src 'self'`),
+  so the browser refuses any outbound request, including the Wallet Selector's default RPC. The
+  harness server makes none.
+- It is accepted only when `/api/env` names the harness, and the page shows a permanent synthetic
+  label.
+
+**What it is not:**
+- not the composed entry;
+- not a real wallet, real Wallet Selector network behaviour or real MyNearWallet;
+- not testnet evidence.
+
+### 9.9 Child slices and status
+
+| Slice | Covers | Status |
 |---|---|---|
-| 003w-e1 | 9.1–9.3: wallet sign-in, return route, fencing, logout and disconnect | tests: verifier vs the pinned library, callback exactness, cancellation and blocked popup, replay, wrong browser, expiry, late answers after switch or logout |
-| 003w-e2 | 9.4–9.6: device key, enrollment and revocation, readiness, the real authorizer, the harness | tests: the real IndexedDB adapter (over fake-indexeddb), signatures the contract's verifier accepts, lost response, storage unavailable or lost, revocation, changed key or epoch |
-| 003w-e3 | 9.7: fresh-customer shell and purchase preparation (with install) | exact transaction tests; no pre-seeded completion claim |
+| 003w-e1 | 9.1–9.3: wallet sign-in, return route, fencing, logout and disconnect | built and tested, including the server fences from Astra's WalletSignInReview |
+| 003w-e2 | 9.4–9.6: device key, enrollment and revocation, readiness, the real authorizer, the harness | built and tested, including Astra's DeviceKeyReview corrections: the atomic claim across tabs, a fence after every await, compare-and-delete, the exact request reviewed then re-checked, no refresh loop, one store connection |
+| 003w-e3 | 9.7: fresh-customer shell and purchase preparation (with install) | **partial**: exact transaction builders, tested against the contract's rules. Not built: a quoted storage deposit (a `storage_byte_cost` readback), the customer's token balance and registration reads, `purchase_seq` in the readback, and the purchase UI. These are a bounded follow-up inside 003w-e |
 
-The real wallet and testnet rehearsal (prepared, never run) is part of the 003w-f packet.
+### 9.10 Real wallet and testnet rehearsal: prepared, NOT run
+
+Nothing here has been executed. It needs Tony's explicit yes, as part of the 003w-f packet.
+1. **Accounts.** A fresh fictional testnet customer account, created by the person in
+   MyNearWallet (testnet). It must not be an existing account of Tony's.
+2. **Configuration.** A configured composition with `sign_in.return_origin` set to the origin
+   actually served (for example `http://127.0.0.1:8870`), and the testnet RPC.
+3. **Sign-in.**
+   - Check that the popup opens at `testnet.mynearwallet.com/sign-message` and shows the exact
+     message and recipient.
+   - Record which payload verified (`sign_in_challenges.verified_variant`: does MyNearWallet sign
+     the callback?).
+   - Check cancellation (close the popup) and a blocked popup.
+4. **Enrollment.**
+   - The customer's existing testnet entitlement for a test business (from 003w-f's setup).
+   - Review the exact `install_key` request, approve it in MyNearWallet (1 yoctoNEAR), and confirm
+     it from a `get_entitlement` readback only.
+   - Record the transaction hash.
+5. **Use.** One request authorized by the device key, then a FINAL `open_hold` from the operator
+   writer (003w-d).
+6. **Revocation.**
+   - `revoke_key`, then confirm the active hold stopped serving and a new request is refused.
+   - Then delete the local key.
+7. **Evidence.** Transaction hashes, readback blocks, screenshots, and the gaps observed.
+8. **Cleanup.** Revoke the remaining keys. No mainnet, no spending beyond testnet faucet tokens.
