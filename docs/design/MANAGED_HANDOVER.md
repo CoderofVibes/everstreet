@@ -179,7 +179,7 @@ Source references are `file:line` at `3651645`.
 | W5 | Reserved, not executed | `reserved` row, no `customer_executions` | `execute` dispatch transaction (`:2496-2541`) | **Gate** new dispatch, then **Return**: a coordinator-requested release intent (`kind release`, reason `handover_pause`) settled by `release_hold_for` | settlement `returned` | no gate in `inTx`; no handover release reason |
 | W6 | Execution in flight (provider call, then result protection) | `customer_executions` + `runtime_invocations` `running` | — (already admitted) | **Finish**: never cancelled to "prove" it stopped. The invocation commits `completed` **before** the customer sink protects and records the result (`invocations.ts:790-805` → `customerUse.ts:2549-2608`), so "not running" is not "delivered". Wait for `customer_executions.delivery` to be final. A runner that is gone is recovered by its own process's recovery, or the next start's (existing) | invocation terminal **and** `delivery ∈ {delivered, not_delivered}` (the existing `deliveryDecision`, with its 5 min timeout) | yes (existing states) |
 | W7 | Settlement of a delivered or ineligible use | `customer_settlements` `requested/unknown` | `unitStep` (leased) | **Finish**, prioritized for the gated business. Settled under the **seller's** generation before the order | settlement `charged` or `returned` | yes; no priority |
-| W8 | Holds opened outside the platform (by the seller's wallet or another current-generation METERING operator) | none here | — (the contract allows it during Closing) | can't be gated off-platform. **Detected** at the readiness read by `ent_held_value == 0`. Afterwards it is limitation L1 | `get_treasury.ent_held_value == "0"` at the readiness block | n/a |
+| W8 | Holds opened outside the platform (by the seller's wallet or another current-generation METERING operator) | none here | **the contract** (Phase B, Q8): `open_hold` refuses a NEW hold while the live deal is Closing (`E_CLOSING`); an identical active hold still answers `already` | closed at the contract for code that has the guard (`get_handover_terms`, §16.1). For contract code without it, managed handover is **unavailable**, never silently claimed | `ent_held_value == "0"` at the readiness block, and the guard proven by `get_handover_terms` | Phase B |
 | W9 | Customer purchases (wallet `ft_transfer_call` to the contract) | `customer_purchases` (the customer's own wallet sends) | purchase prepare | **Allowed** (question Q4): units are contract obligations that carry over unchanged, and they don't touch `available` | none | n/a |
 | W10 | Customer result reads, input and result expiry, deletion | the customer's own rows | — | **Unaffected** (the customer's data, never the owner's) | — | yes |
 | W11 | Owner administration routes (business profile, offer, publish/unpublish, public profile, listing, team, value settings, costs, budgets, updates, sessions, deals, payments, imports for this business) | each route's own rows | `store.stillControls` inside each write transaction (where used) | **Gate** while closing (409 `handover_in_progress`). Afterwards they are the buyer's (the existing control-epoch change already fences seller tabs) | none | partial: `stillControls` is used by many routes, but not all (§11 list) |
@@ -451,7 +451,10 @@ values, never from a local belief.
   ```json
   "handover": {
     "enabled": true,
-    "closer": { "account": "closer.example.testnet", "key_file": "…" },
+    "closer": {
+      "account": "closer.example.testnet",
+      "keys": [ { "business_id": "…", "key_file": "…" } ]   // one function-call key per binding (Q3, §16)
+    },
     "interval_ms": 10000, "batch": 5, "pass_budget_ms": 8000, "op_deadline_ms": 5000,
     "dispatch_margin_ms": 180000, "max_orders": 8, "stop_timeout_ms": 10000
   }
@@ -722,12 +725,13 @@ Rust checks above. The requirement matrix maps every Phase B item to a test ID.
 
 ## 12. Limitations this design states rather than hides
 
-- **L1 Off-platform actors.** The contract lets the seller's own wallet (and any other
-  current-generation METERING operator) open and settle holds during Closing (`lib.rs:2527`).
-  The gate can't stop them. Readiness detects active holds at its read (`ent_held_value`), but a
-  hold opened **after** that read and before the close lands survives the close. It is then
-  settled under the buyer's grants, or released after its deadline. Fixing this in the contract
-  (refusing `open_hold` while Closing) would be a new contract and a new account (Q8).
+- **L1 Off-platform actors** (superseded in Phase B by Q8). The local contract source now
+  refuses a new `open_hold` while Closing, so a hold can't be opened between the readiness read
+  and the close by any caller, the seller's wallet included. Settlement, release, refunds and
+  claims of existing holds are unchanged. What remains:
+  - **Already-deployed v3 code** lacks the guard. Managed handover is unavailable for it: the
+    capability check on `get_handover_terms` fails, and the reason says so.
+  - **The guard isn't deployed anywhere.** That would be a new account, and needs Tony's yes.
 - **L2** A provider call can't be proven stopped. The design waits for its terminal state or
   recovery instead, so a stuck runner can delay readiness until the deadline, and then the
   honest outcome is an abort.
@@ -855,3 +859,207 @@ releases note) stays in the cross-journey finish, as Astra placed it. It isn't a
   function-call access key for the closer (§7). Its examples aren't copied; the signing stays
   this repository's own (customerWriter core). The smart-contract and audit references from
   003wf2 apply unchanged to C-1 to C-6 when contract tests are added.
+
+## 16. Phase B decisions and mandatory corrections (Astra, November 5 01:01)
+
+This section governs where it differs from §1–§15. Astra's Q1–Q9 answers and corrections
+D1–D7 are in `docs/astra/2026-11-05_ManagedHandoverReviewNotes.md`.
+
+### 16.1 Contract guard and compatibility (Q8)
+
+- **`open_hold`.** After its "already" branch (an identical active hold still answers
+  `already`), it refuses `E_CLOSING: no new holds while the sale is closing` when the live deal
+  is Closing. This applies to every caller: the owner's wallet and current-generation operators
+  included. `settle_hold`, `release_hold*`, refunds, claims and purchases are unchanged.
+- **A new view `get_handover_terms()`** returns `{ version: 1, closing_hold_guard: true }`. This
+  is the explicit compatibility check. Contract code without the view (every deployed v3
+  account) can't be managed: the capability is `unavailable` with reason `contract_upgrade`, and
+  nothing claims a drain for it.
+- **Evidence:**
+  - Rust tests H-1 to H-4: new holds refused while Closing for the owner and the operator;
+    `already` answered; settle, release and refund of an existing hold work while Closing; new
+    holds work again after the close (successor meter) and after an abort;
+  - the contract-produced fixture `gated-sale.json`: a close run and an abort run, with an
+    `open_hold` refused while Closing;
+  - parity in the TS doubles: `FixtureChain.openHold` and `SaleChain`.
+  
+  No deployment and no account creation.
+
+### 16.2 Managed metering and mode (Q1)
+
+- A Gated proposal or revision through `SaleActions` must grant METERING to the configured
+  platform operator (`customer.operator_account`). Otherwise it is refused with
+  `managed_meter_required`.
+- Direct keeps its explicit omission and appointment workflow. The copy never suggests a Gated
+  business can switch to Direct (the mode is fixed at construction).
+- An alternate meter is outside this child.
+
+### 16.3 Closer capability and arming without a signer (Q2, Q3)
+
+**Capability.** It is ready for a business only when all of these hold:
+- the config has a key for that binding;
+- the key file parses;
+- the contract's `closer` equals the configured account;
+- `view_access_key` shows a **FunctionCall** permission with `receiver_id` equal to the
+  binding's account and `method_names == ["close_sale"]`, and its allowance is `null`
+  (unlimited) or at least `min_allowance_yocto`;
+- `get_handover_terms` is present;
+- no incompatible live peer (§16.9).
+
+A full-access key is refused. Reasons are non-secret codes.
+
+- **Refusing the closing acceptance.** `SaleActions` refuses the acceptance that would enter
+  Closing (the second acceptance) with `handover_unavailable` and the reason, when the
+  capability isn't ready.
+- **Arming is keyless and independent of the coordinator.** `HandoverGate.arm(businessId,
+  snapshot)` creates the `gated` row from any pinned control read showing this business's deal
+  Closing. It is called from:
+  - `CustomerUses.prepare` and `execute`, which read `control` at a pinned block anyway;
+  - the sale setup read;
+  - `V3Observations` recording (refresh and reconciliation reads);
+  - the coordinator.
+  
+  So an externally entered Closing is gated at the latest when the next customer use reads the
+  contract, with or without a configured closer.
+
+### 16.4 Purchases (Q4)
+
+Purchases stay available: their units carry over as contract obligations. While a business is
+gated, the purchase review shows the pause ("New uses are paused while this business changes
+hands; the units you buy stay yours"). Existing requested/unknown purchase recovery is
+unchanged. Nothing implies the service is usable during the pause.
+
+### 16.5 Abort (Q5)
+
+- Only the parties' reviewed wallets send it (`SaleActions` kind `abort`, offered only once the
+  reading shows the deadline passed). The closer's key stays `close_sale` only.
+- After the deadline, the business stays **paused until the `aborted` outcome is confirmed**
+  (§16.6). The deadline alone never reopens admission, and nothing claims an automatic abort.
+
+### 16.6 D1: terminal outcome and current authority are separate facts
+
+- **Ordering.** Every coordinator read goes through `V3Observations.record`. Only an
+  `accepted` or `duplicate` result moves a handover, and only from a block at or above the
+  handover's `evidence_height` (monotone per handover). A lower or `stale` read changes nothing,
+  so a late pinned read can't clear a newer gate.
+- **`released_to_seller`** requires, in one decision over one accepted snapshot S:
+  - S's outcome ring has `aborted` for this `deal_seq`;
+  - S's control owner is `seller_account` at `expected_generation`;
+  - S shows no other live deal in Closing;
+  - locally, `businesses.owner_id == seller_person_id` and the ownership-row count equals the
+    intent's `local_epoch`.
+  
+  If S shows a **newer** live Closing deal, the old row ends (`ended`) and the new handover row
+  is created **in the same transaction**, so the gate never opens in between. Any other
+  mismatch is `attention`.
+- **`released_to_buyer`** requires the reconciliation result `applied` or `already` **and** a
+  local check that `owner_id == buyer_person_id` with an ownership row whose `v3_intent_id` is
+  this intent. A reconciliation result of **`superseded` is not success.** It goes to
+  `attention` (reason `superseded`).
+- **Leaving `attention`** happens only by **current-authority reconciliation**. A fresh accepted
+  snapshot shows no live Closing deal, and the chain owner's account maps locally to
+  `businesses.owner_id`, at a local epoch consistent with the ownership rows. The row then
+  becomes the terminal **`released_current`**, recording the current owner and generation as
+  evidence. It never restores historical authority.
+- **Tests:** a stale read after a newer gate; an aborted deal 1 with a newer Closing deal 2;
+  away and back (closed, resold, closed again); `superseded` leading to attention and then
+  `released_current`.
+
+### 16.7 D2: finite logs that can't exhaust recovery
+
+- **Coalesced current diagnostics.** The mutable status columns on the handover row
+  (`check_ms`, `check_reason`, `check_counts`, `check_repeat`) are updated every pass. They
+  aren't appended.
+- **`handover_journal`** (immutable, append-only) holds at most `journal_cap` entries (default
+  256). The last `journal_reserve` slots are kept for **must** kinds:
+  - `armed`, `order_created`, `attempt_recorded`, `attempt_final`;
+  - `outcome`, `reconciled`, `terminal`, `attention`.
+  
+  Ordinary kinds (a *changed* readiness failure reason, `takeover`) are written only while
+  `count < cap − reserve`, and only when the reason differs from the previous ordinary entry.
+- `journal_reserve ≥ 3 × max_orders + 8` is validated, so the bounded orders and their attempts
+  always fit. If a must kind still finds the journal full, the transition **still happens**
+  (status columns and state are authoritative), and `journal_full` is set.
+- **`handover_evidence`** rows (immutable) are written only at transitions (`ready`, each
+  order's pre-check, `outcome`, `terminal`). They are bounded by `2 × max_orders + 8`.
+- **Test:** caps of 6 journal and 2 reserve, and 200 unchanged failing passes. The journal stays
+  at its cap, and the final close or abort is still read, applied once and recorded.
+
+### 16.8 D4: ready to administer versus ready to serve
+
+- At `reconciled`, the gate opens, whether or not service is ready, so the new owner can fix
+  what's missing.
+- **Service readiness** is computed per active offer from the existing checks:
+  - the runtime is available (`runtime.availability()`);
+  - the release is still active;
+  - the writer is configured;
+  - protection is available;
+  - the platform meter is granted at the **current** generation (latest accepted observation,
+    `platformMeters`).
+  
+  It is shown with each precise reason ("Customer service: paused: no model provider is
+  configured"). The UI never says "customers served" from the gate and the meter alone.
+- **Tests:** a restart with the provider config removed shows `runtime_unavailable`, the
+  owner's writes work, and service readiness updates after the provider is restored.
+
+### 16.9 D3: deployment compatibility
+
+- **Presence.** `process_presence` gains a nullable `capabilities` column (`ALTER TABLE ADD
+  COLUMN`). This code writes `{"handover_gate":1}`. Rows written by older code have NULL.
+- **Checks.** The coordinator checks presence at each pass **and inside the order-creation
+  transaction**. Any live row (`until_ms > now`) without `handover_gate ≥ 1` means no order, and
+  the capability reports `incompatible_peer`. A closing acceptance through `SaleActions` is
+  refused the same way.
+- **The guarantee is limited, and stated.**
+  - The presence check detects 003wf1-or-later processes that don't know the gate.
+  - A binary older than 003wf1 writes no presence, and **can't be detected**, so a writable
+    SQLite file shared with an arbitrary old binary isn't protected by a marker.
+  - **Operational prerequisite:** quiesce every incompatible process before enabling
+    `handover`. The README and capability text say so. No host or administrative setup is done
+    here.
+- **Tests:** a live incompatible peer refuses orders; a peer appearing after validation is
+  refused at the order transaction; a stale (expired) peer is ignored.
+
+### 16.10 D5: app checks, conversations and preview issuance
+
+- **App checks** (`appChecks.ts`, the worker): a report applies only under the same owner epoch
+  and a live lease. So a check running across a close **can't publish** for the buyer (fenced),
+  and its result stays with the seller's version.
+  - The isolated engine stays off in every configured composition (capability `checks:
+    unavailable`), so none can run there. The fence is proven with the existing synthetic engine
+    in a service test (barrier at the report).
+  - New check starts are gated.
+- **Studio conversations** (`authoring.ts`) are build jobs (W14) whose proposals record
+  `owner_epoch`. A running one is fenced like a build (its proposal is bound to the seller's
+  epoch, so applying it as the buyer is refused). Applying a proposal is gated. Its cost stays in
+  the build usage ledger, unknown until a receipt.
+- **Preview issuance** writes `app_preview_tokens` with `owner_id`/`owner_generation`. Issuance
+  is gated. Phase B checks that serving a token after the close is refused, by its generation,
+  and adds that check if it's missing.
+- **Tests:** service barriers for each (a check report after the close, a conversation build
+  finishing after the close, a preview token issued before the close and used after).
+
+### 16.11 D6: exact caller-visible pause facts
+
+The `handover_pause` refusal carries `detail.unit` from the request's actual state:
+
+| State | Message |
+|---|---|
+| `none` (new admission) | "New uses are paused while this business changes hands. Nothing was signed, held or charged." |
+| `returning` (a reserved unit with a release requested or unknown) | "This business is changing hands, so your reserved use can't run now. Its unit is being returned; you weren't charged." |
+| `returned` (proven) | "…Its unit was returned; you weren't charged." |
+| `unknown` (settlement unknown) | "…We're confirming what happened to its unit; you'll see it here." |
+
+The request keeps its id and history. "Returned" is said only after proof.
+
+### 16.12 D7: lease validity includes expiry
+
+Every coordinator write runs in BEGIN IMMEDIATE and requires `holder = me AND gen = mine AND
+until_ms > now`. A holder whose lease has expired, even before anyone else claims it, writes
+nothing.
+
+Transactions already durably admitted can still land. Their attempt rows are resolved by their
+own hash, and the contract outcome decides. They are never recorded as absent.
+
+**Tests:** an expired lease with no takeover yet; a takeover; recovery of the original order
+after a takeover.
