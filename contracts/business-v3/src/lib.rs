@@ -648,7 +648,29 @@ pub struct Buy {
     pub units: u32,
     pub purchase_seq: u32,
     pub install: Option<Install>,
+    /// 003web: the registration this purchase was prepared for. When present, a purchase for a
+    /// replaced registration (unregister, then a new shell restarting purchase_seq at 0) is
+    /// returned whole instead of being accepted at the new registration's matching sequence.
+    pub reg_id: Option<U64>,
 }
+
+/// 003web: what a client needs to prepare a fresh customer's purchase against THIS code.
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PurchaseTermsView {
+    /// The purchase-path capability version (1: exact shell bytes, registration-bound buys).
+    pub version: u32,
+    /// The exact storage growth sponsor_shell charges for this customer (measured in tests).
+    pub shell_bytes: U64,
+    /// The byte price sponsor_shell multiplies it by (yoctoNEAR).
+    pub storage_byte_cost: U128,
+    /// Buys naming reg_id are refused for any other registration.
+    pub binds_registration: bool,
+}
+
+/// The entitlement record's fixed size plus its map key's fixed part (measured: customer-purchase
+/// fixture); a shell grows storage by exactly this plus the customer account's length.
+pub const SHELL_BASE_BYTES: u64 = 811;
 
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
@@ -2019,6 +2041,16 @@ impl Business {
 
     // ---------- views ----------
 
+    /// 003web: the exact purchase-path terms for a customer (see PurchaseTermsView).
+    pub fn get_purchase_terms(&self, customer: AccountId) -> PurchaseTermsView {
+        PurchaseTermsView {
+            version: 1,
+            shell_bytes: U64(SHELL_BASE_BYTES + customer.as_str().len() as u64),
+            storage_byte_cost: U128(env::storage_byte_cost().as_yoctonear()),
+            binds_registration: true,
+        }
+    }
+
     pub fn get_plan(&self, plan_id: u32) -> Option<Plan> {
         self.plans.get(&plan_id).cloned()
     }
@@ -2590,6 +2622,11 @@ impl Business {
         let plan = self.plans.get(&buy.plan_id).ok_or("no such plan")?;
         let key = (sender.clone(), buy.plan_id);
         let e = *self.entitlements.get(&key).ok_or("no entitlement record; sponsor a shell first")?;
+        if let Some(r) = buy.reg_id {
+            if r.0 != e.reg_id {
+                return Err("registration changed since this purchase was prepared");
+            }
+        }
         let units = buy.units as u64;
         if units == 0 || buy.units > plan.max_units_per_purchase {
             return Err("units outside the plan's purchase limit");

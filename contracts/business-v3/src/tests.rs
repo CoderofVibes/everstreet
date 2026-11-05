@@ -24,6 +24,7 @@ const FOUNDER: &str = "founder.near";
 const METER: &str = "meter.near";
 const METER2: &str = "meter2.near";
 const CARA: &str = "cara.near";
+const DANA: &str = "dana.near";
 const DEV: &str = "dev.near";
 const SPONSOR: &str = "sponsor.near";
 const BUYER: &str = "buyer.near";
@@ -3724,7 +3725,12 @@ fn customer_purchase_matches_server_fixture() {
         let mut f = W::new();
         let (reg, grew) = f.measured(payer, NEAR, |b| b.sponsor_shell(id(customer), 1));
         let e = f.ent(customer);
+        // The contract's own declared shell size is exactly the growth it charged.
+        let terms = f.b.get_purchase_terms(id(customer));
+        assert_eq!(terms.shell_bytes.0 as i64, grew, "get_purchase_terms states the measured growth");
+        assert_eq!(terms.storage_byte_cost.0, byte_cost);
         shells.push(serde_json::json!({
+            "terms": raw(serde_json::to_string(&terms).unwrap()),
             "customer": customer,
             "customer_len": customer.len(),
             "payer": payer,
@@ -3791,8 +3797,49 @@ fn customer_purchase_matches_server_fixture() {
     };
     let occupied_logs = near_sdk::test_utils::get_logs();
 
+    // Registration replacement: a buy prepared for registration r1 must not be accepted by a new
+    // shell (r2, purchase_seq back at 0) at the same sequence; a legacy message without reg_id is.
+    let mut x = W::new();
+    let r1 = x.shell(DANA, DANA);
+    x.call(DANA, 1, |b| b.unregister(id(DANA), 1));
+    let r2 = x.shell(DANA, DANA);
+    assert_ne!(r1, r2);
+    let bound = serde_json::json!({ "buy": { "plan_id": 1, "units": 10, "purchase_seq": 1, "reg_id": U64(r1) } }).to_string();
+    let (r, _) = x.measured(TOKEN, 0, |b| b.ft_on_transfer(id(DANA), U128(10 * P), bound.clone()));
+    let bound_back = match r {
+        PromiseOrValue::Value(v) => v.0,
+        PromiseOrValue::Promise(_) => panic!("no promise"),
+    };
+    let bound_logs = near_sdk::test_utils::get_logs();
+    assert_eq!(bound_back, 10 * P, "a buy for the replaced registration comes back whole");
+    let current = serde_json::json!({ "buy": { "plan_id": 1, "units": 10, "purchase_seq": 1, "reg_id": U64(r2) } }).to_string();
+    let (r, _) = x.measured(TOKEN, 0, |b| b.ft_on_transfer(id(DANA), U128(10 * P), current.clone()));
+    let current_back = match r {
+        PromiseOrValue::Value(v) => v.0,
+        PromiseOrValue::Promise(_) => panic!("no promise"),
+    };
+    let current_logs = near_sdk::test_utils::get_logs();
+    assert_eq!(current_back, 0);
+    let mut y = W::new();
+    let y1 = y.shell(DANA, DANA);
+    y.call(DANA, 1, |b| b.unregister(id(DANA), 1));
+    y.shell(DANA, DANA);
+    let legacy = buy_msg(1, 10, 1, None); // no reg_id: the old message form
+    let (r, _) = y.measured(TOKEN, 0, |b| b.ft_on_transfer(id(DANA), U128(10 * P), legacy.clone()));
+    let legacy_back = match r {
+        PromiseOrValue::Value(v) => v.0,
+        PromiseOrValue::Promise(_) => panic!("no promise"),
+    };
+    assert_eq!(legacy_back, 0, "without reg_id the replaced registration's sequence accepts it");
+
     let out = serde_json::json!({
         "note": "Produced by contracts/business-v3 tests.rs customer_purchase_matches_server_fixture (job 003web). Test-world accounts and keys only.",
+        "replacement": {
+            "customer": DANA, "first_reg_id": U64(r1), "second_reg_id": U64(r2), "legacy_first_reg_id": U64(y1),
+            "bound_old": { "msg": bound, "amount": U128(10 * P), "returned": U128(bound_back), "logs": bound_logs },
+            "bound_current": { "msg": current, "amount": U128(10 * P), "returned": U128(current_back), "logs": current_logs },
+            "legacy_unbound": { "msg": legacy, "returned": U128(legacy_back) },
+        },
         "business": BIZ,
         "token": TOKEN,
         "unit_price": U128(P),
