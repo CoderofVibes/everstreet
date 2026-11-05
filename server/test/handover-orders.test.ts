@@ -38,14 +38,24 @@ type Seam = {
   keys: Map<string, { writer: TestnetCloserWriter }>;
 };
 /** One coordinator pass that persists the order but stops before the writer runs. */
-async function persistOrderOnly(w: HandoverWorld) {
+async function persistOrderOnly(w: HandoverWorld, blocks: string[] = []) {
   const seam = w.coordinator as unknown as Seam;
   const dispatch = seam.dispatch;
   seam.dispatch = async () => "cut_before_writer";
+  // Every block header the RPC serves during this pass, read at the RPC itself.
+  const rpc = w.b.rpc as unknown as { answer: (raw: string) => Promise<string> };
+  const answer = rpc.answer.bind(w.b.rpc);
+  rpc.answer = async (raw: string) => {
+    const out = await answer(raw);
+    if ((JSON.parse(raw) as { method?: string }).method === "block")
+      blocks.push(String(BigInt(JSON.parse(out).result.header.timestamp_nanosec) / 1_000_000n));
+    return out;
+  };
   try {
     expect((await w.coordinator.pass())[w.biz]).toBe("cut_before_writer");
   } finally {
     seam.dispatch = dispatch;
+    rpc.answer = answer;
   }
   const row = w.rows("SELECT n, order_json FROM close_orders")[0] as Json;
   return JSON.parse(String(row.order_json)) as Json;
@@ -56,8 +66,12 @@ describe("003wf3 S-10: the close order's exact fields", () => {
   it("the order is the contract's fields at the read block; each wrong field, an early or late time, or another signer is refused with the contract's own code; the handover stays gated; then the original order closes", async () => {
     const w = await world();
     await closing(w);
-    const order = await persistOrderOnly(w);
+    const blocks: string[] = [];
+    const order = await persistOrderOnly(w, blocks);
     const h = w.handoverRow() as Json;
+    // issued_at_ms is the coordinator's own pinned read: a block timestamp the RPC served then.
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(blocks).toContain(String(order.issued_at_ms));
     const live = w.sale.controlView().live_deal as Json;
     expect(order).toEqual({
       deal_seq: live.seq,
@@ -81,6 +95,16 @@ describe("003wf3 S-10: the close order's exact fields", () => {
       ["generation", { ...order, expected_generation: 2 }, "E_GENERATION"],
       ["digest", { ...order, digest: "ab".repeat(32) }, "E_TERMS"],
       ["manifest", { ...order, manifest: "cd".repeat(32) }, "E_MANIFEST"],
+      [
+        "manifest seq",
+        { ...order, manifest_seq: String(Number(order.manifest_seq) + 1) },
+        "E_MANIFEST",
+      ],
+      [
+        "closing control seq",
+        { ...order, closing_control_seq: String(BigInt(order.closing_control_seq as string) + 1n) },
+        "E_CLOSE_SEQ",
+      ],
       ["future", { ...order, issued_at_ms: String(now + 120_000n) }, "E_ISSUED_FUTURE"],
       ["too old", { ...order, issued_at_ms: String(now - 21n * 60_000n) }, "E_ISSUE_AGE"],
       ["before closing", { ...order, issued_at_ms: String(started - 1_000n) }, "E_ISSUED_BEFORE"],
@@ -129,7 +153,7 @@ describe("003wf3 S-10: the close order's exact fields", () => {
 });
 
 describe("003wf3 S-12: an aged order is replaced; the late original can't close", () => {
-  it("order 1 sent with no answer stays unknown (never failed by a timeout); once too old a replacement closes; the original arriving later can't execute (the replacement used the closer key's next nonce) and stays unknown on its own record; exactly one close", async () => {
+  it("order 1 sent with no answer stays unknown (never failed by a timeout); once past its usable age (before its absolute 20-minute expiry) a replacement closes; the original arriving later is refused by the network for its used nonce (not by its age) and stays unknown on its own record; exactly one close", async () => {
     const w = await world({ handover: { op_deadline_ms: 400, pass_budget_ms: 2_000 } });
     // A transport that ends its wait when the step's deadline aborts it, as a real fetch does.
     w.b.rpc.honorAbort = true;
