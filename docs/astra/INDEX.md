@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-05 | [Owner plan review notes](2026-11-05_OwnerPlanReviewNotes.md) | Independent operational-timing reproductions through real application routes, including a reserved-but-unrunnable default late authorization | Phase-A review evidence; no production changes; sole70487 continues design |
 | 2026-11-05 | [Owner plan planning](2026-11-05_OwnerPlanPlanning.md) | Existing parent requirement: guided immutable NEAR plan and explicit metering setup before customer offer | Dispatched as003wf4 Phase A November5,04:44; immutable plan, permissions and offer design before implementation |
 | 2026-11-05 | [Managed handover review notes](2026-11-05_ManagedHandoverReviewNotes.md) | Service-boundary review, route cross-check, Phase-A decisions (Q1-Q9) and mandatory corrections D1-D7 | Phase B authorized within the bounded child; no external execution |
 | 2026-11-05 | [Direct sale accepted](2026-11-05_DirectSaleAccepted.md) | Narrow local Direct acceptance and managed handover design dispatch | Actual configured recovery, payout, continuity, stale review, role and keyboard verified; wider gates retained |
