@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Purchase recovery verified](2026-11-04_PurchaseRecoveryVerified.md) | Actual browser: original-ID recovery from the harness history, no repeat payment; 003wec dispatched | Committed with check 1407+1 skipped; 003web stays review with enrollment/first-use/ready-fold gates open
 | 2026-11-04 | [Purchase browser repeat](2026-11-04_PurchaseBrowserRepeat.md) | Actual UI at 1440/1280/390: setup first, lost reply, device readiness, reload, ID validation, resend review, sign-out | Committed 12c6ab7; harness wallet history added in 30d1593 for positive original-ID recovery; enrollment still gated |
 | 2026-11-04 | [Purchase refresh review](2026-11-04_PurchaseRefreshReview.md) | Delayed setup answers must not replace newer entitlement or edited quantity | Probe committed 0d10687; fixed in fa321c0 (newest reading only, edits kept); check 1405+1 skipped |
 | 2026-11-04 | [Purchase browser review](2026-11-04_PurchaseBrowserReview.md) | Fresh-customer purchase UI: stale device panel after a lost reply, original-tx recovery, copy, setup placement | Four corrections in fa321c0; awaiting Astra browser repeat at 1440/1280/390 |

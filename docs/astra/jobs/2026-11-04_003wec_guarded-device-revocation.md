@@ -1,6 +1,10 @@
 # Revoke the reviewed device key at transaction execution
 
-P0/M; queued after 003web and before configured 003wf integration. Not dispatched.
+P0/M; before configured 003wf integration. Dispatched November4 for design, implementation and
+keyless verification after the purchase/recovery slice's narrow browser verification. See
+PurchaseRecoveryVerified:003web's enrollment-dependent browser gates remain open pending the
+specific user approval. Carry them forward; do not bypass that rejected action or claim broad
+acceptance. This job's browser enrollment/revocation submissions also wait for applicable approval.
 
 **Why (Tony's words):** "One key function of Everstreet is the seamless purchase and transfer
 of business/product to the investor/acquirer, on NEAR. So, that has to stay central to this as
