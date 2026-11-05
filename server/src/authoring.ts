@@ -437,6 +437,10 @@ export class Authoring {
     let outcome = { created: false, revision: 0, already: false };
     let brief: Brief | null = null;
     this.store.tx(() => {
+      const owning = this.db
+        .prepare("SELECT business_id FROM product_projects WHERE id = ?")
+        .get(projectId) as { business_id: string } | undefined;
+      if (owning) this.store.requireNoHandover(owning.business_id); // job 003wf3 (D5)
       const p = this.db
         .prepare("SELECT * FROM product_proposals WHERE id = ?")
         .get(proposalId) as unknown as ProposalRow;

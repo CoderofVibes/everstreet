@@ -624,6 +624,7 @@ export class Products {
         ? null
         : this.store.ownedBusiness(viewer, String(input.business_id));
     const id = this.store.tx(() => {
+      if (existing) this.store.requireNoHandover(existing.id); // job 003wf3
       const businessId =
         existing?.id ??
         this.store.insertBusiness(viewer, "idea", name || undefined, "software").businessId;
@@ -892,6 +893,7 @@ export class Products {
   ) {
     let created = false;
     this.store.tx(() => {
+      this.store.requireNoHandover(p.business_id); // job 003wf3 (revisions and restores)
       created = this.commitCore(viewer, p.id, base, brief, prototype, note, restoredFrom).created;
     });
     return { created, view: this.afterCommit(viewer, p.id, created, brief) };

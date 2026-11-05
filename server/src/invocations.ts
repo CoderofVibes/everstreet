@@ -367,6 +367,7 @@ export class ManagedRuntime {
 
   setBudget(viewer: Person, businessId: string, input: { limit_cents?: unknown }) {
     this.store.ownedBusiness(viewer, businessId);
+    this.store.requireNoHandover(businessId); // job 003wf3 (app.ts runs this in one write tx)
     const most = this.ceilingCents ?? 0;
     const n = Number(input.limit_cents);
     if (!Number.isInteger(n) || n < 0 || n > most)
@@ -478,6 +479,9 @@ export class ManagedRuntime {
         const epoch = this.ownerEpoch(project.business_id);
         if (epoch.owner_id !== project.owner_id)
           throw new HttpError(404, "No such product project");
+        // Job 003wf3 (W15): no owner trial or evaluation case starts while this business is
+        // changing hands; checked for EVERY case, in its own dispatch transaction.
+        this.store.requireNoHandover(project.business_id);
         // Job 003wf1 (Astra's evaluation-admission probe): a check case is admitted only while its
         // run is still this process's running run, in the SAME transaction as its reservation, so
         // a peer's recovery between the loop's check and this admission dispatches nothing.

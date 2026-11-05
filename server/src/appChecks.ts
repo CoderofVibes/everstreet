@@ -245,6 +245,7 @@ export class AppChecks {
     const t = this.iso();
     try {
       this.store.tx(() => {
+        this.store.requireNoHandover(p.business_id); // job 003wf3 (D5)
         this.db
           .prepare(
             `INSERT INTO app_checks (id, project_id, business_id, job_id, digest, recipe, idempotency_key, fingerprint, requested_by, owner_id, owner_generation, state, created_at, updated_at)

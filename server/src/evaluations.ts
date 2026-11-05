@@ -459,6 +459,9 @@ export class Evaluations {
       ...own.map((c) => ({ ...c, required: false })),
     ];
     const id = randomUUID();
+    // Job 003wf3 (W15): no new check run while this business is changing hands (the eval_runs
+    // trigger refuses it at commit too).
+    this.store.requireNoHandover(p.business_id);
     this.db
       .prepare(
         `INSERT INTO eval_runs (id, project_id, business_id, artifact_job, artifact_digest, fixture_version, policy, validator, provider_config, requested_by, state, total, created_at, runner)

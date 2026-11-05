@@ -89,6 +89,7 @@ export class Releases {
     const job = String(input.artifact_job ?? "");
     const runId = String(input.eval_run ?? "");
     this.store.tx(() => {
+      this.store.requireNoHandover(p.business_id); // job 003wf3 (W13)
       const { blockers, artifact } = this.blockers(p.id, job, runId);
       if (blockers.length || !artifact) throw new HttpError(409, blockers.join(". "));
       this.insert(viewer, p, artifact, runId, null);
@@ -100,6 +101,7 @@ export class Releases {
   rollback(viewer: Person, projectId: string, releaseId: string) {
     const p = this.runtime.project(viewer, projectId);
     this.store.tx(() => {
+      this.store.requireNoHandover(p.business_id); // job 003wf3 (W13)
       const r = this.db
         .prepare("SELECT * FROM runtime_releases WHERE id = ? AND project_id = ?")
         .get(String(releaseId), p.id) as ReleaseRow | undefined;

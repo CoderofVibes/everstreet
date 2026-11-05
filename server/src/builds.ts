@@ -34,6 +34,7 @@ import {
   worstCaseCents,
 } from "./build.ts";
 import type { Db } from "./db.ts";
+import { openHandover } from "./handover.ts";
 import type { Brief, Foundation, Prototype } from "./products.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 
@@ -461,6 +462,7 @@ export class Builds {
 
   setBudget(viewer: Person, businessId: string, input: { limit_cents?: unknown }) {
     this.store.ownedBusiness(viewer, businessId);
+    this.store.requireNoHandover(businessId); // job 003wf3 (app.ts runs this in one write tx)
     const most =
       this.operatorCeilingCents === null
         ? BUILD_LIMITS.maxBudgetCents
@@ -607,6 +609,8 @@ export class Builds {
             409,
             "The platform's overall AI spending limit has been reached. Nothing was sent.",
           );
+        // Job 003wf3: no new build while this business is changing hands (in this write tx).
+        this.store.requireNoHandover(project.business_id);
         const epoch = this.ownerEpoch(project.business_id);
         const t = this.iso();
         this.db
@@ -953,7 +957,8 @@ export class BuildWorker {
         if (running >= this.maxConcurrent) return null;
         const next = this.db
           .prepare(
-            "SELECT * FROM build_jobs WHERE state = 'queued' AND cancel_requested_at IS NULL ORDER BY created_at, id LIMIT 1",
+            // Job 003wf3 (W14): a gated business's queued jobs aren't claimed (fenced after a close).
+            "SELECT * FROM build_jobs WHERE state = 'queued' AND cancel_requested_at IS NULL AND business_id NOT IN (SELECT business_id FROM business_handovers WHERE state IN ('gated','ready','ordering','outcome_unknown','closed_observed','reconciled','attention')) ORDER BY created_at, id LIMIT 1",
           )
           .get() as unknown as JobRow | undefined;
         if (!next) return null;
@@ -1055,6 +1060,17 @@ export class BuildWorker {
       // Last checks, then record the intent to dispatch before anything is sent.
       const ready = this.guarded(job.id, attempt, (j) => {
         if (b.isStaleOwner(j)) return "fenced" as const;
+        // Job 003wf3 (W14, Astra 00:48 #4): a claimed job waiting here when its business's
+        // handover gate closes is never dispatched: it goes back to the queue, unsent.
+        if (openHandover(this.db, j.business_id)) {
+          this.db
+            .prepare(
+              "UPDATE build_jobs SET state = 'queued', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND dispatched_at IS NULL",
+            )
+            .run(b.iso(), j.id);
+          b.event(j, attempt, "requeued", { reason: "handover_pause" });
+          return "handover_paused" as const;
+        }
         if (j.cancel_requested_at) return "cancelled" as const;
         if (!snapshot || snapshot.content_hash !== j.content_hash) return "missing" as const;
         if (this.provider.id !== j.provider || providerConfig(this.provider) !== j.provider_config)
@@ -1070,6 +1086,7 @@ export class BuildWorker {
         b.fenceStale(job.business_id);
         return;
       }
+      if (ready === "handover_paused") return;
       if (ready === "cancelled")
         return this.end(job.id, attempt, "cancelled", "cancelled", "Cancelled before it ran");
       if (ready === "missing" || !snapshot)

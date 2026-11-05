@@ -15,6 +15,7 @@ import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
 import { CustomerPurchases } from "./customerPurchase.ts";
 import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
+import { HANDOVER_REFUSAL } from "./db.ts";
 import { Deals } from "./deals.ts";
 import { digitalDesk } from "./digitalDesk.ts";
 import { Evaluations } from "./evaluations.ts";
@@ -156,6 +157,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
   };
 
   app.onError((error, c) => {
+    // Job 003wf3: a database backstop refused new work for a business that is changing hands.
+    if (
+      !(error instanceof HttpError) &&
+      String((error as Error)?.message).includes(HANDOVER_REFUSAL)
+    )
+      return c.json(
+        {
+          error: "This business is closing; changes are paused until the contract decides.",
+          code: "handover_in_progress",
+        },
+        409,
+      );
     if (error instanceof HttpError)
       return c.json(
         {
@@ -183,6 +196,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
     if (!p) throw new HttpError(401, "Sign in first");
     return p;
   };
+  /**
+   * Job 003wf3 (MANAGED_HANDOVER.md §14.2): a synchronous owner write for `businessId`, with the
+   * handover gate checked inside the SAME write transaction (store.tx is reentrant, so the
+   * service's own statements join it).
+   */
+  const ownerWrite = <T>(businessId: string, fn: () => T): T =>
+    store.tx(() => {
+      store.requireNoHandover(businessId);
+      return fn();
+    });
+  /** Job 003wf3: a legacy (v2) route is refused at entry while its business is changing hands. */
+  const notDuringHandover = (businessId: string) => store.requireNoHandover(businessId);
   const body = async <T>(c: { req: { json: () => Promise<unknown> } }) =>
     ((await c.req.json().catch(() => ({}))) ?? {}) as T;
   const startSession = (
@@ -643,9 +668,12 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/businesses/:id/build-budget", (c) =>
     c.json(builds.budget(me(c), c.req.param("id"))),
   );
-  app.put("/api/businesses/:id/build-budget", async (c) =>
-    c.json(builds.setBudget(me(c), c.req.param("id"), await body(c))),
-  );
+  app.put("/api/businesses/:id/build-budget", async (c) => {
+    const b = await body(c);
+    return c.json(
+      ownerWrite(c.req.param("id"), () => builds.setBudget(me(c), c.req.param("id"), b as never)),
+    );
+  });
 
   // ---------- running the product (job 002c): owner-only private trials before M3 ----------
 
@@ -707,23 +735,39 @@ export function everstreetApi(store: Store, options: AppOptions) {
     store.ownedBusiness(me(c), c.req.param("id"));
     return c.json(runtime.budgetFor(c.req.param("id")));
   });
-  app.put("/api/businesses/:id/runtime-budget", async (c) =>
-    c.json(runtime.setBudget(me(c), c.req.param("id"), await body(c))),
-  );
+  app.put("/api/businesses/:id/runtime-budget", async (c) => {
+    const b = await body(c);
+    return c.json(
+      ownerWrite(c.req.param("id"), () => runtime.setBudget(me(c), c.req.param("id"), b as never)),
+    );
+  });
 
   // ---------- the founder's business ----------
 
   app.get("/api/businesses/:id", (c) => c.json(store.business(me(c), c.req.param("id"))));
-  app.patch("/api/businesses/:id", async (c) =>
-    c.json(store.updateBusiness(me(c), c.req.param("id"), await body(c))),
+  app.patch("/api/businesses/:id", async (c) => {
+    const b = await body(c);
+    return c.json(
+      ownerWrite(c.req.param("id"), () =>
+        store.updateBusiness(me(c), c.req.param("id"), b as never),
+      ),
+    );
+  });
+  app.patch("/api/businesses/:id/offer", async (c) => {
+    const b = await body(c);
+    return c.json(
+      ownerWrite(c.req.param("id"), () => store.editOffer(me(c), c.req.param("id"), b as never)),
+    );
+  });
+  app.patch("/api/businesses/:id/idea", async (c) => {
+    const b = await body(c);
+    return c.json(
+      ownerWrite(c.req.param("id"), () => store.editIdea(me(c), c.req.param("id"), b as never)),
+    );
+  });
+  app.post("/api/businesses/:id/publish", (c) =>
+    c.json(ownerWrite(c.req.param("id"), () => store.publish(me(c), c.req.param("id")))),
   );
-  app.patch("/api/businesses/:id/offer", async (c) =>
-    c.json(store.editOffer(me(c), c.req.param("id"), await body(c))),
-  );
-  app.patch("/api/businesses/:id/idea", async (c) =>
-    c.json(store.editIdea(me(c), c.req.param("id"), await body(c))),
-  );
-  app.post("/api/businesses/:id/publish", (c) => c.json(store.publish(me(c), c.req.param("id"))));
   // Job 001d: the digital public profile (owner only): draft, exact preview, reviewed publish.
   app.get("/api/businesses/:id/public-profile", (c) =>
     c.json(publications.view(me(c), c.req.param("id"))),
@@ -735,7 +779,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     c.json(publications.publish(me(c), c.req.param("id"), await body(c))),
   );
   app.post("/api/businesses/:id/unpublish", (c) =>
-    c.json(store.unpublish(me(c), c.req.param("id"))),
+    c.json(ownerWrite(c.req.param("id"), () => store.unpublish(me(c), c.req.param("id")))),
   );
   app.patch("/api/tasks/:id", async (c) => {
     const { done } = await body<{ done?: boolean }>(c);
@@ -806,12 +850,13 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/businesses/:id/sessions", async (c) =>
     c.json({ sessions: await needBookings().ownerSessions(me(c), c.req.param("id")) }),
   );
-  app.post("/api/businesses/:id/sessions", async (c) =>
-    c.json(
+  app.post("/api/businesses/:id/sessions", async (c) => {
+    notDuringHandover(c.req.param("id"));
+    return c.json(
       { sessions: await needBookings().openSession(me(c), c.req.param("id"), await body(c)) },
       201,
-    ),
-  );
+    );
+  });
   app.post("/api/public/sessions/:id/book", async (c) => {
     const { source } = await body<{ source?: string }>(c);
     const session = store.db
@@ -922,12 +967,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
     store.stillControls(p, epoch);
     return c.json(view);
   });
-  app.post("/api/businesses/:id/costs", async (c) =>
-    c.json(books.addCost(me(c), c.req.param("id"), await body(c)), 201),
-  );
+  app.post("/api/businesses/:id/costs", async (c) => {
+    const b = await body(c);
+    return c.json(
+      ownerWrite(c.req.param("id"), () => books.addCost(me(c), c.req.param("id"), b as never)),
+      201,
+    );
+  });
   app.delete("/api/businesses/:id/costs/:costId", (c) =>
     c.json(
-      books.endCost(me(c), c.req.param("id"), c.req.param("costId"), c.req.query("note") ?? ""),
+      ownerWrite(c.req.param("id"), () =>
+        books.endCost(me(c), c.req.param("id"), c.req.param("costId"), c.req.query("note") ?? ""),
+      ),
     ),
   );
 
@@ -949,9 +1000,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
       chain_error,
     });
   });
-  app.patch("/api/businesses/:id/value/settings", async (c) =>
-    c.json(valuation.updateSettings(me(c), c.req.param("id"), await body(c))),
-  );
+  app.patch("/api/businesses/:id/value/settings", async (c) => {
+    const b = await body(c);
+    return c.json(
+      ownerWrite(c.req.param("id"), () =>
+        valuation.updateSettings(me(c), c.req.param("id"), b as never),
+      ),
+    );
+  });
   app.post("/api/businesses/:id/value/try", async (c) =>
     c.json(await valuation.scenario(me(c), c.req.param("id"), await body<Overrides>(c))),
   );
@@ -977,16 +1033,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.post("/api/businesses/:id/team", async (c) => {
     const { person_id } = await body<{ person_id?: string }>(c);
+    notDuringHandover(c.req.param("id"));
     return c.json(
       { team: await needPayments().addHelper(me(c), c.req.param("id"), String(person_id ?? "")) },
       201,
     );
   });
-  app.delete("/api/businesses/:id/team/:personId", async (c) =>
-    c.json({
+  app.delete("/api/businesses/:id/team/:personId", async (c) => {
+    notDuringHandover(c.req.param("id"));
+    return c.json({
       team: await needPayments().removeHelper(me(c), c.req.param("id"), c.req.param("personId")),
-    }),
-  );
+    });
+  });
   // ---------- acquisitions: buying profiles, the seller's listing, search, rooms ----------
 
   app.get("/api/acquire/meta", (c) => c.json(acquire.meta()));
@@ -1115,9 +1173,15 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/businesses/:id/listing", async (c) =>
     c.json(await acquire.listing(me(c), c.req.param("id"))),
   );
-  app.patch("/api/businesses/:id/listing", async (c) =>
-    c.json(await acquire.updateListing(me(c), c.req.param("id"), await body(c))),
-  );
+  app.patch("/api/businesses/:id/listing", async (c) => {
+    const b = await body(c);
+    // Its write is synchronous (inside the gated transaction); its answer is a read afterwards.
+    return c.json(
+      await ownerWrite(c.req.param("id"), () =>
+        acquire.updateListing(me(c), c.req.param("id"), b as never),
+      ),
+    );
+  });
   app.get("/api/businesses/:id/listing/summary", (c) =>
     c.json(acquire.summary(me(c), c.req.param("id"))),
   );
@@ -1125,9 +1189,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
   // ---------- deals: exact terms, both acceptances on NEAR, the handover ----------
 
   app.get("/api/deals", (c) => c.json({ deals: deals?.mine(me(c)) ?? [] }));
-  app.post("/api/businesses/:id/deals", async (c) =>
-    c.json(await needDeals().propose(me(c), c.req.param("id"), await body(c)), 201),
-  );
+  app.post("/api/businesses/:id/deals", async (c) => {
+    notDuringHandover(c.req.param("id"));
+    return c.json(await needDeals().propose(me(c), c.req.param("id"), await body(c)), 201);
+  });
   app.get("/api/businesses/:id/deals/snapshot", async (c) =>
     c.json(
       await needDeals().snapshotPreview(
@@ -1274,7 +1339,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/businesses/:id/updates", async (c) => {
     const { body: text } = await body<{ body?: string }>(c);
     return c.json(
-      { updates: community.postUpdate(me(c), c.req.param("id"), String(text ?? "")) },
+      {
+        updates: ownerWrite(c.req.param("id"), () =>
+          community.postUpdate(me(c), c.req.param("id"), String(text ?? "")),
+        ),
+      },
       201,
     );
   });

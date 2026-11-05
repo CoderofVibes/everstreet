@@ -145,6 +145,7 @@ export class AppVersions {
     this.checks.version(p.id, jobId);
     const text = typeof note === "string" ? note.trim().slice(0, 200) : "";
     this.store.tx(() => {
+      this.store.requireNoHandover(p.business_id); // job 003wf3 (D5)
       const seq =
         ((
           this.db
@@ -180,6 +181,7 @@ export class AppVersions {
     const epoch = this.checks.ownerEpoch(p.business_id);
     const expires = this.now() + PREVIEW_TTL_MS;
     this.store.tx(() => {
+      this.store.requireNoHandover(p.business_id); // job 003wf3 (D5)
       this.db
         .prepare(
           "INSERT INTO app_preview_tokens (token_hash, project_id, business_id, job_id, digest, owner_id, owner_generation, issued_to, expires_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
