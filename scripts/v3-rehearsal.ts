@@ -581,8 +581,16 @@ async function resumeDirectLive() {
     let key: DeviceKey;
     let slot = 0;
     const pemFile = join(dir, "device-key.pem");
-    if (existsSync(pemFile)) key = loadDeviceKey(readFileSync(pemFile, "utf8"));
-    else {
+    if (existsSync(pemFile)) {
+      key = loadDeviceKey(readFileSync(pemFile, "utf8"));
+      // Its slot, from the contract: the active key with exactly this public key.
+      const k = ((before.entitlement as Json).keys as Json[]).find(
+        (x) => x.state === "active" && x.public_key === key.pk,
+      );
+      if (!k) throw new StopRun("the kept device key isn't active on the contract");
+      slot = k.slot as number;
+      rec.app("device_key_kept", { slot, note: "the key kept privately by the earlier attempt" });
+    } else {
       const e = before.entitlement as Json;
       const k0 = (e.keys as Json[])[0] as Json;
       const revoke = {

@@ -132,6 +132,19 @@ export interface DirectOptions {
   keepDeviceKey?: (k: DeviceKey) => void;
 }
 
+/**
+ * A READ-ONLY route (prepare, check) answered "NEAR couldn't be read just now" (503 read_failed):
+ * asked again, up to three times. Never used for a write: those stop the run instead.
+ */
+async function readAgain(ask: () => Promise<{ status: number; body: Json }>) {
+  let r = await ask();
+  for (let i = 1; i <= 3 && r.status === 503 && r.body?.code === "read_failed"; i++) {
+    await new Promise((x) => setTimeout(x, 3000 * i));
+    r = await ask();
+  }
+  return r;
+}
+
 /** The steps shared by both phases, bound to one environment and record. */
 function steps(env: Env, rec: Recorder, settleMs: number) {
   const ava = env.client("founder");
@@ -146,7 +159,7 @@ function steps(env: Env, rec: Recorder, settleMs: number) {
     key: string,
     o: { satisfiedBy?: string } = {},
   ) => {
-    const pr = await c(`/api/sales/${biz}/prepare`, "POST", { kind, input });
+    const pr = await readAgain(() => c(`/api/sales/${biz}/prepare`, "POST", { kind, input }));
     // A step already satisfied (e.g. the setup registered the buyer with the token): recorded as
     // such, never forced.
     if (pr.status === 409 && o.satisfiedBy && pr.body?.code === o.satisfiedBy) {
@@ -169,7 +182,11 @@ function steps(env: Env, rec: Recorder, settleMs: number) {
     expect(ask === "granted", `the app to grant the ${kind} request`, ask);
     const tx = await env.wallet(who, made.action.call as WalletCall);
     await c(`/api/sales/actions/${id}/requested`, "POST", { tx_hash: tx.hash });
-    const checked = ok(await c(`/api/sales/actions/${id}/check`, "POST", {}), 200, `check ${kind}`);
+    const checked = ok(
+      await readAgain(() => c(`/api/sales/actions/${id}/check`, "POST", {})),
+      200,
+      `check ${kind}`,
+    );
     rec.tx(kind, who, env.accounts[who], made.action.call as WalletCall, tx, checked.resolution);
     expect(checked.resolution?.kind === "confirmed", `${kind} confirmed`, checked.resolution);
     return checked;
