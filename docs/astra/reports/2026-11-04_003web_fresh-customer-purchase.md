@@ -31,7 +31,11 @@ children.
 | `1762843` | JOBS: the browser-review continuation taken |
 | `0d10687` | Astra's purchase refresh review and its probe |
 | `fa321c0` | Browser-review corrections: units refresh, original-transaction recovery, plainer copy, setup first; stale setup readings fenced |
-| Final | Design §10.7, this report, JOBS and INDEX |
+| `a378154` | Design §10.7, this report, JOBS and INDEX (browser-review continuation) |
+| `2362107` | JOBS: harness wallet-history test support taken |
+| `12c6ab7` | Astra's purchase browser repeat |
+| `30d1593` | Harness: read-only synthetic wallet history on the control listener; the comma-operator lint warning removed |
+| Final | This report, JOBS and INDEX |
 
 ## The brief, item by item
 
@@ -207,6 +211,41 @@ therefore not covered by an automated test; it is for Astra's browser repeat. La
 1440/1280/390 and keyboard order were not measured in a browser here (jsdom has no layout); the
 page test checks only that getting ready precedes the document in document order.
 
+## Harness wallet history (Astra's PurchaseBrowserRepeat, test support only)
+
+`/lose-next` rightly withholds the transaction ID from the app, so a browser reviewer had no way
+to get the original ID that a customer would copy from their wallet's activity. The control
+listener now has a read-only history:
+
+- **`GET http://127.0.0.1:8815/history`** (optionally `?account=dana.near`): newest first, at most
+  50 entries. Each is `{ id, signer, receiver, method, status }`, projected from the
+  transactions the in-memory chain double actually recorded. Nothing is computed or added, and
+  there are no arguments, keys, signatures, signed bytes, documents or results. `status` is the
+  transaction's own (`success` or `failure`), as a wallet lists it, not whether a purchase was
+  accepted: a returned purchase is still a successful transaction.
+- **It is only on the control listener** (a separate origin), not an app route. The page's CSP
+  (`connect-src 'self'`) and the no-outbound policy are unchanged, and the harness still stops
+  itself at its time bound.
+- **Device-key calls** (`install_key`, `revoke_key`) don't appear, because the harness applies
+  them without a recorded transaction.
+- **Tests** (`server/test/wallet-history.test.ts`, 2 cases) drive the library's control routes
+  directly. They cover: the ID withheld by `/lose-next` listed exactly as recorded; only the five
+  fields; no key or arguments; no such route on the app's site; a refused transaction listed as
+  failed; the account filter; and the bound. The control routes moved into the library
+  (`harnessControl`) unchanged, so the test drives the same code the script serves.
+- **Not run as a listener here:** I didn't start the harness (no preview was requested). The
+  script only wires `harnessControl` to port 8815, and the type check covers that.
+
+Lookup for the recovery repeat:
+1. `npm run web:build`, then `npx tsx scripts/wallet-harness.ts --minutes 10`.
+2. Register, choose the uses, then `POST http://127.0.0.1:8815/lose-next` before approving the
+   purchase.
+3. `GET http://127.0.0.1:8815/history?account=dana.near`: the newest `ft_transfer_call` entry's
+   `id` is the original transaction.
+4. Paste it into "Transaction ID from your wallet's activity" and check it. A
+   `sponsor_shell` entry's ID is a real, unrelated transaction to try first; it should change
+   nothing.
+
 ## Astra's probes, all passing now
 
 | Probe | Coverage |
@@ -222,13 +261,15 @@ page test checks only that getting ready precedes the document in document order
 - **Contract** (WSL Ubuntu, `CARGO_TARGET_DIR=~/everstreet-target`, local tests only): 74
   passed (the fixture test now records the history case), and the wasm build exits 0. Nothing
   was deployed.
-- **`npm run check`:** one run with nothing concurrent, on the final code (`fa321c0`'s tree).
-  Exit 0, lint (403 files) and types clean. **1405 passed and 1 skipped (1406)**, across 154
-  passed and 1 skipped files. An earlier run during the work had 2 failures, both in Astra's
-  new refresh probe; they were fixed, not skipped. (The handoff corrections before this had
-  1396 passed and 1 skipped at `d858a3c`.)
-- **`npm run web:build`:** exit 0. The main chunk is 940.95 kB, CSS 73.40 kB. The direct-eval
-  warning is from a dependency and isn't new.
+- **`npm run check`:** one run with nothing concurrent, on the final code (`30d1593`'s tree).
+  Exit 0, lint (404 files) with no warnings (the comma operator Astra found in
+  `purchase-flow.test.ts` is gone), and types clean. **1407 passed and 1 skipped (1408)**,
+  across 155 passed and 1 skipped files. An earlier run in this step stopped at a type error in
+  the new test; I fixed it, and the run above is after that. (Earlier: 1405 passed and 1 skipped
+  at `fa321c0`; 1396 at `d858a3c`.)
+- **`npm run web:build`:** not rerun for this step, since nothing in `web/` changed. It last
+  exited 0 at `fa321c0`: main chunk 940.95 kB, CSS 73.40 kB. The direct-eval warning is from a
+  dependency and isn't new.
 - **Contract:** unchanged in this continuation (74 passed at `627946d`).
 - **Bounded harness smoke:** the ports were free, and the fresh account `dana.near` was served.
   The published offer answered and the page carried the CSP `connect-src 'self'`. It stopped
@@ -244,8 +285,11 @@ The worker stays disabled.
 
 ## Remaining gates (stated)
 
-- **Astra's browser repeat** of the four corrections and the refresh fix, at 1440/1280/390 with
-  the keyboard, including the fold once a device is ready. None of it is browser-verified yet.
+- **Astra's browser repeat** (`2026-11-04_PurchaseBrowserRepeat.md`) verified the four corrections
+  at 1440/1280/390. Still open: positive recovery by the original transaction ID in an actual
+  browser, using the harness history above (until now only the in-process page test showed it);
+  device enrollment, first use and the fold once a device is ready. Those wait on the pending
+  approval for the enrollment browser action, which isn't bypassed here.
 
 - **Astra's actual browser pass on the harness:**
   - the fresh customer at 390 and 1440, keyboard and focus;
