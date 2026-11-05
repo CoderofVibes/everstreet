@@ -25,9 +25,36 @@ no external provider, no spending, no push.
 | `ec6c23e` | This report; JOBS review |
 | `1ae7fd0` | DirectSaleBrowserReview: the terms form in the established form system; no draft shown as terms; jsdom page test |
 | `4376f3f` | Astra's 23:20/23:26 findings; JOBS taken for correction 2 |
-| (next two) | Correction 2 code and tests; Astra's 23:32 notes, this report and JOBS |
+| `2eea876`, `0d32f98` | Correction 2 code and tests; Astra's 23:32 notes, this report and JOBS |
+| `d5ecbc6` | Astra's 23:42/23:49 notes; JOBS taken for the configured-composition continuation |
+| `ae3de0f` | Configured-composition harness, its tests and the after-close authority panel |
+| `41bd228` | Configured harness: explicit budget and `/usage` counters, answered producer failures, ordered failure cleanup, cumulative scenario, budget and startup-failure tests |
+| (next) | Astra's 23:54–00:07 notes; this report and JOBS |
 
 ## Verification (final tree)
+
+- **Budget/cleanup hardening (`41bd228`)**, `npm run check` once, Nov 5 00:06:38 – 00:09:23:
+  - Lint (the 2 warnings that were already there) and types clean.
+  - Main suite **1468 passed, 1 skipped**; protected-store **12/12**; process phase **31/31** (the
+    configured harness file now has 4 tests: the journey, the cumulative scenario, the budget
+    report and the startup-failure cleanup); exit 0.
+  - Nothing under `web/` changed after the 23:58 build.
+  - Afterwards, no test-made harness directory or process remained. The one configured harness
+    running is **Astra's 00:07 preview** (8814/8815, 20 minutes), which I didn't touch.
+- **Configured-composition continuation (`ae3de0f`)**, `npm run check` once, Nov 4 23:59:54 – Nov 5
+  00:02:38: lint (the 2 warnings that were already there, no errors) and types clean; main suite
+  **1468 passed, 1 skipped**; protected-store **12/12**; process phase **28/28** (24 before, plus
+  the configured harness process test and 3 configured page tests); exit 0. `npm run web:build`
+  at about 23:58 passed.
+  - **Note on Astra's live preview:** her 23:51 fixture preview (8814/8815) serves `web/dist` per
+    request, so that rebuild changed its page on reload. The change is only the after-close
+    sidebar, which reads fields her preview's server already returns. Nothing in her preview was
+    stopped, restarted, driven or altered.
+  - **No port collision:** the boot check used 18914/18915 and the tests use ephemeral ports.
+- **Focused runs:**
+  - Configured harness process test 1/1.
+  - Configured page tests 3/3.
+  - Page tests 5/5, including the new authority-panel branch test.
 
 - **Correction 2**, `npm run check` once at 23:38–23:41: lint (2 warnings that were already
   there, no errors) and types clean; main suite **1467 passed, 1 skipped**; protected-store
@@ -64,7 +91,7 @@ no external provider, no spending, no push.
 | 6 Claims and close through existing authority code | Confirmed proposal/revision → `V3Intents.record`; closing acceptance → `V3Intents.reconcile`; no ownership SQL | journey: ownership row with `v3_intent_id`; failed read then retry applies once |
 | 6 Pending, failed, restored, paid; closed sale shown while proceeds pending | Claims resolve paid/restored/pending; collection step bound to the sale it collects; buyer isn't shown the seller's collection | journey and controller (repeat-sale counterexample) |
 | 7 One synthetic state model; actual encoded calls; anchored to contract tests; no fixture toggles; refuse unexpected calls; no real fetch | `SaleChain` + `FixtureChain` share ledger, transaction log and treasury buckets; strict envelope validation | 49-step replay byte for byte; customer settlements move `available` past the floor; 15 malformed envelopes change nothing |
-| 8 Finite normal-composition browser harness, seller and buyer, labelled wallet actions, lost replies, reload, stale review | **Partly.** `scripts/sale-harness.ts` + controls: the real app, routes, verified sign-in and wallet module, but built by `saleWorld` → `customerWorld.make`/`createApp` with injected fixtures, NOT `composeApplication`/`serve.ts` with the configured adapters and maintenance lifecycle. The actual-process tests cover that composition for selected sale cases only. | harness test; page tests (jsdom); process tests. **Open (Astra 23:32):** a finite configured-composition variant of the harness. These two narrower proofs are not one claim. |
+| 8 Finite normal-composition browser harness, seller and buyer, labelled wallet actions, lost replies, reload, stale review | **Implemented, browser review pending.** `scripts/sale-harness-configured.ts` (`scripts/lib/configuredSaleHarness.ts`): the normal entry (`entryChild.ts` → `serve.ts runServer` → `composeApplication`, `configured` mode) in its own child, with the configured adapters and background maintenance, serving its own `web_dist`. Only RPC and model HTTP are injected (labelled, answered over IPC from one synthetic state). The older `scripts/sale-harness.ts` stays as the fixture-app variant (`createApp` with injected fixtures) and is **not** composition evidence. | process test `sale-configured-harness` (page/env/inventory provenance, seller+buyer close, lost funding recovered by original ID, customer use under the buyer, clean stop); page test `saleRoomConfigured` (actual SaleRoom against the child: summary, Not now/focus, History recovery across reload, close and sidebar); CLI boot check. **No actual browser yet**: Astra's 1440/1280/390 pass on this variant is due. |
 | Customer continuity across the close | Same entitlement before/after; next use served under the buyer's grants | journey: entitlement equal, use charged after close |
 
 ## Astra's findings during the job, and their resolution
@@ -146,6 +173,189 @@ Not done in this pass (Astra 23:32, sequenced after her History test):
 The dba88aa repeat-sale payout correction: Astra's 23:30 targeted run passed 25/25, which she
 records as confirming it narrowly. **The job is not accepted.**
 
+## Configured-composition harness (brief item 8; DirectSaleBrowserReview 23:32 / 23:49)
+
+**Composition provenance.**
+
+```
+scripts/sale-harness-configured.ts (this process: front site, control, synthetic RPC/model/wallet)
+  └─ fork: node --import tsx --max-old-space-size=384 server/test/entryChild.ts <config.json>
+       └─ server/src/serve.ts runServer → server/src/compose.ts composeApplication
+            (validated `configured` config file; listens on an ephemeral loopback port)
+```
+
+- **The child** is the same normal entry boundary the accepted 003wf1 lifecycle tests use
+  (`entryChild.ts`). Its two network transports forward over IPC and are labelled in the
+  capability inventory as `synthetic RPC (lifecycle test)` and `synthetic model HTTP (lifecycle
+  test)`. It runs the composition's own code: verified NEP-413 sign-in (account keys read over the
+  RPC), v3 observation and reconciliation, the sale routes and `SaleActions`, the customer reads,
+  the real customer writer (it signs `open_hold`/`settle_hold`/`release_hold_for` and they are
+  verified and applied by `SyntheticRpc`), `AnthropicRuntime` over the model seam, protected
+  storage, background maintenance (its lease, bounded passes every 15 s), admission/drain/fence
+  stop, and its own static web serving (`web_dist`).
+- **Additions to the entry child for this job:**
+  - An optional `ENTRY_WALLET_HARNESS_LABEL` environment variable. It is passed as
+    `composeApplication`'s existing `walletHarness` dependency, so `/api/env` names the synthetic
+    module. The tests never set it.
+  - A stop on IPC `disconnect`, so a child never outlives its parent.
+- **The front site** (`--port`, default 8814) forwards every request to the child unchanged,
+  except for three things:
+  - It adds only the label and wallet-module `<script>` tags and the harness CSP to the
+    composition's own HTML.
+  - It serves the wallet module's same-origin `/__harness/*` calls: the account, NEP-413
+    `signMessage` with each fictional account's ephemeral key, and one-action transactions to the
+    fictional business and token only. These are applied to the shared synthetic state by its
+    encoded rules.
+  - It has no control routes. Those live on `--port + 1`.
+- **One state.** `bootstrap` (lifecycleWorld) builds the contract-anchored `FixtureChain`, with
+  `attachSale` providing its `SaleChain` half. `SyntheticRpc` answers the child from that state,
+  and the wallet's transactions land in it.
+- **Not the fixture app.** `scripts/sale-harness.ts` (saleWorld → `createApp` with injected
+  fixtures) is unchanged. It is still useful for quick page review but is **not** configured
+  composition evidence.
+
+**Bootstrap prerequisites** (before the child starts, in a fresh `mkdtemp` directory):
+
+- **Files:** the SQLite database, the protected-store root with an ephemeral random key, an AI
+  config whose key variable holds a fictional value, the metering operator's (`meter.testnet`)
+  ephemeral key file, and the config file.
+- **People and records:**
+  - Ava (`ava-founder.near`), founder and owner.
+  - A release evaluated on the real runtime over the synthetic model.
+  - Cara's (`cara.near`) offer with 100 prepaid uses and a device key **already installed by the
+    fixture**. No enrollment or revocation happens here; the pending customer browser gate is
+    untouched.
+  - The sale double attached with Ava as owner and `meter.testnet` appointed.
+  - Noah (`noah-buyer.near`) linked to his account, holding 1000 fictional TUSD.
+  - The business named Ledgerline Invoice Reader.
+- **Child environment:** only `PATH`/`SystemRoot`/`TEMP`/`TMP`/`HOME`/`USERPROFILE`, the
+  fictional key variable and the label. Nothing else from the parent's environment is passed.
+
+**Bounds and cleanup.**
+
+- **Child:** one child with a V8 heap limit (384 MB in the CLI, 256 MB in tests). Startup waits at
+  most 30 s for "listening on".
+- **Time bound:** `--minutes` 1–120 (default 30), or Ctrl+C.
+- **Stop:** close both listeners, then IPC `shutdown` to the child (admission ends, it drains,
+  fences and closes, then exits 0). The child is force-killed only if it hasn't exited after
+  15 s. The temporary directory is then removed. A failed start kills the child and removes the
+  directory.
+- **Worker:** the isolated worker engine stays off (inventory "Isolated logic checks:
+  unavailable") and no worker host is started.
+
+**Evidence (keyless, finite, no browser driven by Claude).**
+
+- **`server/test/sale-configured-harness.test.ts`** (process phase; ephemeral ports), all through
+  the site with a cookie jar, as a browser would:
+  - **Provenance:**
+    - The composition's own HTML with only the module scripts added, and the harness CSP.
+    - `/api/env` shows `Configured (testnet)`, verified identity, and the wallet available and
+      named as synthetic.
+    - Inventory: `mode: configured`, maintenance on, checks unavailable, synthetic labels.
+    - No control route exists on the site.
+  - **Seller:** signs in through the module's `signMessage` and proposes (`recorded` effect).
+  - **Buyer:** registers, then funds with a lost answer. The request becomes
+    `no_longer_possible`; a wrong ID is `matched: false`; the original `ft_transfer_call` ID
+    confirms it, and nothing is resent. The buyer then accepts.
+  - **Close:** the seller closes. Reconciliation is `applied`, `finished: true`; the contract
+    owner is Noah at generation 2; local roles follow; the 250 TUSD proceeds are owed.
+  - **Cara:** her use is reserved by the real writer (`open_hold` over the RPC) and fulfilled.
+  - **Stop:** the child exits 0 without a forced kill, the directory is gone, and both listeners
+    refuse.
+  - A finding while writing it: a seller request sent while the one synthetic wallet was still on
+    the buyer's account stayed `unknown`. It was not wrongly confirmed, because another signer's
+    transaction never resolves it. The test now switches the wallet's account per person, as a
+    person would.
+- **`web/test/saleRoomConfigured.test.tsx`** (process phase): the **actual** App, SaleRoom,
+  SaleFlow and `selectorWallet` with the harness module, against the child (jsdom; the page's
+  same-origin requests go to the site listener):
+  - **Seller:** the review summary shows the expiry in local time and UTC and
+    `meter.testnet (metering)`. Not now keeps the buyer and returns focus to the review button,
+    with nothing sent. The proposal then goes through the wallet.
+  - **Buyer:** registers; a lost funding answer gives the History recovery form, with "Accept
+    version 1" still available. A wrong ID is refused. After a remount (reload), the original ID
+    confirms the request and nothing is resent. The buyer then accepts.
+  - **Seller:** closes. The sidebar shows "Authority after deal 1 closed", the closed terms, and
+    the current owner and operators, and no pre-proposal guidance.
+- **CLI boot check** (`--minutes 1 --port 18914`, bounded, at 23:58):
+  - Page 200 with the harness CSP.
+  - `/api/env`: configured and verified, the wallet available, harness "Synthetic review wallet".
+  - The control's inventory: records, sign-in, protection, model, v3, customer reads, writer,
+    maintenance and customer authorization are on, with their labels; checks and legacy payments
+    are unavailable.
+  - It stopped by its bound at 23:59:46 ("application child exit 0; temporary directory
+    removed"). The site and child ports then refused, and no `everstreet-sale-configured-*`
+    directory remained.
+
+**After-close authority panel (23:42).** The sidebar now follows the current reading:
+
+- **No deal:** the pre-proposal text, unchanged.
+- **Live deal:** "Authority the buyer receives", unchanged. A live deal after an earlier close is
+  this case; the earlier close is never treated as the current one.
+- **Newest deal closed:** "Authority after deal N closed", with the closed terms (seller sold to
+  buyer, generation after) **apart from** "Now, at block H": the current owner and generation, the
+  current operators (only the current generation's), and the metering pause stated as current
+  fact when the platform operator isn't appointed.
+- **Newest deal cancelled, expired or aborted:** "Authority now" says no authority changed with
+  it, then the current authority.
+
+Covered by a branch test (`saleRoom.test.tsx`: none, live, closed, no operator, cancelled, and a
+later live deal after a close) and the configured page test.
+
+**Budget, counters and failure cleanup (Astra 00:01 / 00:03).**
+
+- **Explicit finite budget per session:**
+  - The harness answers at most 25 000 RPC requests.
+  - The customer chain double's own ceiling is set to 4 000 (the fixture default is 400).
+  - The sale double keeps its 2 000.
+- **`GET /usage`** (control only, non-secret): RPC requests by method, total, transport
+  failures, model calls, wallet transactions, chain and sale double calls, the budget, and
+  `exhausted` (the first limit reached and when).
+- **Failures are answered:**
+  - A producer failure, for example a ceiling, is answered to the child as a failed read (HTTP
+    500 or 503 with a reason), never left hanging. Before this fix such a failure was swallowed
+    and the child's request waited.
+  - A reached budget is reported. It is never turned into a success.
+- **Cumulative regression** (process test):
+  - The sequence: lost proposal, a wrong ID, five reload-equivalent reads, recovery by the
+    original ID; registration; lost funding with the registration's ID as the wrong one, reads,
+    recovery; acceptance; lost close, apply first, then the original ID ("already",
+    `finished: true`); reads; seller registration; restored payout, then paid; reads.
+  - Usage: **623** RPC requests (558 view calls, 52 block reads, 11 transaction lookups, 2 key
+    reads), 14 customer-chain calls and 6 sale-double calls. Nothing exhausted, 0 transport
+    failures.
+  - For comparison, the fixture variant reads through `FixtureReader`, whose ceiling is 300
+    reads. A comparable browser session passes that ceiling, which is consistent with the "NEAR
+    could not be read" Astra saw at the seller's registration. This is not proven from her
+    preview's counters. The fixture's bounds are unchanged; use the configured variant for the
+    remaining matrix.
+- **Budget test:** with a 40-request budget, the sale page stops answering 200, and `/usage`
+  names "harness RPC budget reached (40 requests)".
+- **Failure cleanup:**
+  - A failed start, at any point, closes any listener already bound, ends the child and **waits
+    up to 10 s for its exit** before removing the directory, so SQLite files are closed first on
+    Windows.
+  - The error carries the directory, the child's pid and whether the directory was removed.
+  - Only a 16 KB diagnostic tail of the child's output is kept.
+  - Test: a start that fails after the child and both listeners are up leaves no child process
+    (the pid is gone), no listener on either port, and no directory.
+
+**Limitations of this variant.**
+
+- **Chain clock:** the composition's clock is this computer's. `/advance` moves only the
+  synthetic contract's clock, so expiry is decided by the contract reading, not the server.
+- **RPC outage:** `/rpc/down` fails every RPC answer (reads, lookups, sign-in key reads, writer
+  sends), because the composition has one RPC endpoint. The fixture variant's narrower
+  "observations down" doesn't exist here.
+- **Single wallet:** the synthetic wallet holds one account at a time (switch with
+  `/account/<id>`, then sign out and in).
+- **Settlement timing:** customer settlements are left to background maintenance (bounded 15 s
+  passes) or the use's own reconcile route.
+- **Labels:** the inventory says "lifecycle test" because it is the same entry child and
+  transport labels.
+- **Scope:** this closes the harness provenance gap only. The parent 003wf matrix stays open (see
+  below).
+
 ## Limitations and open gates (none hidden)
 
 - **Synthetic only.** The double models gas as unchecked numbers, no NEAR (yoctoNEAR) balances or
@@ -161,8 +371,11 @@ records as confirming it narrowly. **The job is not accepted.**
 - **Concurrent startup:** two processes composing at the same instant fail with
   `database is locked` in `composeApplication` (startup migrations). The process tests start the
   second once the first listens. Outside this job; it needs its own bounded lifecycle follow-up.
-- **No browser review yet:** the harness is ready; Astra's 1440/1280/390, keyboard/focus, zoom
-  and reduced-motion inspection is still to come. No browser was driven by Claude.
+- **Browser review:** Astra's actual-browser passes so far ran on the fixture variant (proposal,
+  buyer acceptance, close, 3 × 2 steps, the review summary). On the configured variant, nothing
+  has been reviewed in a browser yet: History recovery, focus, 1440/1280/390, keyboard, zoom,
+  reduced motion, payout restored/paid, buyer operation and customer continuity. No browser was
+  driven by Claude.
 - **Customer browser gates** for enrollment/revocation stay pending as before; untouched.
 - **Parent 003wf** stays open: Gated close (closer/drain/continuity), owner plan/operator setup,
   unresolved-writer recovery, the complete 100/20/80/79 journey, broader concurrency, the
@@ -170,12 +383,74 @@ records as confirming it narrowly. **The job is not accepted.**
 
 ## Finite browser instructions (for Astra)
 
+### A. Configured composition (brief item 8): the fresh case for the remaining matrix
+
+```
+npm run web:build
+npx tsx scripts/sale-harness-configured.ts --minutes 30
+```
+
+- **Addresses:** site `http://127.0.0.1:8814/`, controls `http://127.0.0.1:8815/`. The
+  composition's own child runs on a printed ephemeral loopback port and is reached through the
+  site.
+- **Start and stop:** startup takes a few seconds (bootstrap, then the child). It stops by
+  itself, or on Ctrl+C, and removes its temporary directory. `GET /` on the controls shows the
+  composition, the capability inventory, the contract and the treasury.
+- **Accounts:** `ava-founder.near` (seller), `noah-buyer.near` (buyer), `cara.near` (customer).
+- **Switching people:** `POST /account/<id>`, then sign out and in.
+
+1. **Seller: draft, review and focus.**
+   - Sign in. The wallet starts as Ava. Open the printed sale page.
+   - Prepare terms for `noah-buyer.near`: 250 TUSD, floor 0.1, metering on, and an exclusion.
+   - Review. The summary should show the expiry in local time with its zone and UTC, the floor,
+     and `meter.testnet (metering)`.
+   - Press Not now: the values stay and focus returns to "Review the exact request". Change the
+     price and review again. Then ask the wallet.
+2. **Buyer: lost funding and History recovery.**
+   - Switch to Noah and register.
+   - `POST /lose-next`, then fund. History shows "Can no longer take effect" with the field;
+     "Accept version 1" stays available.
+   - From `GET /history?account=noah-buyer.near`, enter the `storage_deposit` ID (wrong: "isn't
+     this request"), reload, then enter the `ft_transfer_call` ID. It should confirm, and nothing
+     should be sent.
+   - Accept.
+3. **Floor and customer.** `POST /customer-use` as needed for the 0.1 floor (a use is reserved by
+   the real writer; background maintenance settles it within about 15 s). Reload the seller's
+   page to see `available`.
+4. **Seller: close and aftermath.**
+   - Switch to Ava and accept to close. Check the apply result, the former-seller role and "Your
+     handovers".
+   - The sidebar should show "Authority after deal 1 closed" with the closed terms, apart from
+     "Now, at block …" (owner `noah-buyer.near`, generation 2, `meter.testnet`). It should not
+     show "No sale is proposed".
+   - Proceeds are owed, not paid. Register to collect. `POST /fail-next-payout`, then collect
+     ("restored"), then collect again ("paid").
+5. **Buyer operation and customer continuity.** Switch to Noah: his sale page and the business
+   desk as the new owner. `POST /customer-use` again: Cara's use is served under the buyer's
+   grants.
+6. **Other recovery.**
+   - `POST /cancel-next`: the wallet is closed.
+   - `POST /delay-next/5000`: a late answer.
+   - Switch accounts mid-flow: nothing is sent; then resume.
+   - `POST /older-contract`: the refusal.
+   - `POST /rpc/down`, then an action, then `/rpc/up` and check again (this fails the whole
+     RPC, not only observations).
+   - Review a revision, then act as the other person before confirming: stale review.
+7. **Visual and access.** Breakpoints 1440/1280/390, the 3 × 2 steps, keyboard order and focus,
+   zoom, reduced motion, error and empty states.
+
+Customer enrollment and revocation aren't part of this harness (Cara's key is a bootstrap
+prerequisite); their pending browser permission is untouched.
+
+### B. Fixture-app variant (quick page review only; not configured-composition evidence)
+
 ```
 npm run web:build
 npx tsx scripts/sale-harness.ts --minutes 30
 ```
 
 Site `http://127.0.0.1:8814/`, controls `http://127.0.0.1:8815/` (loopback only; stops by itself).
+Run only one of A or B at a time: they share the ports.
 
 1. **Seller.** Sign in (the synthetic wallet starts as `founder.near`). Open the printed sale page
    (also via Sale and handover → "Sell directly through your wallet"). Prepare terms for

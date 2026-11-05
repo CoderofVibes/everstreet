@@ -174,3 +174,63 @@ no dependency on keeping it alive or first testing its now-lost in-memory fundin
 Use a fresh bounded synthetic case on the configured variant for the remaining browser matrix.
 Preserve all existing test and permission boundaries; do not enable the real worker or bypass
 pending customer enrollment/revocation approval. Read the entire latest review before finalizing.
+
+## Independent browser correction verification — 23:54 Pacific
+
+Astra started finite15-minute direct-fixture preview23665 at~23:51 (8814/8815), business
+417848fc-0168-41bd-aaab-8bc22dfb09dc, browser2/tab66. Source/head0d32f98; no configured
+composition claim. Do not stop this preview or launch a competing listener while it is live.
+1440 desktop form now has deliberate labelled full-width fields/two-column price+days.390phone
+stacks cleanly; measured innerWidth390/clientWidth375/scrollWidth375, no horizontal overflow.
+Review/cancel retained buyer.near,250TUSD,0floor,7days,metering checked, domain exclusion and
+note; focus returned to Review the exact request. Review had readable localPST+UTC expiry,
+floor, operators and attachedNEAR. These specific former browser defects pass.
+
+Lost proposal response exercised through actual synthetic wallet action. Page kept next action
+available and showed History's original-ID controls. Wrong43-character ID did not resolve it;
+page explained nothing was recorded. Reload preserved unresolved request and recovery controls.
+Entering original ID3zDnm7agog945mi6wMnWRNui1GRDJ7z78WumnvNmm1jf through visible History then
+confirmed its own transaction and removed recovery fields. This verifies proposal/reload/wrong-ID
+history recovery, not yet lost funding/closing acceptance or configured-composition evidence.
+No hidden API confirmation or resend. Remaining full matrix unchanged.
+
+## Funding and closing recovery pass; preview read limit investigation — Nov5,00:01 Pacific
+
+Same finite preview23665/tab66. Buyer registered, lost funding reply, then entered its unrelated
+registration ID: UI rejected it without confirming funding. Reload preserved pending funding;
+original Ch4vUgvniKhAaSYoEXQFSzKSUmN1pXcpsgYuU9cvo9zv confirmed through visible History.
+Buyer accepted. Seller's closing acceptance deliberately lost its reply; page observed closed
+contract but offered Apply the close here and retained unknown original action. Explicit UI apply
+reconciled locally; reload retained History recovery; original
+5S3b9aijrtj5ysxiC8gAKkTRjto8Z3DBTmZbp6cbEYgV then confirmed, with already-applied notice.
+No resends. Proceeds remained owed250TUSD, customer obligations5TUSD. On reload frontend rebuilt
+23:58:40 showed the new Authority after deal1 closed section with current buyer/generation2 and
+meter.near observations: the stale draft-language correction passes this specific case.
+
+Next attempted seller token registration reached 'NEAR could not be read' (no new registration
+history row visible); payout testing remains incomplete. Direct fixture's chain ceiling400 and
+reader ceiling300 are possible causes, not yet proven from accessible runtime counters. Please
+ensure the configured browser variant has an explicit finite budget suitable for this multi-step
+recovery/aftercare matrix and exposes nonsecret counters/exhaustion reason in its control-only
+status. Do not remove bounds or turn a fixture exhaustion into a product success. Add a bounded
+scenario regression exercising proposal loss/wrong-ID/reload-equivalent reads, funded loss,
+closing loss/apply/recovery, seller registration, restored payout and then paid. Existing shorter
+unit cases alone may not reach the browser's cumulative read load.
+
+## Preview cleanup and configured harness source review — Nov5,00:03 Pacific
+
+Astra closed tab66/reset viewport and stopped only its own preview23665 with Ctrl+C after the
+read failure; tool reports exit1 on interruption. Independently8814/8815 have no listeners.
+No preview or browser tab remains. No retry loop or modification of the old preview's limits.
+
+Configured harness source in progress does reach normal runServer/composeApplication via child
+and configured adapters, with separate fixture network boundaries. Before handoff, tighten its
+failure cleanup: catch currently kills the child then immediately removes its DB directory;
+on Windows that can race child exit/open SQLite files. Await bounded child exit before removing
+that known temporary directory, including partial startup, and close any already-bound front/
+control listener on failure. Keep only a bounded diagnostic tail instead of unbounded stdout+
+stderr accumulation. Verify one injected startup failure leaves no child/listener/temp directory.
+These are preview resource/cleanup requirements, not extra platform scope. No new installs or
+permission changes. Do not run the pending customer device enrollment/revocation browser tests.
+
+Astra00:07: configured preview8961 now active for20minutes on8814/8815, child56416, business2ac3b6b8-1310-42bd-a8ba-63aa1ccd65d7. Parent/child384MiB heap caps; sourceae3de0f plus current budget/cleanup corrections. Do not stop/restart it or launch competing listeners; isolated ephemeral test ports are fine. Actual browser verification starting; no whole-job acceptance.
