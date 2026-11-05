@@ -124,9 +124,67 @@ function WorkflowResult({ i }: { i: Invocation }) {
   );
 }
 
+/** An analysis trial: its flags, or why it was refused or invalid. */
+function AnalysisTrialResult({ i }: { i: Invocation }) {
+  const r = i.result as unknown as {
+    outcome: string;
+    summary?: string;
+    findings?: {
+      title: string;
+      severity: string;
+      evidence: string;
+      why: string;
+      proposed_action: string;
+    }[];
+    problems?: string[];
+    reason?: string | null;
+  } | null;
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div className="row" style={{ alignItems: "center" }}>
+        <strong>
+          {r?.outcome === "analyzed"
+            ? r.summary
+            : r?.outcome === "refused"
+              ? "Not analyzed"
+              : r?.outcome === "invalid"
+                ? "The answer failed the platform's checks, so nothing is shown"
+                : STATE_TEXT[i.state]}
+        </strong>
+        <span className="spacer" />
+        <span className={`pill ${i.fulfilled ? "mint" : "caution"}`}>
+          {i.fulfilled ? "A customer would be charged one unit" : "Not charged"}
+        </span>
+      </div>
+      {(r?.findings ?? []).map((f) => (
+        <div key={f.evidence} className="an-flag">
+          <div className="row">
+            <strong>{f.title}</strong>
+            <span className={`pill ${f.severity === "high" ? "caution" : ""}`}>{f.severity}</span>
+          </div>
+          <blockquote className="an-quote">{f.evidence}</blockquote>
+          <p>{f.why}</p>
+          <p>
+            <strong>Proposed:</strong> {f.proposed_action}
+          </p>
+        </div>
+      ))}
+      {r?.reason && <p style={{ fontSize: 14 }}>{r.reason}</p>}
+      {(r?.problems ?? []).length > 0 && (
+        <ul className="missing-list">
+          {(r?.problems ?? []).map((p) => (
+            <li key={p}>The answer {p}.</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Result({ i, onSaveCase }: { i: Invocation; onSaveCase?: () => void }) {
   const [copied, setCopied] = useState(false);
   if (i.validator === WORKFLOW_VALIDATOR) return <WorkflowResult i={i} />;
+  if (i.validator === "analysis-validator/1") return <AnalysisTrialResult i={i} />;
   const r = i.result;
   return (
     <div className="card" style={{ padding: 16 }}>
@@ -347,6 +405,8 @@ export function ServiceView({
   const available = list.availability.available;
   // The workflow engine uses no model, so it needs no runtime budget (WORKFLOW_ENGINE.md).
   const workflow = list.engine === "workflow";
+  // An agent service (AGENT_ANALYSIS.md): a form-shaped request, on the AI runtime.
+  const analysis = list.engine === "analysis";
   const budgetSet = workflow || list.budget.limit_cents !== null;
   const candidates = rel.candidates;
 
@@ -537,7 +597,9 @@ export function ServiceView({
       <p className="muted" style={{ fontSize: 13.5 }} hidden={task !== "try"}>
         {workflow
           ? "Your workflow takes a request through its form and opens it in the first stage. Only you can try it here. No AI is used, so trying it costs nothing."
-          : "Your product reads pasted text and returns the fields its checked version declares. Only you can run it here. Running it uses its own budget, separate from the AI that builds it."}
+          : analysis
+            ? "Your agent reads what a customer submits through its form and returns flags, each quoting the submission. Only you can try it here. It runs on the AI runtime, under its own budget."
+            : "Your product reads pasted text and returns the fields its checked version declares. Only you can run it here. Running it uses its own budget, separate from the AI that builds it."}
       </p>
       <section className="card" hidden={task !== "try"}>
         <h2>Try it</h2>
@@ -567,7 +629,7 @@ export function ServiceView({
                 ))}
               </select>
             </label>
-            <div className="row" style={{ gap: 6, flexWrap: "wrap" }} hidden={workflow}>
+            <div className="row" style={{ gap: 6, flexWrap: "wrap" }} hidden={workflow || analysis}>
               <span className="muted" style={{ fontSize: 13 }}>
                 Fill with a fictional sample:
               </span>
@@ -584,7 +646,7 @@ export function ServiceView({
             </div>
             <label className="field">
               <span>
-                {workflow
+                {workflow || analysis
                   ? 'A test request as JSON, one text value per form field, e.g. {"subject": "Export fails"}'
                   : "Pasted text (the text itself isn't stored; the result is kept)"}
               </span>
@@ -723,10 +785,11 @@ export function ServiceView({
             ))}
           </ul>
         </details>
-        {workflow ? (
+        {workflow || analysis ? (
           <p className="muted" style={{ fontSize: 13.5 }}>
-            A workflow is checked by the engine's own cases for its form; its decisions don't vary,
-            so there are no test cases of your own to add.
+            {workflow
+              ? "A workflow is checked by the engine's own cases for its form; its decisions don't vary, so there are no test cases of your own to add."
+              : "An analysis is checked by the platform's own cases for this kind of product. They are written for reviewing release notes; another kind of analysis would need its own checks, which aren't built yet."}
           </p>
         ) : (
           <>
@@ -738,7 +801,7 @@ export function ServiceView({
             </p>
           </>
         )}
-        {workflow ? null : fix.cases.length === 0 ? (
+        {workflow || analysis ? null : fix.cases.length === 0 ? (
           <p className="muted" style={{ fontSize: 13.5 }}>
             None yet. After a trial, use "Save as a test case" to keep it as one.
           </p>

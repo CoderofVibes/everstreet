@@ -274,6 +274,9 @@ export interface BuildJob {
       /** A compiled workflow (kind workflow_spec): its request form and its stages. */
       intake?: { fields: { key: string; label: string; type: string }[] };
       stages?: { key: string; label: string }[];
+      /** A compiled analysis (kind analysis_spec): what customers submit. */
+      source?: { key: string; label: string };
+      context?: { key: string; label: string }[];
     };
     checks: { id: string; label: string; passed: boolean; detail: string }[];
   } | null;
@@ -358,7 +361,7 @@ export interface Conversation {
 
 export interface BuildList {
   /** A SaaS workflow's build is a deterministic compile (no AI provider, nothing spent). */
-  engine?: "workflow" | "model";
+  engine?: "workflow" | "analysis" | "model";
   availability: BuildAvailability;
   pricing: { inputCentsPerMillionTokens: number; outputCentsPerMillionTokens: number } | null;
   provider: { id: string; model: string; version: string } | null;

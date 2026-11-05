@@ -6,6 +6,7 @@
 // ledger and ceiling.
 
 import type { AiConfig } from "./ai-config.ts";
+import { ANALYSIS_SYSTEM, type AnalysisSpec, analysisSchema } from "./analysis.ts";
 import { count, httpFailure, type Transport, TransportError } from "./anthropic.ts";
 import type { ExtractionSpec } from "./artifacts.ts";
 import type { BuildAvailability, BuildPricing } from "./build.ts";
@@ -30,12 +31,19 @@ export interface RuntimeIdentity {
   version: string;
 }
 
-export interface RuntimeRequest {
+/**
+ * One model request: an extraction of a document against its spec, or (the analysis engine,
+ * AGENT_ANALYSIS.md) an analysis whose user message is already built from the customer's checked
+ * submission. `document` is the untrusted customer text either way.
+ */
+export type RuntimeRequest = {
   invocationId: string;
-  spec: ExtractionSpec;
   document: string;
   limits: { maxInputTokens: number; maxOutputTokens: number };
-}
+} & (
+  | { spec: ExtractionSpec; analysis?: undefined }
+  | { spec?: undefined; analysis: { spec: AnalysisSpec; content: string } }
+);
 
 /** Tokens the provider reported. `final` only for the complete receipt of what was billed. */
 export interface RuntimeUsage {
@@ -125,6 +133,7 @@ export const RUNTIME_SYSTEM = [
 ].join(" ");
 
 export function runtimeContent(request: RuntimeRequest) {
+  if (request.analysis) return request.analysis.content;
   const s = request.spec;
   return JSON.stringify({
     service: s.name,
@@ -181,12 +190,15 @@ export class AnthropicRuntime implements RuntimeProvider {
     return {
       model: m.model,
       max_tokens: request.limits.maxOutputTokens,
-      system: RUNTIME_SYSTEM,
+      system: request.analysis ? ANALYSIS_SYSTEM : RUNTIME_SYSTEM,
       messages: [{ role: "user", content: runtimeContent(request) }],
       thinking: m.thinking,
       output_config: {
         effort: m.effort,
-        format: { type: "json_schema", schema: runtimeSchema(request.spec) },
+        format: {
+          type: "json_schema",
+          schema: request.analysis ? analysisSchema() : runtimeSchema(request.spec),
+        },
       },
     };
   }

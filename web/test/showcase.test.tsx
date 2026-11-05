@@ -63,15 +63,35 @@ describe("the sample panel", () => {
     expect(calls).toEqual([]);
   });
 
-  it("the example cards and the illustrations make no request and say they aren't runs", async () => {
+  it("the example cards make no request; every example is tryable", async () => {
     const calls = trap();
     await mount(createElement(ExampleBusinesses));
-    expect(text()).toMatch(/Not tryable yet/);
     expect(document.querySelectorAll(".example-card")).toHaveLength(3);
-    await act(async () => root?.unmount());
-    root = null;
+    expect(text()).not.toMatch(/Not tryable yet/);
+    expect([...document.querySelectorAll(".example-card a")].map((x) => x.textContent)).toContain(
+      "Try a sample",
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("Signalwatch: the stand-in's checked answers, prepared in advance, with no request", async () => {
+    const calls = trap();
     await mount(createElement(ExamplePage, { which: "signalwatch" }), "/example/signalwatch");
-    expect(text()).toMatch(/Illustration, not a run/);
+    expect(text()).toMatch(/stand-in analyst/);
+    await act(async () => (document.querySelector("form") as HTMLFormElement).requestSubmit());
+    expect(text()).toMatch(/Analyzed/);
+    expect(text()).toMatch(/Removed the Ledger Export API endpoint \/v1\/export on 2026-12-01\./);
+    expect(text()).toMatch(/high severity/);
+    await act(async () =>
+      [...document.querySelectorAll("button")]
+        .find((b) => /Try another/.test(b.textContent ?? ""))
+        ?.click(),
+    );
+    const recipe = document.querySelector('input[value="sw_not_notes"]') as HTMLInputElement;
+    await act(async () => recipe.click());
+    await act(async () => (document.querySelector("form") as HTMLFormElement).requestSubmit());
+    expect(text()).toMatch(/Refused/);
+    expect(text()).toMatch(/never charged/);
     expect(calls).toEqual([]);
   });
 

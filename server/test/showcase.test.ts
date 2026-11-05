@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { relaydeskJson } from "../../scripts/lib/relaydeskSamples.ts";
 import { samplesJson } from "../../scripts/lib/showcaseSamples.ts";
+import { signalwatchJson } from "../../scripts/lib/signalwatchSamples.ts";
 import { DEFAULT_LEDGERLINE_RECORD, ledgerlineExample } from "../src/examples.ts";
 import { customerWorld, type Json } from "./customer-world.ts";
 
@@ -28,6 +29,24 @@ describe("showcase samples", () => {
       by("req_unrelated_text").extraction.outcome,
       by("req_unrelated_text").charged_on_a_real_run,
     ]).toEqual(["refused", false]);
+  });
+
+  it("the committed Signalwatch sample equals a fresh run through the request, stand-in and checks", () => {
+    const committed = readFileSync("web/src/showcase/signalwatch.json", "utf8").replace(
+      /\r\n/g,
+      "\n",
+    );
+    expect(committed).toBe(signalwatchJson());
+    const j = JSON.parse(committed) as Json;
+    const by = (id: string) => (j.samples as Json[]).find((s) => s.id === id) as Json;
+    expect((by("sw_removal").analysis.findings as Json[]).map((f) => f.severity)).toEqual([
+      "high",
+      "medium",
+    ]);
+    expect(by("sw_quiet").analysis).toMatchObject({ outcome: "analyzed", findings: [] });
+    expect([by("sw_not_notes").analysis.outcome, by("sw_not_notes").charged_on_a_real_run]).toEqual(
+      ["refused", false],
+    );
   });
 
   it("the committed Relaydesk sample equals a fresh run through the real compiler and engine", () => {

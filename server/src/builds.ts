@@ -12,6 +12,12 @@
 // ("build"), separate from any customer runtime usage.
 
 import { createHash, randomUUID } from "node:crypto";
+import {
+  ANALYSIS_COMPILE_AVAILABILITY,
+  ANALYSIS_COMPILER_CONFIG,
+  ANALYSIS_KIND,
+  compileAnalysis,
+} from "./analysis.ts";
 import { APP_SCHEMA, MAX_BUNDLE_BYTES, validateBundle } from "./appBundle.ts";
 import { MAX_ARTIFACT_BYTES, validateArtifact } from "./artifacts.ts";
 import {
@@ -547,7 +553,11 @@ export class Builds {
     const revision = whole(input.revision, 1, 1_000_000, "The revision");
     // A SaaS workflow's build is a deterministic compile: nothing is sent or spent, so it takes no
     // AI budget (any one given is ignored and recorded as zero).
-    const compiles = intent === "build" && project.foundation === "saas_workflow";
+    // An agent service compiles the same way, into an analysis spec (AGENT_ANALYSIS.md §2); its
+    // requests run on the AI runtime later, under the runtime's own budget.
+    const compiles =
+      intent === "build" &&
+      (project.foundation === "saas_workflow" || project.foundation === "agent_service");
     const budget = compiles ? NO_BUDGET : parseBudget(input.budget);
     const rev = this.db
       .prepare("SELECT content_hash FROM product_revisions WHERE project_id = ? AND number = ?")
@@ -703,7 +713,7 @@ export class Builds {
    */
   private compileWorkflowJob(
     viewer: Person,
-    project: { id: string; business_id: string },
+    project: { id: string; business_id: string; foundation: Foundation },
     revision: number,
     contentHash: string,
     key: string,
@@ -714,11 +724,14 @@ export class Builds {
     const rev = this.db
       .prepare("SELECT brief, prototype FROM product_revisions WHERE project_id = ? AND number = ?")
       .get(project.id, revision) as { brief: string; prototype: string };
-    const brief = JSON.parse(rev.brief) as { name?: string };
-    const compiled = compileWorkflow(
-      JSON.parse(rev.prototype) as Prototype,
-      brief.name || "Workflow",
-    );
+    const brief = JSON.parse(rev.brief) as { name?: string; promise?: string };
+    const analysis = project.foundation === "agent_service";
+    const prototype = JSON.parse(rev.prototype) as Prototype;
+    const compiled: { ok: true; spec: object } | { ok: false; reason: string } = analysis
+      ? compileAnalysis(prototype, { name: brief.name ?? "", promise: brief.promise ?? "" })
+      : compileWorkflow(prototype, brief.name || "Workflow");
+    const kind = analysis ? ANALYSIS_KIND : WORKFLOW_KIND;
+    const compiler = analysis ? "analysis" : "workflow";
     const id = randomUUID();
     try {
       this.store.tx(() => {
@@ -736,7 +749,7 @@ export class Builds {
         this.db
           .prepare(
             `INSERT INTO build_jobs (id, project_id, business_id, revision, content_hash, intent, idempotency_key, fingerprint, provider, provider_config, budget, pricing, retry_of, requested_by, owner_id, owner_generation, state, reserved_cents, created_at, updated_at, started_at, finished_at, failure_code, failure_detail, artifact_digest, request_ref, base_job, instructions)
-             VALUES (?, ?, ?, ?, ?, 'build', ?, ?, 'workflow-compiler', ?, ?, '{}', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
+             VALUES (?, ?, ?, ?, ?, 'build', ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
           )
           .run(
             id,
@@ -746,7 +759,8 @@ export class Builds {
             contentHash,
             key,
             fingerprint,
-            WORKFLOW_PROVIDER_CONFIG,
+            `${compiler}-compiler`,
+            analysis ? ANALYSIS_COMPILER_CONFIG : WORKFLOW_PROVIDER_CONFIG,
             JSON.stringify(budget),
             retryOf?.id ?? null,
             viewer.id,
@@ -765,7 +779,7 @@ export class Builds {
           intent: "build",
           revision,
           reserved_cents: 0,
-          compiler: "workflow",
+          compiler,
         });
         if (compiled.ok && canonical && digest) {
           this.db
@@ -774,30 +788,38 @@ export class Builds {
             )
             .run(
               id,
-              WORKFLOW_KIND,
+              kind,
               digest,
               Buffer.byteLength(canonical),
               canonical,
               JSON.stringify([
-                {
-                  id: "workflow_spec",
-                  label: "The saved form and board compile into a valid workflow",
-                  passed: true,
-                  detail:
-                    "Every field is required and bounded; stages run in order and only the last closes a request",
-                },
+                analysis
+                  ? {
+                      id: "analysis_spec",
+                      label: "The saved form and agent result compile into a valid analysis",
+                      passed: true,
+                      detail:
+                        "The source and context are bounded; flags have the platform's fixed shape, each quoting the source",
+                    }
+                  : {
+                      id: "workflow_spec",
+                      label: "The saved form and board compile into a valid workflow",
+                      passed: true,
+                      detail:
+                        "Every field is required and bounded; stages run in order and only the last closes a request",
+                    },
               ]),
               JSON.stringify({
-                schema: "workflow_spec/1",
+                schema: `${kind}/1`,
                 provider: "none",
-                compiler: "everstreet workflow compiler (deterministic)",
+                compiler: `everstreet ${compiler} compiler (deterministic)`,
                 job: id,
                 project: project.id,
                 revision,
               }),
               t,
             );
-          this.event({ id }, 0, "succeeded", { artifact_digest: digest, kind: WORKFLOW_KIND });
+          this.event({ id }, 0, "succeeded", { artifact_digest: digest, kind });
         } else
           this.event({ id }, 0, "failed", {
             code: "invalid_output",
@@ -865,12 +887,18 @@ export class Builds {
       .all(project.id, intent, intent) as unknown as JobRow[];
     // The workflow engine: a SaaS workflow's build is a deterministic compile (no provider).
     const wf = project.foundation === "saas_workflow";
-    const availability = wf ? { ...WORKFLOW_ENGINE_AVAILABILITY } : this.availability();
+    const an = project.foundation === "agent_service";
+    const availability = wf
+      ? { ...WORKFLOW_ENGINE_AVAILABILITY }
+      : an
+        ? { ...ANALYSIS_COMPILE_AVAILABILITY }
+        : this.availability();
     return {
-      engine: wf ? ("workflow" as const) : ("model" as const),
+      engine: wf ? ("workflow" as const) : an ? ("analysis" as const) : ("model" as const),
       availability,
-      pricing: !wf && availability.available ? (this.provider?.pricing() ?? null) : null,
-      provider: !wf && availability.available && this.provider ? this.provider.identity() : null,
+      pricing: !wf && !an && availability.available ? (this.provider?.pricing() ?? null) : null,
+      provider:
+        !wf && !an && availability.available && this.provider ? this.provider.identity() : null,
       budget: this.budgetFor(project.business_id),
       limits: BUILD_LIMITS,
       jobs: rows.map((r) => this.view(r)),

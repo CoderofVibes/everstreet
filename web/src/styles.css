@@ -1461,3 +1461,8 @@ ul.plain { margin: 0; padding-left: 18px; }
 .wf-steps li.is-done { background: var(--mint-soft); border-color: var(--mint-line); color: var(--mint-ink); }
 .wf-steps li.is-current { background: var(--mint); border-color: var(--mint); color: #fff; font-weight: 600; }
 .wf-form { display: grid; gap: 12px; }
+
+/* The analysis engine's flags (AGENT_ANALYSIS.md): the quote stands apart from the advice. */
+.an-flag { border-top: 1px solid var(--line); padding: 10px 0 4px; display: grid; gap: 6px; }
+.an-flag p { margin: 0; overflow-wrap: anywhere; }
+.an-quote { margin: 0; padding: 6px 10px; border-left: 3px solid var(--line-strong); background: var(--surface-2); font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }

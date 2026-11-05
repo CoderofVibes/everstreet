@@ -7,6 +7,7 @@
 // No provider dispatch, settlement or customer UI here; nothing is wired in main.
 
 import { randomBytes, randomUUID } from "node:crypto";
+import { validateAnalysisSpec } from "./analysis.ts";
 import {
   type CustomerViewTransport,
   decideReservation,
@@ -1256,8 +1257,10 @@ export class CustomerUses {
       .get(o.release_id) as { kind: string; content: string } | undefined;
     // Workflow engine: the public product is the intake form and its stages (no document limit).
     const wf = a?.kind === "workflow_spec" ? validateWorkflowSpec(JSON.parse(a.content)) : null;
+    // Analysis engine: the public product is the form (what the agent reads, and context).
+    const an = a?.kind === "analysis_spec" ? validateAnalysisSpec(JSON.parse(a.content)) : null;
     const spec =
-      a && !wf
+      a && !wf && !an
         ? (JSON.parse(a.content) as {
             name?: string;
             input?: { max_chars?: number };
@@ -1284,17 +1287,33 @@ export class CustomerUses {
             })),
             stages: wf.stages.map((st) => ({ key: st.key, label: st.label })),
           }
-        : {
-            kind: "extraction" as const,
-            name: spec.name ?? "Released product",
-            max_chars: Math.min(spec.input?.max_chars ?? LIMITS.inputChars, LIMITS.inputChars),
-            fields: (spec.fields ?? []).slice(0, 40).map((f) => ({
-              key: f.key,
-              label: f.label,
-              type: f.type,
-              required: f.required,
-            })),
-          },
+        : an
+          ? {
+              kind: "analysis" as const,
+              name: an.name,
+              result_title: an.result_title,
+              max_chars: inputCeiling({ kind: "analysis_spec", spec: an }, LIMITS.inputChars),
+              fields: [an.source, ...an.context].map((f, i) => ({
+                key: f.key,
+                label: f.label,
+                type: "long_text",
+                required: i === 0,
+                max_chars: f.max_chars,
+                options: [] as string[],
+              })),
+              stages: [] as { key: string; label: string }[],
+            }
+          : {
+              kind: "extraction" as const,
+              name: spec.name ?? "Released product",
+              max_chars: Math.min(spec.input?.max_chars ?? LIMITS.inputChars, LIMITS.inputChars),
+              fields: (spec.fields ?? []).slice(0, 40).map((f) => ({
+                key: f.key,
+                label: f.label,
+                type: f.type,
+                required: f.required,
+              })),
+            },
       terms: {
         units_per_use: 1,
         unit_price: plan.unit_price,

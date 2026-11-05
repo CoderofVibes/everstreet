@@ -4,10 +4,11 @@
 //   the bundled samples.json: no request, no analytics, nothing recorded.
 // - ExampleBusinesses: the three example cards, structurally apart from real listings.
 // - ExamplePage: /example/ledgerline reads the public projection of the VERIFIED testnet record
-//   (one read, no sign-in); /example/signalwatch shows a labelled illustration until its engine
-//   runs.
+//   (one read, no sign-in).
 // - RelaydeskSample: three fictional support requests decided by the REAL workflow engine in
 //   advance (relaydesk.json, drift-tested); /example/relaydesk shows it. No request either.
+// - SignalwatchSample: three fictional release notes answered by the labelled stand-in analyst
+//   and checked by the product's own rules (signalwatch.json, drift-tested). No request.
 
 import { useEffect, useId, useRef, useState } from "react";
 import { usePublicRead } from "../actorRead.ts";
@@ -15,6 +16,7 @@ import { ApiError } from "../api.ts";
 import { Link, useRouter } from "../router.tsx";
 import relaydesk from "../showcase/relaydesk.json" with { type: "json" };
 import samples from "../showcase/samples.json" with { type: "json" };
+import signalwatch from "../showcase/signalwatch.json" with { type: "json" };
 import { readable } from "../TokenAmount.tsx";
 
 // biome-ignore lint/suspicious/noExplicitAny: the bundled samples and a public projection, read field by field
@@ -271,44 +273,133 @@ export function RelaydeskSample() {
   );
 }
 
-// ---------- illustrations (not runs) ----------
+// ---------- the Signalwatch sample (the stand-in analyst, checked by the product) ----------
 
-const ILLUSTRATIONS: Record<string, { name: string; kind: string; steps: [string, string][] }> = {
-  relaydesk: {
-    name: "Relaydesk",
-    kind: "Support workflow (SaaS)",
-    steps: [
-      ["Intake", 'A customer submits a support request: "The export button does nothing."'],
-      ["Assignment", "The workflow's rule sends it to the right person, with its history."],
-      ["Resolution", "It's resolved and closed; the customer sees every step."],
-    ],
-  },
-  signalwatch: {
-    name: "Signalwatch",
-    kind: "Agent service",
-    steps: [
-      ["A changelog", "A customer submits a supplier's release notes."],
-      ["Flags, and why", "The agent flags what could affect them, and says why each matters."],
-      ["Proposed action", "Each flag comes with a proposed next step; nothing is done for them."],
-    ],
-  },
-};
-
-export function Illustration({ which }: { which: "relaydesk" | "signalwatch" }) {
-  const it = ILLUSTRATIONS[which];
-  if (!it) return null;
+export function SignalwatchSample() {
+  const uid = useId();
+  const list = signalwatch.samples as Json[];
+  const [choice, setChoice] = useState<string>(list[0]?.id ?? "");
+  const [shown, setShown] = useState<Json | null>(null);
+  const resultRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (shown) resultRef.current?.focus();
+  }, [shown]);
+  const p = signalwatch.product;
   return (
-    <figure className="illustration">
-      <figcaption className="example-eyebrow">Illustration, not a run</figcaption>
-      <ol>
-        {it.steps.map(([t, d]) => (
-          <li key={t}>
-            <strong>{t}</strong>
-            <span className="small">{d}</span>
-          </li>
-        ))}
-      </ol>
-    </figure>
+    <section className="sample-panel" aria-labelledby={`${uid}-h`}>
+      <p className="example-eyebrow">Example business · sample data</p>
+      <h2 id={`${uid}-h`} className="sample-title">
+        Signalwatch <span className="muted">· agent service</span>
+      </h2>
+      <p className="small">
+        Paste a supplier's release notes and what you rely on; get flags back, each quoting the
+        notes, with why it matters and a proposed next step. It proposes; it never acts.
+      </p>
+      {!shown ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setShown(list.find((x) => x.id === choice) ?? null);
+          }}
+        >
+          <fieldset className="sample-choices">
+            <legend>Try sample release notes</legend>
+            {list.map((x) => (
+              <label key={x.id} className="sample-choice">
+                <input
+                  type="radio"
+                  name={`${uid}-sample`}
+                  value={x.id}
+                  checked={choice === x.id}
+                  onChange={() => setChoice(x.id)}
+                />
+                <span>
+                  <strong>{x.title}</strong>
+                  <span className="small muted">{x.why}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          <button type="submit" className="btn btn-primary">
+            Check the sample notes
+          </button>
+          <p className="small muted sample-note">
+            Sample run: a fixed answer from Everstreet's stand-in analyst, prepared in advance and
+            checked by the product's own rules and our tests. Nothing is sent or recorded.
+          </p>
+        </form>
+      ) : (
+        <div className="sample-result" aria-live="polite">
+          <p className="example-eyebrow">Sample run · stand-in analyst · nothing charged</p>
+          <h3 ref={resultRef} tabIndex={-1} className="sample-result-title">
+            {shown.title}
+          </h3>
+          <p>
+            Outcome{" "}
+            <span
+              className={`outcome-pill ${shown.analysis.outcome === "analyzed" ? "extracted" : "refused"}`}
+            >
+              {shown.analysis.outcome === "analyzed" ? "Analyzed" : "Refused"}
+            </span>
+          </p>
+          <dl className="sample-fields is-stacked">
+            <div>
+              <dt>{p.context_label}</dt>
+              <dd>{signalwatch.relies}</dd>
+            </div>
+          </dl>
+          {shown.analysis.outcome === "analyzed" ? (
+            <>
+              <p>
+                <strong>{p.result_title}:</strong> {shown.analysis.summary}
+              </p>
+              {(shown.analysis.findings as Json[]).map((f) => (
+                <div key={f.evidence} className="an-flag">
+                  <div className="row">
+                    <strong>{f.title}</strong>
+                    <span className={`pill ${f.severity === "high" ? "caution" : ""}`}>
+                      {f.severity} severity
+                    </span>
+                  </div>
+                  <blockquote className="an-quote">{f.evidence}</blockquote>
+                  <p className="small">{f.why}</p>
+                  <p className="small">
+                    <strong>Proposed next step:</strong> {f.proposed_action}
+                  </p>
+                </div>
+              ))}
+            </>
+          ) : (
+            <p className="notice info">{shown.analysis.reason}</p>
+          )}
+          <details className="sample-input">
+            <summary>Show the release notes</summary>
+            <pre>{shown.notes}</pre>
+          </details>
+          <div className="sample-would">
+            <strong>What a real request would record</strong>
+            <ul>
+              <li>
+                {shown.charged_on_a_real_run
+                  ? "One unit reserved, then charged, because an analysis was delivered."
+                  : "One unit reserved, then returned: a refusal is never charged."}
+              </li>
+              <li>
+                Every quote checked word for word against the notes; an answer that quotes anything
+                else is never shown.
+              </li>
+              <li>The AI provider's compute cost, once reported. The stand-in has none.</li>
+            </ul>
+            <p className="small muted">{signalwatch.charging_rule}</p>
+          </div>
+          <div className="row sample-actions">
+            <button type="button" className="btn btn-quiet btn-sm" onClick={() => setShown(null)}>
+              Try another sample
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -352,22 +443,19 @@ export function ExampleBusinesses() {
             </Link>
           </div>
         </article>
-        {(["signalwatch"] as const).map((k) => (
-          <article key={k} className="example-card">
-            <p className="example-eyebrow">Example business · sample data</p>
-            <h3>{ILLUSTRATIONS[k]?.name}</h3>
-            <p className="small muted">{ILLUSTRATIONS[k]?.kind}</p>
-            <p className="small">
-              <strong>Not tryable yet.</strong> Its engine isn't built, so the planned flow is shown
-              as an illustration.
-            </p>
-            <div className="row example-actions">
-              <Link to={`/example/${k}`} className="btn btn-quiet btn-sm">
-                See the planned flow
-              </Link>
-            </div>
-          </article>
-        ))}
+        <article className="example-card">
+          <p className="example-eyebrow">Example business · sample data</p>
+          <h3>Signalwatch</h3>
+          <p className="small muted">Agent service · one unit per delivered analysis</p>
+          <p className="small">
+            Flags supplier changes that affect you; it proposes and never acts.
+          </p>
+          <div className="row example-actions">
+            <Link to="/example/signalwatch" className="btn btn-primary btn-sm">
+              Try a sample
+            </Link>
+          </div>
+        </article>
       </div>
     </section>
   );
@@ -405,23 +493,18 @@ export function ExamplePage({ which }: { which: string }) {
         <Link to="/">Back to Everstreet</Link>
       </div>
     );
-  if (which === "signalwatch") {
-    const it = ILLUSTRATIONS[which];
+  if (which === "signalwatch")
     return (
       <div className="page narrow">
-        <p className="example-eyebrow">Example business · sample data</p>
-        <h1 className="display" style={{ fontSize: 36 }}>
-          {it?.name}
-        </h1>
-        <p className="lead">{it?.kind}. Not tryable yet: its engine isn't built.</p>
-        <Illustration which={which} />
-        <p className="small muted">
-          This shows the planned flow only. It becomes a sample you can run when the engine works.
+        <SignalwatchSample />
+        <p className="small muted" style={{ marginTop: 16 }}>
+          A sample with fictional release notes. A real Signalwatch-style product is built, checked
+          and released in Everstreet's Studio; its requests run on the AI runtime under the same
+          checks.
         </p>
         <Link to="/">Back to Everstreet</Link>
       </div>
     );
-  }
   if (which !== "ledgerline")
     return (
       <div className="page empty">

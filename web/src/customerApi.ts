@@ -14,8 +14,10 @@ export interface OfferView {
   offer_state: "active" | "retired";
   business: { name: string; slug: string };
   product: {
-    /** The workflow engine takes a request form; an extraction product takes pasted text. */
-    kind: "workflow" | "extraction";
+    /** The workflow and analysis engines take a form; an extraction product takes pasted text. */
+    kind: "workflow" | "analysis" | "extraction";
+    /** An analysis product's name for its answer (e.g. "Flags for you"). */
+    result_title: string | null;
     name: string;
     max_chars: number;
     fields: {
@@ -141,6 +143,13 @@ export interface ResultField {
   value: string | boolean | null;
   note: string;
 }
+export interface AnalysisFinding {
+  title: string;
+  severity: "low" | "medium" | "high";
+  evidence: string;
+  why: string;
+  proposed_action: string;
+}
 export interface ResultView {
   outcome: string | null;
   retention_until_ms: string;
@@ -153,6 +162,9 @@ export interface ResultView {
     reason: string | null;
     /** A workflow request's first stage, when it was accepted. */
     stage: string | null;
+    /** An analysis's flags (AGENT_ANALYSIS.md), each quoting the customer's source. */
+    findings: AnalysisFinding[];
+    summary: string;
   };
 }
 
@@ -211,7 +223,8 @@ export function parseOffer(raw: unknown): OfferView {
     offer_state: oneOf(o.offer_state, ["active", "retired"] as const, "offer.state"),
     business: { name: str(b.name, "business.name"), slug: str(b.slug, "business.slug") },
     product: {
-      kind: p.kind === "workflow" ? "workflow" : "extraction",
+      kind: p.kind === "workflow" || p.kind === "analysis" ? p.kind : "extraction",
+      result_title: typeof p.result_title === "string" ? p.result_title : null,
       name: str(p.name, "product.name"),
       max_chars: int(p.max_chars, "product.max_chars"),
       fields: fields.slice(0, 40).map((f) => {
@@ -397,7 +410,13 @@ export function parseUses(raw: unknown): UseSummary[] {
 export function parseResult(raw: unknown): ResultView {
   const o = obj(raw, "answer");
   const r = obj(o.result, "result");
-  const fields = Array.isArray(r.fields) ? r.fields : fail("result.fields");
+  // An analysis has flags instead of fields.
+  const fields = Array.isArray(r.fields)
+    ? r.fields
+    : Array.isArray(r.findings)
+      ? []
+      : fail("result.fields");
+  const findings = Array.isArray(r.findings) ? r.findings : [];
   const list = (v: unknown, where: string) =>
     Array.isArray(v) ? v.slice(0, 50).map((x) => str(x, where)) : [];
   return {
@@ -424,6 +443,17 @@ export function parseResult(raw: unknown): ResultView {
       issues: list(r.issues, "result.issues"),
       reason: nullable(r.reason ?? null, (v) => str(v, "result.reason")),
       stage: nullable(r.stage ?? null, (v) => str(v, "result.stage")),
+      summary: typeof r.summary === "string" ? r.summary : "",
+      findings: findings.slice(0, 8).map((f) => {
+        const x = obj(f, "result.finding");
+        return {
+          title: str(x.title, "finding.title"),
+          severity: oneOf(x.severity, ["low", "medium", "high"] as const, "finding.severity"),
+          evidence: str(x.evidence, "finding.evidence"),
+          why: str(x.why, "finding.why"),
+          proposed_action: str(x.proposed_action, "finding.action"),
+        };
+      }),
     },
   };
 }

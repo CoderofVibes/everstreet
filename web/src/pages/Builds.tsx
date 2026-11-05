@@ -195,9 +195,11 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
               </span>{" "}
               · {job.artifact.bytes.toLocaleString()} bytes
               <div className="muted" style={{ fontSize: 13 }}>
-                {job.artifact.kind === "workflow_spec"
-                  ? `A compiled workflow: a request form with ${job.artifact.spec.intake?.fields.length ?? 0} fields, moving through ${(job.artifact.spec.stages ?? []).map((st) => st.label).join(" → ")}. Check and release it on the Service tab.`
-                  : `A checked description of the service (${job.artifact.spec.fields?.length ?? 0} fields). Check and release it on the Service tab.`}
+                {job.artifact.kind === "analysis_spec"
+                  ? `A compiled analysis: customers submit ${job.artifact.spec.source?.label ?? "their text"}${job.artifact.spec.context?.length ? ` and ${job.artifact.spec.context.map((c) => c.label).join(", ")}` : ""}, and get up to 8 flags back. Check and release it on the Service tab.`
+                  : job.artifact.kind === "workflow_spec"
+                    ? `A compiled workflow: a request form with ${job.artifact.spec.intake?.fields.length ?? 0} fields, moving through ${(job.artifact.spec.stages ?? []).map((st) => st.label).join(" → ")}. Check and release it on the Service tab.`
+                    : `A checked description of the service (${job.artifact.spec.fields?.length ?? 0} fields). Check and release it on the Service tab.`}
               </div>
             </dd>
             <dt>Checks</dt>
@@ -255,7 +257,7 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
         <dl className="doc-grid">
           <dt>Limits</dt>
           <dd>
-            {job.provider === "workflow-compiler"
+            {job.provider.endsWith("-compiler")
               ? "None needed: the workflow engine compiles it without AI, so nothing is sent or spent."
               : `${job.budget.max_input_tokens.toLocaleString()} input / ${job.budget.max_output_tokens.toLocaleString()} output tokens, ${job.budget.max_seconds} s, cost limit ${cents(job.budget.max_cost_cents)}`}
           </dd>
@@ -383,10 +385,12 @@ export function BudgetPanel({
 
 /** The workflow engine: compile a saved revision (no provider, nothing held or spent). */
 function StartCompile({
+  kind,
   projectId,
   revision,
   onStarted,
 }: {
+  kind: "workflow" | "analysis";
   projectId: string;
   revision: number;
   onStarted: (job: BuildJob) => void;
@@ -414,8 +418,9 @@ function StartCompile({
         <Icon name="spark" /> Compile revision {revision}
       </h3>
       <p style={{ fontSize: 14 }}>
-        Your form becomes the request customers fill in, and your board's stages become the steps
-        each request moves through.
+        {kind === "analysis"
+          ? "Your form becomes what customers submit, and your agent result screen names the flags they get back."
+          : "Your form becomes the request customers fill in, and your board's stages become the steps each request moves through."}
       </p>
       <button type="button" className="btn btn-primary" disabled={busy} onClick={start}>
         {busy ? "Compiling…" : `Compile revision ${revision}`}
@@ -590,10 +595,17 @@ export function BuildsView({
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      {list.engine !== "workflow" && (
+      {list.engine === "model" && (
         <p className="muted" style={{ maxWidth: "75ch" }}>
           A build turns a saved revision into a checked service specification. Check and release it
           on the Service tab to run it.
+        </p>
+      )}
+      {list.engine === "analysis" && (
+        <p className="notice info">
+          <strong>An agent service runs on Everstreet's analysis engine.</strong> Building compiles
+          your saved form and agent result into a fixed analysis without AI. Its customers' requests
+          run on the AI runtime, which checks every flag against what was submitted.
         </p>
       )}
       {list.engine === "workflow" && (
@@ -609,7 +621,7 @@ export function BuildsView({
           be started here, and none is simulated.
         </p>
       )}
-      {list.engine !== "workflow" && (
+      {list.engine !== "workflow" && list.engine !== "analysis" && (
         <BudgetPanel
           key={String(list.budget.limit_cents)}
           businessId={businessId}
@@ -625,8 +637,9 @@ export function BuildsView({
               {headRevision}.
             </p>
           )}
-          {list.engine === "workflow" ? (
+          {list.engine === "workflow" || list.engine === "analysis" ? (
             <StartCompile
+              kind={list.engine}
               projectId={projectId}
               revision={headRevision}
               onStarted={(job) => {

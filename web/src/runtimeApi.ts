@@ -4,7 +4,7 @@
 import { ApiError } from "./api.ts";
 
 /** `accepted`: the workflow engine took a request into its first stage (WORKFLOW_ENGINE.md). */
-export type Outcome = "extracted" | "incomplete" | "refused" | "invalid" | "accepted";
+export type Outcome = "extracted" | "incomplete" | "refused" | "invalid" | "accepted" | "analyzed";
 
 export interface FieldResult {
   key: string;
@@ -66,7 +66,7 @@ export interface RuntimeBudget {
 
 export interface RuntimeList {
   /** A SaaS workflow runs on Everstreet's workflow engine (no AI model); others on a model. */
-  engine?: "workflow" | "model";
+  engine?: "workflow" | "analysis" | "model";
   availability: { available: boolean; provider: string | null; reason: string };
   budget: RuntimeBudget;
   limits: { maxInputChars: number };

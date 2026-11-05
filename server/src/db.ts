@@ -387,7 +387,7 @@ CREATE TABLE IF NOT EXISTS runtime_invocations (
   idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, input_sha TEXT NOT NULL, input_chars INTEGER NOT NULL,
   provider TEXT NOT NULL, provider_config TEXT NOT NULL, validator TEXT NOT NULL, pricing TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('running','completed','failed','cancelled','unknown')),
-  outcome TEXT CHECK (outcome IN ('extracted','incomplete','refused','invalid','accepted')),
+  outcome TEXT CHECK (outcome IN ('extracted','incomplete','refused','invalid','accepted','analyzed')),
   failure_class TEXT, failure_detail TEXT, output TEXT,
   reserved_cents INTEGER NOT NULL DEFAULT 0, charged_cents INTEGER NOT NULL DEFAULT 0,
   charged_microcents INTEGER NOT NULL DEFAULT 0,
@@ -933,10 +933,13 @@ export function openDb(path: string) {
       )
       .get() as { sql: string } | undefined
   )?.sql;
-  // The workflow engine (WORKFLOW_ENGINE.md): the outcome `accepted`, the same way.
+  // The workflow engine (WORKFLOW_ENGINE.md): the outcome `accepted`, and the analysis engine
+  // (AGENT_ANALYSIS.md): `analyzed`, the same way.
   if (
     runtimeSql &&
-    (!runtimeSql.includes("'customer_use'") || !runtimeSql.includes("'accepted'"))
+    (!runtimeSql.includes("'customer_use'") ||
+      !runtimeSql.includes("'accepted'") ||
+      !runtimeSql.includes("'analyzed'"))
   ) {
     const cols = [...columns("runtime_invocations")].join(", ");
     let next = runtimeSql.replace(
@@ -950,9 +953,12 @@ export function openDb(path: string) {
       );
     if (!next.includes("'accepted'"))
       next = next.replace("'refused','invalid')", "'refused','invalid','accepted')");
+    if (!next.includes("'analyzed'"))
+      next = next.replace("'invalid','accepted')", "'invalid','accepted','analyzed')");
     if (
       !next.includes("'customer_use'") ||
       !next.includes("'accepted'") ||
+      !next.includes("'analyzed'") ||
       !next.includes("runtime_invocations_next")
     )
       throw new Error("runtime_invocations could not be upgraded");

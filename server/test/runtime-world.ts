@@ -10,6 +10,7 @@ import { openDb } from "../src/db.ts";
 import { ManagedRuntime, type RuntimeOptions } from "../src/invocations.ts";
 import type { RuntimeProvider, RuntimeRequest, RuntimeUsage } from "../src/runtime.ts";
 import { Store } from "../src/store.ts";
+import { standInFromContent } from "./analyst.ts";
 
 export const INVOICE_SPEC: ExtractionSpec = {
   kind: "extraction_spec",
@@ -105,6 +106,12 @@ const row = (
 
 /** What a correct extractor says about each required release document (fictional). */
 export async function correct(req: RuntimeRequest): Promise<Answer> {
+  // The analysis engine's request: the labelled stand-in analyst (analyst.ts).
+  if (req.analysis)
+    return {
+      usage: { inputTokens: 1100, outputTokens: 260, final: true },
+      output: standInFromContent(req.analysis.content),
+    };
   const d = req.document;
   if (d.includes("SH-1042"))
     return reply(row("Stackline Hosting Ltd", "SH-1042", "2026-10-14", "412.50", "USD"));

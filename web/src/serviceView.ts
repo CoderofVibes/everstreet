@@ -26,6 +26,7 @@ export const OUTCOME_TEXT: Record<Extraction["outcome"], string> = {
   refused: "Didn't read it as one document",
   invalid: "The answer failed the platform's checks, so nothing is shown as a result",
   accepted: "Accepted into the first stage",
+  analyzed: "Analyzed",
 };
 
 export const STATE_TEXT: Record<Invocation["state"], string> = {

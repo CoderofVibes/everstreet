@@ -7,6 +7,18 @@
 // running request into "unknown", with its reservation held. Retention: see RETENTION_NOTE.
 
 import { createHash, randomUUID } from "node:crypto";
+import {
+  ANALYSIS_KIND,
+  ANALYSIS_PROMPT_VERSION,
+  ANALYSIS_VALIDATOR,
+  type AnalysisResult,
+  type AnalysisSpec,
+  analysisContent,
+  analysisInputLimit,
+  parseAnalysisInput,
+  validateAnalysis,
+  validateAnalysisSpec,
+} from "./analysis.ts";
 import type { ExtractionSpec } from "./artifacts.ts";
 import { type BuildAvailability, ceilCents, costMicroCents, validPricing } from "./build.ts";
 import type { Db } from "./db.ts";
@@ -23,17 +35,25 @@ import {
   type WorkflowSpec,
 } from "./workflow.ts";
 
-/** What a run produces: an extraction, or a workflow intake decision (WORKFLOW_ENGINE.md). */
-export type RunResult = Extraction | WorkflowResult;
+/**
+ * What a run produces: an extraction, a workflow intake decision (WORKFLOW_ENGINE.md), or an
+ * analysis (AGENT_ANALYSIS.md).
+ */
+export type RunResult = Extraction | WorkflowResult | AnalysisResult;
 /** A use is fulfilled (and its unit chargeable) only for these outcomes. */
 export const isFulfilled = (outcome: string | null | undefined) =>
-  outcome === "extracted" || outcome === "accepted";
-/** A checked artifact, by kind: an extraction spec can never be read as a workflow, or back. */
+  outcome === "extracted" || outcome === "accepted" || outcome === "analyzed";
+/** A checked artifact, by kind: a spec of one kind can never be read as another. */
 export type CheckedSpec =
   | { kind: "extraction_spec"; spec: ExtractionSpec }
-  | { kind: "workflow_spec"; spec: WorkflowSpec };
+  | { kind: "workflow_spec"; spec: WorkflowSpec }
+  | { kind: "analysis_spec"; spec: AnalysisSpec };
 export const validatorFor = (kind: CheckedSpec["kind"]) =>
-  kind === WORKFLOW_KIND ? WORKFLOW_VALIDATOR : EXTRACT_VALIDATOR;
+  kind === WORKFLOW_KIND
+    ? WORKFLOW_VALIDATOR
+    : kind === ANALYSIS_KIND
+      ? ANALYSIS_VALIDATOR
+      : EXTRACT_VALIDATOR;
 const ZERO_PRICING = JSON.stringify({
   inputCentsPerMillionTokens: 0,
   outputCentsPerMillionTokens: 0,
@@ -45,7 +65,9 @@ export const inputCeiling = (c: CheckedSpec, extractionMax: number) =>
         c.spec.intake.fields.reduce((n, f) => n + f.max_chars * 2 + f.key.length + 8, 16),
         extractionMax,
       )
-    : Math.min(c.spec.input.max_chars, extractionMax);
+    : c.kind === ANALYSIS_KIND
+      ? Math.min(analysisInputLimit(c.spec), extractionMax)
+      : Math.min(c.spec.input.max_chars, extractionMax);
 
 import {
   RUNTIME_LIMITS,
@@ -253,6 +275,14 @@ export class ManagedRuntime {
 
   /** The model config a release of this kind must have: none for the workflow engine. */
   configFor(kind: CheckedSpec["kind"]): string | null {
+    if (kind === ANALYSIS_KIND) {
+      // The model's config plus the analysis request's own version: changing that request
+      // makes every analysis release need checking again, and never touches extraction ones.
+      const c = this.configNow();
+      return c
+        ? JSON.stringify({ ...(JSON.parse(c) as object), task: ANALYSIS_PROMPT_VERSION })
+        : null;
+    }
     return kind === WORKFLOW_KIND ? WORKFLOW_PROVIDER_CONFIG : this.configNow();
   }
 
@@ -333,6 +363,14 @@ export class ManagedRuntime {
   }
 
   /** The project, if this person may run its product for this purpose; otherwise 404. */
+  /** An agent service product runs on the analysis engine (AGENT_ANALYSIS.md), on a model. */
+  isAnalysisProject(projectId: string) {
+    const r = this.db
+      .prepare("SELECT foundation FROM product_projects WHERE id = ?")
+      .get(projectId) as { foundation: string } | undefined;
+    return r?.foundation === "agent_service";
+  }
+
   /** A SaaS workflow product runs on the workflow engine (WORKFLOW_ENGINE.md), not a model. */
   isWorkflowProject(projectId: string) {
     const r = this.db
@@ -378,6 +416,11 @@ export class ManagedRuntime {
       const spec = validateWorkflowSpec(parsed);
       if (!spec) throw new HttpError(409, "This version's workflow isn't valid");
       return { ...a, checked: { kind: WORKFLOW_KIND, spec } as CheckedSpec, spec: null };
+    }
+    if (a.kind === ANALYSIS_KIND) {
+      const spec = validateAnalysisSpec(parsed);
+      if (!spec) throw new HttpError(409, "This version's analysis isn't valid");
+      return { ...a, checked: { kind: ANALYSIS_KIND, spec } as CheckedSpec, spec: null };
     }
     if (a.kind !== "extraction_spec") throw new HttpError(409, "This version can't be run here");
     const spec = parsed as ExtractionSpec;
@@ -530,7 +573,9 @@ export class ManagedRuntime {
     if (!wf && (!availability.available || !this.provider))
       throw new HttpError(409, availability.reason);
     const pricing = wf ? JSON.parse(ZERO_PRICING) : (this.provider as RuntimeProvider).pricing();
-    const config = wf ? WORKFLOW_PROVIDER_CONFIG : runtimeConfig(this.provider as RuntimeProvider);
+    const config = wf
+      ? WORKFLOW_PROVIDER_CONFIG
+      : (this.configFor(artifact.checked.kind) ?? runtimeConfig(this.provider as RuntimeProvider));
     const worst = wf ? 0 : this.worstCents();
 
     const id = randomUUID();
@@ -767,7 +812,9 @@ export class ManagedRuntime {
     const found = existing();
     if (found) return { invocation: found, created: false, done: this.settled(found.id) };
     const worst = wf ? 0 : this.worstCents();
-    const config = wf ? WORKFLOW_PROVIDER_CONFIG : runtimeConfig(this.provider as RuntimeProvider);
+    const config = wf
+      ? WORKFLOW_PROVIDER_CONFIG
+      : (this.configFor(ctx.checked.kind) ?? runtimeConfig(this.provider as RuntimeProvider));
     const pricing = wf
       ? ZERO_PRICING
       : JSON.stringify((this.provider as RuntimeProvider).pricing());
@@ -851,6 +898,34 @@ export class ManagedRuntime {
       if (checked.kind === WORKFLOW_KIND) {
         result = runWorkflow(checked.spec, text);
         usage = { inputTokens: 0, outputTokens: 0, final: true };
+      } else if (checked.kind === ANALYSIS_KIND) {
+        // The analysis engine: a malformed submission is refused before anything is sent.
+        const input = parseAnalysisInput(checked.spec, text);
+        if (!input.ok) {
+          result = {
+            outcome: "refused",
+            summary: "",
+            findings: [],
+            problems: [],
+            reason: input.reason,
+          };
+          usage = { inputTokens: 0, outputTokens: 0, final: true };
+        } else {
+          const answer = await provider.extract(
+            {
+              invocationId: row.id,
+              document: input.source,
+              analysis: { spec: checked.spec, content: analysisContent(checked.spec, input) },
+              limits: {
+                maxInputTokens: RUNTIME_LIMITS.maxInputTokens,
+                maxOutputTokens: RUNTIME_LIMITS.maxOutputTokens,
+              },
+            },
+            controller.signal,
+          );
+          usage = answer.usage;
+          result = validateAnalysis(checked.spec, input.source, answer.output);
+        }
       } else {
         const answer = await provider.extract(
           {
@@ -1052,7 +1127,11 @@ export class ManagedRuntime {
       .all(p.id) as unknown as InvocationRow[];
     const wf = this.isWorkflowProject(p.id);
     return {
-      engine: wf ? ("workflow" as const) : ("model" as const),
+      engine: wf
+        ? ("workflow" as const)
+        : this.isAnalysisProject(p.id)
+          ? ("analysis" as const)
+          : ("model" as const),
       availability: wf ? { ...WORKFLOW_ENGINE_AVAILABILITY } : this.availability(),
       budget: this.budgetFor(p.business_id),
       limits: RUNTIME_LIMITS,

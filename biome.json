@@ -15,7 +15,8 @@
       "!server/test/fixtures/v3/direct-sale.json",
       "!server/test/fixtures/v3/gated-sale.json",
       "!web/src/showcase/samples.json",
-      "!web/src/showcase/relaydesk.json"
+      "!web/src/showcase/relaydesk.json",
+      "!web/src/showcase/signalwatch.json"
     ]
   },
   "formatter": {

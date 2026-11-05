@@ -155,8 +155,18 @@ function Consent({
   );
 }
 
-export function CustomerResult({ r, workflow = false }: { r: ResultView; workflow?: boolean }) {
+export function CustomerResult({
+  r,
+  workflow = false,
+  analysis = false,
+}: {
+  r: ResultView;
+  workflow?: boolean;
+  analysis?: boolean;
+}) {
   const res = r.result;
+  // The analysis engine: flags, each quoting what the customer submitted.
+  if (analysis || res.outcome === "analyzed") return <AnalysisAnswer r={r} />;
   // The workflow engine: a request is accepted into the first stage, or refused (never charged).
   if (workflow || res.outcome === "accepted") return <WorkflowAnswer r={r} />;
   const json = JSON.stringify(res, null, 2);
@@ -245,6 +255,56 @@ export function CustomerResult({ r, workflow = false }: { r: ResultView; workflo
       <p className="muted use-note">
         Kept for you until {time(r.retention_until_ms)}. A checked answer isn't a guarantee: compare
         it with your document.
+      </p>
+    </div>
+  );
+}
+
+/** The analysis engine's answer: flags with their quotes, reasons and proposed actions. */
+function AnalysisAnswer({ r }: { r: ResultView }) {
+  const res = r.result;
+  if (res.outcome !== "analyzed")
+    return (
+      <div className="use-answer is-partial">
+        <div className="row" style={{ marginBottom: 8 }}>
+          <span className="pill caution">Not analyzed</span>
+        </div>
+        <p className="notice info">
+          {res.outcome === "refused"
+            ? `${res.reason ?? "This isn't the kind of text this service reviews"}.`
+            : "The answer failed Everstreet's checks, so nothing from it is shown."}{" "}
+          Nothing is charged for it.
+        </p>
+      </div>
+    );
+  return (
+    <div className="use-answer is-complete">
+      <div className="row" style={{ marginBottom: 8 }}>
+        <span className="pill mint">
+          {res.findings.length === 0
+            ? "Nothing flagged"
+            : `${res.findings.length} flag${res.findings.length === 1 ? "" : "s"}`}
+        </span>
+      </div>
+      {res.summary && <p>{res.summary}</p>}
+      {res.findings.map((f) => (
+        <div key={f.evidence} className="an-flag">
+          <div className="row">
+            <strong>{f.title}</strong>
+            <span className={`pill ${f.severity === "high" ? "caution" : ""}`}>
+              {f.severity} severity
+            </span>
+          </div>
+          <blockquote className="an-quote">{f.evidence}</blockquote>
+          <p>{f.why}</p>
+          <p>
+            <strong>Proposed next step:</strong> {f.proposed_action}
+          </p>
+        </div>
+      ))}
+      <p className="muted use-note">
+        Proposals only: nothing was sent, changed or scheduled for you. Every quote is checked word
+        for word against what you submitted. Kept for you until {time(r.retention_until_ms)}.
       </p>
     </div>
   );
@@ -374,14 +434,16 @@ export function ResultArea({
   fields,
   inDoubt = false,
   workflow = false,
+  analysis = false,
 }: {
   use: UseView | null;
   result: ResultView | null;
   fields: string[];
   inDoubt?: boolean;
   workflow?: boolean;
+  analysis?: boolean;
 }) {
-  if (result) return <CustomerResult r={result} workflow={workflow} />;
+  if (result) return <CustomerResult r={result} workflow={workflow} analysis={analysis} />;
   // 001j1: no instruction from the stale state while a lost answer is in doubt.
   if (inDoubt)
     return (
@@ -631,7 +693,9 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   const needsDocument = !use || (use.state === "prepared" && s.accepted === null);
   const max = offer?.product.max_chars ?? 0;
   const isWorkflow = offer?.product.kind === "workflow";
-  const fields = isWorkflow ? [] : (offer?.product.fields.map((f) => f.label) ?? []);
+  const isAnalysis = offer?.product.kind === "analysis";
+  const isForm = isWorkflow || isAnalysis;
+  const fields = isForm ? [] : (offer?.product.fields.map((f) => f.label) ?? []);
   const formFields = offer?.product.fields ?? [];
   // A workflow's form: the draft is the canonical submission once every required field is filled
   // (until then there is nothing to send).
@@ -658,7 +722,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
             <div>
               <dt>You give it</dt>
               <dd>
-                {isWorkflow
+                {isForm
                   ? `A request: ${formFields.map((f) => f.label).join(", ")}`
                   : `Pasted text, up to ${offer.product.max_chars.toLocaleString()} characters`}
               </dd>
@@ -666,11 +730,13 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
             <div>
               <dt>You get</dt>
               <dd>
-                {isWorkflow
-                  ? `A tracked request: ${offer.product.stages.map((st) => st.label).join(" → ")}`
-                  : fields.length > 0
-                    ? fields.join(", ")
-                    : "Structured fields"}
+                {isAnalysis
+                  ? `${offer.product.result_title ?? "Flags"}: up to 8, each quoting your text, with why it matters and a proposed next step`
+                  : isWorkflow
+                    ? `A tracked request: ${offer.product.stages.map((st) => st.label).join(" → ")}`
+                    : fields.length > 0
+                      ? fields.join(", ")
+                      : "Structured fields"}
               </dd>
             </div>
             <div>
@@ -766,7 +832,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               twice. Your typed text below is kept.
             </p>
           )}
-          {needsDocument && isWorkflow && (
+          {needsDocument && isForm && (
             <>
               {use && (
                 <p className="muted">Fill in the same request to check it before it's sent.</p>
@@ -774,7 +840,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               <WorkflowForm fields={formFields} values={formValues} onChange={setForm} />
             </>
           )}
-          {needsDocument && !isWorkflow && (
+          {needsDocument && !isForm && (
             <label className="field">
               <span>{use ? "Paste the same document to check it" : "Document"}</span>
               <textarea
@@ -853,6 +919,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
             result={s.result}
             fields={fields}
             workflow={isWorkflow}
+            analysis={isAnalysis}
             inDoubt={!!use && s.inDoubt?.useId === use.id}
           />
           {isWorkflow && use?.execution?.fulfilled && <CustomerCaseTrack requestId={use.id} />}

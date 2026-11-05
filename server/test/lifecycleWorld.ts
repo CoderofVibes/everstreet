@@ -24,6 +24,7 @@ import {
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseAiConfig } from "../src/ai-config.ts";
+import { ANALYSIS_SYSTEM } from "../src/analysis.ts";
 import { httpsTransport } from "../src/anthropic.ts";
 import { validateConfig } from "../src/appConfig.ts";
 import { composeApplication } from "../src/compose.ts";
@@ -31,6 +32,7 @@ import { verifiesEd25519 } from "../src/customerSigning.ts";
 import { base58Encode } from "../src/customerWriter.ts";
 import { nep413Digest } from "../src/identity.ts";
 import { AnthropicRuntime } from "../src/runtime.ts";
+import { standInFromContent } from "./analyst.ts";
 import { CUSTOMER, customerWorld, FixtureChain, type Json, TOKEN } from "./customer-world.ts";
 import { correct, INVOICE_SPEC } from "./runtime-world.ts";
 
@@ -123,6 +125,18 @@ export class SyntheticModel {
           content: [{ type: "text", text: JSON.stringify(spec) }],
           stop_reason: "end_turn",
           usage: { input_tokens: 1500, output_tokens: 800 },
+        }),
+      };
+    }
+    // An analysis request (AGENT_ANALYSIS.md): the labelled stand-in analyst.
+    if (body.system === ANALYSIS_SYSTEM) {
+      const output = standInFromContent(String((body.messages as Json[])[0]?.content ?? "{}"));
+      return {
+        status: 200,
+        body: JSON.stringify({
+          content: [{ type: "text", text: JSON.stringify(output) }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1100, output_tokens: 260 },
         }),
       };
     }

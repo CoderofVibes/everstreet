@@ -7,6 +7,15 @@
 // field; a case expecting a field the version doesn't have is not applicable, never a pass.
 
 import { randomUUID } from "node:crypto";
+import {
+  ANALYSIS_KIND,
+  ANALYSIS_VALIDATOR,
+  type AnalysisCase,
+  type AnalysisResult,
+  requiredAnalysisCases,
+  scoreAnalysis,
+  validateAnalysisSpec,
+} from "./analysis.ts";
 import type { Db } from "./db.ts";
 import { type Extraction, normalDecimal } from "./extract.ts";
 import {
@@ -395,16 +404,18 @@ export class Evaluations {
       versions,
       required: this.runtime.isWorkflowProject(p.id)
         ? this.workflowRequired(p.id)
-        : {
-            policy: RELEASE_POLICY,
-            name: "Required invoice release checks",
-            cases: REQUIRED_INVOICE_CASES.map((c) =>
-              c.input.length > 600
-                ? { ...c, input: `${c.input.slice(0, 600)}… (${c.input.length} characters)` }
-                : c,
-            ),
-            note: "Set by the platform for invoice products. They run in every check and all must pass to release; your own cases are added to them and can't replace them.",
-          },
+        : this.runtime.isAnalysisProject(p.id)
+          ? this.analysisRequired(p.id)
+          : {
+              policy: RELEASE_POLICY,
+              name: "Required invoice release checks",
+              cases: REQUIRED_INVOICE_CASES.map((c) =>
+                c.input.length > 600
+                  ? { ...c, input: `${c.input.slice(0, 600)}… (${c.input.length} characters)` }
+                  : c,
+              ),
+              note: "Set by the platform for invoice products. They run in every check and all must pass to release; your own cases are added to them and can't replace them.",
+            },
       note: "Your own cases are kept apart from the worked examples the AI wrote, and every change is saved as a new version.",
     };
   }
@@ -433,6 +444,30 @@ export class Evaluations {
           }))
         : [],
       note: "Set by the platform for workflow products: complete requests are accepted and every malformed one is refused. They run in every check and all must pass to release.",
+    };
+  }
+
+  /** An analysis product's required checks (AGENT_ANALYSIS.md §4), from its latest compiled version. */
+  private analysisRequired(projectId: string) {
+    const a = this.db
+      .prepare(
+        "SELECT a.content FROM build_artifacts a JOIN build_jobs j ON j.id = a.job_id WHERE j.project_id = ? AND a.kind = ? ORDER BY j.created_at DESC, j.rowid DESC LIMIT 1",
+      )
+      .get(projectId, ANALYSIS_KIND) as { content: string } | undefined;
+    const spec = a ? validateAnalysisSpec(JSON.parse(a.content)) : null;
+    return {
+      policy: ANALYSIS_VALIDATOR,
+      name: "Required analysis checks",
+      cases: spec
+        ? requiredAnalysisCases(spec).map((c) => ({
+            id: c.id,
+            name: c.name,
+            why: c.why,
+            input: c.input,
+            expect: { outcomes: c.expect.outcomes },
+          }))
+        : [],
+      note: "Set by the platform for analysis products, written for reviewing release notes: relevant changes are flagged with a word-for-word quote, nothing is invented, text that isn't release notes is refused, and instructions inside the text are not followed. They run on the AI runtime in every check and all must pass to release.",
     };
   }
 
@@ -511,10 +546,20 @@ export class Evaluations {
             expect: { outcomes: [c.expect] } as unknown as EvalCase["expect"],
             required: true,
           }))
-        : [
-            ...REQUIRED_INVOICE_CASES.map((c) => ({ ...c, required: true })),
-            ...own.map((c) => ({ ...c, required: false })),
-          ];
+        : artifact.checked.kind === ANALYSIS_KIND
+          ? // The analysis engine's policy (AGENT_ANALYSIS.md §4); no founder cases either.
+            requiredAnalysisCases(artifact.checked.spec).map((c) => ({
+              id: c.id,
+              name: c.name,
+              why: c.why,
+              input: c.input,
+              expect: c.expect as unknown as EvalCase["expect"],
+              required: true,
+            }))
+          : [
+              ...REQUIRED_INVOICE_CASES.map((c) => ({ ...c, required: true })),
+              ...own.map((c) => ({ ...c, required: false })),
+            ];
     const id = randomUUID();
     // Job 003wf3 (W15): no new check run while this business is changing hands (the eval_runs
     // trigger refuses it at commit too).
@@ -540,9 +585,9 @@ export class Evaluations {
         this.runtime.runner,
       );
     const declared =
-      artifact.checked.kind === WORKFLOW_KIND
-        ? new Map<string, string>()
-        : new Map(artifact.checked.spec.fields.map((f) => [f.key, f.type as string]));
+      artifact.checked.kind === "extraction_spec"
+        ? new Map(artifact.checked.spec.fields.map((f) => [f.key, f.type as string]))
+        : new Map<string, string>();
     // Job 003wf1: owned by this process's runtime, so a stop can await it.
     const done = this.runtime.track(
       this.execute(viewer, id, p.id, artifact.job_id, cases, declared, kind),
@@ -619,7 +664,16 @@ export class Evaluations {
                   fields: [],
                   explanation: `Expected ${want.join(" or ")}, got ${raw.outcome ?? raw.state}`,
                 }
-            : score(c, declared, raw, result as Extraction | null);
+            : kind === ANALYSIS_KIND
+              ? {
+                  ...scoreAnalysis(
+                    c as unknown as AnalysisCase,
+                    raw.outcome,
+                    result as AnalysisResult | null,
+                  ),
+                  fields: [],
+                }
+              : score(c, declared, raw, result as Extraction | null);
       results.push({ id: c.id, name: c.name, required: c.required, raw, ...scored });
       // Only while still this process's running run; otherwise nothing is written and it ends.
       if (!this.save(runId, results, cases.length, null))
@@ -691,7 +745,9 @@ export class Evaluations {
     const requiredCount =
       checked?.kind === WORKFLOW_KIND
         ? requiredWorkflowCases(checked.spec).length
-        : REQUIRED_INVOICE_CASES.length;
+        : checked?.kind === ANALYSIS_KIND
+          ? requiredAnalysisCases(checked.spec).length
+          : REQUIRED_INVOICE_CASES.length;
     const requiredOk =
       required.length === requiredCount && required.every((x) => x.score === "pass");
     const passed = r.state === "complete" && requiredOk && r.passed === r.total;

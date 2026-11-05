@@ -1,0 +1,72 @@
+{
+  "format": "everstreet-showcase-analysis-samples",
+  "version": 1,
+  "model": "stand-in (a deterministic analyst prepared in advance; no AI provider)",
+  "product": {
+    "name": "Signalwatch",
+    "result_title": "Flags for you",
+    "source_label": "Release notes",
+    "context_label": "What you rely on"
+  },
+  "relies": "We call the Ledger Export API every night and sign in with SSO.",
+  "charging_rule": "A unit is charged only for a delivered analysis, including one that finds nothing. A refused or invalid answer returns the unit.",
+  "samples": [
+    {
+      "id": "sw_removal",
+      "title": "A removal you rely on",
+      "why": "The endpoint you call every night is going away: flagged, quoting the line.",
+      "notes": "FICTIONAL EXAMPLE. Northbeam API v4.2 release notes\n- Added dark mode to the dashboard.\n- Removed the Ledger Export API endpoint /v1/export on 2026-12-01.\n- The Ledger Export API is deprecated; use Reports API v2.",
+      "analysis": {
+        "outcome": "analyzed",
+        "summary": "2 changes could affect what you rely on.",
+        "findings": [
+          {
+            "title": "Removed the Ledger Export API endpoint /v1/export on 2026-12-01.",
+            "severity": "high",
+            "evidence": "Removed the Ledger Export API endpoint /v1/export on 2026-12-01.",
+            "why": "You rely on \"ledger\", and this release removes or breaks it.",
+            "proposed_action": "Plan the move before the date in the notes, and test the replacement first."
+          },
+          {
+            "title": "The Ledger Export API is deprecated; use Reports API v2.",
+            "severity": "medium",
+            "evidence": "The Ledger Export API is deprecated; use Reports API v2.",
+            "why": "You rely on \"ledger\", and this release changes it.",
+            "proposed_action": "Note it, and schedule the change before the old way is removed."
+          }
+        ],
+        "problems": [],
+        "reason": null
+      },
+      "charged_on_a_real_run": true
+    },
+    {
+      "id": "sw_quiet",
+      "title": "Nothing that affects you",
+      "why": "Cosmetic changes only: a delivered analysis with no flags.",
+      "notes": "FICTIONAL EXAMPLE. Northbeam v4.3 release notes\n- New colour themes.\n- Faster page loads on the dashboard.\n- Fixed a typo in the help centre.",
+      "analysis": {
+        "outcome": "analyzed",
+        "summary": "Nothing in these notes affects what you rely on.",
+        "findings": [],
+        "problems": [],
+        "reason": null
+      },
+      "charged_on_a_real_run": true
+    },
+    {
+      "id": "sw_not_notes",
+      "title": "Not release notes",
+      "why": "A recipe isn't release notes: refused, so nothing is charged.",
+      "notes": "FICTIONAL EXAMPLE. Lemon cake: beat 200 g butter with 200 g sugar, add four eggs, bake for 40 minutes.",
+      "analysis": {
+        "outcome": "refused",
+        "summary": "",
+        "findings": [],
+        "problems": [],
+        "reason": "This doesn't look like a supplier's release notes."
+      },
+      "charged_on_a_real_run": false
+    }
+  ]
+}
