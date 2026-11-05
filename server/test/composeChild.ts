@@ -1,14 +1,13 @@
 // Job 003w test fixture (never used by the application): a fresh PROCESS running the real
 // composition root in configured mode, with a SYNTHETIC testnet RPC (labelled), so a restart can
-// be proven across processes rather than by rebuilding objects in one. It prints "listening" only
-// from the listener's own callback, and stops (drain, then close) on SIGTERM/SIGINT.
+// be proven across processes rather than by rebuilding objects in one. It runs the entry's own
+// logic (serve.ts): "listening" only from the listener's callback; SIGTERM/SIGINT stop it.
 //   node --import tsx server/test/composeChild.ts <config.json> <keys.json> <port>
 // keys.json: { "<account>|<ed25519:public key>": "full" | "function_call" }
 
 import { readFileSync } from "node:fs";
-import { serve } from "@hono/node-server";
 import { validateConfig } from "../src/appConfig.ts";
-import { composeApplication } from "../src/compose.ts";
+import { runServer } from "../src/serve.ts";
 import type { FetchLike } from "../src/v3rpc.ts";
 
 const [configFile, keysFile, portText] = process.argv.slice(2) as [string, string, string];
@@ -41,16 +40,11 @@ const fetch: FetchLike = async (_url, init) => {
       : reply({ error: { cause: { name: "UNKNOWN_ACCESS_KEY" } } });
   return reply({ result: { error: "synthetic: no such view" } });
 };
-const composed = composeApplication(config, { fetch, fetchLabel: "synthetic RPC (test child)" });
-composed.start();
-const server = serve(
-  { fetch: composed.app.fetch, port: Number(portText), hostname: "127.0.0.1" },
-  () => console.log("listening"),
+// Job 003wf1: the normal entry logic itself (server/src/serve.ts), with only the network injected.
+const running = runServer(
+  config,
+  { fetch, fetchLabel: "synthetic RPC (test child)" },
+  { log: (l) => console.log(l), error: (l) => console.log(l), exit: (c) => process.exit(c) },
 );
-server.on("error", () => {
-  console.log("listen failed");
-  void composed.stop().finally(() => process.exit(1));
-});
-const end = () => server.close(() => void composed.stop().finally(() => process.exit(0)));
-process.on("SIGTERM", end);
-process.on("SIGINT", end);
+process.on("SIGTERM", () => void running.stop());
+process.on("SIGINT", () => void running.stop());

@@ -37,6 +37,16 @@ export interface AppConfig {
   protected_storage?: { root: string; active_key_id: string; keys_file: string };
   /** Model build/runtime: the AI config file and the NAME of the variable holding the key. */
   model?: { ai_config_file: string; api_key_env: string };
+  /** Job 003wf1 (§12.1): background customer maintenance, explicit and bounded. */
+  maintenance?: MaintenanceConfig;
+}
+
+export interface MaintenanceConfig {
+  interval_ms: number;
+  batch: number;
+  pass_budget_ms: number;
+  op_deadline_ms: number;
+  stop_timeout_ms: number;
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -88,6 +98,7 @@ export function validateConfig(raw: unknown): AppConfig {
     "customer",
     "protected_storage",
     "model",
+    "maintenance",
   ]);
   for (const k of Object.keys(c)) if (!known.has(k)) bad(`unknown field ${k}`);
 
@@ -226,6 +237,42 @@ export function validateConfig(raw: unknown): AppConfig {
     model = { ai_config_file: m.ai_config_file as string, api_key_env: m.api_key_env as string };
   }
 
+  // Job 003wf1 (§12.1): every field explicit and bounded; off unless enabled.
+  let maintenance: MaintenanceConfig | undefined;
+  if (c.maintenance !== undefined) {
+    const m = c.maintenance as Record<string, unknown> | null;
+    if (!m || typeof m !== "object" || Array.isArray(m)) bad("maintenance must be an object");
+    const mk = m as Record<string, unknown>;
+    const fields = [
+      "enabled",
+      "interval_ms",
+      "batch",
+      "pass_budget_ms",
+      "op_deadline_ms",
+      "stop_timeout_ms",
+    ];
+    for (const k of Object.keys(mk)) if (!fields.includes(k)) bad(`unknown field maintenance.${k}`);
+    if (typeof mk.enabled !== "boolean") bad("maintenance.enabled must be true or false");
+    const int = (k: string, min: number, max: number) => {
+      const v = mk[k];
+      if (!Number.isSafeInteger(v) || (v as number) < min || (v as number) > max)
+        bad(`maintenance.${k} must be a whole number from ${min} to ${max}`);
+      return v as number;
+    };
+    if (mk.enabled) {
+      maintenance = {
+        interval_ms: int("interval_ms", 1_000, 3_600_000),
+        batch: int("batch", 1, 25),
+        pass_budget_ms: int("pass_budget_ms", 100, 120_000),
+        op_deadline_ms: int("op_deadline_ms", 100, 120_000),
+        stop_timeout_ms: int("stop_timeout_ms", 100, 120_000),
+      };
+      if (maintenance.op_deadline_ms > maintenance.pass_budget_ms)
+        bad("maintenance.op_deadline_ms can't exceed maintenance.pass_budget_ms");
+      if (!customer) bad("maintenance needs customer use (customer, rpc and protected_storage)");
+    }
+  }
+
   return {
     config_version: 1,
     mode,
@@ -240,5 +287,6 @@ export function validateConfig(raw: unknown): AppConfig {
     ...(customer ? { customer } : {}),
     ...(protected_storage ? { protected_storage } : {}),
     ...(model ? { model } : {}),
+    ...(maintenance ? { maintenance } : {}),
   };
 }

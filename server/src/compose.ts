@@ -5,6 +5,7 @@
 // Every capability is either on (with its real adapter) or unavailable (with a fixed reason);
 // a missing one never blocks the others. Status output carries no path, key or variable value.
 
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { Hono } from "hono";
@@ -16,16 +17,18 @@ import type { AppConfig } from "./appConfig.ts";
 import type { BuildProvider } from "./build.ts";
 import { Builds, startBuildWorker } from "./builds.ts";
 import type { CustomerViewTransport } from "./customerRead.ts";
-import type { CustomerChainWriter, CustomerUseOptions } from "./customerUse.ts";
+import { type CustomerChainWriter, type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
 import { OperatorKey, TestnetCustomerWriter, TestnetTxTransport } from "./customerWriter.ts";
 import { openDb } from "./db.ts";
 import { Evaluations } from "./evaluations.ts";
+import { Fence } from "./fence.ts";
 import { AccountSignIn } from "./identity.ts";
 import { ManagedRuntime } from "./invocations.ts";
+import { guardAdapters, MaintenanceSupervisor, maintenanceWorker } from "./maintenance.ts";
 import { type ProtectedStore, protectedStoreFromConfig } from "./protectedStore.ts";
 import { AnthropicRuntime, type RuntimeProvider } from "./runtime.ts";
 import { Store } from "./store.ts";
-import type { V3Options } from "./v3observe.ts";
+import { V3Observations, type V3Options } from "./v3observe.ts";
 import type { ViewTransport } from "./v3read.ts";
 import {
   type AccessKeyReader,
@@ -55,6 +58,14 @@ export interface ComposeDeps {
   fetch?: FetchLike;
   /** How `fetch` is described in the inventory, e.g. "synthetic RPC (test)". */
   fetchLabel?: string;
+  /**
+   * Job 003wf1 (§12.4): the model provider's network transport (default: global fetch). The real
+   * Anthropic adapters are built over it through httpsTransport's own fetchImpl option, so
+   * budgets, counting, parsing, accounting and errors are the production code.
+   */
+  modelFetch?: typeof fetch;
+  /** How `modelFetch` is described in the inventory, e.g. "synthetic model HTTP (test)". */
+  modelFetchLabel?: string;
   /** Reads the files the config names (default: fs). */
   readFile?: (path: string) => string;
   /** Reads ONE named variable (default: process.env), only for model.api_key_env. */
@@ -84,6 +95,8 @@ export interface Composed {
   start(): void;
   /** Ends admission, drains or fences in-flight work, then closes every resource. */
   stop(): Promise<void>;
+  /** Job 003wf1: the shutdown fence (tests observe late answers held back). */
+  readonly fence: Fence;
 }
 
 const TYPES: Record<string, string> = {
@@ -126,6 +139,8 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   const caps: Capability[] = [];
   const cap = (c: Capability) => caps.push(c);
 
+  // Job 003wf1 (§12.3): every injected network and protected-storage call passes this fence.
+  const fence = new Fence();
   // Records first: everything else is built over them.
   const store = new Store(openDb(config.database));
   opened.push({ close: () => store.db.close() });
@@ -141,8 +156,9 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   });
 
   // The network adapters (read-only), when an endpoint is configured.
-  const fetchImpl: FetchLike | null =
+  const rawFetch: FetchLike | null =
     deps.fetch ?? (configured ? (globalThis.fetch as unknown as FetchLike) : null);
+  const fetchImpl: FetchLike | null = rawFetch ? fence.wrap(rawFetch) : null;
   const rpcLabel = deps.fetch ? (deps.fetchLabel ?? "injected transport") : "testnet RPC";
   let v3Transport: ViewTransport | null = null;
   let customerTransport: CustomerViewTransport | null = null;
@@ -240,8 +256,16 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     const key = (deps.envVar ?? ((n: string) => process.env[n]))(config.model.api_key_env);
     const ai = parseAiConfig(text, key);
     if (ai.ok) {
-      buildProvider = new AnthropicProvider(ai.config, httpsTransport(ai.apiKey));
-      runtimeProvider = new AnthropicRuntime(ai.config, httpsTransport(ai.apiKey));
+      // The same production adapters, over the labelled network seam when one is injected.
+      const modelFetch = fence.wrap(deps.modelFetch ?? globalThis.fetch);
+      buildProvider = new AnthropicProvider(
+        ai.config,
+        httpsTransport(ai.apiKey, { fetchImpl: modelFetch }),
+      );
+      runtimeProvider = new AnthropicRuntime(
+        ai.config,
+        httpsTransport(ai.apiKey, { fetchImpl: modelFetch }),
+      );
       operatorCeilingCents = ai.config.operatorCeilingCents;
       runtimeCeilingCents = ai.config.runtimeCeilingCents;
     } else modelReason = "Configured, but the AI configuration or its key isn't usable.";
@@ -253,7 +277,9 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
           label: "Building and running products",
           state: "on",
           detail: "A pinned model with a configured operator ceiling.",
-          provenance: previewLabel ?? "model provider",
+          provenance:
+            previewLabel ??
+            (deps.modelFetch ? (deps.modelFetchLabel ?? "injected transport") : "model provider"),
         }
       : {
           key: "model",
@@ -335,7 +361,8 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       reader: customerTransport,
       writer,
       operatorAccount: config.customer.operator_account,
-      protection,
+      // Protected storage through the fence too (its network-free answers can still arrive late).
+      protection: fence.object(protection),
       now: deps.now,
     };
   cap(
@@ -371,6 +398,55 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
           state: "unavailable",
           detail:
             "No operator key is configured for the metering account, so nothing can be reserved or charged.",
+          provenance: null,
+        },
+  );
+  // Job 003wf1 (§12.2): background maintenance, only when explicitly configured. One supervisor
+  // per process over its own guarded service; several processes coordinate through the durable
+  // lease. The capability says what is configured; observed health is reported separately.
+  let supervisor: MaintenanceSupervisor | null = null;
+  const m = config.maintenance;
+  if (m && customer) {
+    const g = guardAdapters(customer, 4);
+    const uses = new CustomerUses(
+      store.db,
+      store,
+      new V3Observations(store.db, store, v3),
+      g.options,
+      runtime,
+    );
+    supervisor = new MaintenanceSupervisor(
+      store.db,
+      uses,
+      {
+        holder: `proc-${randomUUID()}`,
+        intervalMs: m.interval_ms,
+        batch: m.batch,
+        passBudgetMs: m.pass_budget_ms,
+        opDeadlineMs: m.op_deadline_ms,
+        now: deps.now,
+      },
+      g.guards,
+    );
+  }
+  cap(
+    supervisor && m
+      ? {
+          key: "maintenance",
+          label: "Background customer maintenance",
+          state: "on",
+          detail: writer
+            ? `Configured: a bounded pass every ${Math.round(m.interval_ms / 1000)} s (expiry, reservations, settlement and cleanup). Whether passes actually run is the observed health, not this.`
+            : `Configured: a bounded pass every ${Math.round(m.interval_ms / 1000)} s. Without the writer only expiry and cleanup can progress; reservations and settlements wait. Whether passes actually run is the observed health, not this.`,
+          provenance: "local SQLite lease",
+        }
+      : {
+          key: "maintenance",
+          label: "Background customer maintenance",
+          state: "unavailable",
+          detail: config.maintenance
+            ? "Configured, but customer use isn't available, so there is nothing to maintain."
+            : "Not configured: nothing settles or cleans up in the background.",
           provenance: null,
         },
   );
@@ -415,9 +491,26 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   });
 
   const app = new Hono();
+  // Job 003wf1 (§12.3): admission ends first when stopping; nothing new reaches the services.
+  let admitting = true;
+  app.use("*", async (c, next) => {
+    if (!admitting) {
+      c.header("Connection", "close");
+      return c.json({ error: "The server is stopping", code: "stopping" }, 503);
+    }
+    await next();
+  });
   app.get("/api/system/capabilities", (c) => {
     c.header("Cache-Control", "no-store");
-    return c.json({ mode: config.mode, network: config.network, capabilities: caps });
+    return c.json({
+      mode: config.mode,
+      network: config.network,
+      capabilities: caps,
+      // Observed, not configured: what a holder's passes actually recorded (platform-level).
+      maintenance_observed: supervisor
+        ? maintenanceWorker(store.db, (deps.now ?? Date.now)())
+        : null,
+    });
   });
   app.route("/", api);
   const dist = config.web_dist;
@@ -437,26 +530,47 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   let stopping: Promise<void> | null = null;
   let started = false;
   let stopped = false;
+  const stopTimeout = config.maintenance?.stop_timeout_ms ?? 30_000;
+  /** Waits for `p`, at most the stop timeout (a non-cooperating adapter can't hold stop open). */
+  const bounded = (p: Promise<unknown>) => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      p.catch(() => {}),
+      new Promise<void>((r) => {
+        t = setTimeout(r, stopTimeout);
+      }),
+    ]).finally(() => clearTimeout(t));
+  };
   return {
     config,
     store,
     app,
+    fence,
     capabilities: () => caps.map((c) => ({ ...c })),
     start() {
       if (started || stopped) return;
       started = true;
       // Restart recovery, through the existing state machines: unknown dispatch is marked
-      // unknown, never re-sent as a fresh provider request.
+      // unknown, never re-sent as a fresh provider request. Once per process, before
+      // maintenance starts (the supervisor itself never recovers).
       runtime.recover();
       new Evaluations(store.db, store, runtime).recover();
       if (buildProvider) stoppers.push(startBuildWorker(builds, buildProvider).stop);
+      if (supervisor) {
+        const sv = supervisor;
+        sv.start();
+        stoppers.unshift(() => sv.stop());
+      }
     },
     stop() {
       if (stopping) return stopping;
       stopped = true;
-      // Workers first (admission ends, in-flight work drains or is fenced), resources last.
+      // §12.3: admission ends; scheduling ends and in-flight work drains (bounded); the fence
+      // closes (late answers resume nothing); resources close last.
+      admitting = false;
       stopping = (async () => {
-        for (const s of stoppers.splice(0)) await s();
+        for (const s of stoppers.splice(0)) await bounded(s());
+        fence.close();
         closeAll(opened);
       })();
       return stopping;

@@ -604,12 +604,11 @@ export interface MaintenanceHealth {
  * per business); the counts are this business's own obligations, derived from the actual request,
  * settlement, execution and backoff records, never from what a worker intended.
  */
-export function maintenanceHealth(
-  db: Db,
-  businessId: string,
-  now: number,
-  name = NAME,
-): MaintenanceHealth {
+/**
+ * Job 003wf1: the platform worker's observed state only (no business, holder, count or customer
+ * material): what maintenance_status says a holder's passes did, never what was configured.
+ */
+export function maintenanceWorker(db: Db, now: number, name = NAME): MaintenanceHealth["worker"] {
   const st = db
     .prepare(
       "SELECT state, interval_ms, heartbeat_ms, last_pass_ms, last_pass, scheduled, pass_started_ms FROM maintenance_status WHERE name = ?",
@@ -647,6 +646,21 @@ export function maintenanceHealth(
     st?.state === "running" &&
     st.pass_started_ms !== null &&
     now - st.pass_started_ms <= 3 * st.interval_ms;
+  return {
+    state,
+    heartbeat_at: at(st?.heartbeat_ms),
+    last_pass_at: at(st?.last_pass_ms),
+    last_outcome: outcome,
+    in_flight: inFlight,
+  };
+}
+
+export function maintenanceHealth(
+  db: Db,
+  businessId: string,
+  now: number,
+  name = NAME,
+): MaintenanceHealth {
   const n = (sql: string, ...args: (string | number)[]) =>
     (db.prepare(sql).get(...args) as { n: number | null }).n ?? 0;
   const backed = (tasks: string, cond: string) =>
@@ -656,13 +670,7 @@ export function maintenanceHealth(
       businessId,
     );
   return {
-    worker: {
-      state,
-      heartbeat_at: at(st?.heartbeat_ms),
-      last_pass_at: at(st?.last_pass_ms),
-      last_outcome: outcome,
-      in_flight: inFlight,
-    },
+    worker: maintenanceWorker(db, now, name),
     work: {
       reservations_pending: n(
         "SELECT COUNT(*) AS n FROM customer_requests WHERE business_id = ? AND state IN ('reserve_requested','reserve_unknown') AND conflict IS NULL",
