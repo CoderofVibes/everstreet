@@ -1,0 +1,771 @@
+{
+  "note": "Produced by contracts/business-v3 tests.rs guarded_revoke_matches_server_fixture (job 003wec). Test-world accounts and keys only.",
+  "customer": "cara.near",
+  "now_ms": "1793577600000",
+  "start": {
+    "reg_id": "1",
+    "active": true,
+    "free": "72",
+    "consumed": "20",
+    "units_retired_to_refund": "0",
+    "purchased": "100",
+    "purchase_seq": 1,
+    "hold_seq": 3,
+    "hold_active": true,
+    "hold_key_slot": 1,
+    "hold_key_epoch": 1,
+    "hold_units": 8,
+    "hold_charged": 0,
+    "hold_used": 0,
+    "hold_slots": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "hold_opened_at_ms": "1793577600000",
+    "serve_until_ms": "1793578800000",
+    "settle_until_ms": "1793579400000",
+    "last_hold_seq": 2,
+    "last_hold_used": 1023,
+    "last_hold_charged": 10,
+    "last_hold_root": "6bd2ce5a78194d7b441437056ab0b05d5d98c3bdd147947b5363ed59078b39c9",
+    "key_states": [
+      1,
+      1,
+      0,
+      0
+    ],
+    "key_epochs": [
+      1,
+      1,
+      0,
+      0
+    ],
+    "keys": [
+      {
+        "slot": 0,
+        "state": "active",
+        "epoch": 1,
+        "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "max_hold_units": 10,
+        "max_units_per_day": 30,
+        "day": 20759,
+        "held_today": 20
+      },
+      {
+        "slot": 1,
+        "state": "active",
+        "epoch": 1,
+        "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+        "max_hold_units": 10,
+        "max_units_per_day": 15,
+        "day": 20759,
+        "held_today": 8
+      },
+      {
+        "slot": 2,
+        "state": "empty",
+        "epoch": 0,
+        "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+        "max_hold_units": 0,
+        "max_units_per_day": 0,
+        "day": 0,
+        "held_today": 0
+      },
+      {
+        "slot": 3,
+        "state": "empty",
+        "epoch": 0,
+        "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+        "max_hold_units": 0,
+        "max_units_per_day": 0,
+        "day": 0,
+        "held_today": 0
+      }
+    ],
+    "claim": "0",
+    "pending_refs": 0,
+    "paused": false,
+    "storage_payer": "cara.near",
+    "storage_paid": "8200000000000000000000"
+  },
+  "steps": [
+    {
+      "case": "stale registration",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "reg_id": "2",
+        "epoch": 1,
+        "pk": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+      },
+      "deposit": "1",
+      "refused": "E_STALE_REVIEW",
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793578800000"
+    },
+    {
+      "case": "stale epoch",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "reg_id": "1",
+        "epoch": 2,
+        "pk": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+      },
+      "deposit": "1",
+      "refused": "E_STALE_REVIEW",
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793578800000"
+    },
+    {
+      "case": "another key",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "reg_id": "1",
+        "epoch": 1,
+        "pk": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1"
+      },
+      "deposit": "1",
+      "refused": "E_STALE_REVIEW",
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793578800000"
+    },
+    {
+      "case": "empty slot",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 2,
+        "reg_id": "1",
+        "epoch": 0,
+        "pk": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "deposit": "1",
+      "refused": "E_KEY",
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793578800000"
+    },
+    {
+      "case": "slot out of range",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 4,
+        "reg_id": "1",
+        "epoch": 1,
+        "pk": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+      },
+      "deposit": "1",
+      "refused": "E_ARGS",
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793578800000"
+    },
+    {
+      "case": "malformed key",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "reg_id": "1",
+        "epoch": 1,
+        "pk": "zz"
+      },
+      "deposit": "1",
+      "refused": "E_ARGS",
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793578800000"
+    },
+    {
+      "case": "no deposit",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "reg_id": "1",
+        "epoch": 1,
+        "pk": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+      },
+      "deposit": "0",
+      "refused": "E_DEPOSIT",
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793578800000"
+    },
+    {
+      "case": "the reviewed key",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "reg_id": "1",
+        "epoch": 1,
+        "pk": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+      },
+      "deposit": "1",
+      "refused": null,
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "revoked",
+          "epoch": 2,
+          "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793577600000"
+    },
+    {
+      "case": "replay",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "reg_id": "1",
+        "epoch": 1,
+        "pk": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+      },
+      "deposit": "1",
+      "refused": "E_KEY",
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "revoked",
+          "epoch": 2,
+          "public_key": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793577600000"
+    },
+    {
+      "case": "a replacement",
+      "method": "install_key",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "pk": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "max_hold_units": 10,
+        "max_units_per_day": 15
+      },
+      "deposit": "1",
+      "refused": null,
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "active",
+          "epoch": 3,
+          "public_key": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793577600000"
+    },
+    {
+      "case": "the old review again",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "reg_id": "1",
+        "epoch": 1,
+        "pk": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+      },
+      "deposit": "1",
+      "refused": "E_STALE_REVIEW",
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "active",
+          "epoch": 3,
+          "public_key": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793577600000"
+    },
+    {
+      "case": "the replacement reviewed",
+      "method": "revoke_key_guarded",
+      "args": {
+        "plan_id": 1,
+        "slot": 1,
+        "reg_id": "1",
+        "epoch": 3,
+        "pk": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1"
+      },
+      "deposit": "1",
+      "refused": null,
+      "keys": [
+        {
+          "slot": 0,
+          "state": "active",
+          "epoch": 1,
+          "public_key": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "max_hold_units": 10,
+          "max_units_per_day": 30,
+          "day": 20759,
+          "held_today": 20
+        },
+        {
+          "slot": 1,
+          "state": "revoked",
+          "epoch": 4,
+          "public_key": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+          "max_hold_units": 10,
+          "max_units_per_day": 15,
+          "day": 20759,
+          "held_today": 8
+        },
+        {
+          "slot": 2,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        },
+        {
+          "slot": 3,
+          "state": "empty",
+          "epoch": 0,
+          "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+          "max_hold_units": 0,
+          "max_units_per_day": 0,
+          "day": 0,
+          "held_today": 0
+        }
+      ],
+      "serve_until_ms": "1793577600000"
+    }
+  ]
+}

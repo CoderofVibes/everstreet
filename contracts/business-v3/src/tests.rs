@@ -3762,7 +3762,7 @@ fn customer_purchase_matches_server_fixture() {
         ("over_purchase_cap", 101 * P, buy_msg(1, 101, 2, None)),
         ("fills_outstanding_cap", 100 * P, buy_msg(1, 100, 2, None)), // accepted: 100 + 100 = the cap of 200
         ("over_outstanding_cap", P, buy_msg(1, 1, 3, None)), // one more than the cap: returned
-        ("no_shell", 1 * P, String::new()),
+        ("no_shell", P, String::new()),
     ] {
         let (sender, m) = if label == "no_shell" { ("dana.near", buy_msg(1, 1, 1, None)) } else { (CARA, msg) };
         let (r, _) = a.measured(TOKEN, 0, |b| b.ft_on_transfer(id(sender), U128(amount), m.clone()));
@@ -3901,4 +3901,183 @@ fn customer_purchase_matches_server_fixture() {
     });
     let actual = serde_json::to_string_pretty(&out).unwrap() + "\n";
     fixture("customer-purchase", include_str!("../../../server/test/fixtures/v3/customer-purchase.json"), actual);
+}
+
+// ---------- 003wec: guarded revocation ----------
+
+/// Cara (from `happy`) with a second key, k2, in slot 1 at epoch 1: what a review would observe.
+fn two_keys() -> (W, SigningKey, SigningKey, u64) {
+    let (mut w, k) = happy();
+    let k2 = key(2);
+    w.call(CARA, 1, |b| b.install_key(1, 1, pk(&k2), 10, 15));
+    let reg = w.ent(CARA).reg_id.0;
+    assert_eq!((w.ent(CARA).key_states[1], w.ent(CARA).key_epochs[1]), (1, 1));
+    (w, k, k2, reg)
+}
+
+#[test]
+fn s04c_legacy_revoke_removes_a_replacement_the_guarded_one_refuses() {
+    // The defect (characterized on the unchanged legacy method): a review observed k2 in slot 1
+    // at epoch 1. Before its transaction runs, another device revokes k2 and installs k3 there.
+    let (mut w, _, _, _) = two_keys();
+    let k3 = key(3);
+    w.call(CARA, 1, |b| b.revoke_key(1, 1));
+    w.call(CARA, 1, |b| b.install_key(1, 1, pk(&k3), 10, 15));
+    let e = w.ent(CARA);
+    assert_eq!((e.keys[1].public_key.clone(), e.key_epochs[1]), (pk(&k3), 3));
+    // The old review's slot-only request now revokes the REPLACEMENT.
+    w.call(CARA, 1, |b| b.revoke_key(1, 1));
+    let e = w.ent(CARA);
+    assert_eq!((e.key_states[1], e.key_epochs[1], e.keys[1].public_key.clone()), (2, 4, pk(&k3)));
+
+    // The same race with the guarded method: the old review is refused and changes nothing.
+    let (mut w, _, k2, reg) = two_keys();
+    w.call(CARA, 1, |b| b.revoke_key_guarded(1, 1, U64(reg), 1, pk(&k2)));
+    w.call(CARA, 1, |b| b.install_key(1, 1, pk(&k3), 10, 15));
+    w.refuse(CARA, 1, "E_STALE_REVIEW: the key", |b| b.revoke_key_guarded(1, 1, U64(reg), 1, pk(&k2)));
+    assert_eq!((w.ent(CARA).key_states[1], w.ent(CARA).keys[1].public_key.clone()), (1, pk(&k3)), "k3 stays active");
+    let (mut w, _, k2, reg) = two_keys();
+    // Here the replacement was installed by revoking with the legacy method elsewhere.
+    w.call(CARA, 1, |b| b.revoke_key(1, 1));
+    w.call(CARA, 1, |b| b.install_key(1, 1, pk(&k3), 10, 15));
+    w.refuse(CARA, 1, "E_STALE_REVIEW", |b| b.revoke_key_guarded(1, 1, U64(reg), 3, pk(&k2)));
+    w.refuse(CARA, 1, "E_KEY", |b| b.revoke_key_guarded(1, 2, U64(reg), 1, pk(&k2)));
+    let e = w.ent(CARA);
+    assert_eq!((e.key_states[1], e.key_epochs[1], e.keys[1].public_key.clone()), (1, 3, pk(&k3)), "k3 stays active");
+    // A review of k3 itself (epoch 3) revokes it.
+    w.call(CARA, 1, |b| b.revoke_key_guarded(1, 1, U64(reg), 3, pk(&k3)));
+    assert_eq!((w.ent(CARA).key_states[1], w.ent(CARA).key_epochs[1]), (2, 4));
+    assert_eq!(w.b.get_key_terms(), KeyTermsView { version: 1, guarded_revoke: true });
+}
+
+#[test]
+fn s04d_guarded_revocation_refuses_every_stale_or_invalid_request_and_changes_nothing() {
+    let (mut w, k, k2, reg) = two_keys();
+    // The same public key reinstalled at a later epoch is a different key to revoke.
+    w.call(CARA, 1, |b| b.revoke_key_guarded(1, 1, U64(reg), 1, pk(&k2)));
+    w.call(CARA, 1, |b| b.install_key(1, 1, pk(&k2), 10, 15));
+    assert_eq!(w.ent(CARA).key_epochs[1], 3);
+    w.refuse(CARA, 1, "E_STALE_REVIEW: the key", |b| b.revoke_key_guarded(1, 1, U64(reg), 1, pk(&k2)));
+    // Another key named at the right epoch.
+    w.refuse(CARA, 1, "E_STALE_REVIEW: the key", |b| b.revoke_key_guarded(1, 1, U64(reg), 3, pk(&k)));
+    // Authority, deposit, slot and key shape.
+    w.refuse(SPONSOR, 1, "E_NOT_CUSTOMER", |b| b.revoke_key_guarded(1, 1, U64(reg), 3, pk(&k2)));
+    w.refuse(STRANGER, 1, "E_NOT_CUSTOMER", |b| b.revoke_key_guarded(1, 1, U64(reg), 3, pk(&k2)));
+    w.refuse(CARA, 0, "E_DEPOSIT", |b| b.revoke_key_guarded(1, 1, U64(reg), 3, pk(&k2)));
+    w.refuse(CARA, 2, "E_DEPOSIT", |b| b.revoke_key_guarded(1, 1, U64(reg), 3, pk(&k2)));
+    w.refuse(CARA, 1, "E_ARGS: key slot", |b| b.revoke_key_guarded(1, 4, U64(reg), 3, pk(&k2)));
+    w.refuse(CARA, 1, "E_ARGS: public key", |b| b.revoke_key_guarded(1, 1, U64(reg), 3, "zz".into()));
+    w.refuse(CARA, 1, "E_ARGS: public key", |b| b.revoke_key_guarded(1, 1, U64(reg), 3, "ab".repeat(33)));
+    // An empty slot.
+    w.refuse(CARA, 1, "E_KEY", |b| b.revoke_key_guarded(1, 2, U64(reg), 0, "00".repeat(32)));
+    // Success, then the same request again (a replay).
+    w.call(CARA, 1, |b| b.revoke_key_guarded(1, 1, U64(reg), 3, pk(&k2)));
+    w.refuse(CARA, 1, "E_KEY", |b| b.revoke_key_guarded(1, 1, U64(reg), 3, pk(&k2)));
+    // Overflow: an active key at the last epoch can't be revoked (and nothing changes).
+    let mut e = *w.b.entitlements.get(&(id(CARA), 1)).unwrap();
+    e.keys[2] = KeySlot { state: 1, epoch: u32::MAX, ..e.keys[0] };
+    w.b.entitlements.insert((id(CARA), 1), e);
+    w.refuse(CARA, 1, "E_OVERFLOW", |b| b.revoke_key_guarded(1, 2, U64(reg), u32::MAX, pk(&k)));
+    // The legacy method has the same bound.
+    w.refuse(CARA, 1, "E_OVERFLOW", |b| b.revoke_key(1, 2));
+}
+
+#[test]
+fn s04e_a_new_registration_reusing_the_slot_and_epoch_refuses_the_old_review() {
+    let (mut w, k) = happy();
+    let old_reg = w.ent(CARA).reg_id.0;
+    let (slot, pid) = w.refund(CARA, 80);
+    assert!(w.callback(slot, pid, true));
+    w.call(CARA, 1, |b| b.unregister(id(CARA), 1));
+    let reg = w.shell(CARA, CARA);
+    assert_eq!(w.buy(CARA, 10, 1, Some((0, &k))), 0);
+    // Slot 0, epoch 1 and the same public key again: only the registration differs.
+    let e = w.ent(CARA);
+    assert_eq!((e.key_states[0], e.key_epochs[0], e.keys[0].public_key.clone()), (1, 1, pk(&k)));
+    w.refuse(CARA, 1, "E_STALE_REVIEW: the registration", |b| {
+        b.revoke_key_guarded(1, 0, U64(old_reg), 1, pk(&k))
+    });
+    w.call(CARA, 1, |b| b.revoke_key_guarded(1, 0, U64(reg), 1, pk(&k)));
+    assert_eq!(w.ent(CARA).key_states[0], 2);
+}
+
+#[test]
+fn s04f_a_guarded_revoke_stops_serving_now_and_signed_uses_still_settle() {
+    let (mut w, _, k2, reg) = two_keys();
+    let (a, s) = w.auth(CARA, &k2, reg, 3, 8, w.now + 20 * MIN, 1, 1);
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+    let u = w.use_with(CARA, &k2, reg, 1, 1, 3, 0, fp(3, 0, 0));
+    let before = w.ent(CARA);
+    w.now += MIN;
+    w.call(CARA, 1, |b| b.revoke_key_guarded(1, 1, U64(reg), 1, pk(&k2)));
+    let e = w.ent(CARA);
+    assert_eq!(e.serve_until_ms.0, w.now, "serving stops now");
+    assert_eq!(e.settle_until_ms, before.settle_until_ms, "the settlement deadline is unchanged");
+    assert_eq!((e.key_states[1], e.key_epochs[1]), (2, 2));
+    assert_eq!((e.key_states[0], e.key_epochs[0]), (before.key_states[0], before.key_epochs[0]), "slot 0 untouched");
+    assert_eq!((e.free, e.consumed, e.purchased, e.hold_units), (before.free, before.consumed, before.purchased, before.hold_units));
+    let logs = near_sdk::test_utils::get_logs();
+    assert!(logs.iter().any(|l| l.contains("\"key_revoked\"") && l.contains("\"epoch\":2") && l.contains(&format!("\"reg_id\":\"{reg}\""))), "{logs:?}");
+    // The use signed before the revocation still settles; the hold's unused units come back.
+    w.now += 5 * MIN;
+    all(&w.settle(CARA, 3, vec![u], true), "charged", 1);
+    let e = w.ent(CARA);
+    assert_eq!((e.free.0, e.consumed.0), (79, 21));
+    // The revoked key can't open another hold.
+    let (a, s) = w.auth(CARA, &k2, reg, 4, 1, w.now + 20 * MIN, 1, 2);
+    w.refuse(METER, 0, "E_KEY", |b| b.open_hold(id(CARA), 1, a, s));
+}
+
+#[test]
+fn guarded_revoke_matches_server_fixture() {
+    // One scripted history, every step recorded with its outcome and the key slots after it, for
+    // the server's double (applyKeyCall) to replay exactly.
+    let (mut w, _, k2, reg) = two_keys();
+    let (a, s) = w.auth(CARA, &k2, reg, 3, 8, w.now + 20 * MIN, 1, 1);
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
+    let start = serde_json::to_value(w.ent(CARA)).unwrap();
+    let k3 = key(3);
+    #[allow(clippy::type_complexity)]
+    let steps: Vec<(&str, &str, serde_json::Value, u128, Option<&str>)> = vec![
+        ("stale registration", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 1, "reg_id": (reg + 1).to_string(), "epoch": 1, "pk": pk(&k2) }), 1, Some("E_STALE_REVIEW")),
+        ("stale epoch", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 1, "reg_id": reg.to_string(), "epoch": 2, "pk": pk(&k2) }), 1, Some("E_STALE_REVIEW")),
+        ("another key", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 1, "reg_id": reg.to_string(), "epoch": 1, "pk": pk(&k3) }), 1, Some("E_STALE_REVIEW")),
+        ("empty slot", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 2, "reg_id": reg.to_string(), "epoch": 0, "pk": "00".repeat(32) }), 1, Some("E_KEY")),
+        ("slot out of range", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 4, "reg_id": reg.to_string(), "epoch": 1, "pk": pk(&k2) }), 1, Some("E_ARGS")),
+        ("malformed key", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 1, "reg_id": reg.to_string(), "epoch": 1, "pk": "zz" }), 1, Some("E_ARGS")),
+        ("no deposit", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 1, "reg_id": reg.to_string(), "epoch": 1, "pk": pk(&k2) }), 0, Some("E_DEPOSIT")),
+        ("the reviewed key", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 1, "reg_id": reg.to_string(), "epoch": 1, "pk": pk(&k2) }), 1, None),
+        ("replay", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 1, "reg_id": reg.to_string(), "epoch": 1, "pk": pk(&k2) }), 1, Some("E_KEY")),
+        ("a replacement", "install_key", serde_json::json!({ "plan_id": 1, "slot": 1, "pk": pk(&k3), "max_hold_units": 10, "max_units_per_day": 15 }), 1, None),
+        ("the old review again", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 1, "reg_id": reg.to_string(), "epoch": 1, "pk": pk(&k2) }), 1, Some("E_STALE_REVIEW")),
+        ("the replacement reviewed", "revoke_key_guarded", serde_json::json!({ "plan_id": 1, "slot": 1, "reg_id": reg.to_string(), "epoch": 3, "pk": pk(&k3) }), 1, None),
+    ];
+    let mut out = vec![];
+    for (name, method, args, deposit, code) in steps {
+        let a = args.clone();
+        let run = move |b: &mut Business| {
+            let s = |k: &str| a[k].as_str().unwrap().to_string();
+            let n = |k: &str| a[k].as_u64().unwrap();
+            if method == "install_key" {
+                b.install_key(1, n("slot") as u8, s("pk"), n("max_hold_units") as u8, n("max_units_per_day") as u16)
+            } else {
+                b.revoke_key_guarded(1, n("slot") as u8, U64(s("reg_id").parse().unwrap()), n("epoch") as u32, s("pk"))
+            }
+        };
+        match code {
+            Some(c) => w.refuse(CARA, deposit, c, run),
+            None => w.call(CARA, deposit, run),
+        }
+        let e = w.ent(CARA);
+        out.push(serde_json::json!({
+            "case": name, "method": method, "args": args, "deposit": deposit.to_string(),
+            "refused": code, "keys": serde_json::to_value(&e.keys).unwrap(), "serve_until_ms": e.serve_until_ms,
+        }));
+    }
+    let doc = serde_json::json!({
+        "note": "Produced by contracts/business-v3 tests.rs guarded_revoke_matches_server_fixture (job 003wec). Test-world accounts and keys only.",
+        "customer": CARA, "now_ms": w.now.to_string(), "start": start, "steps": out,
+    });
+    let actual = serde_json::to_string_pretty(&doc).unwrap() + "\n";
+    fixture("guarded-revoke", include_str!("../../../server/test/fixtures/v3/guarded-revoke.json"), actual);
 }

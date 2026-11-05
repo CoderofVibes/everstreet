@@ -654,6 +654,16 @@ pub struct Buy {
     pub reg_id: Option<U64>,
 }
 
+/// 003wec: the device-key capabilities of THIS code (a client must not assume them).
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeyTermsView {
+    /// The key-management capability version (1: guarded revocation).
+    pub version: u32,
+    /// `revoke_key_guarded` exists: it revokes only the reviewed registration, epoch and key.
+    pub guarded_revoke: bool,
+}
+
 /// 003web: what a client needs to prepare a fresh customer's purchase against THIS code.
 #[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq)]
@@ -1397,20 +1407,51 @@ impl Business {
 
     /// Revokes a use-key. If it authorized the active hold, that hold stops serving now; uses
     /// already signed stay settleable until the hold's settle deadline.
+    ///
+    /// UNGUARDED (003wec): it revokes whichever key is active in the slot when it runs, so a
+    /// request reviewed for one key can revoke a replacement installed meanwhile. Kept for
+    /// existing callers; clients should use `revoke_key_guarded` (see `get_key_terms`).
     #[payable]
     pub fn revoke_key(&mut self, plan_id: u32, slot: u8) {
         assert_one_yocto();
         let (key, mut e) = self.own_entitlement(plan_id);
         require!((slot as usize) < KEY_SLOTS, "E_ARGS: key slot 0-3");
         require!(e.keys[slot as usize].state == KEY_ACTIVE, "E_KEY: that key is not active");
-        e.keys[slot as usize].epoch =
-            e.keys[slot as usize].epoch.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: key epoch"));
-        e.keys[slot as usize].state = KEY_REVOKED;
+        Self::revoke_slot(&mut e, slot);
+        self.entitlements.insert(key, e);
+        emit("key_revoked", serde_json::json!({ "plan_id": plan_id, "slot": slot }));
+    }
+
+    /// 003wec: revokes the key in `slot` only if it is still exactly the one reviewed: this
+    /// registration, this epoch and this public key. Everything is checked before any change; a
+    /// stale or invalid request changes nothing. Then the same effect as `revoke_key`.
+    #[payable]
+    pub fn revoke_key_guarded(&mut self, plan_id: u32, slot: u8, reg_id: U64, epoch: u32, pk: String) {
+        assert_one_yocto();
+        let (key, mut e) = self.own_entitlement(plan_id);
+        require!((slot as usize) < KEY_SLOTS, "E_ARGS: key slot 0-3");
+        let pk = hex32(&pk).unwrap_or_else(|| env::panic_str("E_ARGS: public key is 64 hex characters"));
+        require!(e.reg_id == reg_id.0, "E_STALE_REVIEW: the registration changed since this was reviewed");
+        let k = e.keys[slot as usize];
+        require!(k.state == KEY_ACTIVE, "E_KEY: that key is not active");
+        require!(k.epoch == epoch && k.pk == pk, "E_STALE_REVIEW: the key in this slot changed since this was reviewed");
+        Self::revoke_slot(&mut e, slot);
+        self.entitlements.insert(key, e);
+        emit(
+            "key_revoked",
+            serde_json::json!({ "plan_id": plan_id, "slot": slot, "reg_id": reg_id, "epoch": e.keys[slot as usize].epoch }),
+        );
+    }
+
+    /// The one revocation step: the slot's epoch rises (checked), it becomes revoked, and an
+    /// active hold it opened stops serving now (its signed uses still settle until its deadline).
+    fn revoke_slot(e: &mut Entitlement, slot: u8) {
+        let k = &mut e.keys[slot as usize];
+        k.epoch = k.epoch.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: key epoch"));
+        k.state = KEY_REVOKED;
         if e.hold.active && e.hold.key_slot == slot {
             e.hold.serve_until_ms = e.hold.serve_until_ms.min(now_ms());
         }
-        self.entitlements.insert(key, e);
-        emit("key_revoked", serde_json::json!({ "plan_id": plan_id, "slot": slot }));
     }
 
     /// Burns the next hold sequence, invalidating a signed but unsubmitted HoldAuth.
@@ -2049,6 +2090,11 @@ impl Business {
             storage_byte_cost: U128(env::storage_byte_cost().as_yoctonear()),
             binds_registration: true,
         }
+    }
+
+    /// 003wec: the device-key capabilities of this code (see KeyTermsView).
+    pub fn get_key_terms(&self) -> KeyTermsView {
+        KeyTermsView { version: 1, guarded_revoke: true }
     }
 
     pub fn get_plan(&self, plan_id: u32) -> Option<Plan> {
