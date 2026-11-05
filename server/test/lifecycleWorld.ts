@@ -31,7 +31,7 @@ import { verifiesEd25519 } from "../src/customerSigning.ts";
 import { base58Encode } from "../src/customerWriter.ts";
 import { nep413Digest } from "../src/identity.ts";
 import { AnthropicRuntime } from "../src/runtime.ts";
-import { CUSTOMER, customerWorld, type FixtureChain, type Json, TOKEN } from "./customer-world.ts";
+import { CUSTOMER, customerWorld, FixtureChain, type Json, TOKEN } from "./customer-world.ts";
 import { correct, INVOICE_SPEC } from "./runtime-world.ts";
 
 export const RPC = "https://synthetic-testnet-rpc.example";
@@ -199,6 +199,17 @@ export class SyntheticModel {
   }
 }
 
+/** Job 003wf3: the method a JSON-RPC send_tx request body calls (null if it isn't one). */
+export function sendMethodOf(rawBody: string): string | null {
+  try {
+    const j = JSON.parse(rawBody) as { method?: string; params?: { signed_tx_base64?: string } };
+    if (j.method !== "send_tx") return null;
+    return decodeSigned(String(j.params?.signed_tx_base64)).method;
+  } catch {
+    return null;
+  }
+}
+
 /** NEAR's signed transaction, read independently of the writer: every envelope field kept. */
 function decodeSigned(b64: string) {
   const b = Buffer.from(b64, "base64");
@@ -282,7 +293,14 @@ export class SyntheticRpc {
   readonly permissions = new Map<string, Json>();
   readonly outcomes = new Map<string, Json>();
   /** Every distinct signed transaction applied (method, args). */
-  readonly applied: { method: string; args: Json }[] = [];
+  readonly applied: { method: string; args: Json; receiver?: string }[] = [];
+  /**
+   * Job 003wf3 (P-4): further business contracts on the SAME network: one block sequence and
+   * clock (the primary's), one access-key nonce map, one transaction-outcome map and one token
+   * ledger; views route by account and transactions by receiver, each to its own contract state.
+   */
+  readonly others: FixtureChain[] = [];
+  private otherSnapshots = new Map<FixtureChain, Map<number, Json>>();
   /** send_tx arrivals, including repeats of the same transaction. */
   sends = 0;
   private hashes = new Map<string, number>();
@@ -307,9 +325,8 @@ export class SyntheticRpc {
   private loseSendMethod: string | null = null;
   constructor(readonly chain: FixtureChain) {}
 
-  private snapshot(height: number) {
-    const c = this.chain;
-    this.snapshots.set(height, {
+  private stateOf(c: FixtureChain): Json {
+    return {
       control: structuredClone(c.control),
       treasury: structuredClone(c.treasury),
       plan: structuredClone(c.plan),
@@ -318,8 +335,37 @@ export class SyntheticRpc {
       sale: c.sale ? c.sale.fork() : null,
       balances: new Map(c.balances),
       tokenRegistered: new Set(c.tokenRegistered),
-    });
+    };
+  }
+
+  private snapshot(height: number) {
+    this.snapshots.set(height, this.stateOf(this.chain));
     for (const h of [...this.snapshots.keys()]) if (h < height - 64) this.snapshots.delete(h);
+    for (const o of this.others) {
+      const m = this.otherSnapshots.get(o) ?? new Map<number, Json>();
+      this.otherSnapshots.set(o, m);
+      m.set(height, this.stateOf(o));
+      for (const h of [...m.keys()]) if (h < height - 64) m.delete(h);
+    }
+  }
+
+  /** Job 003wf3 (P-4): another business contract on this network (shares the token ledger). */
+  addChain(c: FixtureChain) {
+    c.balances = this.chain.balances;
+    c.tokenRegistered = this.chain.tokenRegistered;
+    this.others.push(c);
+    this.align();
+  }
+
+  /** Every other contract's clock follows the network's (the primary's), only forward. */
+  private align() {
+    for (const o of this.others) if (o.ts < this.chain.ts) o.tick(this.chain.ts - o.ts);
+  }
+
+  /** The contract a view or a transaction names, or null (no such account here). */
+  private contractFor(account: string): FixtureChain | null {
+    if (account === this.chain.business) return this.chain;
+    return this.others.find((o) => o.business === account) ?? null;
   }
 
   /**
@@ -368,6 +414,7 @@ export class SyntheticRpc {
   private sync() {
     const d = BigInt(Date.now()) - this.chain.ts;
     if (d > 0n) this.chain.tick(d);
+    this.align();
   }
 
   async answer(raw: string): Promise<string> {
@@ -380,6 +427,7 @@ export class SyntheticRpc {
         error: { name: "HANDLER_ERROR", cause: { name, info } },
       });
     const p = req.params;
+    this.align();
     if (req.method === "block") {
       this.sync();
       this.snapshot(this.chain.height);
@@ -404,17 +452,23 @@ export class SyntheticRpc {
     if (req.method === "query" && p.request_type === "call_function") {
       // Only the one contract this double models and (job 003wf2) its token; any other account
       // doesn't exist here.
-      if (p.account_id !== this.chain.business && p.account_id !== TOKEN)
-        return fail("UNKNOWN_ACCOUNT");
+      const account = String(p.account_id);
+      const c = account === TOKEN ? this.chain : this.contractFor(account);
+      if (!c) return fail("UNKNOWN_ACCOUNT");
       const height = this.hashes.get(String(p.block_id));
-      const snap = height === undefined ? undefined : this.snapshots.get(height);
+      const snap =
+        height === undefined
+          ? undefined
+          : c === this.chain
+            ? this.snapshots.get(height)
+            : this.otherSnapshots.get(c)?.get(height);
       if (height === undefined || !snap) return fail("UNKNOWN_BLOCK");
       const args = JSON.parse(Buffer.from(String(p.args_base64), "base64").toString("utf8"));
       // The double's own view rules, over the state as it was at that block.
-      const then = Object.assign(Object.create(this.chain) as FixtureChain, snap);
+      const then = Object.assign(Object.create(c) as FixtureChain, snap);
       let text: string;
       try {
-        text = this.chain.answer.call(then, String(p.method_name), args);
+        text = c.answer.call(then, String(p.method_name), args);
       } catch {
         return ok({ error: "synthetic: no such view", logs: [] });
       }
@@ -489,8 +543,10 @@ export class SyntheticRpc {
       !this.hashes.has(base58Encode(t.blockHash))
     )
       return fail("INVALID_TRANSACTION", { InvalidTxError: "UnsupportedByThisDouble" });
-    const closing = t.method === "close_sale" && this.chain.sale !== null;
-    if (t.receiver !== this.chain.business || (!METHODS.has(t.method) && !closing))
+    const target = this.contractFor(t.receiver);
+    const closing =
+      t.method === "close_sale" && target?.sale !== null && target?.sale !== undefined;
+    if (!target || (!METHODS.has(t.method) && !closing))
       return fail("INVALID_TRANSACTION", { InvalidTxError: "UnknownReceiverOrMethod" });
     const hash = base58Encode(createHash("sha256").update(t.txBytes).digest());
     const seen = this.outcomes.get(hash);
@@ -520,19 +576,26 @@ export class SyntheticRpc {
       const a = t.args;
       if (t.method === "close_sale") {
         // Job 003wf3: the closer's signed order, by the sale double's own rules (lib.rs order).
-        const sale = this.chain.sale as NonNullable<typeof this.chain.sale>;
-        sale.now = this.chain.ts;
+        const sale = target.sale as NonNullable<typeof target.sale>;
+        sale.now = target.ts;
         const r = sale.applySigned(t.signer, "close_sale", a);
         if (!r.ok) throw Object.assign(new Error(r.error), { code: r.error.split(":")[0] });
         // A change lands in a new block (as every chain write here): never the same block hash
         // with other state.
         this.chain.tick(1_000n);
+        this.align();
       } else if (t.method === "open_hold")
-        this.chain.openHold(t.signer, a.customer, a.auth, a.sig, verifiesEd25519);
+        target.openHold(t.signer, a.customer, a.auth, a.sig, verifiesEd25519);
       else if (t.method === "settle_hold")
-        this.chain.settleHold(t.signer, a.customer, a.hold_seq, a.uses, a.close, verifiesEd25519);
-      else this.chain.releaseHoldFor(t.signer, a.customer, a.reg_id, a.hold_seq);
-      this.applied.push({ method: t.method, args: a });
+        target.settleHold(t.signer, a.customer, a.hold_seq, a.uses, a.close, verifiesEd25519);
+      else target.releaseHoldFor(t.signer, a.customer, a.reg_id, a.hold_seq);
+      // P-4: a write to another contract lands in a new NETWORK block too (the primary's sequence
+      // is the network's), so a block id never shows two different states of that contract.
+      if (target !== this.chain) {
+        this.chain.tick(1_000n);
+        this.align();
+      }
+      this.applied.push({ method: t.method, args: a, receiver: t.receiver });
       status = { SuccessValue: "" };
     } catch (e) {
       const code = (e as { code?: string }).code;
@@ -563,7 +626,16 @@ export class SyntheticRpc {
  * model, the customer offer, Cara's person bound to her fictional account), files and a config.
  * Customer use, reservation, execution and settlement then happen in the child processes.
  */
-export async function bootstrap(dir: string, port: number, maintenance: Json) {
+/** Job 003wf3 (P-4): the second business's contract account and its founder's account. */
+export const BIZ2 = "second-synthetic.testnet";
+export const FOUNDER2 = "ben-founder.near";
+
+export async function bootstrap(
+  dir: string,
+  port: number,
+  maintenance: Json,
+  opts: { second?: boolean } = {},
+) {
   const db = join(dir, "everstreet.db");
   const root = join(dir, "protected");
   mkdirSync(root, { recursive: true });
@@ -599,6 +671,32 @@ export async function bootstrap(dir: string, port: number, maintenance: Json) {
     ),
   });
   const offer = await w.offer();
+  // Job 003wf3 (P-4): a second founder's business on the SAME database, with its own project,
+  // budgets and release (evaluated on the same runtime identity), its own contract (Cara's
+  // prepaid entitlement there too, the platform's metering grant) and its own binding. Its
+  // customer offer is made later through the configured composition's own routes.
+  let second: null | {
+    founder: Awaited<ReturnType<typeof w.rw.founder>>;
+    chain: FixtureChain;
+    release: string;
+  } = null;
+  if (opts.second) {
+    const founder = await w.rw.founder("Ben Okoro");
+    await w.rw.release(founder);
+    const rel = w.rw.store.db
+      .prepare("SELECT id FROM runtime_releases WHERE project_id = ? AND state = 'active'")
+      .get(founder.project) as { id: string };
+    const chain2 = new FixtureChain();
+    chain2.business = BIZ2;
+    chain2.control = { ...chain2.control, operators: [[OP, 1, chain2.control.generation]] };
+    chain2.tick(BigInt(Date.now()) - chain2.ts);
+    w.state.store.db
+      .prepare(
+        "INSERT INTO person_accounts (account_id, person_id, network, created_at) VALUES (?, ?, 'testnet', ?) ON CONFLICT DO NOTHING",
+      )
+      .run(FOUNDER2, founder.ava.id, new Date().toISOString());
+    second = { founder, chain: chain2, release: rel.id };
+  }
   // The chain double appoints the platform's configured metering account; it follows real time.
   w.chain.control = { ...w.chain.control, operators: [[OP, 1, w.chain.control.generation]] };
   w.chain.tick(BigInt(Date.now()) - w.chain.ts);
@@ -615,6 +713,7 @@ export async function bootstrap(dir: string, port: number, maintenance: Json) {
     .run(FOUNDER, w.f.ava.id, new Date().toISOString());
   w.rw.store.db.close();
   const rpc = new SyntheticRpc(w.chain);
+  if (second) rpc.addChain(second.chain);
   rpc.keys.set(`${OP}|${op.id}`, 0n);
   const cara = nearKey();
   rpc.keys.set(`${CUSTOMER}|${cara.id}`, 0n);
@@ -629,7 +728,12 @@ export async function bootstrap(dir: string, port: number, maintenance: Json) {
     database: db,
     sign_in: { recipient: "everstreet.local", session_hours: 1 },
     rpc: { endpoint: RPC },
-    v3: { bindings: [{ business_id: w.f.business, account: BIZ }] },
+    v3: {
+      bindings: [
+        { business_id: w.f.business, account: BIZ },
+        ...(second ? [{ business_id: second.founder.business, account: BIZ2 }] : []),
+      ],
+    },
     customer: { operator_account: OP, writer: { key_file: writerKey } },
     protected_storage: { root, active_key_id: "k1", keys_file: protectedKeys },
     model: { ai_config_file: aiFile, api_key_env: API_KEY_ENV },
@@ -637,7 +741,10 @@ export async function bootstrap(dir: string, port: number, maintenance: Json) {
   };
   const configFile = join(dir, "config.json");
   writeFileSync(configFile, JSON.stringify(config));
-  return { w, offer, rpc, model, cara, ava, configFile, config, db, sign };
+  // The second founder signs in with their own ephemeral key.
+  const ben = nearKey();
+  if (second) rpc.keys.set(`${FOUNDER2}|${ben.id}`, 0n);
+  return { w, offer, rpc, model, cara, ava, configFile, config, db, sign, second, ben };
 }
 
 /**

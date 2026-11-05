@@ -19,12 +19,16 @@ import { CUSTOMER, type Json } from "./customer-world.ts";
 import { BUYER, PRICE, prepareHandover } from "./handoverWorld.ts";
 import {
   API_KEY_ENV,
+  BIZ,
+  BIZ2,
   bootstrap,
   FICTIONAL_KEY,
   FOUNDER,
+  FOUNDER2,
   OP,
   type SyntheticModel,
   type SyntheticRpc,
+  sendMethodOf,
   signInAs,
 } from "./lifecycleWorld.ts";
 
@@ -162,19 +166,24 @@ function browser(port: number) {
   };
 }
 
-async function installation(o: { model?: boolean } = {}) {
+async function installation(o: { model?: boolean; second?: boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "handover-matrix-"));
   cleanups.push(() =>
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   );
   const [portA, portB] = [await freePort(), await freePort()];
-  const b = await bootstrap(dir, portA, {
-    interval_ms: 1_000,
-    batch: 5,
-    pass_budget_ms: 3_000,
-    op_deadline_ms: 2_000,
-    stop_timeout_ms: 5_000,
-  });
+  const b = await bootstrap(
+    dir,
+    portA,
+    {
+      interval_ms: 1_000,
+      batch: 5,
+      pass_budget_ms: 3_000,
+      op_deadline_ms: 2_000,
+      stop_timeout_ms: 5_000,
+    },
+    { second: o.second },
+  );
   const prep = prepareHandover(b, dir, {
     handover: { interval_ms: 1_000, pass_budget_ms: 1_000, op_deadline_ms: 800 },
   });
@@ -616,4 +625,104 @@ describe("003wf3 the configured build worker across the handover (actual child p
     });
     expect(await a.shutdown()).toBe(0);
   }, 180_000);
+});
+
+describe("003wf3 P-4: a second genuinely bound business serves its customers through the first's handover", () => {
+  it("while business 1 is gated (its close held), business 2's offer is made, Cara's use there is reserved, run, delivered and settled on business 2's contract, and its founder's edit takes effect; then business 1 closes", async () => {
+    const i = await installation({ second: true });
+    const second = i.second as NonNullable<Installation["second"]>;
+    const ctlA: Control = {};
+    const a = child(i.fileA, i.rpc, i.model, ctlA);
+    await a.ready();
+    // Business 2's founder makes its customer offer through the composition's own routes.
+    const ben = browser(i.portA);
+    await signInAs(ben, FOUNDER2, i.ben);
+    const biz2 = second.founder.business;
+    const insp = await ben(`/api/businesses/${biz2}/customer-offer-inspections`, "POST", {
+      release_id: second.release,
+      plan_id: 1,
+      retention_days: 30,
+    });
+    expect(insp.status, JSON.stringify(insp.body).slice(0, 400)).toBe(200);
+    const made = await ben(`/api/businesses/${biz2}/customer-offers`, "POST", {
+      idempotency_key: "matrix-offer2-0001",
+      release_id: second.release,
+      plan_id: 1,
+      retention_days: 30,
+      reviewed_terms: insp.body.inspection.terms_digest,
+    });
+    expect([200, 201], JSON.stringify(made.body).slice(0, 400)).toContain(made.status);
+    const offer2 = made.body.offer.id as string;
+    // Business 1 reaches its closing; its close transaction is held before it lands.
+    const { seller, cara } = await upToTheSellersAcceptance(i, i.portA);
+    ctlA.cut = (r) =>
+      r.channel === "rpc" && sendMethodOf(r.body) === "close_sale" ? "defer" : "answer";
+    const x = await act(i, seller, FOUNDER, "accept");
+    await seller(`/api/sales/actions/${x.id}/requested`, "POST", { tx_hash: x.hash });
+    await until(
+      () => (ctlA.deferred?.length ?? 0) > 0,
+      "business 1's close held at its send",
+      60_000,
+    );
+    expect(
+      i.read("SELECT state FROM business_handovers WHERE business_id = ?", i.biz)[0]?.state,
+    ).toMatch(/^(ordering|outcome_unknown)$/);
+    // Business 2, meanwhile: a full customer use on its own contract.
+    const p = await cara(`/api/customer/offers/${offer2}/prepare`, "POST", {
+      idempotency_key: "matrix-use2-0001",
+      input: INVOICE,
+    });
+    expect(p.status, JSON.stringify(p.body).slice(0, 400)).toBe(201);
+    const c = await cara(
+      `/api/customer/uses/${p.body.use.id}/confirm`,
+      "POST",
+      i.w.signed(p.body.use.envelope),
+    );
+    expect(c.body.use?.state, JSON.stringify(c.body).slice(0, 400)).toBe("reserved");
+    const run = await cara(`/api/customer/uses/${p.body.use.id}/execute`, "POST", {});
+    expect(run.body.use?.execution?.fulfilled, JSON.stringify(run.body).slice(0, 400)).toBe(true);
+    const on2 = (m: string) =>
+      i.rpc.applied.filter((y) => y.receiver === BIZ2 && y.method === m).length;
+    await until(() => on2("settle_hold") === 1, "business 2's use settled (maintenance)", 30_000);
+    expect(on2("open_hold")).toBe(1);
+    expect(on2("release_hold_for")).toBe(0);
+    expect((await cara(`/api/customer/uses/${p.body.use.id}/result`)).status).toBe(200);
+    // Its founder's edit takes effect while business 1 is still changing hands.
+    const renamed = await ben(`/api/businesses/${biz2}`, "PATCH", {
+      name: "Second business, live",
+    });
+    expect(renamed.status, JSON.stringify(renamed.body)).toBe(200);
+    expect(i.read("SELECT name FROM businesses WHERE id = ?", biz2)[0]?.name).toBe(
+      "Second business, live",
+    );
+    expect(
+      i.read("SELECT state FROM business_handovers WHERE business_id = ?", i.biz)[0]?.state,
+    ).not.toBe("released_to_buyer");
+    expect(i.read("SELECT 1 FROM business_handovers WHERE business_id = ?", biz2)).toHaveLength(0);
+    // Business 1's close goes on; one close, on business 1's contract only.
+    for (const go of ctlA.deferred ?? []) go();
+    ctlA.cut = undefined;
+    await until(
+      () =>
+        i.read("SELECT state FROM business_handovers WHERE business_id = ?", i.biz)[0]?.state ===
+        "released_to_buyer",
+      "business 1 handed over",
+      60_000,
+    );
+    const closes = i.rpc.applied.filter((y) => y.method === "close_sale");
+    expect(closes.map((y) => y.receiver)).toEqual([BIZ]);
+    // Business 1's own reserved use was returned once, never charged; business 2's charged once.
+    expect(
+      i.rpc.applied.filter((y) => y.receiver === BIZ && y.method === "release_hold_for"),
+    ).toHaveLength(1);
+    expect(
+      i.rpc.applied.filter((y) => y.receiver === BIZ && y.method === "settle_hold"),
+    ).toHaveLength(0);
+    expect(on2("settle_hold")).toBe(1);
+    // One network: the metering account's single nonce sequence covered both contracts.
+    const opKey = [...i.rpc.keys.keys()].find((k) => k.startsWith(`${OP}|`)) as string;
+    const opSent = i.rpc.applied.filter((y) => y.method !== "close_sale").length;
+    expect(Number(i.rpc.keys.get(opKey))).toBeGreaterThanOrEqual(opSent);
+    expect(await a.shutdown()).toBe(0);
+  }, 240_000);
 });
