@@ -1,9 +1,10 @@
 # One configured business from creation through customer use and acquisition
 
-**Queued, not dispatched.** After 003we's required wallet/customer authorization slices are
-reviewed. P0/L; subdivide into bounded implementation jobs as necessary, retaining every gate.
-Registered in JOBS after 003we's 7f6fc0b handoff. Do not start before 003wea and the remaining
-fresh-customer child are accepted, or while another writer is active.
+**Parent partial;003wf1 lifecycle child dispatched November4 after67009bd.** P0/L; retain every
+gate below. See GuardedRevokeSourceVerified for source/keyless acceptance and explicit sequencing:
+independent lifecycle work proceeds while003web/003wec browser submissions await permission.
+Those gates remain open and must pass before full parent acceptance. Other children require
+explicit bounded dispatch, with no duplicate writer.
 
 **Why (Tony's words):** "One key function of Everstreet is the seamless purchase and transfer of
 business/product to the investor/acquirer, on NEAR. So, that has to stay central to this as well."

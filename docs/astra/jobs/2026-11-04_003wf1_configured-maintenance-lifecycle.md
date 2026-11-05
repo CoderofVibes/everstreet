@@ -1,7 +1,7 @@
 # Configured customer maintenance and provider transport lifecycle
 
-**Prepared, not dispatched.** First bounded implementation child of003wf. Wait for Astra's
-explicit dispatch after the sole003wec writer has stopped and its source corrections are verified.
+**Dispatched November4 after67009bd.** First bounded implementation child of003wf. See
+GuardedRevokeSourceVerified: prior sole writer stopped, source/keyless corrections verified.
 003web/003wec browser permission gates remain open and are not waived by this independent work.
 The parent003wf remains partial until every one of its seven evidence groups passes.
 
