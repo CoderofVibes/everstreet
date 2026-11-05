@@ -66,7 +66,7 @@ export class AgentAccess {
     const offer = this.db
       .prepare("SELECT id, state FROM customer_offers WHERE id = ?")
       .get(offerId) as { id: string; state: string } | undefined;
-    if (!offer || offer.state !== "active") throw new HttpError(404, "No such active offer");
+    if (offer?.state !== "active") throw new HttpError(404, "No such active offer");
     const slot = Number(input.key_slot);
     if (!Number.isInteger(slot) || slot < 0 || slot > 3)
       throw new HttpError(400, "Choose the key slot installed for the agent (0 to 3)");

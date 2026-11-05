@@ -124,7 +124,10 @@ describe("006b agent access", () => {
 
   it("refuses before dispatch: used-up, revoked, expired-looking tokens, another customer's use; never raises limits", async () => {
     const { w, cara, grant, agent, rpc } = await world(1);
-    const first = await agent("/api/agent/v1/uses", "POST", { idempotency_key: "agent-cap-0001", input: INVOICE });
+    const first = await agent("/api/agent/v1/uses", "POST", {
+      idempotency_key: "agent-cap-0001",
+      input: INVOICE,
+    });
     expect(first.status, JSON.stringify(first.body)).toBe(201);
     const third = await agent("/api/agent/v1/uses", "POST", {
       idempotency_key: "agent-cap-0003",
