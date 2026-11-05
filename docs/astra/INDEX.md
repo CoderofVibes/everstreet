@@ -2,6 +2,9 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Device-key review](2026-11-04_DeviceKeyReview.md) | Original controller races corrected; two-handle storage checks pass; actual browser sign-in then unavailable product | Independent1315+1skip snapshot;003wea corrects unpublished harness, revoke review and UI lifetime; full browser acceptance pending |
+| 2026-11-04 | [Wallet sign-in review](2026-11-04_WalletSignInReview.md) | Delayed verification/server and old-controller cleanup failures corrected | Four independent regressions pass; e1 full1284+1skip; actual synthetic sign-in succeeds, SessionProvider lifetime review retained003wea |
+| 2026-11-04 | [Configured journey planning](2026-11-04_ConfiguredJourneyPlanning.md) | Grounded 003wf integration requirements: real composition/maintenance, wallet commerce, restart, 100/20/80 and uncertainty recovery | Registered queued after all003we children; all six milestones retained |
 | 2026-11-04 | [Customer writer review](2026-11-04_CustomerWriterReview.md) | Reproduced unknown-outcome, overlap and old-schema migration failures corrected; independent probes and 1266 tests pass | Bounded adapter handoff accepted at 373a17c/report cc4aa9f; 003we next, full 003wf process/journey/reconciliation/live gates remain |
 | 2026-11-04 | [Composition first slice review](2026-11-04_CompositionFirstSliceReview.md) | Independent1235 tests; actual configured sign-in notice; background keyboard focus reproduced | a/b/c backend checked, modal correction and003w-d next; worker remains partial |
 | 2026-11-04 | [Composition design review](2026-11-04_CompositionDesignReview.md) | Challenge browser binding, actual process restart and exact settle_hold contract method |003w sole87576 active; design-ahead claims must stay planned until verified; no external execution |
