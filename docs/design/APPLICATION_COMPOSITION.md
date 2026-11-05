@@ -626,3 +626,169 @@ offer route correctly requires that, and public access is unchanged.
   or use, and the identity mode, so a same-person session refresh never retires it.
 - **The phone layout** lets grid tracks shrink and long exact values wrap. Nothing is hidden or
   truncated.
+
+## 10. A fresh customer buys and uses the product (sub-job 003w-eb, job 003web)
+
+**Design.** Written before this job's purchase code; only the contract fixture (below) came first,
+and it is its evidence. The brief is `docs/astra/jobs/2026-11-04_003web_fresh-customer-purchase.md`.
+The customer arrives with **no entitlement and no device key**. Everything they sign is signed in
+their own wallet; the server only reads and verifies. Nothing below is live NEAR.
+
+### 10.1 What the contract does (contracts/business-v3, measured)
+
+`customer_purchase_matches_server_fixture` writes `server/test/fixtures/v3/customer-purchase.json`
+from the contract itself.
+
+- **Shell storage.** `sponsor_shell(customer, plan_id)` is payable and charges the measured
+  growth: **exactly 811 + len(customer) bytes**. This is measured for customer lengths 2, 9 and 64
+  and payer lengths 2, 12 and 64; the payer is a fixed 65-byte field, so its length never matters.
+  The charge is `bytes × storage_byte_cost`. Any excess is refunded; less is refused
+  (`E_STORAGE`). A shell that already exists is refused (`E_EXISTS`).
+- **Purchase.** The customer calls `ft_transfer_call` on the business's own token, to the
+  business, with `msg = {"buy": {plan_id, units, purchase_seq, install?}}`.
+  - **Accepted:** `ft_on_transfer` returns `0` and logs `units_bought {customer, plan_id, units,
+    amount}`.
+  - **Returned whole:** anything invalid logs `purchase_returned {customer, amount, reason}` with
+    no state change. Reasons include a wrong amount, a sequence that isn't the next, the
+    per-purchase or outstanding cap, no shell, or an install slot in use.
+  - **Optional install:** `install` enrolls a device key in the same call.
+- **The sequence.** A purchase is accepted only at `purchase_seq + 1`. So **any number of requests
+  with the same sequence can accept at most one**; the rest are returned whole.
+  `units_bought` carries **no sequence**: the event alone can't name a purchase.
+
+### 10.2 Reads (bounded, authenticated, one final block)
+
+`GET /api/customer/offers/:offer/purchase-setup?units=N[&install=...]` is for the signed-in
+person's linked account only. At one pinned final block it reads:
+- **the business contract:** `get_plan`, `get_entitlement(customer)`;
+- **the offer's token (`asset`):** `ft_metadata`, `ft_balance_of(customer)`,
+  `storage_balance_of(customer)`, `storage_balance_of(business)`, `storage_balance_bounds`;
+- **the protocol's `storage_amount_per_byte`** (`EXPERIMENTAL_protocol_config`, the only new RPC
+  method).
+
+The customer transport's allowlist gains exactly those token views, with their exact arguments.
+
+**Validation:**
+- **Metadata:** `spec` `ft-1.0.0`, decimals an integer 0–38, a symbol of 1–16 plain characters,
+  and a bounded name.
+- **Amounts:** exact u128 decimals, `0 ≤ v < 2^128`.
+- **Coherence:** the plan must equal the offer's reviewed plan.
+- Anything malformed, oversized, from another block, or mismatched refuses the read. An unknown
+  value is shown as unknown, never as zero.
+
+**The answer:**
+- the block;
+- the token (symbol, decimals, the customer's balance, both registrations and the bounds);
+- the entitlement (none, or the shell: registration id, sequence, free, held, purchased);
+- the shell quote: **exact**, with its basis (bytes, per-byte cost, and the contract fixture
+  version);
+- the steps still needed;
+- when units are asked, an exact **preview**: the call and the terms, with their digest.
+
+### 10.3 The steps, each an exact reviewed wallet request
+
+| Step | When | Request (receiver, method, args, deposit, gas) |
+|---|---|---|
+| Registration (shell) | no entitlement | business, `sponsor_shell {customer, plan_id}`, the exact quote, 30 Tgas |
+| Token storage | the customer isn't registered with the token | token, `storage_deposit {account_id, registration_only: true}`, `storage_balance_bounds.min`, 30 Tgas. The customer still needs their own tokens: there is no faucet, purchase of funds or bridge here |
+| Purchase | a shell exists, both registrations exist, and the balance ≥ the total | token, `ft_transfer_call {receiver_id: business, amount, msg}`, 1 yoctoNEAR, 100 Tgas |
+| Device (as 9.5) | after the purchase, or `install` in the purchase | business, `install_key …`, 1 yoctoNEAR |
+
+**When the business isn't registered with its token**, purchase is unavailable, with an owner
+action. Nothing is sent.
+
+**The purchase preview's exact checks:**
+- `units` a u32 integer within `1..max_units_per_purchase`;
+- `amount = units × unit_price` in BigInt, < 2^128;
+- `free + held + units ≤ max_units_outstanding`;
+- `purchase_seq + 1 ≤ u32 max`;
+- `balance ≥ amount`;
+- the optional `install`: a slot that isn't active, a 64-hex key, `1 ≤ max_hold_units ≤ plan`,
+  `1 ≤ max_units_per_day ≤ 65535`.
+
+**The reviewed digest** covers account, network, contract, asset, registration id, sequence,
+units, amount, deposit, gas and the call. Creating an intent recomputes it from a **fresh** read.
+A difference gives `409 terms_changed` with the new preview to review; nothing is stored.
+
+### 10.4 The durable purchase intent
+
+`customer_purchases` holds only public identifiers and terms: person, account, offer, business,
+network, contract, asset, plan, registration id, sequence, units, amount, the install public
+fields, the exact call, the digest, an idempotency key, the state, the transaction hash if the
+wallet gave one, the evidence, and times. It never holds private keys, documents or signatures.
+
+**States:**
+- `prepared`: stored, the wallet not yet asked;
+- `requested`: the wallet was asked;
+- `confirmed`: this purchase's own transaction showed `units_bought`;
+- `returned`: its own transaction showed `purchase_returned`, with the reason;
+- `unknown`: no transaction evidence yet;
+- `abandoned`: the customer explicitly set it aside, only when the readback allows (below).
+
+**One open intent per (account, contract, plan, sequence).** A unique index enforces it, so
+another tab finds the open one instead of making a second.
+
+**Resolution (`POST /api/customer/purchases/:id/check`), bounded and explicit:**
+1. **With a transaction hash** (from the wallet's answer, or recorded earlier), read `tx`
+   (FINAL). It must be signed by this account, received by this token, and be exactly this
+   intent's `ft_transfer_call` with these arguments. Then the business receipt's logs decide:
+   `units_bought` for this customer, units and amount means `confirmed`;
+   `purchase_returned` for this amount means `returned`. Anything else stays `unknown`.
+2. **Without a hash,** the readback alone **never confirms**: another tab, device or app could
+   have used the sequence.
+   - `purchase_seq ≥ seq`: still unknown ("a purchase with this sequence is recorded; it can't be
+     shown to be this one"), with the units the contract now shows.
+   - `purchase_seq < seq`: still unknown ("not seen yet; if you approved it, it may still be
+     processing, or it was returned"). The customer may then **abandon** it explicitly. That is
+     safe because any new purchase uses the same next sequence, so at most one of them can be
+     accepted.
+3. **Never automatic:** no fresh-sequence retry, and no second payment. "Ask my wallet again"
+   re-sends the **identical** request (the same sequence): at most one is accepted, and a
+   duplicate is returned whole by the contract.
+
+### 10.5 The browser
+
+`web/src/purchase.ts` gains `PurchaseFlow`, a controller per (person, account, offer) that is
+retired on identity change. Every answer after retirement is dropped.
+- **The panel leads with** the product, the quantity, the **token amount** (from validated
+  decimals and symbol), the separate refundable storage deposit, the account and the outcome. The
+  exact base units, method, arguments, deposit and gas are in the details. There is no fiat.
+- **Status words:** checking, waiting for your wallet, processing, confirmed, returned (with the
+  reason), unknown (with the next step).
+- **Recovery first:** an open intent is shown and recovered before any new purchase is offered.
+
+`WalletBoundary.send` returns the transaction hash when the pinned adapter's answer carries one
+(`FinalExecutionOutcome.transaction.hash`), otherwise null. Popup closure never implies finality.
+
+### 10.6 Evidence plan
+
+**The chain double** (`FixtureChain`, server/test/customer-world.ts) applies the actual calls by
+lib.rs's rules: `sponsor_shell` (the measured growth, refunds, `E_EXISTS`), `storage_deposit`,
+and `ft_transfer_call` with the contract's `validate_buy` and its accept/return, events and
+optional install. Each case is checked against `customer-purchase.json`, never by seeding a
+post-state. Transactions are kept by hash with their receipts and logs, for `tx`.
+
+**The tests start with no entitlement or key.** Through the real routes and controllers they:
+- create the shell;
+- register token storage when needed;
+- buy 100;
+- enroll;
+- run and charge one use.
+
+**They also cover:**
+- insufficient funds;
+- stale quote or terms;
+- cancellation;
+- accepted but the answer lost;
+- returned;
+- malformed answers;
+- concurrent same and different purchases;
+- reload and restart;
+- account switch;
+- old-owner continuity (a sale between purchase and use).
+
+**The harness** gains a fresh fictional customer and these wallet calls. It stays synthetic, as
+in 9.8.
+
+**Not covered here** (003w-f): configured composition, process concurrency and the 100/20/80
+acquisition. **Live:** the real token, real wallet answers and a rehearsal.
