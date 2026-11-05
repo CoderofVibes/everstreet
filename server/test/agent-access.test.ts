@@ -7,10 +7,20 @@
 
 import { describe, expect, it } from "vitest";
 import { MCP_VERSION } from "../src/agentAccess.ts";
-import { customerWorld, type Json, SyntheticProtection } from "./customer-world.ts";
+import { customerWorld, FRESH, type Json, SyntheticProtection } from "./customer-world.ts";
 
 const INVOICE =
   "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD";
+
+/**
+ * Fixture prerequisite: Dana, a second fictional customer, funded like Cara (a copy of the
+ * contract-produced entitlement under her account), so another customer's use really exists.
+ */
+function fundDana(w: Awaited<ReturnType<typeof customerWorld>>) {
+  const e = JSON.parse(JSON.stringify(w.chain.ent())) as Json;
+  e.storage_payer = FRESH;
+  w.chain.ents.set(FRESH, e);
+}
 
 async function world(maxUses = 2) {
   const w = await customerWorld({ customer: { protection: new SyntheticProtection() } });
@@ -141,14 +151,27 @@ describe("006b agent access", () => {
       input: INVOICE,
     });
     expect([third.status, third.body.code]).toEqual([403, "agent_used_up"]);
-    // Another customer's use can't be touched with this grant.
-    const dana = w.caller(w.dana.id);
-    const other = await dana(`/api/customer/offers/${grant.offer_id}/prepare`, "POST", {
-      idempotency_key: "dana-0001",
-      input: INVOICE,
-    });
-    if (other.body?.use?.id)
-      expect((await agent(`/api/agent/v1/uses/${other.body.use.id}`)).status).toBe(404);
+    fundDana(w);
+    // Another customer's use can't be touched with this grant (her preparation must succeed
+    // first, so this can't be skipped).
+    const own = await w.caller(w.dana.id)(
+      `/api/customer/offers/${grant.offer_id}/prepare`,
+      "POST",
+      {
+        idempotency_key: "dana-own-0001",
+        input: INVOICE,
+      },
+    );
+    expect(own.status, JSON.stringify(own.body)).toBe(201);
+    for (const path of ["", "/result"])
+      expect((await agent(`/api/agent/v1/uses/${own.body.use.id}${path}`)).status).toBe(404);
+    expect(
+      (
+        await agent(`/api/agent/v1/uses/${own.body.use.id}/confirm`, "POST", {
+          envelope_digest: own.body.use.envelope.envelope_digest,
+        })
+      ).status,
+    ).toBe(404);
     // Revoked: every agent call refuses, through MCP as a tool error, before anything runs.
     await cara(`/api/customer/agent-grants/${grant.id}/revoke`, "POST");
     expect(
@@ -199,7 +222,8 @@ describe("006b agent access", () => {
     const off = await cara("/api/customer/agent-grants", "POST", grantBody);
     expect([off.status, off.body.code]).toEqual([403, "agent_access_off"]);
     // A customer (not the owner) can't turn it on.
-    expect((await cara(path, "PUT", { enabled: true })).status).toBeGreaterThanOrEqual(400);
+    // Not hers: the same answer as a missing business (ids reveal nothing).
+    expect((await cara(path, "PUT", { enabled: true })).status).toBe(404);
     expect((await owner(path, "PUT", { enabled: "yes" })).status).toBe(400);
     expect((await owner(path, "PUT", { enabled: true })).body).toEqual({
       offer_id: offer,
@@ -231,6 +255,95 @@ describe("006b agent access", () => {
     expect(() => w.state.store.db.exec("DELETE FROM agent_offer_switch_history")).toThrow(
       /append-only/,
     );
+  });
+
+  it("a genuinely expired grant (its expiry passed) is refused before anything is prepared; the owner's count covers only grants that can still act", async () => {
+    const { w, grant, agent, rpc } = await world(3);
+    const owner = w.caller(w.f.ava.id);
+    const count = async () =>
+      (await owner(`/api/businesses/${w.f.business}/agent-access`)).body.offers[0].active_grants;
+    expect(await count()).toBe(1);
+    // Time passes: the stored expiry is now in the past (a fixture clock step, labelled).
+    w.state.store.db
+      .prepare("UPDATE agent_grants SET expires_at = ? WHERE id = ?")
+      .run(new Date(Date.now() - 1000).toISOString(), grant.id);
+    const before = (
+      w.state.store.db.prepare("SELECT COUNT(*) AS n FROM customer_requests").get() as Json
+    ).n;
+    const r = await agent("/api/agent/v1/uses", "POST", {
+      idempotency_key: "agent-exp-0001",
+      input: INVOICE,
+    });
+    expect([r.status, r.body.code]).toEqual([403, "agent_expired"]);
+    const m = await rpc("tools/call", {
+      name: "prepare_use",
+      arguments: { idempotency_key: "agent-exp-0002", input: INVOICE },
+    });
+    expect(m.body.result).toMatchObject({
+      isError: true,
+      structuredContent: { code: "agent_expired" },
+    });
+    expect(
+      (w.state.store.db.prepare("SELECT COUNT(*) AS n FROM customer_requests").get() as Json).n,
+    ).toBe(before);
+    expect(await count()).toBe(0); // expired: not counted as active
+    expect((await w.caller(w.cara.id)("/api/customer/agent-grants")).body.grants[0].state).toBe(
+      "expired",
+    );
+  });
+
+  it("switching off: a prepared, unsigned agent request can't be confirmed; MCP advertises the key length the API enforces", async () => {
+    const { w, offer, agent, rpc } = await world(3);
+    const owner = w.caller(w.f.ava.id);
+    const path = `/api/businesses/${w.f.business}/customer-offers/${offer}/agent-access`;
+    // Prepared while on, then off: confirming is refused before anything is reserved.
+    const a = await agent("/api/agent/v1/uses", "POST", {
+      idempotency_key: "agent-off-a001",
+      input: INVOICE,
+    });
+    expect(a.status, JSON.stringify(a.body)).toBe(201);
+    await owner(path, "PUT", { enabled: false });
+    const ca = await agent(
+      `/api/agent/v1/uses/${a.body.use.id}/confirm`,
+      "POST",
+      w.signed(a.body.use.envelope),
+    );
+    expect([ca.status, ca.body.code]).toEqual([403, "agent_access_off"]);
+    expect((await agent(`/api/agent/v1/uses/${a.body.use.id}`)).body.use.state).toBe("prepared");
+    // The same key again returns the same request (adds nothing).
+    const again = await agent("/api/agent/v1/uses", "POST", {
+      idempotency_key: "agent-off-a001",
+      input: INVOICE,
+    });
+    expect(again.body.use.id).toBe(a.body.use.id);
+    // One definition of the agent key: the schema's bounds are the API's.
+    const tools = (await rpc("tools/list")).body.result.tools as Json[];
+    const key = tools.find((t) => t.name === "prepare_use")?.inputSchema.properties.idempotency_key;
+    expect([key.minLength, key.maxLength]).toEqual([8, 60]);
+    const tooLong = await agent("/api/agent/v1/uses", "POST", {
+      idempotency_key: "k".repeat(61),
+      input: INVOICE,
+    });
+    expect(tooLong.status).toBe(400);
+  });
+
+  it("switching off after a request is reserved: it still runs (its unit is held for it)", async () => {
+    const { w, offer, agent } = await world(3);
+    const path = `/api/businesses/${w.f.business}/customer-offers/${offer}/agent-access`;
+    const b = await agent("/api/agent/v1/uses", "POST", {
+      idempotency_key: "agent-off-b001",
+      input: INVOICE,
+    });
+    expect(b.status, JSON.stringify(b.body)).toBe(201);
+    const cb = await agent(
+      `/api/agent/v1/uses/${b.body.use.id}/confirm`,
+      "POST",
+      w.signed(b.body.use.envelope),
+    );
+    expect(cb.body.use?.state, JSON.stringify(cb.body)).toBe("reserved");
+    await w.caller(w.f.ava.id)(path, "PUT", { enabled: false });
+    const run = await agent(`/api/agent/v1/uses/${b.body.use.id}/execute`, "POST");
+    expect(run.body.use?.execution?.fulfilled, JSON.stringify(run.body)).toBe(true);
   });
 
   it("MCP conformance: version rejection, header mismatch, missing _meta, initialize, notifications, GET/DELETE, unknown method/tool", async () => {

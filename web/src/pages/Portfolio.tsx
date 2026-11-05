@@ -2,7 +2,9 @@
 // anonymous), former (history only), what needs attention, and private labels and notes. Each
 // business's figures stay in its own units; unknown stays unknown; no valuation.
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
+import { useActorRead } from "../actorRead.ts";
+import { ApiError } from "../api.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 
@@ -96,21 +98,21 @@ function NoteEditor({
   );
 }
 
+/** The signed-in person's portfolio (private): read through the actor-bound reader. */
+const fetchPortfolio = async (): Promise<Json> => {
+  const r = await fetch("/api/me/portfolio", { credentials: "same-origin" });
+  const d = (await r.json().catch(() => ({}))) as Json;
+  if (!r.ok) throw new ApiError(r.status, d.error ?? `HTTP ${r.status}`, d.code);
+  return d;
+};
+
 export function PortfolioPage() {
   const { person, requireSignIn } = useSession();
-  const [p, setP] = useState<Json | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(() => {
-    fetch("/api/me/portfolio", { credentials: "same-origin" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        setP((await r.json()) as Json);
-      })
-      .catch((e: Error) => setError(e.message));
-  }, []);
-  useEffect(() => {
-    if (person) load();
-  }, [person, load]);
+  // 006b1 (Astra, Nov 5): bound to the person who asked. A switch or sign-out drops what was
+  // shown at once; a late answer for anyone else changes nothing.
+  const { state, retry } = useActorRead(person?.id ?? null, fetchPortfolio);
+  const p = state.data;
+  const setP = (_saved: Json) => retry();
   if (!person)
     return (
       <div className="page empty">
@@ -124,10 +126,15 @@ export function PortfolioPage() {
         </button>
       </div>
     );
-  if (error)
+  if (!p && (state.status === "failed" || state.status === "refused"))
     return (
       <div className="page">
-        <p className="error">Your portfolio couldn't be read ({error}).</p>
+        <p className="error" role="alert">
+          Your portfolio couldn't be read just now{state.error ? ` (${state.error})` : ""}.
+        </p>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={retry}>
+          Try again
+        </button>
       </div>
     );
   if (!p) return <div className="page muted">Loading…</div>;

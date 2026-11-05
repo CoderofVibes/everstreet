@@ -148,7 +148,11 @@ describe("hardening: agent access in the configured child across a Direct sale (
     ).toContain("SH-1042");
     await agentUse("agent-sale-0002", 3);
     // The seller can't flip the switch any more; the buyer can.
-    expect((await ava(switchPath, "PUT", { enabled: false })).status).toBeGreaterThanOrEqual(400);
+    // The former owner: no longer hers (the same answer as a missing business), switch unchanged.
+    expect((await ava(switchPath, "PUT", { enabled: false })).status).toBe(404);
+    expect(
+      ok(await noah(`/api/businesses/${i.biz}/agent-access`), 200, "switches").offers[0].agents,
+    ).toBe("on");
     expect(ok(await noah(switchPath, "PUT", { enabled: false }), 200, "buyer off").agents).toBe(
       "off",
     );

@@ -22,6 +22,8 @@ import { HttpError, type Person, type Store } from "./store.ts";
 
 export const MCP_VERSION = "2026-07-28";
 const TOKEN_PREFIX = "evs_agent_";
+/** The agent's own idempotency key: one definition for the API, MCP schema and validation. */
+export const AGENT_KEY = { min: 8, max: 60, pattern: "^[A-Za-z0-9_-]{8,60}$" } as const;
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 
 export const AGENT_SCHEMA = `
@@ -87,11 +89,13 @@ export class AgentAccess {
     const rows = this.db
       .prepare(
         `SELECT o.id, o.state, COALESCE(s.enabled, 0) AS enabled, s.changed_at,
-                (SELECT COUNT(*) FROM agent_grants g WHERE g.offer_id = o.id AND g.revoked_at IS NULL) AS grants
+                (SELECT COUNT(*) FROM agent_grants g
+                  WHERE g.offer_id = o.id AND g.revoked_at IS NULL AND g.expires_at > ?
+                    AND (SELECT COUNT(*) FROM agent_grant_uses u WHERE u.grant_id = g.id) < g.max_uses) AS grants
            FROM customer_offers o LEFT JOIN agent_offer_switch s ON s.offer_id = o.id
           WHERE o.business_id = ? ORDER BY o.created_at, o.id LIMIT 200`,
       )
-      .all(businessId) as {
+      .all(new Date().toISOString(), businessId) as {
       id: string;
       state: string;
       enabled: number;
@@ -110,9 +114,11 @@ export class AgentAccess {
   }
 
   /**
-   * The owner turns agent use of one offer on or off. Off refuses new agent grants and every new
-   * agent preparation before anything is prepared; a use already reserved still finishes (its
-   * unit is held for it). Fenced like the owner's other writes; refused during a handover.
+   * The owner turns agent use of one offer on or off. Off refuses: new grants; new agent
+   * preparations; and confirming an agent request prepared but not yet signed (nothing is held
+   * for it yet). A request already confirmed (its unit reserved or being reserved) still runs and
+   * settles: the unit is held for it, and stopping it would only strand the customer's unit.
+   * Retrying a preparation with the same key returns the same request and adds nothing. Fenced like the owner's other writes; refused during a handover.
    */
   setSwitch(viewer: Person, businessId: string, offerId: string, input: Record<string, unknown>) {
     if (typeof input.enabled !== "boolean")
@@ -306,7 +312,7 @@ export class AgentAccess {
 
   async prepare(auth: ReturnType<AgentAccess["authorize"]>, input: Record<string, unknown>) {
     const key = typeof input.idempotency_key === "string" ? input.idempotency_key : "";
-    if (!/^[A-Za-z0-9_-]{8,60}$/.test(key))
+    if (!new RegExp(AGENT_KEY.pattern).test(key))
       throw new HttpError(
         400,
         "idempotency_key must be 8 to 60 letters, digits, dashes or underscores",
@@ -339,6 +345,10 @@ export class AgentAccess {
     input: Record<string, unknown>,
   ) {
     this.ownUse(auth.grant.id, useId);
+    const r = this.db.prepare("SELECT state FROM customer_requests WHERE id = ?").get(useId) as
+      | { state: string }
+      | undefined;
+    if (r?.state === "prepared") this.requireAgentsAllowed(auth.grant.offer_id);
     return this.uses().confirm(auth.person, useId, input);
   }
   async execute(auth: ReturnType<AgentAccess["authorize"]>, useId: string) {
@@ -377,7 +387,12 @@ export class AgentAccess {
       inputSchema: {
         type: "object",
         properties: {
-          idempotency_key: { type: "string", minLength: 8, maxLength: 80 },
+          idempotency_key: {
+            type: "string",
+            minLength: AGENT_KEY.min,
+            maxLength: AGENT_KEY.max,
+            pattern: AGENT_KEY.pattern,
+          },
           input: { type: "string" },
         },
         required: ["idempotency_key", "input"],

@@ -35,6 +35,11 @@ visual direction), then Opus builds.
 
 ## Now
 
+- Astra's assessment (docs/astra/2026-11-05_IndependentBuildAssessment.md, committed 244388d) is
+  the disposition. Tony: start her correction jobs in her order (006b1, then review evidence and
+  presentation, then showcase corrections), Opus 5.5; **Fable for step 7** (the full demo +
+  dashboard visual design). Her revised order (section 3) replaces the plan's order below.
+
 - Phases done this session: A (flagship journey, writer history, rehearsal packet), B (Checks
   evidence + manual checks; 002f1 stage 1), C (004b), D (005e economics, 005c expert help,
   005d portfolio), F part (003x control sheet + record + verifier).

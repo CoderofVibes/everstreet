@@ -26,9 +26,15 @@ identity.
 Agent use is **off for every offer until its owner turns it on**
 (`PUT /api/businesses/:id/customer-offers/:offer/agent-access {enabled}`, listed at
 `GET /api/businesses/:id/agent-access`; shown under "Agent use" on the owner's offers panel).
-- Off: customers can't create a grant for the offer, and every new agent preparation is refused
-  (`agent_access_off`) before anything is prepared. A use already reserved still finishes (its
-  unit is held for it). Customers' grants are kept and work again if it's turned back on.
+- Off refuses (`agent_access_off`), before anything is prepared or reserved:
+  - new grants for the offer;
+  - new agent preparations;
+  - confirming an agent request that was prepared but not signed yet (nothing is held for it).
+- Off does **not** stop a request already confirmed (its unit reserved or being reserved): it
+  still runs and settles, because its unit is held for it and stopping it would only strand the
+  customer's unit. Retrying a preparation with the same key returns the same request.
+- Customers' grants are kept and work again if it's turned back on. The owner's count shows
+  grants that can still act (not revoked, expired or used up).
 - The switch belongs to the offer, so it carries through a sale; only the current owner can flip
   it (owner-fenced, refused during a managed handover; classified `gated_owner`).
 - Every change is kept in an append-only history (`agent_offer_switch_history`).
@@ -87,6 +93,16 @@ the real routes of the customer world (fixture chain, synthetic protection, scri
   with its own key installed by a purchase uses MCP over real HTTP, the grant survives the
   sale, the buyer serves its next use, the seller can't flip the switch, the buyer turns it off
   and only the agent is refused.
+
+**006b1 corrections (Astra, Nov 5):** the customer can revoke any grant not yet revoked
+(including a used-up one that can still read its results); failed reads say access couldn't be
+checked (never "None"); revoke counts only a confirmed answer; one create at a time; the page
+and the portfolio are bound to the signed-in person (a switch drops the token, list and late
+answers); the owner's switch stays visible on errors, keeps keyboard focus while saving and
+announces the server's readback; MCP advertises the key bounds the API enforces (8-60).
+Evidence: `web/test/agentControls.test.tsx` (6, each failing on the previous pages),
+`agent-access.test.ts` (expiry, unconditional foreign use, switch-off before and after
+confirmation, key bounds).
 
 **Not done:**
 - SSE responses (JSON only, which the transport permits).
