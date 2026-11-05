@@ -176,3 +176,16 @@ Independent full check64904 completed0 at21:41: lint/types clean, main1440pass/1
 lifecycle tests pass (136.69s lifecycle phase). This verifies the implemented reservation,
 retention, model/build and peer recovery cases. The narrow owned-cleanup/source-reporting
 follow-up above remains; no milestone or003wf parent acceptance is implied.
+
+## Design12.10 review — 21:44 Pacific
+
+The reserved cleanup window inside one deadline and separate owners_running/work_running counts
+address the source findings without broadening the job. One test-design correction: Node's
+process.getActiveResourcesInfo() does not expose an unref'ed Timeout. Astra independently ran a
+finite Node probe: Timeout counts before0, after referenced setTimeout1, after timer.unref()0,
+after clearTimeout0. Therefore the proposed resource-count test alone would already pass with
+the old leaked unref'ed wait timers. Observe actual timer creation and clear/settlement for the
+worker's waits (e.g. scoped test instrumentation, with full restoration), and show the relevant
+regression fails on the old implementation. No production seam solely for this assertion is
+required. Preserve real configured held-build coverage for owner completion and deadline.
+
