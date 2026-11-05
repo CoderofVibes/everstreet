@@ -40,6 +40,7 @@ describe("003w-e3 fresh-customer transactions", () => {
       unitPrice: "1000000",
       maxUnitsPerPurchase: 100,
       purchaseSeq: 0,
+      regId: "1",
       install: { slot: 1, public_key: "ab".repeat(32), max_hold_units: 1, max_units_per_day: 10 },
     });
     expect(call).toMatchObject({
@@ -55,6 +56,7 @@ describe("003w-e3 fresh-customer transactions", () => {
         units: 100,
         purchase_seq: 1,
         install: { slot: 1, pk: "ab".repeat(32), max_hold_units: 1, max_units_per_day: 10 },
+        reg_id: "1",
       },
     });
   });
@@ -67,6 +69,7 @@ describe("003w-e3 fresh-customer transactions", () => {
       unitPrice: "5",
       maxUnitsPerPurchase: 10,
       purchaseSeq: 3,
+      regId: "4",
     };
     expect(() => buyCall({ ...base, units: 11 })).toThrow(/1 to 10/);
     expect(() => buyCall({ ...base, units: 0 })).toThrow();
@@ -75,6 +78,9 @@ describe("003w-e3 fresh-customer transactions", () => {
     expect(JSON.parse(buyCall({ ...base, units: 2 }).args.msg as string).buy).toMatchObject({
       purchase_seq: 4,
       install: null,
+      reg_id: "4",
     });
+    expect(() => buyCall({ ...base, units: 1, regId: "x" })).toThrow(/registration/);
+    expect(() => buyCall({ ...base, units: 1, unitPrice: (1n << 128n).toString() })).toThrow(/price/);
   });
 });

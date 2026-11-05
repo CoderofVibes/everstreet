@@ -19,6 +19,7 @@ import {
   BUSINESS,
   CUSTOMER,
   customerWorld,
+  FRESH,
   type Json,
   SyntheticProtection,
 } from "../../server/test/customer-world.ts";
@@ -107,7 +108,11 @@ export function applyKeyCall(
   ent.key_epochs = ent.keys.map((x: Json) => x.epoch);
 }
 
-export async function walletHarness(opts: { origin: string }) {
+/**
+ * `customer`: "seeded" (Cara: 100 units and a fixture key, as before) or "fresh" (job 003web: Dana,
+ * with no entitlement and no key, holding only her own fictional test tokens).
+ */
+export async function walletHarness(opts: { origin: string; customer?: "seeded" | "fresh" }) {
   const protection = new SyntheticProtection();
   const w = await customerWorld({ customer: { protection } });
   // Job 003wea (Astra's actual browser handoff: the product was "Not available"): the public
@@ -141,10 +146,17 @@ export async function walletHarness(opts: { origin: string }) {
       "INSERT INTO person_accounts (account_id, person_id, network, created_at) VALUES (?, ?, 'testnet', ?) ON CONFLICT DO NOTHING",
     )
     .run(CUSTOMER, w.cara.id, new Date().toISOString());
+  store.db
+    .prepare(
+      "INSERT INTO person_accounts (account_id, person_id, network, created_at) VALUES (?, ?, 'testnet', ?) ON CONFLICT DO NOTHING",
+    )
+    .run(FRESH, w.dana.id, new Date().toISOString());
   const signIn = new AccountSignIn(store, {
     recipient: "everstreet.local",
     network: "testnet",
-    reader: { isFullAccessKey: async (a, k) => a === CUSTOMER && k === accountKey },
+    reader: {
+      isFullAccessKey: async (a, k) => (a === CUSTOMER || a === FRESH) && k === accountKey,
+    },
     callbackUrl: `${opts.origin}/signin/return`,
   });
   w.state.app = w.make(store, undefined, {
@@ -154,7 +166,7 @@ export async function walletHarness(opts: { origin: string }) {
     wallet: { network: "testnet", available: true, harness: HARNESS_LABEL },
   });
   const controls = {
-    account: CUSTOMER as string | null,
+    account: (opts.customer === "fresh" ? FRESH : CUSTOMER) as string | null,
     /** The next wallet action is closed by the person (cancellation). */
     cancelNext: false,
     /** The next transaction lands but its answer is lost. */
@@ -228,11 +240,27 @@ export async function walletHarness(opts: { origin: string }) {
         { error: "The synthetic wallet only calls the fictional business contract." },
         400,
       );
-    const ent = w.chain.ent(String(controls.account));
-    if (!ent) return c.json({ error: "E_ARGS: no entitlement" }, 400);
-    for (const a of p.actions as Json[]) {
-      const call = { methodName: a.methodName, args: JSON.parse(a.args), deposit: a.deposit };
-      controls.sent.push({ receiverId: p.receiverId, ...call, gas: a.gas });
+    const signer = String(controls.account);
+    if ((p.actions as Json[]).length !== 1)
+      return c.json({ error: "The synthetic wallet sends one action at a time." }, 400);
+    const a = (p.actions as Json[])[0] as Json;
+    const call = {
+      receiverId: String(p.receiverId),
+      methodName: String(a.methodName),
+      args: JSON.parse(a.args) as Json,
+      deposit: String(a.deposit),
+      gas: String(a.gas),
+    };
+    controls.sent.push(call);
+    let outcome: Json;
+    if (call.methodName === "install_key" || call.methodName === "revoke_key") {
+      if (call.receiverId !== BUSINESS)
+        return c.json(
+          { error: "The synthetic wallet only calls the fictional business contract." },
+          400,
+        );
+      const ent = w.chain.ent(signer);
+      if (!ent) return c.json({ error: "E_ARGS: no entitlement" }, 400);
       try {
         applyKeyCall(ent, call, {
           plan_id: 1,
@@ -242,16 +270,22 @@ export async function walletHarness(opts: { origin: string }) {
       } catch (e) {
         return c.json({ error: (e as Error).message }, 400);
       }
+      outcome = { status: { SuccessValue: "" } };
+    } else {
+      // Job 003web: sponsor_shell, the token's storage_deposit and ft_transfer_call, by the
+      // contract's rules (FixtureChain.walletCall, checked against the contract's own outcomes).
+      outcome = w.chain.walletCall(signer, call);
     }
     if (controls.loseNext) {
       controls.loseNext = false;
       return c.json({ error: "Synthetic: the wallet's answer was lost." }, 502);
     }
-    return c.json({ status: { SuccessValue: "" } });
+    // As the pinned adapter answers: the transaction's outcome (its hash is all that is used).
+    return c.json(outcome);
   });
   site.all("/api/*", (c) => {
     sync();
     return w.state.app.fetch(c.req.raw);
   });
-  return { site, controls, offerId, world: w, accountKey };
+  return { site, controls, offerId, world: w, accountKey, customer: opts.customer ?? "seeded" };
 }

@@ -477,7 +477,7 @@ export class PurchaseFlow {
    */
   async confirmPurchase() {
     const r = this.state.review;
-    if (!r || r.kind !== "purchase") return;
+    if (r?.kind !== "purchase") return;
     const problem = this.verify(r.preview);
     if (problem) return this.set({ notice: { tone: "warn", text: problem } });
     this.set({ busy: "processing", notice: null });
@@ -607,7 +607,7 @@ export class PurchaseFlow {
    */
   async confirmResend() {
     const r = this.state.review;
-    if (!r || r.kind !== "resend") return;
+    if (r?.kind !== "resend") return;
     const p = this.state.setup?.open;
     if (!p || p.id !== r.purchase.id || JSON.stringify(p.call) !== JSON.stringify(r.purchase.call))
       return this.set({

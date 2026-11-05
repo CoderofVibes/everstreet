@@ -26,6 +26,10 @@ import {
 } from "./customerRead.ts";
 import type { Db } from "./db.ts";
 import { HttpError, type Person } from "./store.ts";
+
+/** Only who is asking matters here. */
+type Viewer = Pick<Person, "id">;
+
 import { V3ReadError } from "./v3read.ts";
 
 const U128_MAX = (1n << 128n) - 1n;
@@ -225,7 +229,9 @@ type State =
   | "confirmed"
   | "returned"
   | "not_accepted"
-  | "set_aside";
+  | "set_aside"
+  /** Set aside by an earlier version (which allowed it after the wallet was asked): checkable. */
+  | "legacy_abandoned";
 export interface PurchaseRow {
   id: string;
   person_id: string;
@@ -252,24 +258,65 @@ export interface PurchaseRow {
   updated_at: string;
 }
 const OPEN: State[] = ["prepared", "requested", "unknown"];
+/** States a check may still resolve (an old set-aside may yet have executed). */
+const CHECKABLE: State[] = [...OPEN, "legacy_abandoned"];
+const CHECKABLE_SQL = "state IN ('prepared','requested','unknown','legacy_abandoned')";
 
-export function migratePurchases(db: Db) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS customer_purchases (
+const PURCHASES_TABLE = (name: string) => `
+    CREATE TABLE IF NOT EXISTS ${name} (
       id TEXT PRIMARY KEY, person_id TEXT NOT NULL, customer_account TEXT NOT NULL,
       offer_id TEXT NOT NULL, business_id TEXT NOT NULL, network TEXT NOT NULL,
       contract TEXT NOT NULL, asset TEXT NOT NULL, plan_id INTEGER NOT NULL, reg_id TEXT NOT NULL,
       purchase_seq INTEGER NOT NULL, units INTEGER NOT NULL, amount TEXT NOT NULL, install TEXT,
       call TEXT NOT NULL, terms_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL,
-      state TEXT NOT NULL CHECK (state IN ('prepared','requested','unknown','confirmed','returned','not_accepted','set_aside')),
+      state TEXT NOT NULL CHECK (state IN ('prepared','requested','unknown','confirmed','returned','not_accepted','set_aside','legacy_abandoned')),
       tx_hash TEXT, asks INTEGER NOT NULL DEFAULT 0,
       evidence TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE (person_id, idempotency_key)
-    ) STRICT;
-    CREATE UNIQUE INDEX IF NOT EXISTS customer_purchases_one_open
+    ) STRICT;`;
+const ONE_OPEN = `CREATE UNIQUE INDEX IF NOT EXISTS customer_purchases_one_open
       ON customer_purchases (customer_account, contract, plan_id)
-      WHERE state IN ('prepared', 'requested', 'unknown');
-  `);
+      WHERE state IN ('prepared', 'requested', 'unknown');`;
+
+/**
+ * Creates the table, or upgrades the earlier one (e6375d2: no ask count; states ending in
+ * 'abandoned'; Astra's migration probe) in ONE transaction, keeping every row:
+ * - an open row's asks weren't counted, so it becomes "possibly asked more than once" (2): a
+ *   return seen for it is never taken as definitive;
+ * - an 'abandoned' row may have been set aside after its wallet was asked (that version allowed
+ *   it), so it may still execute: it becomes 'legacy_abandoned', still checkable by its own
+ *   transaction, and (as before) not blocking new purchases.
+ */
+export function migratePurchases(db: Db) {
+  const cols = (
+    db.prepare("PRAGMA table_info(customer_purchases)").all() as { name: string }[]
+  ).map((c) => c.name);
+  if (cols.length > 0 && !cols.includes("asks")) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("DROP INDEX IF EXISTS customer_purchases_one_open");
+      db.exec("ALTER TABLE customer_purchases RENAME TO customer_purchases_before_asks");
+      db.exec(PURCHASES_TABLE("customer_purchases"));
+      const keep =
+        "id, person_id, customer_account, offer_id, business_id, network, contract, asset, plan_id, reg_id, purchase_seq, units, amount, install, call, terms_digest, idempotency_key, tx_hash, evidence, created_at, updated_at";
+      db.exec(
+        `INSERT INTO customer_purchases (${keep}, state, asks)
+         SELECT ${keep},
+           CASE WHEN state = 'abandoned' THEN 'legacy_abandoned' ELSE state END,
+           CASE WHEN state IN ('requested', 'unknown', 'abandoned') THEN 2 ELSE 0 END
+         FROM customer_purchases_before_asks`,
+      );
+      db.exec("DROP TABLE customer_purchases_before_asks");
+      db.exec(ONE_OPEN);
+      db.exec("COMMIT");
+    } catch (e) {
+      if (db.isTransaction) db.exec("ROLLBACK");
+      throw e;
+    }
+    return;
+  }
+  db.exec(PURCHASES_TABLE("customer_purchases"));
+  db.exec(ONE_OPEN);
 }
 
 export type Resolution =
@@ -425,7 +472,7 @@ export class CustomerPurchases {
       .get(personId) as { account_id: string } | undefined;
     return r?.account_id ?? null;
   }
-  private own(viewer: Person, id: string) {
+  private own(viewer: Viewer, id: string) {
     const p = this.db.prepare("SELECT * FROM customer_purchases WHERE id = ?").get(id) as unknown as
       | PurchaseRow
       | undefined;
@@ -444,7 +491,7 @@ export class CustomerPurchases {
   private settle(id: string, state: State, evidence: unknown) {
     this.db
       .prepare(
-        "UPDATE customer_purchases SET state = ?, evidence = ?, updated_at = ? WHERE id = ? AND state IN ('prepared','requested','unknown')",
+        `UPDATE customer_purchases SET state = ?, evidence = ?, updated_at = ? WHERE id = ? AND ${CHECKABLE_SQL}`,
       )
       .run(state, JSON.stringify(evidence), this.stamp(), id);
   }
@@ -472,7 +519,7 @@ export class CustomerPurchases {
 
   /** The whole prerequisite picture at ONE final block (§10.2), and an exact preview. */
   async setup(
-    viewer: Person,
+    viewer: Viewer,
     offerId: string,
     want: { units?: number; install?: Install | null } = {},
   ) {
@@ -583,7 +630,7 @@ export class CustomerPurchases {
   }
 
   /** Stores the reviewed purchase, only if a FRESH read reproduces exactly what was reviewed. */
-  async create(viewer: Person, offerId: string, input: Record<string, unknown>) {
+  async create(viewer: Viewer, offerId: string, input: Record<string, unknown>) {
     const key = input.idempotency_key;
     if (typeof key !== "string" || !KEY.test(key))
       bad(400, "idempotency_key must be 8 to 80 letters, digits, dashes or underscores");
@@ -657,7 +704,7 @@ export class CustomerPurchases {
    * Called with no hash just BEFORE each wallet request (an ask; durable before the wallet is
    * asked, so a crash after it is still "requested"), and with the hash after one answers.
    */
-  requested(viewer: Person, id: string, input: Record<string, unknown>) {
+  requested(viewer: Viewer, id: string, input: Record<string, unknown>) {
     const p = this.own(viewer, id);
     if (!OPEN.includes(p.state)) return { purchase: view(p) };
     const hash =
@@ -671,9 +718,9 @@ export class CustomerPurchases {
   }
 
   /** Bounded, explicit resolution (§10.4, corrected). */
-  async check(viewer: Person, id: string, input: Record<string, unknown> = {}) {
+  async check(viewer: Viewer, id: string, input: Record<string, unknown> = {}) {
     let p = this.own(viewer, id);
-    if (!OPEN.includes(p.state)) return { purchase: view(p), resolution: null };
+    if (!CHECKABLE.includes(p.state)) return { purchase: view(p), resolution: null };
     if (!this.reader) bad(503, "Buying isn't connected on this server", "purchase_unavailable");
     const reader = this.reader as CustomerViewTransport;
     const named =
@@ -740,7 +787,7 @@ export class CustomerPurchases {
    * durably before any wallet request). A requested or unknown purchase is never set aside: it may
    * still execute, so it stays tracked (Astra's recovery probe).
    */
-  abandon(viewer: Person, id: string) {
+  abandon(viewer: Viewer, id: string) {
     const p = this.own(viewer, id);
     if (p.state !== "prepared")
       bad(
@@ -758,7 +805,7 @@ export class CustomerPurchases {
     return { purchase: view(this.own(viewer, id)) };
   }
 
-  list(viewer: Person, offerId?: string) {
+  list(viewer: Viewer, offerId?: string) {
     const rows = (offerId
       ? this.db
           .prepare(

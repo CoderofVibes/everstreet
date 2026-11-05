@@ -21,6 +21,7 @@ import {
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { DeviceKeyPanel } from "./DeviceKeyPanel.tsx";
+import { PurchasePanel } from "./PurchasePanel.tsx";
 
 const UNIT_WORDS: Record<UseView["units"]["unit"], { label: string; tone: string; text: string }> =
   {
@@ -409,6 +410,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   // or dead to typing. Each effect run now owns its own workspace (so StrictMode's dev re-run is
   // fine too), and a real identity change retires the old one (the page is also keyed by person).
   const personId = person?.id ?? null;
+  const [readKey, setReadKey] = useState(0);
   const [w, setW] = useState<CustomerWorkspace | null>(null);
   useEffect(() => {
     if (!personId) return;
@@ -571,7 +573,15 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
 
           <StepActions s={s} onAction={run} />
           {identity === "verified" && offer && (
-            <DeviceKeyPanel offerId={offer.offer_id} onAuthorizer={onAuthorizer} />
+            <>
+              {/* Job 003web: a fresh customer buys uses first; the device panel then re-reads. */}
+              <PurchasePanel offerId={offer.offer_id} onChanged={() => setReadKey((k) => k + 1)} />
+              <DeviceKeyPanel
+                key={`device-${readKey}`}
+                offerId={offer.offer_id}
+                onAuthorizer={onAuthorizer}
+              />
+            </>
           )}
           {s.authorizer?.synthetic && (
             <p className="use-provenance" role="note">

@@ -2,7 +2,8 @@
 // the customer's device key, with the production controllers and a synthetic wallet module.
 //
 //   npm run web:build
-//   npx tsx scripts/wallet-harness.ts [--minutes 30]
+//   npx tsx scripts/wallet-harness.ts [--minutes 30] [--seeded]
+//   (default: a FRESH customer, Dana, who buys uses first; --seeded: Cara with 100 units)
 //
 // Site: http://127.0.0.1:8814/ (sign in, then open /use/<offer>, printed below). Controls on
 // http://127.0.0.1:8815/ (a separate listener; no control route exists in the app):
@@ -29,7 +30,12 @@ if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 120) {
   console.error("--minutes must be 1 to 120");
   process.exit(2);
 }
-const h = await walletHarness({ origin: `http://${HOST}:${PORT}` });
+// Job 003web: a FRESH customer (Dana: no units, no key, her own fictional test tokens) by
+// default; --seeded keeps the earlier journey (Cara: 100 units and a fixture key).
+const h = await walletHarness({
+  origin: `http://${HOST}:${PORT}`,
+  customer: process.argv.includes("--seeded") ? "seeded" : "fresh",
+});
 const dist = "web/dist";
 const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
