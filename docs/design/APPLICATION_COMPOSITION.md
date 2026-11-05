@@ -949,8 +949,23 @@ later, separately authorized rehearsal, not part of this job.
 - **After the wallet answers (or doesn't):** a fresh readback decides.
   - The reviewed key (that epoch and public key) is no longer active: done. If another key is
     active in the slot now, the answer says so and that it was not revoked.
-  - This device's stored key is deleted only if it IS the reviewed key, and only that stored
-    record (another tab's replacement record is never deleted).
+  - **This device's stored key is kept** whenever the contract still shows that same public key
+    active in its slot (reinstalled at a later epoch, or under a new registration): it still
+    serves a valid authorization (Astra's GuardedRevokeDesignReview). Otherwise it is deleted only
+    if the stored record is still the very incarnation this revocation marked: the same public
+    key, slot and creation time, with intent still `revoke`, checked and deleted in one IndexedDB
+    transaction (`deleteIf` with those fields). Another tab's newer or re-enrolling record stays.
+  - **Every write is conditional the same way** (Astra's KeyRecordReview probe, two IndexedDB
+    handles): marking `intent: revoke` requires the record as read, and clearing the mark
+    afterwards requires the marked incarnation (`putIf` with slot, creation time and intent). A
+    newer record another tab stored meanwhile, even with the same public key, is never
+    overwritten by the older one.
+  - **The capability read has its own deadline** (Astra's KeyCapabilityTimeoutReview): the
+    route's read timeout, with a cancellation signal; a transport that never answers settles as
+    `guarded_revoke: false`, and a late answer changes nothing.
+  - **The wording** says the reviewed key is no longer active, never that this transaction
+    revoked it: after a lost answer the readback shows current authority, not which action
+    caused it. A replacement is named as still active, and revoking it needs its own review.
   - Still active at the reviewed epoch: not confirmed (perhaps still processing) or cancelled.
     The review stays valid, so a lost answer is recovered by checking again; asking again sends
     the same guarded request, which the contract accepts at most once.

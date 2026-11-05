@@ -398,14 +398,15 @@ export function decideReservation(
       if (!same) return { kind: "refused", reason: "superseded", row: 4 };
       if (e.serve_until_ms === exp.serve_until_ms) {
         // 2. Exactly our authorization. "Serving" is a fact about block B only (003m1): the key
-        //    still active at our epoch and B before serve_until (revoke_key and the hold's own
+        //    still active at our epoch and B before serve_until (revoke_key or revoke_key_guarded, and the hold's own
         //    window both end serving there). It is never a capability to dispatch later.
         const keyOk = key.state === "active" && key.epoch === exp.key_epoch;
         const inWindow = BigInt(blockTimestampMs) < BigInt(exp.serve_until_ms);
         const reason = !keyOk ? "key_changed" : !inWindow ? "serve_window_passed" : null;
         return { kind: "reserved", serving: keyOk && inWindow, reason, row: 2 };
       }
-      // 3. Only revoke_key lowers serve_until, and it raises the key's epoch.
+      // 3. Only a revocation (revoke_key, or job 003wec's revoke_key_guarded) lowers serve_until, and
+      //    it raises the key's epoch.
       if (BigInt(e.serve_until_ms) < BigInt(exp.serve_until_ms) && key.epoch > exp.key_epoch)
         return { kind: "reserved", serving: false, reason: "key_revoked", row: 3 };
       return { kind: "inconsistent", reason: "the hold's serving time changed", row: 5 };

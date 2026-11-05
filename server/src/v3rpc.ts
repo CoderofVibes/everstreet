@@ -432,6 +432,11 @@ export class TestnetCustomerRpcTransport extends TestnetRpcTransport {
         fingerprint: args.fingerprint,
       };
     }
+    // Job 003wec: the business contract's device-key capabilities (no arguments).
+    if (method === "get_key_terms") {
+      if (keys.length !== 0) refuse("unsupported", "get_key_terms takes no arguments");
+      return {};
+    }
     // Job 003web: the business contract's declared purchase terms for one customer.
     if (method === "get_purchase_terms") {
       if (!exactly("customer") || typeof args.customer !== "string" || !isAccountId(args.customer))

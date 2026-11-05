@@ -34,7 +34,17 @@ describe("003w-e2 the enrollment request, shown in full", () => {
 
   it("revocation names the acting account, slot, deposit and gas, and says what stops and what still settles", () => {
     const html = renderToStaticMarkup(
-      <RequestFields call={revokeCall("studio.biz.near", 1, 3)} account="cara.testnet" />,
+      <RequestFields
+        call={revokeCall({
+          contract: "studio.biz.near",
+          plan_id: 1,
+          slot: 3,
+          reg_id: "4",
+          epoch: 5,
+          public_key: "ab".repeat(32),
+        })}
+        account="cara.testnet"
+      />,
     );
     for (const s of [
       "cara.testnet",
@@ -42,7 +52,10 @@ describe("003w-e2 the enrollment request, shown in full", () => {
       "Revokes the key in slot 3",
       "1 yoctoNEAR",
       "up to 30 Tgas",
-      "revoke_key",
+      "revoke_key_guarded",
+      "only if it is still the key below",
+      "ab".repeat(32),
+      "4 · 5",
     ])
       expect(html).toContain(s);
     expect(REVOKE_CONSEQUENCE).toMatch(/stops serving now/);

@@ -188,6 +188,11 @@ export class FixtureChain {
         binds_registration: true,
       });
     }
+    // Job 003wec: the guarded revocation capability (lib.rs get_key_terms).
+    if (method === "get_key_terms") {
+      if (!this.keyTerms) throw new Error("MethodNotFound: get_key_terms");
+      return JSON.stringify({ version: 1, guarded_revoke: true });
+    }
     if (method.startsWith("ft_") || method.startsWith("storage_balance"))
       return this.tokenAnswer(method, args);
     throw new Error(`no view ${method}`);
@@ -211,6 +216,8 @@ export class FixtureChain {
   readonly txs = new Map<string, Json>();
   /** False: an older deployed contract without get_purchase_terms (purchase unavailable). */
   purchaseTerms = true;
+  /** False: an older deployed contract without get_key_terms (no guarded revocation). */
+  keyTerms = true;
   /** Synthetic fault: the token's ft_resolve_transfer receipt fails (refund unconfirmed). */
   failResolution = false;
   private txCount = 0;

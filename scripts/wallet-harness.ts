@@ -11,6 +11,8 @@
 //   POST /lose-next     the next transaction lands but its answer is lost
 //   POST /delay-next/<ms>  the next wallet answer arrives late (0 to 30000 ms)
 //   POST /account/<id>  the synthetic wallet switches to another (fictional) account
+//   POST /older-contract  the business answers like an older contract without guarded revocation
+//                      (job 003wec: the product must refuse revoking; until the harness stops)
 //   GET  /             what the synthetic wallet signed and sent
 //   GET  /history[?account=<id>]  the synthetic wallet's activity, newest first: each recorded
 //                      transaction's ID, signer, receiver, method and its own status (read-only;

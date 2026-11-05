@@ -1455,11 +1455,43 @@ export class CustomerUses {
       this.readTimeoutMs,
     ).catch(readFailed);
     const e = read.entitlement as EntitlementV3 | null;
+    // Job 003wec (§11.2): whether this contract has the guarded revocation, read at the SAME
+    // block. A missing view (an older contract), an answer from another block or any other shape
+    // is "not supported", never an error: keys and uses still work, only revoking is refused.
+    // Astra's KeyCapabilityTimeoutReview: bounded by its own deadline (the read timeout), with a
+    // cancellation signal for a transport that honours it, and settled as false at the deadline
+    // even if the transport never answers; a late answer changes nothing.
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<false>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve(false);
+      }, this.readTimeoutMs);
+    });
+    const answered = this.reader
+      .view({
+        network: o.network,
+        account: o.account,
+        method: "get_key_terms",
+        args: {},
+        block: read.block,
+        signal: controller.signal,
+      })
+      .then((a) => {
+        if (a.block.height !== read.block.height || a.block.hash !== read.block.hash) return false;
+        if (typeof a.result !== "string" || a.result.length > 256) return false;
+        const t = JSON.parse(a.result) as Record<string, unknown> | null;
+        return !!t && Object.keys(t).length === 2 && t.version === 1 && t.guarded_revoke === true;
+      })
+      .catch(() => false);
+    const guarded = await Promise.race([answered, deadline]).finally(() => clearTimeout(timer));
     return {
       network: o.network,
       contract: o.account,
       plan_id: o.plan_id,
       customer,
+      guarded_revoke: guarded,
       plan_max_hold_units: read.plan ? read.plan.max_hold_units : null,
       block: read.block,
       registered: Boolean(e),

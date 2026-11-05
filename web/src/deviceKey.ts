@@ -6,7 +6,10 @@
 // - Enrolled by the customer's own wallet: `install_key` (1 yoctoNEAR) with this key's public half.
 //   The intent is stored BEFORE the wallet is asked; whatever the wallet answers (or if it never
 //   does), readiness comes only from a fresh contract readback. A retry re-asks with the SAME key.
-// - Revoked by `revoke_key` (1 yoctoNEAR); the local key is deleted only once the readback shows it.
+// - Revoked by `revoke_key_guarded` (job 003wec; 1 yoctoNEAR): the request names the reviewed
+//   registration, epoch and public key, and the contract refuses it if the slot holds anything
+//   else by then. A contract without it is refused, never sent the unguarded `revoke_key`. The
+//   local key is deleted only once the readback shows the reviewed key gone, and only if it IS it.
 // - Authorizes ONE exact request by signing the contract's 32-byte hold/use digests, after the slot,
 //   epoch, account and key are checked again against a fresh readback.
 // No universal device guarantee: a browser without WebCrypto Ed25519 or IndexedDB says so.
@@ -35,6 +38,8 @@ export interface KeysReadback {
   registered: boolean;
   active: boolean;
   reg_id: string | null;
+  /** Job 003wec: the contract has revoke_key_guarded (its get_key_terms, at the same block). */
+  guarded_revoke?: boolean;
   keys: KeySlotView[];
 }
 
@@ -75,10 +80,23 @@ export interface DeviceKeyStore {
    * or the one another tab stored first. An outstanding key is never overwritten.
    */
   claim?(r: DeviceKeyRecord): Promise<DeviceKeyRecord>;
-  /** Deletes the record only if it still holds this public key (one transaction). */
-  deleteIf?(id: string, publicKey: string): Promise<boolean>;
-  /** Updates the record only if it still holds this public key (one transaction). */
-  putIf?(r: DeviceKeyRecord): Promise<boolean>;
+  /**
+   * Deletes the record only if it still holds this public key and, when given, these exact fields
+   * (one transaction). Job 003wec: a revocation deletes only the very incarnation it marked.
+   */
+  deleteIf?(
+    id: string,
+    publicKey: string,
+    same?: Partial<Pick<DeviceKeyRecord, "slot" | "created_ms" | "intent">>,
+  ): Promise<boolean>;
+  /**
+   * Updates the record only if it still holds this public key and, when given, these exact
+   * fields (one transaction). Job 003wec: a revocation rewrites only the incarnation it read.
+   */
+  putIf?(
+    r: DeviceKeyRecord,
+    same?: Partial<Pick<DeviceKeyRecord, "slot" | "created_ms" | "intent">>,
+  ): Promise<boolean>;
   close?(): void;
 }
 
@@ -156,12 +174,16 @@ export async function openDeviceKeyStore(
         return winner;
       }
     },
-    deleteIf: async (id, publicKey) => {
+    deleteIf: async (id, publicKey, same = {}) => {
       const s = tx("readwrite");
       let deleted = false;
       const g = s.get(id);
       g.onsuccess = () => {
-        if ((g.result as DeviceKeyRecord | undefined)?.public_key === publicKey) {
+        const r = g.result as DeviceKeyRecord | undefined;
+        if (
+          r?.public_key === publicKey &&
+          Object.entries(same).every(([k, v]) => r[k as keyof DeviceKeyRecord] === v)
+        ) {
           s.delete(id);
           deleted = true;
         }
@@ -169,12 +191,16 @@ export async function openDeviceKeyStore(
       await done(s.transaction);
       return deleted;
     },
-    putIf: async (r) => {
+    putIf: async (r, same = {}) => {
       const s = tx("readwrite");
       let written = false;
       const g = s.get(r.id);
       g.onsuccess = () => {
-        if ((g.result as DeviceKeyRecord | undefined)?.public_key === r.public_key) {
+        const cur = g.result as DeviceKeyRecord | undefined;
+        if (
+          cur?.public_key === r.public_key &&
+          Object.entries(same).every(([k, v]) => cur[k as keyof DeviceKeyRecord] === v)
+        ) {
           s.put(r);
           written = true;
         }
@@ -194,13 +220,28 @@ async function claimRecord(store: DeviceKeyStore, r: DeviceKeyRecord): Promise<D
   await store.put(r);
   return (await store.get(r.id)) ?? r;
 }
-async function updateRecord(store: DeviceKeyStore, r: DeviceKeyRecord): Promise<boolean> {
-  if (store.putIf) return store.putIf(r);
+async function updateRecord(
+  store: DeviceKeyStore,
+  r: DeviceKeyRecord,
+  same?: Partial<Pick<DeviceKeyRecord, "slot" | "created_ms" | "intent">>,
+): Promise<boolean> {
+  if (store.putIf) return store.putIf(r, same);
   await store.put(r);
   return true;
 }
-async function deleteRecord(store: DeviceKeyStore, r: DeviceKeyRecord): Promise<boolean> {
-  if (store.deleteIf) return store.deleteIf(r.id, r.public_key);
+
+/** The fields that identify one stored incarnation of a key, as read (job 003wec). */
+const incarnation = (r: DeviceKeyRecord) => ({
+  slot: r.slot,
+  created_ms: r.created_ms,
+  intent: r.intent,
+});
+async function deleteRecord(
+  store: DeviceKeyStore,
+  r: DeviceKeyRecord,
+  same?: Partial<Pick<DeviceKeyRecord, "slot" | "created_ms" | "intent">>,
+): Promise<boolean> {
+  if (store.deleteIf) return store.deleteIf(r.id, r.public_key, same);
   await store.delete(r.id);
   return true;
 }
@@ -252,18 +293,33 @@ export function installCall(r: DeviceKeyRecord): WalletFunctionCall {
   };
 }
 
-export function revokeCall(contract: string, planId: number, slot: number): WalletFunctionCall {
+/**
+ * Job 003wec: the exact guarded revocation of the reviewed key. The contract revokes it only if
+ * the slot still holds exactly this registration's key at this epoch; otherwise it changes nothing.
+ */
+export function revokeCall(o: {
+  contract: string;
+  plan_id: number;
+  slot: number;
+  reg_id: string;
+  epoch: number;
+  public_key: string;
+}): WalletFunctionCall {
   return {
-    receiverId: contract,
-    methodName: "revoke_key",
-    args: { plan_id: planId, slot },
+    receiverId: o.contract,
+    methodName: "revoke_key_guarded",
+    args: { plan_id: o.plan_id, slot: o.slot, reg_id: o.reg_id, epoch: o.epoch, pk: o.public_key },
     gas: "30000000000000",
     deposit: "1",
   };
 }
 
+/** Job 003wec: what the customer is told when the business's contract can't guard a revocation. */
+export const UNGUARDED_REVOKE =
+  "This business's contract can't make sure a revocation removes only the key you reviewed (it predates that), so revoking isn't offered here until its owner upgrades it. Nothing was sent. You can still forget this device's key here.";
+
 export type DeviceAnswer =
-  | { kind: "done"; readiness: Readiness }
+  | { kind: "done"; readiness: Readiness; message?: string }
   /** Asked the wallet; the readback doesn't show it yet (perhaps still processing, or refused). */
   | { kind: "not_confirmed"; readiness: Readiness; message: string }
   | { kind: "cancelled"; readiness: Readiness; message: string }
@@ -481,33 +537,41 @@ export class DeviceKeys {
   }
 
   /**
-   * Job 003wea: step 1 of revoking. The exact `revoke_key` request for this slot, from a fresh
+   * Job 003wea: step 1 of revoking. The exact revocation request for this slot, from a fresh
    * readback, for review: whether it is this device's key, the acting account, and WHICH key
    * (public key and epoch) the customer is looking at. That observation is remembered with the
    * request: `revoke` refuses to send if the slot's key, epoch, registration or account changed
    * since (Astra's revoke-review probe: a replacement key must never be revoked under the old
    * key's review). Nothing is sent here.
    *
-   * Limit (stated, not hidden): the contract's revoke_key is slot-based, so this is a client-side
-   * comparison against a fresh read, not an atomic on-chain guarantee. Between that read and the
-   * transaction's inclusion another device could still replace the key. A guarded contract method
-   * (e.g. revoke only if the slot's epoch is the one reviewed) would close that window; it is a
-   * contract change, recorded as a follow-up, not made here.
+   * Job 003wec: the request itself names that key (revoke_key_guarded), so the guarantee holds at
+   * execution too: if the slot holds anything else when the transaction runs, the contract
+   * refuses it and changes nothing. A contract without the guarded method is refused here.
    */
   async prepareRevoke(offerId: string, slot: number): Promise<RevokeReview | DeviceAnswer> {
     const v = await this.view(offerId);
     if (!this.alive) return { kind: "stale" };
+    if (v.rb.guarded_revoke !== true) return { kind: "refused", message: UNGUARDED_REVOKE };
     const k = v.rb.keys[slot];
     if (k?.state !== "active") return { kind: "refused", message: "That key slot isn't active." };
+    if (!v.rb.reg_id) return { kind: "refused", message: "Your registration couldn't be read." };
     return this.review(v.rb, slot, v.record?.slot === slot && v.record.public_key === k.public_key);
   }
 
   /** An immutable review: the exact call AND the key it was shown for, together. */
   private review(rb: KeysReadback, slot: number, thisDevice: boolean): RevokeReview {
     const k = rb.keys[slot] as KeySlotView;
+    const call = revokeCall({
+      contract: rb.contract,
+      plan_id: rb.plan_id,
+      slot,
+      reg_id: String(rb.reg_id),
+      epoch: k.epoch,
+      public_key: k.public_key,
+    });
     return Object.freeze({
       kind: "request" as const,
-      call: Object.freeze(revokeCall(rb.contract, rb.plan_id, slot)),
+      call: Object.freeze({ ...call, args: Object.freeze(call.args) }),
       slot,
       thisDevice,
       account: this.deps.account,
@@ -539,20 +603,23 @@ export class DeviceKeys {
   ): Promise<DeviceAnswer> {
     const v = await this.view(offerId);
     if (!this.alive) return { kind: "stale" };
+    // Job 003wec: never the unguarded method, whatever was reviewed.
+    if (v.rb.guarded_revoke !== true) return { kind: "refused", message: UNGUARDED_REVOKE };
     if (v.rb.keys[slot]?.state !== "active")
       return { kind: "refused", message: "That key slot isn't active." };
-    const exact = revokeCall(v.rb.contract, v.rb.plan_id, slot);
+    if (!v.rb.reg_id) return { kind: "refused", message: "Your registration couldn't be read." };
+    const k = v.rb.keys[slot] as KeySlotView;
+    const fresh = this.review(
+      v.rb,
+      slot,
+      v.record?.slot === slot && v.record.public_key === k.public_key,
+    );
+    let review = fresh;
     if (reviewed) {
-      const k = v.rb.keys[slot] as KeySlotView;
-      const fresh = this.review(
-        v.rb,
-        slot,
-        v.record?.slot === slot && v.record.public_key === k.public_key,
-      );
       const r = "observed" in reviewed ? reviewed : null;
       if (
         !r ||
-        !sameCall(r.call, exact) ||
+        !sameCall(r.call, fresh.call) ||
         JSON.stringify(r.observed) !== JSON.stringify(fresh.observed)
       )
         return {
@@ -564,30 +631,71 @@ export class DeviceKeys {
             ? "The key in this slot changed since you reviewed it (another device may have replaced it). Review the key now there before revoking."
             : "Review which key this revokes before asking your wallet.",
         };
+      review = r;
     }
-    const mine = v.record?.slot === slot ? v.record : null;
-    if (mine && !(await updateRecord(v.store, { ...mine, intent: "revoke" })))
+    const o = review.observed;
+    // This device's stored key is involved only if it IS the reviewed key.
+    const mine = v.record?.slot === slot && v.record.public_key === o.public_key ? v.record : null;
+    // Marked only if the stored record is still the one read (another tab's newer one isn't).
+    if (mine && !(await updateRecord(v.store, { ...mine, intent: "revoke" }, incarnation(mine))))
       return { kind: "refused", message: "Another tab changed this device's key; check again." };
+    const marked = mine ? { ...mine, intent: "revoke" as const } : null;
     const w = await this.walletFor();
     if (!this.alive) return { kind: "stale" };
     if (!("send" in w)) return w;
     let cancelled = false;
     try {
-      await w.send(exact);
+      // Exactly the reviewed request: it names the key, so the contract refuses it for any other.
+      await w.send(review.call);
     } catch (e) {
       cancelled = CANCEL.test((e as Error)?.message ?? "");
+      // Any other failure: it may or may not have run. The readback decides; nothing is retried,
+      // and the unguarded method is never tried instead.
     }
     if (!this.alive) return { kind: "stale" };
     const after = await this.view(offerId);
     if (!this.alive) return { kind: "stale" };
-    const k = after.rb.keys[slot];
-    const gone = k?.state !== "active" || (mine !== null && k.public_key !== mine.public_key);
-    if (gone) {
-      // Only once the readback shows it, and only if the stored record is still THAT key.
-      if (mine) await deleteRecord(after.store, mine);
-      return { kind: "done", readiness: (await this.view(offerId)).readiness };
+    const now = after.rb.keys[slot];
+    const stillThere =
+      after.rb.reg_id === o.reg_id &&
+      now?.state === "active" &&
+      now.epoch === o.epoch &&
+      now.public_key === o.public_key;
+    if (!stillThere) {
+      // The reviewed key no longer authorizes anything. That is all the readback shows: not
+      // which action removed it (Astra's GuardedRevokeDesignReview).
+      // This device's stored key is KEPT whenever the contract still shows that same public key
+      // active in its slot now (reinstalled at a later epoch, or under a new registration): it
+      // still serves a valid authorization. Otherwise it is deleted only if the stored record is
+      // still the very incarnation this revocation marked (same key, slot and creation, intent
+      // still "revoke"), in one storage transaction: another tab's newer or re-enrolling record
+      // stays.
+      const serving =
+        mine !== null &&
+        after.rb.keys[mine.slot]?.state === "active" &&
+        after.rb.keys[mine.slot]?.public_key === mine.public_key;
+      // Both only if the stored record is still the incarnation this revocation marked.
+      if (marked && !serving) await deleteRecord(after.store, marked, incarnation(marked));
+      else if (marked)
+        await updateRecord(after.store, { ...marked, intent: null }, incarnation(marked));
+      const readiness = (await this.view(offerId)).readiness;
+      const gone =
+        "The contract no longer shows the key you reviewed as active, so it can't authorize anything.";
+      return {
+        kind: "done",
+        readiness,
+        message:
+          now?.state === "active"
+            ? `${gone} ${
+                serving
+                  ? "The same key is active in this slot again under a newer authorization; this device keeps it."
+                  : "Another key is active in this slot now; it was not revoked, and revoking it needs its own review."
+              }`
+            : gone,
+      };
     }
-    if (mine) await updateRecord(after.store, { ...mine, intent: null }); // still active
+    // Still active: the mark is cleared only on the incarnation it was put on.
+    if (marked) await updateRecord(after.store, { ...marked, intent: null }, incarnation(marked));
     const readiness = (await this.view(offerId)).readiness;
     return cancelled
       ? {
@@ -599,7 +707,7 @@ export class DeviceKeys {
           kind: "not_confirmed",
           readiness,
           message:
-            "The contract still shows this key active. If you approved it, check again in a moment.",
+            "The contract still shows this key active. If you approved it, it may still be processing: check again in a moment. Asking again sends the same request, which removes only this key.",
         };
   }
 

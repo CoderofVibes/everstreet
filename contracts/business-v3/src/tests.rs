@@ -4035,7 +4035,9 @@ fn guarded_revoke_matches_server_fixture() {
     let (mut w, _, k2, reg) = two_keys();
     let (a, s) = w.auth(CARA, &k2, reg, 3, 8, w.now + 20 * MIN, 1, 1);
     assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a, s)), "opened");
-    let start = serde_json::to_value(w.ent(CARA)).unwrap();
+    // As JSON strings (the other fixtures do the same): the server parses them, and the file stays
+    // byte-identical to what this test writes.
+    let start = serde_json::to_string(&w.ent(CARA)).unwrap();
     let k3 = key(3);
     #[allow(clippy::type_complexity)]
     let steps: Vec<(&str, &str, serde_json::Value, u128, Option<&str>)> = vec![
@@ -4071,7 +4073,7 @@ fn guarded_revoke_matches_server_fixture() {
         let e = w.ent(CARA);
         out.push(serde_json::json!({
             "case": name, "method": method, "args": args, "deposit": deposit.to_string(),
-            "refused": code, "keys": serde_json::to_value(&e.keys).unwrap(), "serve_until_ms": e.serve_until_ms,
+            "refused": code, "keys": serde_json::to_string(&e.keys).unwrap(), "serve_until_ms": e.serve_until_ms,
         }));
     }
     let doc = serde_json::json!({

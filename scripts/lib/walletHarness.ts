@@ -64,8 +64,8 @@ export const WALLET_SCRIPT = `// Review harness only: a SYNTHETIC wallet module 
 `;
 
 /**
- * Applies a customer's install_key / revoke_key to the chain double, following lib.rs
- * install_key / revoke_key (Astra's DeviceKeyReview: plan identity and hold limit on install; on
+ * Applies a customer's install_key / revoke_key / revoke_key_guarded (job 003wec) to the chain
+ * double, following lib.rs (Astra's DeviceKeyReview: plan identity and hold limit on install; on
  * revoke, an active hold under that slot stops serving now, while uses already signed stay
  * settleable until its settle deadline). It is a double: the curve-point and weak-key checks are
  * only the 64-hex shape here, so it can't stand in for the contract's key validation.
@@ -94,15 +94,29 @@ export function applyKeyCall(
       max_hold_units: call.args.max_hold_units,
       max_units_per_day: call.args.max_units_per_day,
     });
-  } else if (call.methodName === "revoke_key") {
-    if (k.state !== "active") throw new Error("E_KEY: that key is not active");
+  } else if (call.methodName === "revoke_key" || call.methodName === "revoke_key_guarded") {
+    if (call.methodName === "revoke_key_guarded") {
+      // Job 003wec: lib.rs revoke_key_guarded, in its order; every check before any change
+      // (server/test/guarded-revoke-world.test.ts replays the contract's own fixture).
+      if (typeof call.args.pk !== "string" || !/^[0-9a-fA-F]{64}$/.test(call.args.pk))
+        throw new Error("E_ARGS: public key is 64 hex characters");
+      if (String(call.args.reg_id) !== String(ent.reg_id))
+        throw new Error("E_STALE_REVIEW: the registration changed since this was reviewed");
+      if (k.state !== "active") throw new Error("E_KEY: that key is not active");
+      if (k.epoch !== call.args.epoch || k.public_key !== String(call.args.pk).toLowerCase())
+        throw new Error("E_STALE_REVIEW: the key in this slot changed since this was reviewed");
+    } else if (k.state !== "active") throw new Error("E_KEY: that key is not active");
+    if (k.epoch >= 0xffff_ffff) throw new Error("E_OVERFLOW: key epoch");
     Object.assign(k, { state: "revoked", epoch: k.epoch + 1 });
     if (ent.hold_active && ent.hold_key_slot === call.args.slot) {
       const until = BigInt(ent.serve_until_ms);
       // biome-ignore lint/complexity/useMathMinMax: BigInt values (Math.min takes numbers only)
       ent.serve_until_ms = String(until < plan.now_ms ? until : plan.now_ms);
     }
-  } else throw new Error("The synthetic wallet only sends install_key and revoke_key.");
+  } else
+    throw new Error(
+      "The synthetic wallet only sends install_key, revoke_key and revoke_key_guarded.",
+    );
   ent.key_states = ent.keys.map(
     (x: Json) => ({ empty: 0, active: 1, revoked: 2 })[x.state as string],
   );
@@ -255,7 +269,11 @@ export async function walletHarness(opts: { origin: string; customer?: "seeded" 
     };
     controls.sent.push(call);
     let outcome: Json;
-    if (call.methodName === "install_key" || call.methodName === "revoke_key") {
+    if (
+      call.methodName === "install_key" ||
+      call.methodName === "revoke_key" ||
+      call.methodName === "revoke_key_guarded"
+    ) {
       if (call.receiverId !== BUSINESS)
         return c.json(
           { error: "The synthetic wallet only calls the fictional business contract." },
@@ -362,6 +380,13 @@ export function harnessControl(h: Awaited<ReturnType<typeof walletHarness>>) {
       return c.json({ error: "0 to 30000 ms" }, 400);
     h.controls.delayNextMs = ms;
     return c.json({ delay_next_ms: ms });
+  });
+  // Job 003wec: from now on the business answers like an older deployed contract, without
+  // get_key_terms, so the product must refuse revocation (never fall back). One way, until the
+  // harness stops.
+  control.post("/older-contract", (c) => {
+    h.world.chain.keyTerms = false;
+    return c.json({ guarded_revoke: false });
   });
   control.post("/account/:id", (c) => {
     h.controls.account = c.req.param("id");

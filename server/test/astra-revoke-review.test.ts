@@ -18,6 +18,8 @@ it.each(["replacement", "newer review", "repeated old review"])(
       registered: true,
       active: true,
       reg_id: "1",
+      // Job 003wec (Claude): the contract states guarded revocation; without it nothing is offered.
+      guarded_revoke: true,
       keys: [
         {
           slot: 0,

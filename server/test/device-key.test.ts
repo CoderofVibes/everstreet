@@ -24,6 +24,7 @@ import {
   openDeviceKeyStore,
   recordId,
   revokeCall,
+  UNGUARDED_REVOKE,
 } from "../../web/src/deviceKey.ts";
 import type { WalletBoundary, WalletFunctionCall } from "../../web/src/wallet.ts";
 import { verifiesEd25519 } from "../src/customerSigning.ts";
@@ -37,6 +38,14 @@ import {
 } from "./customer-world.ts";
 
 const INPUT = "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD";
+/** Another device's revocation (the unguarded method, applied to the double), not this page's. */
+const elsewhereRevoke = (slot: number): WalletFunctionCall => ({
+  receiverId: BUSINESS,
+  methodName: "revoke_key",
+  args: { plan_id: 1, slot },
+  gas: "30000000000000",
+  deposit: "1",
+});
 
 /** The customer's wallet over the test double: the contract's install/revoke rules, 1 yocto. */
 function syntheticWallet(w: CustomerWorld, account = CUSTOMER) {
@@ -147,10 +156,20 @@ describe("003w-e2 the route and the readiness rules", () => {
       gas: "30000000000000",
       deposit: "1",
     });
-    expect(revokeCall(BUSINESS, 1, 2)).toEqual({
+    // Job 003wec: the revocation names the reviewed registration, epoch and key.
+    expect(
+      revokeCall({
+        contract: BUSINESS,
+        plan_id: 1,
+        slot: 2,
+        reg_id: "7",
+        epoch: 3,
+        public_key: "ab".repeat(32),
+      }),
+    ).toEqual({
       receiverId: BUSINESS,
-      methodName: "revoke_key",
-      args: { plan_id: 1, slot: 2 },
+      methodName: "revoke_key_guarded",
+      args: { plan_id: 1, slot: 2, reg_id: "7", epoch: 3, pk: "ab".repeat(32) },
       gas: "30000000000000",
       deposit: "1",
     });
@@ -379,7 +398,7 @@ describe("003w-e2 authorizing one exact request with the device key", () => {
     const done = await k.enroll(t.offer, 10);
     if (done.kind !== "done" || done.readiness.kind !== "ready") throw new Error("not ready");
     const a = k.authorizer(t.offer, done.readiness);
-    t.wal.apply(revokeCall(BUSINESS, 1, 1));
+    t.wal.apply(elsewhereRevoke(1));
     t.wal.apply(
       installCall({
         contract: BUSINESS,
@@ -570,12 +589,13 @@ describe("003wea revocation is reviewed first, exactly", () => {
       slot: 1,
       thisDevice: true,
       account: CUSTOMER,
-      call: revokeCall(BUSINESS, 1, 1),
     });
-    t.wal.sent.length = 0;
     if (p.kind !== "request") throw new Error("no request");
+    expect(p.call).toEqual(revokeCall(p.observed as never));
+    expect(p.call.methodName).toBe("revoke_key_guarded");
+    t.wal.sent.length = 0;
     expect(await k.revoke(t.offer, 1, p)).toMatchObject({ kind: "done" });
-    expect(t.wal.sent).toEqual([revokeCall(BUSINESS, 1, 1)]);
+    expect(t.wal.sent).toEqual([p.call]);
   });
 
   it("a lost device's slot is reviewed as NOT this device's; a request that no longer matches is shown again, unsent", async () => {
@@ -583,11 +603,9 @@ describe("003wea revocation is reviewed first, exactly", () => {
     const k = t.keys();
     const p = await k.prepareRevoke(t.offer, 0); // the fixture's key: not this device's
     expect(p).toMatchObject({ kind: "request", slot: 0, thisDevice: false });
-    const stale = { ...revokeCall(BUSINESS, 1, 0), args: { plan_id: 1, slot: 3 } };
-    expect(await k.revoke(t.offer, 0, stale)).toMatchObject({
-      kind: "changed",
-      call: revokeCall(BUSINESS, 1, 0),
-    });
+    if (p.kind !== "request") throw new Error("no review");
+    const stale = { ...p.call, args: { ...p.call.args, slot: 3 } };
+    expect(await k.revoke(t.offer, 0, stale)).toMatchObject({ kind: "changed", call: p.call });
     expect(t.wal.sent).toEqual([]);
     expect(await k.prepareRevoke(t.offer, 2)).toMatchObject({ kind: "refused" }); // empty slot
   });
@@ -646,7 +664,7 @@ describe("003wea a revocation review is for one key, not for a slot", () => {
     const k = t.keys();
     const p = await k.prepareRevoke(t.offer, 0);
     if (p.kind !== "request") throw new Error("no review");
-    t.wal.apply(revokeCall(BUSINESS, 1, 0));
+    t.wal.apply(elsewhereRevoke(0));
     t.wal.apply(
       installCall({
         contract: BUSINESS,
@@ -671,7 +689,239 @@ describe("003wea a revocation review is for one key, not for a slot", () => {
     expect(t.wal.sent).toEqual([]);
     // The NEW review (shown for key cd..): sent, exactly once.
     if (out.kind !== "changed" || !out.review) throw new Error("no fresh review");
+    expect(out.review.call).not.toEqual(p.call); // the requests now differ in their bytes
     expect(await k.revoke(t.offer, 0, out.review)).toMatchObject({ kind: "done" });
-    expect(t.wal.sent).toEqual([revokeCall(BUSINESS, 1, 0)]);
+    expect(t.wal.sent).toEqual([out.review.call]);
+  });
+});
+
+describe("003wec guarded revocation: the reviewed key, at execution", () => {
+  it("the keys readback states the capability at the same block; an older contract or another shape is not supported", async () => {
+    const t = await world();
+    expect((await t.read(t.offer)).guarded_revoke).toBe(true);
+    t.w.chain.keyTerms = false; // an older deployed contract: no get_key_terms
+    const old = await t.read(t.offer);
+    expect(old.guarded_revoke).toBe(false);
+    expect(old.keys.map((k) => k.state)).toEqual(["active", "empty", "empty", "empty"]); // reads still work
+    t.w.chain.keyTerms = true;
+    const answer = t.w.chain.answer.bind(t.w.chain);
+    t.w.chain.answer = (m, a) =>
+      m === "get_key_terms" ? JSON.stringify({ version: 2, guarded_revoke: true }) : answer(m, a);
+    expect((await t.read(t.offer)).guarded_revoke).toBe(false);
+    t.w.chain.answer = (m, a) =>
+      m === "get_key_terms"
+        ? JSON.stringify({ version: 1, guarded_revoke: true, extra: 1 })
+        : answer(m, a);
+    expect((await t.read(t.offer)).guarded_revoke).toBe(false);
+  });
+
+  it("an older contract: no review, no send, never the unguarded method (even under an earlier review)", async () => {
+    const t = await world();
+    const k = t.keys();
+    const p = await k.prepareRevoke(t.offer, 0);
+    if (p.kind !== "request") throw new Error("no review");
+    t.w.chain.keyTerms = false;
+    expect(await k.prepareRevoke(t.offer, 0)).toEqual({
+      kind: "refused",
+      message: UNGUARDED_REVOKE,
+    });
+    expect(await k.revoke(t.offer, 0, p)).toEqual({ kind: "refused", message: UNGUARDED_REVOKE });
+    expect(t.wal.sent).toEqual([]);
+    expect(t.w.chain.ent(CUSTOMER)?.keys[0]).toMatchObject({ state: "active", epoch: 1 });
+  });
+
+  it("a replacement installed while the wallet is open: the contract refuses, the replacement and its local record stay", async () => {
+    const t = await world();
+    const k = t.keys();
+    const done = await k.enroll(t.offer, 10);
+    if (done.kind !== "done" || done.readiness.kind !== "ready") throw new Error("not ready");
+    const slot = done.readiness.slot;
+    const p = await k.prepareRevoke(t.offer, slot);
+    if (p.kind !== "request") throw new Error("no review");
+    const store = await openDeviceKeyStore(t.idb);
+    const id = recordId("testnet", BUSINESS, 1, CUSTOMER);
+    const stored = (await store.get(id)) as NonNullable<Awaited<ReturnType<typeof store.get>>>;
+    const replacement = "cd".repeat(32);
+    // Between the check and the transaction: another tab of this browser re-enrolls (its own
+    // record) and another device revokes the old key and installs the replacement.
+    t.wal.state.beforeSend = async () => {
+      await store.put({ ...stored, public_key: replacement, intent: null });
+      t.wal.apply(elsewhereRevoke(slot));
+      t.wal.apply(
+        installCall({ ...stored, public_key: replacement, max_units_per_day: 5 } as never),
+      );
+    };
+    t.wal.sent.length = 0;
+    const out = await k.revoke(t.offer, slot, p);
+    // The guarded request was sent and refused by the contract's rule; nothing else was tried.
+    expect(t.wal.sent).toEqual([p.call]);
+    expect(t.wal.sent.some((c) => c.methodName === "revoke_key")).toBe(false);
+    expect(t.w.chain.ent(CUSTOMER)?.keys[slot]).toMatchObject({
+      state: "active",
+      public_key: replacement,
+      epoch: p.observed.epoch + 2,
+    });
+    expect(out).toMatchObject({
+      kind: "done",
+      message: /Another key is in this slot now; it was not revoked/,
+    });
+    expect((await store.get(id))?.public_key).toBe(replacement); // the other tab's record stays
+  });
+
+  it("a delayed wallet answer after a replacement: still refused at execution, the replacement stays active", async () => {
+    const t = await world();
+    const k = t.keys();
+    const p = await k.prepareRevoke(t.offer, 0);
+    if (p.kind !== "request") throw new Error("no review");
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    t.wal.state.beforeSend = () => gate; // the wallet window stays open
+    const pending = k.revoke(t.offer, 0, p);
+    await new Promise((r) => setTimeout(r, 5));
+    t.wal.apply(elsewhereRevoke(0));
+    t.wal.apply(
+      installCall({
+        contract: BUSINESS,
+        plan_id: 1,
+        slot: 0,
+        public_key: "ef".repeat(32),
+        max_hold_units: 1,
+        max_units_per_day: 5,
+      } as never),
+    );
+    release();
+    const out = await pending;
+    expect(t.w.chain.ent(CUSTOMER)?.keys[0]).toMatchObject({
+      state: "active",
+      public_key: "ef".repeat(32),
+    });
+    expect(out).toMatchObject({ kind: "done", message: /it was not revoked/ });
+  });
+
+  it("a lost answer is confirmed by the readback; a request that never ran stays unconfirmed and the same review completes it once", async () => {
+    const t = await world();
+    const k = t.keys();
+    const p = await k.prepareRevoke(t.offer, 0);
+    if (p.kind !== "request") throw new Error("no review");
+    t.wal.state.mode = "drop"; // the wallet failed; nothing ran
+    expect(await k.revoke(t.offer, 0, p)).toMatchObject({ kind: "not_confirmed" });
+    expect(t.w.chain.ent(CUSTOMER)?.keys[0]).toMatchObject({ state: "active", epoch: 1 });
+    t.wal.state.mode = "lose"; // it runs; the answer is lost
+    expect(await k.revoke(t.offer, 0, p)).toMatchObject({
+      kind: "done",
+      readiness: { kind: "none" },
+      message: /no longer shows the key you reviewed as active/,
+    });
+    expect(t.w.chain.ent(CUSTOMER)?.keys[0]).toMatchObject({ state: "revoked", epoch: 2 });
+    // The same review again: the key isn't active, so nothing more is sent.
+    const sent = t.wal.sent.length;
+    expect(await k.revoke(t.offer, 0, p)).toMatchObject({ kind: "refused" });
+    expect(t.wal.sent.length).toBe(sent);
+    // At the contract, a replay of the guarded request is refused (E_KEY) and changes nothing.
+    expect(() => t.wal.apply(p.call)).toThrow(/^E_KEY/);
+  });
+});
+
+describe("003wec this device keeps a key that still serves a newer authorization (Astra's GuardedRevokeDesignReview)", () => {
+  /** This device's key enrolled in slot 1, reviewed for revocation; the store as the page uses it. */
+  async function reviewedOwnKey() {
+    const t = await world();
+    const k = t.keys();
+    const done = await k.enroll(t.offer, 10);
+    if (done.kind !== "done" || done.readiness.kind !== "ready") throw new Error("not ready");
+    const p = await k.prepareRevoke(t.offer, done.readiness.slot);
+    if (p.kind !== "request" || !p.thisDevice) throw new Error("no review of this device's key");
+    const store = await openDeviceKeyStore(t.idb);
+    const id = recordId("testnet", BUSINESS, 1, CUSTOMER);
+    const record = (await store.get(id)) as NonNullable<Awaited<ReturnType<typeof store.get>>>;
+    t.wal.sent.length = 0;
+    return { t, k, p, store, id, record, slot: done.readiness.slot };
+  }
+
+  it("the same key reinstalled at a later epoch while the wallet is open: refused at execution, the key and its record stay usable", async () => {
+    const { t, k, p, store, id, record, slot } = await reviewedOwnKey();
+    t.wal.state.beforeSend = () => {
+      t.wal.apply(elsewhereRevoke(slot));
+      t.wal.apply(installCall(record)); // the SAME public key, epoch + 2
+    };
+    const out = await k.revoke(t.offer, slot, p);
+    expect(t.wal.sent).toEqual([p.call]); // the guarded request only
+    expect(t.w.chain.ent(CUSTOMER)?.keys[slot]).toMatchObject({
+      state: "active",
+      public_key: record.public_key,
+      epoch: p.observed.epoch + 2,
+    });
+    expect(out).toMatchObject({ kind: "done", message: /this device keeps it/ });
+    expect(out.kind === "done" && out.readiness).toMatchObject({
+      kind: "ready",
+      epoch: p.observed.epoch + 2,
+    });
+    const kept = await store.get(id);
+    expect(kept?.public_key).toBe(record.public_key);
+    expect(kept?.intent).toBeNull();
+    expect((await k.status(t.offer)).readiness).toMatchObject({ kind: "ready" });
+  });
+
+  it("a new registration reusing the slot and epoch with the same key: refused, the key and its record stay", async () => {
+    const { t, k, p, store, id, record, slot } = await reviewedOwnKey();
+    t.wal.state.beforeSend = () => {
+      // Unregister and a new shell elsewhere, with this key reinstalled: same slot, same epoch,
+      // only the registration differs (as the contract's s04e shows).
+      const e = t.w.chain.ent(CUSTOMER) as Json;
+      e.reg_id = String(BigInt(e.reg_id) + 1n);
+    };
+    const out = await k.revoke(t.offer, slot, p);
+    const e = t.w.chain.ent(CUSTOMER) as Json;
+    expect(e.reg_id).not.toBe(p.observed.reg_id);
+    expect(e.keys[slot]).toMatchObject({ state: "active", epoch: p.observed.epoch });
+    expect(out).toMatchObject({ kind: "done", message: /this device keeps it/ });
+    expect((await store.get(id))?.public_key).toBe(record.public_key);
+  });
+
+  it("another tab re-enrolling the same stored key meanwhile: its record is never deleted", async () => {
+    const { t, k, p, store, id, record, slot } = await reviewedOwnKey();
+    t.wal.state.beforeSend = async () => {
+      // Another tab of this browser asks again to enroll this stored key (its intent), and the
+      // old authorization is revoked elsewhere: the key is inactive, but that tab owns the record.
+      await store.put({ ...record, intent: "enroll" });
+      t.wal.apply(elsewhereRevoke(slot));
+    };
+    const out = await k.revoke(t.offer, slot, p);
+    expect(out).toMatchObject({ kind: "done", message: /no longer shows the key you reviewed/ });
+    expect((await store.get(id))?.intent).toBe("enroll"); // kept: not the incarnation it marked
+  });
+
+  it("the reviewed key revoked and nothing newer: the record it marked is deleted", async () => {
+    const { t, k, p, store, id, slot } = await reviewedOwnKey();
+    const out = await k.revoke(t.offer, slot, p);
+    expect(out).toMatchObject({ kind: "done", message: /no longer shows the key you reviewed/ });
+    expect(out.kind === "done" ? out.message : "").not.toMatch(/this transaction|revoked by/);
+    expect(await store.get(id)).toBeNull();
+    expect(t.w.chain.ent(CUSTOMER)?.keys[slot]).toMatchObject({ state: "revoked" });
+  });
+});
+
+describe("003wec the capability read is bounded (Astra's KeyCapabilityTimeoutReview)", () => {
+  it("is cancelled at the read deadline and settles as unsupported; the keys still come back", async () => {
+    const w = await customerWorld({ customer: { readTimeoutMs: 30 } });
+    const offer = await w.offer();
+    const original = w.reader.view.bind(w.reader);
+    let seen: AbortSignal | undefined;
+    w.reader.view = async (input) => {
+      if (input.method !== "get_key_terms") return original(input);
+      // The double's type doesn't declare it; the server passes one.
+      const signal = (input as typeof input & { signal?: AbortSignal }).signal;
+      seen = signal;
+      // Answers affirmatively, but only after it was cancelled: too late to count.
+      await new Promise<void>((r) => signal?.addEventListener("abort", () => r()));
+      return original(input);
+    };
+    const r = await w.cara(`/api/customer/offers/${offer}/keys`);
+    expect(seen?.aborted).toBe(true);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ guarded_revoke: false, registered: true });
+    expect(r.body.keys).toHaveLength(4);
   });
 });

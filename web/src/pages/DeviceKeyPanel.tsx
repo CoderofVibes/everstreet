@@ -52,10 +52,22 @@ export function RequestFields({
         <dd>
           {install
             ? `Enrolls this device's key in slot ${a.slot}`
-            : call.methodName === "revoke_key"
-              ? `Revokes the key in slot ${a.slot}`
-              : call.methodName}
+            : call.methodName === "revoke_key_guarded"
+              ? `Revokes the key in slot ${a.slot}, only if it is still the key below; if the slot holds another key by then, the contract refuses and nothing changes`
+              : call.methodName === "revoke_key"
+                ? `Revokes the key in slot ${a.slot}`
+                : call.methodName}
         </dd>
+        {call.methodName === "revoke_key_guarded" && (
+          <>
+            <dt>The key it revokes</dt>
+            <dd className="mono">{String(a.pk)}</dd>
+            <dt>Registration and key epoch</dt>
+            <dd className="mono">
+              {String(a.reg_id)} · {String(a.epoch)}
+            </dd>
+          </>
+        )}
         {a.plan_id !== undefined && (
           <>
             <dt>Plan</dt>
@@ -114,7 +126,7 @@ const WORDS: Record<Readiness["kind"], string> = {
     "You have no units for this product yet, so there is nothing to enroll a device for. Buying units comes first.",
 };
 
-/** What revoking means, in plain words (lib.rs revoke_key). */
+/** What revoking means, in plain words (lib.rs revoke_key_guarded, the same effect as revoke_key). */
 export const REVOKE_CONSEQUENCE =
   "The key stops authorizing new requests at once, and a reservation it opened stops serving now. Uses you already signed can still be settled until their settlement deadline, so nothing you approved is lost.";
 
