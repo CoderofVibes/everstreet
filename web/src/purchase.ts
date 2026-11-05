@@ -161,6 +161,8 @@ export interface PurchaseSetup {
   plan_id: number;
   customer: string;
   offer_state: string;
+  /** The contract's declared purchase terms (null on a contract without them). */
+  terms: null | { version: number; shell_bytes: string; storage_byte_cost: string };
   plan: { unit_price: string; max_units_per_purchase: number; max_units_outstanding: number };
   token: {
     symbol: string;
@@ -172,6 +174,7 @@ export interface PurchaseSetup {
   };
   entitlement: null | {
     reg_id: string;
+    active?: boolean;
     purchase_seq: number;
     free: string;
     held: number;
@@ -200,7 +203,12 @@ export interface PurchasePort {
   check(
     id: string,
     body: { tx_hash?: string },
-  ): Promise<{ purchase: PurchaseView; resolution: Resolution | null }>;
+  ): Promise<{
+    purchase: PurchaseView;
+    resolution: Resolution | null;
+    /** For a NAMED transaction: whether it was shown to be exactly this purchase's. */
+    transaction?: { hash: string; matched: boolean } | null;
+  }>;
   abandon(id: string): Promise<{ purchase: PurchaseView }>;
 }
 
@@ -268,6 +276,22 @@ export interface FlowState {
 const isPreview = (p: PurchaseSetup["preview"]): p is PurchasePreview => Boolean(p && "call" in p);
 
 const CANCEL = /closed the window|cancel|reject/i;
+/** A NEAR transaction ID (base58, 32 bytes). */
+export const TX_ID = /^[1-9A-HJ-NP-Za-km-z]{43,44}$/;
+
+/** What a check's resolution tells the customer (shared by every check path). */
+function noticeFor(res: Resolution | null, cancelled = false): FlowState["notice"] {
+  if (!res) return null;
+  if (res.kind === "confirmed") return { tone: "ok", text: "Purchase confirmed by the contract." };
+  if (res.kind === "returned")
+    return {
+      tone: "warn",
+      text: `This payment came back to you in full, as the token's own records show (${res.reason}).`,
+    };
+  if (res.kind === "unknown" && cancelled)
+    return { tone: "info", text: `You closed the wallet. ${res.message}` };
+  return { tone: "info", text: res.message };
+}
 
 export class PurchaseFlow {
   private state: FlowState = {
@@ -311,26 +335,51 @@ export class PurchaseFlow {
     return (this.opts.makeKey ?? (() => `purchase-${crypto.randomUUID()}`))();
   }
 
-  /** A fresh read at one final block; an open purchase is shown (and must be resolved) first. */
-  async load(units = this.state.units) {
+  /** Reads started; only the newest one's answer is ever applied (Astra's PurchaseRefreshReview). */
+  private reads = 0;
+
+  /**
+   * A fresh read at one final block; an open purchase is shown (and must be resolved) first.
+   * Only the NEWEST read's answer is applied: an older one answering late never replaces a newer
+   * reading. The quantity is the customer's own and is never taken from a reading (an edit made
+   * while it was in flight stays). True only when this read's answer was applied.
+   */
+  async load(units = this.state.units): Promise<boolean> {
+    const mine = ++this.reads;
     try {
       const s = await this.port.setup(this.opts.offerId, units);
-      if (!this.alive) return;
+      if (!this.alive || mine !== this.reads) return false;
       if (s.customer !== this.opts.account) {
         this.set({
           status: "error",
           notice: { tone: "warn", text: "That answer is for another account; sign in again." },
         });
-        return;
+        return false;
       }
-      this.set({ status: "ready", setup: s, units });
+      this.set({ status: "ready", setup: s });
+      return true;
     } catch (e) {
-      if (!this.alive) return;
+      if (!this.alive || mine !== this.reads) return false;
       this.set({
         status: this.state.setup ? "ready" : "error",
         notice: { tone: "warn", text: (e as Error).message },
       });
+      return false;
     }
+  }
+
+  /**
+   * A reading that is current for the quantity being reviewed: if a newer read or an edit
+   * superseded it meanwhile, it is read once more; still superseded, nothing is reviewed.
+   */
+  private async currentReading(): Promise<PurchaseSetup | null> {
+    for (let i = 0; i < 2 && this.alive; i++) {
+      const units = this.state.units;
+      const applied = await this.load(units);
+      if (!this.alive) return null;
+      if (applied && this.state.units === units) return this.state.setup;
+    }
+    return null;
   }
 
   setUnits(units: number) {
@@ -339,8 +388,7 @@ export class PurchaseFlow {
 
   /** The exact request for review (nothing is sent). */
   async review(kind: Review["kind"]) {
-    await this.load(this.state.units);
-    const s = this.state.setup;
+    const s = await this.currentReading();
     if (!s || !this.alive) return;
     if (kind === "shell" && s.shell.call) return this.set({ review: { kind, call: s.shell.call } });
     if (kind === "token_storage" && s.token_storage.call)
@@ -557,28 +605,57 @@ export class PurchaseFlow {
 
   /** A bounded explicit check of an open purchase (with a hash, if one is known now). */
   async checkOpen(id: string, txHash?: string, cancelled = false) {
+    // A check the customer starts is one at a time (one inside a send already holds busy).
+    const own = this.state.busy === null;
+    if (own) this.set({ busy: "checking" });
     try {
       const r = await this.port.check(id, txHash ? { tx_hash: txHash } : {});
       if (!this.alive) return;
-      const res = r.resolution;
-      this.set({
-        resolution: res,
-        notice: !res
-          ? null
-          : res.kind === "confirmed"
-            ? { tone: "ok", text: "Purchase confirmed by the contract." }
-            : res.kind === "returned"
-              ? { tone: "warn", text: `The contract returned this payment in full: ${res.reason}.` }
-              : res.kind === "not_accepted" || res.kind === "registration_replaced"
-                ? { tone: "info", text: res.message }
-                : {
-                    tone: "info",
-                    text: cancelled ? `You closed the wallet. ${res.message}` : res.message,
-                  },
-      });
+      this.set({ resolution: r.resolution, notice: noticeFor(r.resolution, cancelled) });
     } catch (e) {
       if (!this.alive) return;
       this.set({ notice: { tone: "warn", text: (e as Error).message } });
+    } finally {
+      if (own) this.set({ busy: null });
+    }
+    await this.load();
+  }
+
+  /**
+   * Checks a purchase with the ORIGINAL transaction's ID, copied from the wallet's history, when
+   * the wallet's answer never carried it (Astra's PurchaseBrowserReview 2). The wallet is not
+   * asked for anything. The server's strict resolver decides: only a FINAL transaction that is
+   * exactly this purchase's request, from this account, with its receipts, can settle it; any
+   * other ID shows nothing about it and is not recorded. Answers after retirement are dropped.
+   */
+  async checkWithTransaction(id: string, txId: string) {
+    const t = txId.trim();
+    if (!TX_ID.test(t))
+      return this.set({
+        notice: {
+          tone: "warn",
+          text: "That isn't a NEAR transaction ID: it is 43 or 44 letters and digits, as your wallet's activity shows it.",
+        },
+      });
+    if (this.state.busy !== null) return;
+    this.set({ busy: "checking", notice: null, review: null });
+    try {
+      const r = await this.port.check(id, { tx_hash: t });
+      if (!this.alive) return;
+      if (r.transaction && !r.transaction.matched)
+        this.set({
+          resolution: r.resolution,
+          notice: {
+            tone: "warn",
+            text: "That transaction isn't this purchase (or isn't final yet), so it shows nothing about it. Nothing was recorded from it, and the purchase stays as it was.",
+          },
+        });
+      else this.set({ resolution: r.resolution, notice: noticeFor(r.resolution) });
+    } catch (e) {
+      if (!this.alive) return;
+      this.set({ notice: { tone: "warn", text: (e as Error).message } });
+    } finally {
+      this.set({ busy: null });
     }
     await this.load();
   }

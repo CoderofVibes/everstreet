@@ -142,14 +142,26 @@ type Review =
 export function DeviceKeyPanel({
   offerId,
   onAuthorizer,
+  refresh = 0,
+  onReadiness,
 }: {
   offerId: string;
   onAuthorizer: (a: CustomerAuthorizer | null) => void;
+  /**
+   * Changes when another part of the page freshly read a change in this customer's registration
+   * or units (Astra's PurchaseBrowserReview 1): the panel re-reads the contract itself, keeping
+   * any review in progress (it never trusts the other reading).
+   */
+  refresh?: number;
+  /** What the contract last showed about this device (null while unknown or on a failed read). */
+  onReadiness?: (r: Readiness | null) => void;
 }) {
   const { account, walletBoundary, wallet } = useSession();
   const keys = useRef<DeviceKeys | null>(null);
   const report = useRef(onAuthorizer);
   report.current = onAuthorizer;
+  const told = useRef(onReadiness);
+  told.current = onReadiness;
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [record, setRecord] = useState<DeviceKeyRecord | null>(null);
   const [review, setReview] = useState<Review | null>(null);
@@ -158,21 +170,30 @@ export function DeviceKeyPanel({
   const [note, setNote] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
+  // Only the newest reading is applied: an older one answering late never overwrites it.
+  const reading = useRef(0);
   const check = async (k: DeviceKeys | null = keys.current) => {
     if (!k || k.retired) return;
+    const mine = ++reading.current;
     setProblem(null);
     try {
       const s = await k.status(offerId);
-      if (k.retired) return; // a late answer for a view that has moved on
+      if (k.retired || mine !== reading.current) return; // a view that moved on, or a newer read
       setRecord(s.record);
       setReadiness(s.readiness);
+      told.current?.(s.readiness);
       report.current(s.readiness.kind === "ready" ? k.authorizer(offerId, s.readiness) : null);
     } catch (e) {
-      if (k.retired) return;
+      if (k.retired || mine !== reading.current) return;
       setProblem((e as Error).message);
+      told.current?.(null);
       report.current(null);
     }
   };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read only when the signal changes
+  useEffect(() => {
+    if (refresh > 0) void check();
+  }, [refresh]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: one view per offer and account
   useEffect(() => {
     // A new view: nothing from the previous offer or account is presented or busy.
@@ -189,6 +210,7 @@ export function DeviceKeyPanel({
     return () => {
       view.dispose();
       if (keys.current === view.keys) keys.current = null;
+      told.current?.(null);
       report.current(null);
     };
   }, [offerId, account]);

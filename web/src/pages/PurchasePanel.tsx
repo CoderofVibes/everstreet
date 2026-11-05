@@ -32,29 +32,35 @@ const EMPTY: FlowState = {
 
 const tgas = (gas: string) => `${(Number(BigInt(gas) / 1_000_000_000n) / 1000).toString()} Tgas`;
 
-/** A token amount in readable form, with its exact base units (no fiat). */
+/**
+ * A token amount in readable form (validated decimals and symbol; no fiat). The exact base units
+ * belong in a request's details (Astra's PurchaseBrowserReview 3), not every price line.
+ */
 export function TokenAmount({ base, setup }: { base: string; setup: PurchaseSetup }) {
   return (
-    <span>
-      <strong>
-        {tokenAmount(base, setup.token.decimals)} {setup.token.symbol}
-      </strong>{" "}
-      <span className="muted mono">({base} base units)</span>
-    </span>
+    <strong>
+      {tokenAmount(base, setup.token.decimals)} {setup.token.symbol}
+    </strong>
   );
 }
 
-/** The exact wallet request, in readable terms first; the raw call in details. */
+/**
+ * The exact wallet request: what it does and who approves and pays first; the exact units,
+ * method and arguments in one disclosure (still exactly what the wallet is asked for).
+ */
 export function PurchaseRequest({
   call,
   setup,
   account,
   lead,
+  details,
 }: {
   call: WalletFunctionCall;
   setup: PurchaseSetup;
   account: string;
   lead: React.ReactNode;
+  /** Exact figures behind the lead (bytes, base units, numbers), shown with the request. */
+  details?: React.ReactNode;
 }) {
   return (
     <>
@@ -67,17 +73,21 @@ export function PurchaseRequest({
         <dt>Sent to</dt>
         <dd className="mono">{call.receiverId}</dd>
         <dt>Attached NEAR</dt>
-        <dd className="mono">
-          {nearAmount(call.deposit)} NEAR ({call.deposit} yoctoNEAR)
-        </dd>
+        <dd className="mono">{nearAmount(call.deposit)} NEAR</dd>
         <dt>Gas</dt>
         <dd className="mono">up to {tgas(call.gas)}</dd>
       </dl>
       <details>
-        <summary>The exact request</summary>
-        <p className="mono">
-          {call.methodName} {JSON.stringify(call.args)}
-        </p>
+        <summary>Exact details</summary>
+        <dl className="use-terms">
+          {details}
+          <dt>Attached, exactly</dt>
+          <dd className="mono">{call.deposit} yoctoNEAR</dd>
+          <dt>Request</dt>
+          <dd className="mono">
+            {call.methodName} {JSON.stringify(call.args)}
+          </dd>
+        </dl>
       </details>
     </>
   );
@@ -123,18 +133,24 @@ export function PurchasePanel({
       symbol !== undefined && decimals !== undefined ? { symbol, decimals } : null,
     );
   }, [symbol, decimals]);
-  const lastConfirmed = useRef<string | null>(null);
-  const shellNeeded = s.setup?.shell.needed;
-  const prevShell = useRef(shellNeeded);
+  // Astra's PurchaseBrowserReview 1: whenever a FRESH read of THIS flow (this offer and account)
+  // shows the registration or its units changed, the page's dependent views (the device panel)
+  // re-read the contract themselves. That covers a confirmed purchase, a new registration and a
+  // purchase whose outcome is unknown but whose units the contract now shows. It is the current
+  // entitlement, not proof of which payment produced it. The first reading of a flow only sets
+  // the baseline (the dependent views read for themselves when they start), and a re-read that
+  // finds nothing new notifies nothing, so there is no refresh loop.
+  const e = s.setup?.entitlement;
+  const entKey = s.setup
+    ? JSON.stringify(e ? [e.reg_id, e.active, e.purchase_seq, e.free, e.held] : null)
+    : null;
+  const seen = useRef<{ flow: PurchaseFlow | null; key: string | null }>({ flow: null, key: null });
   useEffect(() => {
-    if (prevShell.current && shellNeeded === false) changed.current();
-    prevShell.current = shellNeeded;
-    const key = s.resolution?.kind === "confirmed" ? JSON.stringify(s.resolution) : null;
-    if (key && key !== lastConfirmed.current) {
-      lastConfirmed.current = key;
-      changed.current();
-    }
-  }, [shellNeeded, s.resolution]);
+    if (entKey === null) return;
+    const before = seen.current;
+    seen.current = { flow, key: entKey };
+    if (before.flow === flow && before.key !== null && before.key !== entKey) changed.current();
+  }, [flow, entKey]);
 
   if (!account || !wallet || !flow) return null;
   const setup = s.setup;
@@ -165,7 +181,7 @@ export function PurchasePanel({
                 Each use costs <TokenAmount base={setup.plan.unit_price} setup={setup} />. You hold{" "}
                 <TokenAmount base={setup.token.balance} setup={setup} /> in this account
                 {setup.entitlement
-                  ? `, and ${setup.entitlement.free} uses are ready for you.`
+                  ? `, and the contract shows ${setup.entitlement.free} uses ready for you now.`
                   : ". You have no uses for this product yet."}
               </p>
               {!setup.token.business_registered && (
@@ -201,10 +217,26 @@ export function PurchasePanel({
                   account={account}
                   lead={
                     <>
-                      A one-time, refundable storage deposit of{" "}
+                      A one-time storage deposit of{" "}
                       <strong>{nearAmount(setup.shell.quote.deposit)} NEAR</strong> keeps your
-                      record of uses with this business ({setup.shell.quote.bytes} bytes; exact, as
-                      the contract states it: {setup.shell.quote.basis}).
+                      record of uses with this business. It comes back to you if you later remove
+                      that record once it holds no uses.
+                    </>
+                  }
+                  details={
+                    <>
+                      <dt>Storage</dt>
+                      <dd className="mono">
+                        {setup.shell.quote.bytes} bytes at {setup.shell.quote.byte_cost} yoctoNEAR
+                        each
+                      </dd>
+                      <dt>Where the amount comes from</dt>
+                      <dd>
+                        {setup.shell.quote.basis}{" "}
+                        {setup.terms && (
+                          <span className="mono">(purchase terms v{setup.terms.version})</span>
+                        )}
+                      </dd>
                     </>
                   }
                 />
@@ -232,9 +264,21 @@ export function PurchasePanel({
                     <>
                       <strong>{s.review.preview.units} uses</strong> for{" "}
                       <TokenAmount base={s.review.preview.amount} setup={setup} />, paid from your
-                      account to this business (registration {s.review.preview.reg_id}, purchase{" "}
-                      {s.review.preview.purchase_seq}). If anything doesn't match when it arrives,
-                      the contract returns the whole amount.
+                      account to this business. If anything doesn't match when it arrives, the
+                      business's contract refuses it and the token sends the amount back; this page
+                      says it came back only once the token's own records show that.
+                    </>
+                  }
+                  details={
+                    <>
+                      <dt>Amount</dt>
+                      <dd className="mono">
+                        {s.review.preview.amount} base units of {setup.asset}
+                      </dd>
+                      <dt>Registration and purchase number</dt>
+                      <dd className="mono">
+                        {s.review.preview.reg_id} · {s.review.preview.purchase_seq}
+                      </dd>
                     </>
                   }
                 />
@@ -325,6 +369,49 @@ export function PurchasePanel({
   );
 }
 
+/**
+ * Checking with the ORIGINAL transaction's ID from the wallet's history (Astra's
+ * PurchaseBrowserReview 2), for when the wallet's answer never carried it. Nothing is sent to the
+ * wallet; the server's strict resolver decides, and an unrelated ID changes nothing.
+ */
+function TransactionCheck({
+  flow,
+  purchaseId,
+  busy,
+}: {
+  flow: PurchaseFlow;
+  purchaseId: string;
+  busy: boolean;
+}) {
+  const [txId, setTxId] = useState("");
+  const field = `buy-tx-${purchaseId}`;
+  return (
+    <form
+      className="row"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void flow.checkWithTransaction(purchaseId, txId);
+      }}
+    >
+      <label className="field" htmlFor={field}>
+        <span>Transaction ID from your wallet's activity</span>
+        <input
+          id={field}
+          className="input mono"
+          value={txId}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={busy}
+          onChange={(e) => setTxId(e.target.value)}
+        />
+      </label>
+      <button type="submit" className="btn btn-secondary" disabled={busy || !txId.trim()}>
+        Check this transaction
+      </button>
+    </form>
+  );
+}
+
 const STATE_WORDS: Record<string, string> = {
   prepared: "stored; your wallet hasn't been asked yet",
   requested: "your wallet was asked; waiting for its outcome",
@@ -356,18 +443,21 @@ function Unresolved({
           <li key={p.id}>
             <p>
               <strong>{p.units} uses</strong> for <TokenAmount base={p.amount} setup={setup} />{" "}
-              (registration {p.reg_id}, purchase {p.purchase_seq}). That registration was removed or
-              replaced, so the contract can't accept this request now; whether it was accepted
-              before isn't known. Its own transaction can still show it.
+              (purchase {p.purchase_seq}). The registration it was for was removed or replaced, so
+              the contract can't accept this request now; whether it was accepted before isn't
+              known. Its own transaction can still show it.
             </p>
-            <button
-              type="button"
-              className="btn btn-quiet"
-              disabled={busy}
-              onClick={() => flow.checkOpen(p.id)}
-            >
-              Check its outcome
-            </button>
+            <div className="row">
+              <button
+                type="button"
+                className="btn btn-quiet"
+                disabled={busy}
+                onClick={() => flow.checkOpen(p.id)}
+              >
+                Check its outcome
+              </button>
+            </div>
+            <TransactionCheck flow={flow} purchaseId={p.id} busy={busy} />
           </li>
         ))}
       </ul>
@@ -395,8 +485,9 @@ function OpenPurchase({
       <h4 id="buy-open-title">A purchase is waiting for its outcome</h4>
       <p>
         <strong>{p.units} uses</strong> for <TokenAmount base={p.amount} setup={setup} /> (purchase{" "}
-        {p.purchase_seq}): {STATE_WORDS[p.state] ?? p.state}. Nothing else can be bought until it's
-        settled, so you can't pay twice.
+        {p.purchase_seq}): {STATE_WORDS[p.state] ?? p.state}. A new purchase isn't offered while
+        this one might still go through. The uses shown above are what the contract holds for you
+        now; they don't show whether this purchase is among them.
       </p>
       {s.review?.kind === "resend" ? (
         <>
@@ -427,35 +518,40 @@ function OpenPurchase({
           </div>
         </>
       ) : (
-        <div className="row">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={busy}
-            onClick={() => flow.checkOpen(p.id)}
-          >
-            Check its outcome
-          </button>
-          {p.state === "prepared" ? (
+        <>
+          <div className="row">
             <button
               type="button"
-              className="btn btn-quiet"
+              className="btn btn-secondary"
               disabled={busy}
-              onClick={() => flow.setAside(p.id)}
+              onClick={() => flow.checkOpen(p.id)}
             >
-              Set it aside (your wallet was never asked)
+              Check its outcome
             </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-quiet"
-              disabled={busy}
-              onClick={() => flow.review("resend")}
-            >
-              Review asking my wallet again
-            </button>
+            {p.state === "prepared" ? (
+              <button
+                type="button"
+                className="btn btn-quiet"
+                disabled={busy}
+                onClick={() => flow.setAside(p.id)}
+              >
+                Set it aside (your wallet was never asked)
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-quiet"
+                disabled={busy}
+                onClick={() => flow.review("resend")}
+              >
+                Review asking my wallet again
+              </button>
+            )}
+          </div>
+          {p.state !== "prepared" && (
+            <TransactionCheck key={p.id} flow={flow} purchaseId={p.id} busy={busy} />
           )}
-        </div>
+        </>
       )}
     </section>
   );

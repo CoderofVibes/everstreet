@@ -18,6 +18,7 @@ import {
   nextStep,
   type WorkspaceState,
 } from "../customerWorkspace.ts";
+import type { Readiness } from "../deviceKey.ts";
 import { tokenAmount } from "../purchase.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
@@ -412,6 +413,26 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   // fine too), and a real identity change retires the old one (the page is also keyed by person).
   const personId = person?.id ?? null;
   const [readKey, setReadKey] = useState(0);
+  // Job 003web (Astra's PurchaseBrowserReview 4): what the contract last showed about this device,
+  // for where getting ready sits on the page. Unknown (null) until the device panel has read it.
+  const [readiness, setReadiness] = useState<Readiness | null>(null);
+  const [setupOpen, setSetupOpen] = useState<boolean | null>(null);
+  const setupNeeded = readiness !== null && readiness.kind !== "ready";
+  // Shown while anything is needed or still unknown. Once this device is ready it is folded unless
+  // the person opens it, except that a section that was needed in this view stays open (nothing
+  // folds away under the person's eyes when the device becomes ready).
+  const [wasNeeded, setWasNeeded] = useState(false);
+  useEffect(() => {
+    if (setupNeeded) setWasNeeded(true);
+  }, [setupNeeded]);
+  const setupShown = setupNeeded || wasNeeded || readiness === null || setupOpen === true;
+  // A different person or offer starts over.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset per person and offer
+  useEffect(() => {
+    setReadiness(null);
+    setSetupOpen(null);
+    setWasNeeded(false);
+  }, [personId, offerId]);
   const [token, setToken] = useState<{ symbol: string; decimals: number } | null>(null);
   const [w, setW] = useState<CustomerWorkspace | null>(null);
   useEffect(() => {
@@ -533,10 +554,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
                     One unit:{" "}
                     <strong>
                       {tokenAmount(offer.terms.unit_price, token.decimals)} {token.symbol}
-                    </strong>{" "}
-                    <span className="muted mono">
-                      ({offer.terms.unit_price} base units of {offer.terms.asset})
-                    </span>
+                    </strong>
                   </>
                 ) : (
                   <>
@@ -558,6 +576,51 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
       </header>
 
       <CustomerProgress steps={steps} active={active} />
+
+      {identity === "verified" && offer && (
+        // Getting ready to use the product (buy uses, enroll this device) is the first step for a
+        // new customer, so it comes before the workspace, full width: the document can be
+        // written meanwhile and is kept. The panels stay mounted in one place whatever the
+        // section shows (a wallet request in progress is never torn down by a re-layout).
+        <section className="use-setup" aria-labelledby="use-setup-title">
+          <div className="row">
+            <h2 id="use-setup-title">
+              {readiness?.kind === "ready" ? "Your uses and this device" : "Before your first use"}
+            </h2>
+            <span className="spacer" />
+            {!(setupNeeded || wasNeeded) && readiness !== null && (
+              <button
+                type="button"
+                className="btn btn-sm btn-quiet"
+                aria-expanded={setupShown}
+                aria-controls="use-setup-panels"
+                onClick={() => setSetupOpen(!setupShown)}
+              >
+                {setupShown ? "Hide" : "Show"}
+              </button>
+            )}
+          </div>
+          <p className="muted use-setup-why">
+            {readiness?.kind === "ready"
+              ? "This device is enrolled. Buy more uses or manage its key here."
+              : "Buy uses with your own wallet, then enroll this device so it can authorize one use at a time. You can write your document below meanwhile; it's kept on this page."}
+          </p>
+          {/* Hidden, never unmounted: a wallet request in progress isn't torn down. */}
+          <div id="use-setup-panels" className="use-setup-panels" hidden={!setupShown}>
+            <PurchasePanel
+              offerId={offer.offer_id}
+              onChanged={() => setReadKey((k) => k + 1)}
+              onToken={setToken}
+            />
+            <DeviceKeyPanel
+              offerId={offer.offer_id}
+              onAuthorizer={onAuthorizer}
+              onReadiness={setReadiness}
+              refresh={readKey}
+            />
+          </div>
+        </section>
+      )}
 
       <div className="use-grid">
         <section className="card use-compose" aria-labelledby="use-compose-title">
@@ -590,21 +653,6 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
           {use?.state === "prepared" && <Consent use={use} check={s.check} />}
 
           <StepActions s={s} onAction={run} />
-          {identity === "verified" && offer && (
-            <>
-              {/* Job 003web: a fresh customer buys uses first; the device panel then re-reads. */}
-              <PurchasePanel
-                offerId={offer.offer_id}
-                onChanged={() => setReadKey((k) => k + 1)}
-                onToken={setToken}
-              />
-              <DeviceKeyPanel
-                key={`device-${readKey}`}
-                offerId={offer.offer_id}
-                onAuthorizer={onAuthorizer}
-              />
-            </>
-          )}
           {s.authorizer?.synthetic && (
             <p className="use-provenance" role="note">
               <strong>{s.authorizer.label}.</strong> Authorizing here makes a synthetic test

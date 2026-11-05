@@ -406,6 +406,36 @@ describe("003web refusals and uncertainty", () => {
     expect((await buy(t.w, t.offer, 2, "buy-key-0024")).c.body.code).toBe("purchase_open");
   });
 
+  it("a named transaction is recorded only once it is shown to be this purchase's; malformed, unrelated and other accounts' IDs change nothing", async () => {
+    const { w, offer } = await ready();
+    const { c } = await buy(w, offer, 2, "buy-key-0030");
+    const id = c.body.purchase.id as string;
+    const path = `/api/customer/purchases/${id}`;
+    await w.dana(`${path}/requested`, "POST", {});
+    const landed = wallet(w, c.body.purchase.call); // the reply was lost: no hash recorded
+    const bad = await w.dana(`${path}/check`, "POST", { tx_hash: "not a hash" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.code).toBe("bad_tx_hash");
+    // The shell's own transaction: this account's, final, but not this purchase.
+    const shellTx = [...w.chain.txs.values()].find(
+      (t) => t.transaction.actions[0].FunctionCall.method_name === "sponsor_shell",
+    );
+    // The identical call from ANOTHER account (fictional; refused by the token, but final).
+    const other = wallet(w, c.body.purchase.call, "mallory.near");
+    for (const hash of [shellTx?.transaction.hash, other.transaction.hash]) {
+      const r = await w.dana(`${path}/check`, "POST", { tx_hash: hash });
+      expect(r.status).toBe(200);
+      expect(r.body.transaction).toEqual({ hash, matched: false });
+      expect(r.body.purchase).toMatchObject({ state: "unknown", tx_hash: null });
+    }
+    const ok = await w.dana(`${path}/check`, "POST", { tx_hash: landed.transaction.hash });
+    expect(ok.body.transaction).toEqual({ hash: landed.transaction.hash, matched: true });
+    expect(ok.body.purchase).toMatchObject({
+      state: "confirmed",
+      tx_hash: landed.transaction.hash,
+    });
+  });
+
   it("an older contract without get_purchase_terms: purchase unavailable (an upgrade), no quote applied", async () => {
     const { w, offer } = await ready();
     w.chain.purchaseTerms = false;

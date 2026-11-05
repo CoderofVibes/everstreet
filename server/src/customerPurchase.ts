@@ -91,7 +91,9 @@ export function shellQuote(t: PurchaseTerms) {
     bytes: t.shell_bytes,
     byte_cost: t.storage_byte_cost,
     deposit: (BigInt(t.shell_bytes) * BigInt(t.storage_byte_cost)).toString(),
-    basis: `the business contract's own get_purchase_terms (version ${t.version}); its tests prove the stated size equals the growth sponsor_shell charges. Any excess deposit is refunded; less is refused.`,
+    // Plain words for the customer; the version and method names stay in the exact details.
+    basis:
+      "The business's contract states this size itself. Any excess deposit is refunded; less is refused.",
   };
 }
 
@@ -808,35 +810,35 @@ export class CustomerPurchases {
 
   /** Bounded, explicit resolution (§10.4, corrected). */
   async check(viewer: Viewer, id: string, input: Record<string, unknown> = {}) {
-    let p = this.own(viewer, id);
-    if (!CHECKABLE.includes(p.state)) return { purchase: view(p), resolution: null };
+    const p = this.own(viewer, id);
+    if (!CHECKABLE.includes(p.state))
+      return { purchase: view(p), resolution: null, transaction: null };
     if (!this.reader) bad(503, "Buying isn't connected on this server", "purchase_unavailable");
     const reader = this.reader as CustomerViewTransport;
-    const named =
-      typeof input.tx_hash === "string" && TX_HASH.test(input.tx_hash) ? input.tx_hash : null;
-    if (named && !p.tx_hash) {
-      this.db
-        .prepare("UPDATE customer_purchases SET tx_hash = ? WHERE id = ? AND tx_hash IS NULL")
-        .run(named, id);
-      p = this.own(viewer, id);
-    }
-    // The transaction to verify: one named now (e.g. an earlier attempt's, from the wallet's
-    // history), else the one recorded. It must be exactly this request either way.
+    if (
+      input.tx_hash !== undefined &&
+      !(typeof input.tx_hash === "string" && TX_HASH.test(input.tx_hash))
+    )
+      bad(400, "That isn't a NEAR transaction ID", "bad_tx_hash");
+    const named = (input.tx_hash as string | undefined) ?? null;
+    // The transaction to verify: one named now (the wallet's answer, or the ORIGINAL one the
+    // customer copied from the wallet's history), else the one recorded. It must be exactly this
+    // request either way, and a named one is recorded only once it is shown to be (Astra's
+    // PurchaseBrowserReview 2): an unrelated id never becomes this purchase's evidence.
     const which = named ?? p.tx_hash;
+    let transaction: { hash: string; matched: boolean } | null = null;
     if (which && reader.txOutcome) {
       const r = await reader.txOutcome(which, p.customer_account).catch(() => null);
       const res = r ? resolveFromTx(p, r, which) : null;
-      if (res && res.kind !== "unknown") {
-        if (res.kind === "confirmed" && which !== p.tx_hash)
-          this.db.prepare("UPDATE customer_purchases SET tx_hash = ? WHERE id = ?").run(which, id);
-        this.settle(p, res.kind, res);
-        return { purchase: view(this.own(viewer, id)), resolution: res };
-      }
+      if (named) transaction = { hash: named, matched: res !== null };
       if (res) {
-        this.settle(p, "unknown", res);
-        return { purchase: view(this.own(viewer, id)), resolution: res };
+        // This purchase's own transaction (confirmed, returned, or returned after several asks).
+        if (which !== p.tx_hash && (res.kind === "confirmed" || !p.tx_hash))
+          this.db.prepare("UPDATE customer_purchases SET tx_hash = ? WHERE id = ?").run(which, id);
+        this.settle(p, res.kind === "unknown" ? "unknown" : res.kind, res);
+        return { purchase: view(this.own(viewer, id)), resolution: res, transaction };
       }
-    }
+    } else if (named) transaction = { hash: named, matched: false };
     // No proof from this purchase's own transaction: the readback informs. It never confirms a
     // purchase, and never says one wasn't accepted: a registration read as absent or replaced now
     // proves only what that reading says (Astra's handoff review; the contract's own test shows
@@ -856,7 +858,7 @@ export class CustomerPurchases {
         message: `Your registration with this business (${p.reg_id}) was removed or replaced after your wallet was asked for this purchase. The request names that registration, so the contract can't accept it from now on, and a purchase for ${e ? `your current registration (${e.reg_id})` : "a new registration"} can't be mistaken for it. Whether it was accepted before that isn't known from this: its own transaction can still show it, so it stays checkable here.`,
       };
       this.settle(p, "registration_replaced", res);
-      return { purchase: view(this.own(viewer, id)), resolution: res };
+      return { purchase: view(this.own(viewer, id)), resolution: res, transaction };
     }
     const seqNow = e && !gone ? e.purchase_seq : null;
     const res: Resolution = {
@@ -867,13 +869,13 @@ export class CustomerPurchases {
         p.state !== "prepared" && gone
           ? "Your registration with this business was removed or replaced since this purchase was prepared, and this request (prepared by an earlier version) doesn't name its registration, so a later registration could still accept it. It stays open until its own transaction shows the outcome."
           : seqNow !== null && seqNow >= p.purchase_seq
-            ? "A purchase with this request's sequence is recorded, but it can't be shown to be this one (no transaction from your wallet was available to check). The units shown are what the contract holds for you."
+            ? "The contract shows a purchase with this one's number, but without its transaction it can't be shown to be this one. If your wallet's activity lists the transaction, enter its ID to check it. The uses shown are what the contract holds for you now."
             : p.state === "prepared"
               ? "Your wallet hasn't been asked for this purchase yet."
-              : "This purchase isn't recorded yet. If you approved it, it may still be processing; if your wallet's window is still open, it can still be approved. It stays open until its own transaction shows the outcome. You can ask your wallet again for exactly the same purchase: at most one is ever accepted.",
+              : "This purchase isn't recorded yet. If you approved it, it may still be processing, and if your wallet's window is still open it can still be approved. It stays open until its own transaction shows the outcome: enter that transaction's ID if your wallet lists it, or ask your wallet again for exactly the same purchase (at most one is ever accepted).",
     };
     if (p.state !== "prepared") this.settle(p, "unknown", res);
-    return { purchase: view(this.own(viewer, id)), resolution: res };
+    return { purchase: view(this.own(viewer, id)), resolution: res, transaction };
   }
 
   /**

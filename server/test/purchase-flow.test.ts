@@ -235,4 +235,145 @@ describe("003web PurchaseFlow for a fresh customer", () => {
     expect(g.retired).toBe(true);
     expect(g.getState().notice).toBeNull();
   });
+
+  it("recovery by the original transaction's ID: wrong ones change nothing, the right one confirms, no wallet request", async () => {
+    const { w, offer } = await world();
+    const wal = wallet(w);
+    const f = new PurchaseFlow(port(w), async () => wal.b, { offerId: offer, account: FRESH });
+    await f.load();
+    await f.review("shell");
+    await f.confirmSetupStep();
+    f.setUnits(4);
+    await f.review("purchase");
+    wal.st.mode = "lose";
+    await f.confirmPurchase();
+    const open = f.getState().setup?.open;
+    expect(open?.state).toBe("unknown");
+    const sent = wal.st.sent.length;
+    const txs = [...w.chain.txs.values()];
+    const mine = txs.find(
+      (t) => t.transaction.actions[0].FunctionCall.method_name === "ft_transfer_call",
+    );
+    const shell = txs.find(
+      (t) => t.transaction.actions[0].FunctionCall.method_name === "sponsor_shell",
+    );
+    await f.checkWithTransaction(open?.id as string, "nope");
+    expect(f.getState().notice?.text).toMatch(/isn't a NEAR transaction ID/);
+    await f.checkWithTransaction(open?.id as string, `  ${shell?.transaction.hash}  `);
+    expect(f.getState().notice?.text).toMatch(/isn't this purchase/);
+    expect(f.getState().setup?.open).toMatchObject({
+      id: open?.id,
+      state: "unknown",
+      tx_hash: null,
+    });
+    await f.checkWithTransaction(open?.id as string, mine?.transaction.hash as string);
+    expect(f.getState().resolution).toEqual({ kind: "confirmed", units: 4, amount: "200000" });
+    expect(f.getState().setup?.open).toBeNull();
+    expect(wal.st.sent.length).toBe(sent);
+  });
+
+  it("a transaction check is one at a time, and its late answer after an account switch applies nothing", async () => {
+    const { w, offer } = await world();
+    const wal = wallet(w);
+    const base = port(w);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let checks = 0;
+    const slow: PurchasePort = {
+      ...base,
+      check: async (id, b) => {
+        checks++;
+        await gate;
+        return base.check(id, b);
+      },
+    };
+    const f = new PurchaseFlow(slow, async () => wal.b, { offerId: offer, account: FRESH });
+    await f.load();
+    await f.review("shell");
+    await f.confirmSetupStep();
+    f.setUnits(2);
+    await f.review("purchase");
+    wal.st.mode = "lose";
+    const sending = f.confirmPurchase();
+    // The purchase's own check is waiting: another check is refused meanwhile.
+    for (let i = 0; i < 50 && checks === 0; i++) await new Promise((r) => setTimeout(r, 5));
+    const mine = [...w.chain.txs.values()].find(
+      (t) => t.transaction.actions[0].FunctionCall.method_name === "ft_transfer_call",
+    );
+    await f.checkWithTransaction("any", mine?.transaction.hash as string);
+    expect(checks).toBe(1);
+    release();
+    await sending;
+    const open = f.getState().setup?.open;
+    expect(open?.state).toBe("unknown");
+    // Now a slow transaction check, and the account changes (the page retires the flow) first.
+    let release2: () => void = () => {};
+    const gate2 = new Promise<void>((r) => {
+      release2 = r;
+    });
+    const g = new PurchaseFlow(
+      { ...base, check: async (id, b) => (await gate2, base.check(id, b)) },
+      async () => wal.b,
+      { offerId: offer, account: FRESH },
+    );
+    await g.load();
+    const before = g.getState();
+    const late = g.checkWithTransaction(open?.id as string, mine?.transaction.hash as string);
+    g.retire();
+    release2();
+    await late;
+    expect(g.getState().resolution).toBe(before.resolution);
+    expect(g.getState().setup).toBe(before.setup);
+    // The server did settle it from its own transaction; only the retired view showed nothing.
+    const listed = (await w.dana("/api/customer/purchases")).body.purchases;
+    expect(listed.find((p: Json) => p.id === open?.id)?.state).toBe("confirmed");
+  });
+
+  it("a review reads the CURRENT state: an edit during its read is reviewed, not the older quantity; a retired flow stays inert", async () => {
+    const { w, offer } = await world();
+    const wal = wallet(w);
+    const base = port(w);
+    const held: (() => void)[] = [];
+    let hold = false;
+    const gated: PurchasePort = {
+      ...base,
+      setup: async (o, u) => {
+        const answer = await base.setup(o, u); // read now; only the delivery waits
+        if (hold) await new Promise<void>((r) => held.push(r));
+        return answer;
+      },
+    };
+    const arrived = async () => {
+      for (let i = 0; i < 400 && held.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
+      expect(held.length).toBe(1);
+    };
+    const f = new PurchaseFlow(gated, async () => wal.b, { offerId: offer, account: FRESH });
+    await f.load();
+    await f.review("shell");
+    await f.confirmSetupStep();
+    f.setUnits(3);
+    hold = true;
+    const reviewing = f.review("purchase");
+    await arrived();
+    f.setUnits(7); // edited while the review's read is in flight
+    hold = false;
+    for (const r of held.splice(0)) r();
+    await reviewing;
+    expect(f.getState().units).toBe(7);
+    expect(f.getState().review).toMatchObject({ kind: "purchase", preview: { units: 7 } });
+    // A retired flow: its in-flight read applies nothing, and a review prepares nothing.
+    hold = true;
+    const late = f.load();
+    await arrived();
+    const before = f.getState();
+    f.retire();
+    for (const r of held.splice(0)) r();
+    expect(await late).toBe(false);
+    hold = false;
+    await f.review("purchase");
+    expect(f.getState()).toBe(before);
+    expect(wal.st.sent.map((c) => c.methodName)).toEqual(["sponsor_shell"]);
+  });
 });

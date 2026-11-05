@@ -97,6 +97,13 @@ async function signedIn() {
     }),
   });
   window.history.replaceState(null, "", `/use/${h.offerId}`);
+  await page();
+  return h;
+}
+/** The page, rendered afresh (a reload: nothing carried over in memory, same session cookie). */
+async function page() {
+  if (root) await act(async () => root?.unmount());
+  document.body.innerHTML = "";
   const el = document.createElement("div");
   document.body.append(el);
   root = createRoot(el);
@@ -110,21 +117,29 @@ async function signedIn() {
     ),
   );
   await wait(() => text().includes("Buy uses"), "the panel");
-  return h;
 }
-const setUnits = async (n: number) => {
-  const qty = document.querySelector('input[type="number"]') as HTMLInputElement;
+const typeInto = async (el: HTMLInputElement, v: string) => {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(qty, String(n));
-    qty.dispatchEvent(new Event("input", { bubbles: true }));
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(el, v);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   });
+};
+const txField = () => document.querySelector('input[id^="buy-tx-"]') as HTMLInputElement | null;
+const checkTx = async (id: string) => {
+  await wait(() => Boolean(txField() && !txField()?.disabled), "the transaction ID field");
+  await typeInto(txField() as HTMLInputElement, id);
+  await click("Check this transaction");
+};
+const setUnits = async (n: number) => {
+  const buy = document.querySelector('[aria-labelledby="buy-title"]') as HTMLElement;
+  await typeInto(buy.querySelector('input[type="number"]') as HTMLInputElement, String(n));
 };
 
 describe("003web the Buy uses panel, for a fresh customer, on the actual page", () => {
   it("registration, then 100 uses: exact reviews in token terms, the wallet asked, confirmed by the contract", async () => {
     const h = await signedIn();
     await wait(() => text().includes("You have no uses for this product yet"), "a fresh customer");
-    expect(text()).toContain("Each use costs 0.05 TUSD (50000 base units)"); // token terms first
+    expect(text()).toContain("Each use costs 0.05 TUSD."); // token terms first
     await wait(() => text().includes("One unit: 0.05 TUSD"), "the page's own price line in tokens");
     await click("Review: create your registration");
     await wait(() => text().includes("0.0082 NEAR"), "the exact deposit");
@@ -138,7 +153,8 @@ describe("003web the Buy uses panel, for a fresh customer, on the actual page", 
     await wait(() => text().includes("Total: 5 TUSD"), "the total in tokens");
     await click("Review this purchase");
     await wait(() => text().includes("Review: buy uses"), "the purchase review");
-    expect(text()).toContain("100 uses for 5 TUSD (5000000 base units)");
+    expect(text()).toContain("100 uses for 5 TUSD, paid from your account");
+    expect(text()).toContain("5000000 base units of tusd.near"); // exact, in the details
     await click("Ask my wallet to approve exactly this");
     await wait(() => text().includes("Purchase confirmed by the contract"), "confirmed");
     expect(h.world.chain.ent(FRESH)).toMatchObject({ free: "100", purchase_seq: 1 });
@@ -170,5 +186,117 @@ describe("003web the Buy uses panel, for a fresh customer, on the actual page", 
     expect(text()).toContain("whether it was accepted before isn't known");
     expect(text()).not.toContain("A purchase is waiting for its outcome");
     expect(button("Review this purchase")).toBeDefined(); // a purchase for the new registration
+  });
+
+  it("a lost reply that landed: the device panel follows the contract's units without a manual refresh", async () => {
+    const h = await signedIn();
+    await click("Review: create your registration");
+    await click("Ask my wallet to approve exactly this");
+    await wait(() => text().includes("registration with this business is confirmed"), "shell");
+    await wait(() => text().includes("nothing to enroll a device for"), "no units yet");
+    await setUnits(100);
+    await click("Review this purchase");
+    h.controls.loseNext = true;
+    await click("Ask my wallet to approve exactly this");
+    await wait(() => text().includes("A purchase is waiting for its outcome"), "open, unknown");
+    expect(h.world.chain.ent(FRESH)).toMatchObject({ free: "100", purchase_seq: 1 }); // it landed
+    // The purchase stays unknown (no proof it is THIS purchase), but the contract's units are read:
+    await wait(() => text().includes("100 uses"), "the units the contract shows");
+    // ...and the device panel follows that reading itself (Astra's PurchaseBrowserReview 1).
+    await wait(() => text().includes("This device has no key for this product yet"), "device");
+    expect(text()).not.toContain("nothing to enroll a device for");
+    expect(text()).toContain("A purchase is waiting for its outcome");
+  });
+
+  it("getting ready comes first, before the document, with its first action; the draft stays editable", async () => {
+    await signedIn();
+    const setup = document.querySelector('[aria-labelledby="use-setup-title"]') as HTMLElement;
+    expect(setup.textContent).toContain("Before your first use");
+    const area = document.querySelector("textarea") as HTMLTextAreaElement;
+    // In document (and keyboard) order, getting ready precedes the document input.
+    expect(setup.compareDocumentPosition(area) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(setup.contains(button("Review: create your registration") as Node)).toBe(true);
+    // No card nested in a card: the two panels are the section's own children's cards.
+    expect(setup.querySelectorAll(".card .card")).toHaveLength(0);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+        area,
+        "Invoice SH-1042",
+      );
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click("Review: create your registration");
+    // The exact consent is complete, with the technical figures in one disclosure.
+    await wait(() => text().includes("0.0082 NEAR"), "the deposit");
+    expect(setup.textContent).toContain("It comes back to you if you later remove that record");
+    // Outside the disclosure: no source, method or test internals.
+    const visible = setup.cloneNode(true) as HTMLElement;
+    for (const d of visible.querySelectorAll("details")) d.remove();
+    expect(visible.textContent).not.toMatch(
+      /get_purchase_terms|sponsor_shell|its tests prove|base units|yoctoNEAR/i,
+    );
+    const exact = [...setup.querySelectorAll("details")].find((d) =>
+      d.textContent?.includes("Exact details"),
+    );
+    expect(exact?.textContent).toContain("820 bytes");
+    expect(exact?.textContent).toContain("8200000000000000000000 yoctoNEAR");
+    expect(exact?.textContent).toContain("sponsor_shell");
+    expect((document.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
+      "Invoice SH-1042",
+    );
+  });
+
+  it("recovery by the original transaction's ID after a lost reply and a reload: wrong IDs change nothing, the right one confirms, the wallet is never asked", async () => {
+    const h = await signedIn();
+    await click("Review: create your registration");
+    await click("Ask my wallet to approve exactly this");
+    await wait(() => text().includes("registration with this business is confirmed"), "shell");
+    await setUnits(10);
+    await click("Review this purchase");
+    h.controls.loseNext = true;
+    await click("Ask my wallet to approve exactly this");
+    await wait(() => text().includes("A purchase is waiting for its outcome"), "unknown");
+    const sent = h.controls.sent.length;
+    const txs = [...h.world.chain.txs.values()];
+    const mine = txs.find(
+      (t) => t.transaction.actions[0].FunctionCall.method_name === "ft_transfer_call",
+    );
+    const shellTx = txs.find(
+      (t) => t.transaction.actions[0].FunctionCall.method_name === "sponsor_shell",
+    );
+    // Another account's transaction (fictional mallory.near; refused by the token, but final).
+    const other = h.world.chain.walletCall(
+      "mallory.near",
+      mine?.transaction &&
+        JSON.parse(
+          JSON.stringify({
+            receiverId: "tusd.near",
+            methodName: "ft_transfer_call",
+            args: { receiver_id: BUSINESS, amount: "500000", msg: "{}" },
+            gas: "100000000000000",
+            deposit: "1",
+          }),
+        ),
+    );
+    // A reload: nothing in memory; the open purchase is read back from the server.
+    await page();
+    await wait(() => text().includes("A purchase is waiting for its outcome"), "after reload");
+    await checkTx("not-a-transaction");
+    await wait(() => text().includes("isn't a NEAR transaction ID"), "malformed refused");
+    for (const wrong of [shellTx?.transaction.hash, other.transaction.hash]) {
+      await checkTx(String(wrong));
+      await wait(() => text().includes("That transaction isn't this purchase"), "unrelated id");
+      expect(text()).toContain("A purchase is waiting for its outcome");
+      const [p] = (await (await fetch("/api/customer/purchases")).json()).purchases;
+      expect(p.state).toBe("unknown");
+      expect(p.tx_hash).toBeNull(); // an unrelated ID is never recorded as this purchase's
+    }
+    await checkTx(String(mine?.transaction.hash));
+    await wait(
+      () => text().includes("Purchase confirmed by the contract"),
+      "confirmed by its own tx",
+    );
+    expect(text()).not.toContain("A purchase is waiting for its outcome");
+    expect(h.controls.sent.length).toBe(sent); // no wallet request at all while recovering
   });
 });
