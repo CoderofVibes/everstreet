@@ -117,7 +117,8 @@ export function browser(port: () => number): Call {
 }
 
 export type CutReq = { channel: string; body: string; url: string };
-export type Decision = "answer" | "hold" | "lose_reply";
+/** "lose_once": answered by the double, the reply dropped, and the child carries on (one fault). */
+export type Decision = "answer" | "hold" | "lose_reply" | "lose_once";
 export type Control = { cut?: (req: CutReq) => Decision };
 
 export function child(
@@ -160,6 +161,12 @@ export function child(
             : await model.answer(String(m.url), JSON.parse(String(m.body || "{}")));
         if (decision === "lose_reply") {
           state.cut = true;
+          return;
+        }
+        // One dropped answer: the double applied it; the child sees a failed connection (as a
+        // closed socket looks through the real relay), and carries on.
+        if (decision === "lose_once") {
+          if (proc.connected) proc.send({ type: "reply", id: m.id, status: 502, body: "" });
           return;
         }
         if (proc.connected) proc.send({ type: "reply", id: m.id, ...r });

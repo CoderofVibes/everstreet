@@ -20,8 +20,8 @@ describe("business-v3 rehearsal driver: local dry run of example 1 (SYNTHETIC)",
     const i = await installation(cleanups);
     const app = await i.start();
     const clients = new Map<Who, ReturnType<typeof browser>>();
-    const accounts = { founder: FOUNDER, buyer: BUYER, customer: CUSTOMER };
-    const keys = { founder: i.b.ava, buyer: i.noahKey, customer: i.b.cara };
+    const accounts = { founder: FOUNDER, buyer: BUYER, customer: CUSTOMER, prober: CUSTOMER };
+    const keys = { founder: i.b.ava, buyer: i.noahKey, customer: i.b.cara, prober: i.b.cara };
     const env: Env = {
       label: "synthetic dry run",
       accounts,
@@ -67,8 +67,8 @@ describe("business-v3 rehearsal driver: local dry run of example 1 (SYNTHETIC)",
     expect(steps.filter((s) => s.kind === "transaction").map((s) => s.step)).toEqual([
       "create_plan",
       "appoint",
-      "purchase_step_shell",
-      "purchase_100",
+      "purchase_step_shell_customer",
+      "purchase_100_customer",
       "propose",
       "register",
       "fund",

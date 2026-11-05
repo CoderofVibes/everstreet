@@ -28,7 +28,8 @@ export interface WalletCall {
   deposit: string;
   gas: string;
 }
-export type Who = "founder" | "buyer" | "customer";
+/** "prober": a second, small customer (the Gated example's request during the gate). */
+export type Who = "founder" | "buyer" | "customer" | "prober";
 
 export interface Env {
   label: "synthetic dry run" | "NEAR testnet";
@@ -138,7 +139,7 @@ export interface DirectOptions {
  * check) and for creating an action under the SAME idempotency key (the app returns the same
  * action, never a second one). Never for a wallet transaction.
  */
-async function readAgain(ask: () => Promise<{ status: number; body: Json }>) {
+export async function readAgain(ask: () => Promise<{ status: number; body: Json }>) {
   let r = await ask();
   const unread = () =>
     r.status === 503 && ["read_failed", "read_unavailable"].includes(String(r.body?.code));
@@ -150,7 +151,8 @@ async function readAgain(ask: () => Promise<{ status: number; body: Json }>) {
 }
 
 /** The steps shared by both phases, bound to one environment and record. */
-function steps(env: Env, rec: Recorder, settleMs: number) {
+export type Steps = ReturnType<typeof steps>;
+export function steps(env: Env, rec: Recorder, settleMs: number) {
   const ava = env.client("founder");
   const cara = env.client("customer");
   const noah = env.client("buyer");
@@ -219,12 +221,20 @@ function steps(env: Env, rec: Recorder, settleMs: number) {
       "offer",
     ).offer as Json;
   };
-  const serve = async (offerId: string, n: number, key: DeviceKey, slot: number) => {
+  const serve = async (
+    offerId: string,
+    n: number,
+    key: DeviceKey,
+    slot: number,
+    who: Who = "customer",
+    prefix = "rehearsal-use",
+  ) => {
+    const cara = env.client(who);
     // Idempotent by its key: asking again after a read failure returns the same request.
     const prep = ok(
       await readAgain(() =>
         cara(`/api/customer/offers/${offerId}/prepare`, "POST", {
-          idempotency_key: `rehearsal-use-${String(n).padStart(5, "0")}`,
+          idempotency_key: `${prefix}-${String(n).padStart(5, "0")}`,
           input: invoice(n),
           key_slot: slot,
         }),
@@ -289,12 +299,30 @@ export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) 
   const USES = o.uses ?? 20;
   const settleMs = o.settleWaitMs ?? 120_000;
   const s = steps(env, rec, settleMs);
-  const { ava, cara } = s;
   for (const w of ["founder", "customer", "buyer"] as const) await env.signIn(w, env.client(w));
-  const { id: biz, project } = env.business;
   await rec.checkpoint("start", await env.views());
+  const { offer, jobId, evalRunId } = await found(env, rec, s, "rehearsal");
+  await rec.checkpoint("offer_open", await env.views());
+  // ---- 3. A fresh customer registers, buys 100 with this device's key, and uses USES.
+  const key = newDeviceKey();
+  o.keepDeviceKey?.(key);
+  await buy(env, rec, s, { who: "customer", offer, units: 100, key, slot: 0, tag: "rehearsal" });
+  await rec.checkpoint("bought_100", await env.views());
+  const uses: string[] = [];
+  for (let n = 1; n <= USES; n++) uses.push(await s.serve(offer, n, key, 0));
+  await rec.checkpoint(`used_${USES}`, await env.views());
+  return runDirectSale(
+    env,
+    rec,
+    { offer, firstUse: uses[0] as string, usesBefore: USES, jobId, evalRunId, key, slot: 0 },
+    { settleWaitMs: settleMs, signedIn: true },
+  );
+}
 
-  // ---- 1. The founder: revision, budgets, build, evaluation, release (stand-in model).
+/** The founder: revision, budgets, build, evaluation, release (stand-in), plan, metering, offer. */
+export async function found(env: Env, rec: Recorder, s: Steps, tag: string) {
+  const { ava } = s;
+  const { id: biz, project } = env.business;
   const head = ok(await ava(`/api/product-projects/${project}`), 200, "project").head as Json;
   const rev = ok(
     await ava(`/api/product-projects/${project}/revisions`, "POST", {
@@ -310,7 +338,7 @@ export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) 
   ok(await ava(`/api/businesses/${biz}/runtime-budget`, "PUT", { limit_cents: 100 }), 200, "rt");
   const jobId = ok(
     await ava(`/api/product-projects/${project}/builds`, "POST", {
-      idempotency_key: "rehearsal-build-0001",
+      idempotency_key: `${tag}-build-0001`,
       revision: rev.head.number,
       budget: BUILD_BUDGET,
     }),
@@ -349,85 +377,99 @@ export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) 
     evaluation: { total: run.total, release_ready: run.release_ready },
     model: "stand-in (scripted; no AI provider)",
   });
-
-  // ---- 2. Plan, metering appointment, offer.
-  await s.act("founder", ava, "create_plan", { plan: PLAN }, "rehearsal-plan-0001");
-  await s.act("founder", ava, "appoint", {}, "rehearsal-grant-001");
+  await s.act("founder", ava, "create_plan", { plan: PLAN }, `${tag}-plan-0001`);
+  await s.act("founder", ava, "appoint", {}, `${tag}-grant-001`);
   const access = ok(
     await ava(`/api/businesses/${biz}/customer-access?project=${project}`),
     200,
     "access",
   );
-  const offer = await s.offerFor(ava, (access.release as Json).id, "rehearsal-offer-0001");
+  const offer = await s.offerFor(ava, (access.release as Json).id, `${tag}-offer-0001`);
   rec.app("offer_1", { offer: offer.id, plan: 1, unit_price: PRICE });
-  await rec.checkpoint("offer_open", await env.views());
+  return { offer: offer.id as string, jobId, evalRunId: run.id as string };
+}
 
-  // ---- 3. A fresh customer registers, buys 100 with this device's key, and uses USES.
-  const key = newDeviceKey();
-  o.keepDeviceKey?.(key);
+/**
+ * A purchase of `units` by `who` with its device key installed in `slot`. `check` lets a caller
+ * interpose on the readback (the lost-response example); by default one ordinary check.
+ */
+export async function buy(
+  env: Env,
+  rec: Recorder,
+  s: Steps,
+  o: {
+    who: Who;
+    offer: string;
+    units: number;
+    key: DeviceKey;
+    slot: number;
+    tag: string;
+    check?: (pid: string, hash: string) => Promise<Json>;
+  },
+) {
+  const c = env.client(o.who);
   const setup = async (q: string) =>
-    ok(await cara(`/api/customer/offers/${offer.id}/purchase-setup${q}`), 200, "purchase setup");
-  const s0 = await setup("?units=100");
+    ok(await c(`/api/customer/offers/${o.offer}/purchase-setup${q}`), 200, "purchase setup");
+  const s0 = await setup(`?units=${o.units}`);
   for (const step of s0.steps as string[]) {
-    const c =
+    const call =
       step === "shell" ? s0.shell?.call : step === "token_storage" ? s0.token_storage?.call : null;
-    expect(!!c, `a call for the purchase step ${step}`, s0.steps);
-    const tx = await env.wallet("customer", c as WalletCall);
-    rec.tx(`purchase_step_${step}`, "customer", env.accounts.customer, c as WalletCall, tx, null);
+    expect(!!call, `a call for the purchase step ${step}`, s0.steps);
+    const tx = await env.wallet(o.who, call as WalletCall);
+    rec.tx(
+      `purchase_step_${step}_${o.who}`,
+      o.who,
+      env.accounts[o.who],
+      call as WalletCall,
+      tx,
+      null,
+    );
     expect(tx.ok, `the ${step} step to succeed`, tx.error);
   }
-  const install = { slot: 0, pk: key.pk, max_hold_units: 1, max_units_per_day: 100 };
-  const s1 = await setup(`?units=100&install=${encodeURIComponent(JSON.stringify(install))}`);
-  expect(s1.preview?.amount === "15000000", "the preview to charge 15 tUSD", s1.preview);
-  const buy = ok(
-    await cara(`/api/customer/offers/${offer.id}/purchases`, "POST", {
-      idempotency_key: "rehearsal-buy-00001",
-      units: 100,
-      install,
-      terms_digest: s1.preview.terms_digest,
-    }),
-    201,
+  const install = { slot: o.slot, pk: o.key.pk, max_hold_units: 1, max_units_per_day: 100 };
+  const s1 = await setup(
+    `?units=${o.units}&install=${encodeURIComponent(JSON.stringify(install))}`,
+  );
+  const amount = (BigInt(PRICE) * BigInt(o.units)).toString();
+  expect(s1.preview?.amount === amount, `the preview to charge ${amount}`, s1.preview);
+  const made = ok(
+    await readAgain(() =>
+      c(`/api/customer/offers/${o.offer}/purchases`, "POST", {
+        idempotency_key: `${o.tag}-buy-${o.who}-${o.units}`,
+        units: o.units,
+        install,
+        terms_digest: s1.preview.terms_digest,
+      }),
+    ),
+    [200, 201],
     "purchase",
   );
-  const pid = buy.purchase.id as string;
-  await cara(`/api/customer/purchases/${pid}/requested`, "POST", {});
-  const ptx = await env.wallet("customer", buy.purchase.call as WalletCall);
-  const bought = ok(
-    await cara(`/api/customer/purchases/${pid}/check`, "POST", { tx_hash: ptx.hash }),
-    200,
-    "purchase check",
-  );
+  const pid = made.purchase.id as string;
+  await c(`/api/customer/purchases/${pid}/requested`, "POST", {});
+  const ptx = await env.wallet(o.who, made.purchase.call as WalletCall);
+  const bought = o.check
+    ? await o.check(pid, ptx.hash)
+    : ok(
+        await readAgain(() =>
+          c(`/api/customer/purchases/${pid}/check`, "POST", { tx_hash: ptx.hash }),
+        ),
+        200,
+        "purchase check",
+      );
   rec.tx(
-    "purchase_100",
-    "customer",
-    env.accounts.customer,
-    buy.purchase.call,
+    `purchase_${o.units}_${o.who}`,
+    o.who,
+    env.accounts[o.who],
+    made.purchase.call,
     ptx,
     bought.resolution,
   );
   expect(
-    bought.resolution?.kind === "confirmed" && bought.resolution.units === 100,
-    "100 bought",
+    bought.resolution?.kind === "confirmed" && bought.resolution.units === o.units,
+    `${o.units} bought`,
     bought.resolution,
   );
-  await rec.checkpoint("bought_100", await env.views());
-  const uses: string[] = [];
-  for (let n = 1; n <= USES; n++) uses.push(await s.serve(offer.id as string, n, key, 0));
-  await rec.checkpoint(`used_${USES}`, await env.views());
-  return runDirectSale(
-    env,
-    rec,
-    {
-      offer: offer.id as string,
-      firstUse: uses[0] as string,
-      usesBefore: USES,
-      jobId,
-      evalRunId: run.id as string,
-      key,
-      slot: 0,
-    },
-    { settleWaitMs: settleMs, signedIn: true },
-  );
+  return { pid, hash: ptx.hash };
 }
 
 /**

@@ -31,6 +31,7 @@ import {
   view,
 } from "./lib/near.ts";
 import { Recorder } from "./lib/rehearsal/evidence.ts";
+import { type RecoveryEnv, runGated, runRecovery } from "./lib/rehearsal/examples.ts";
 import {
   type Call,
   type DeviceKey,
@@ -325,6 +326,10 @@ function startApp(configFile: string) {
   const exited = new Promise<number | null>((r) => proc.once("exit", (c) => r(c)));
   return {
     log: () => out,
+    send: (m: Json) => {
+      if (proc.connected) proc.send(m);
+    },
+    onMessage: (fn: (m: Json) => void) => proc.on("message", fn),
     ready: async () => {
       const end = Date.now() + 60_000;
       while (!out.includes("listening on")) {
@@ -345,6 +350,7 @@ function liveEnv(port: number, business: { id: string; project: string }) {
     founder: DIRECT.founder,
     buyer: DIRECT.buyer,
     customer: DIRECT.customer,
+    prober: DIRECT.customer,
   };
   const clients = new Map<Who, Call>();
   const env: Env = {
@@ -648,11 +654,492 @@ ${app.log().slice(-3000)}`);
   console.log(`evidence: ${out}`);
 }
 
+// ---------- examples 2-4 (live) ----------
+
+interface Example {
+  name: "gated" | "recovery";
+  business: string;
+  founder: string;
+  buyer: string;
+  customer: string;
+  prober?: string;
+  meter: string;
+  closer?: string;
+  /** Accounts the setup registers with tUSD (the recovery seller is left for the app to register). */
+  register: string[];
+  fund: [string, bigint][];
+}
+const GATED: Example = {
+  name: "gated",
+  business: `ledgerline-gated-v3-1.${ROOT}`,
+  founder: `founder-v3.${ROOT}`,
+  buyer: `buyer-v3.${ROOT}`,
+  customer: `cara-v3-2.${ROOT}`,
+  prober: `cara-v3-2b.${ROOT}`,
+  meter: `meter-gated-v3.${ROOT}`,
+  closer: `closer-gated-v3.${ROOT}`,
+  register: [`ledgerline-gated-v3-1.${ROOT}`, `cara-v3-2.${ROOT}`, `cara-v3-2b.${ROOT}`],
+  fund: [
+    [`cara-v3-2.${ROOT}`, 20_000_000n],
+    [`cara-v3-2b.${ROOT}`, 1_000_000n],
+    [`buyer-v3.${ROOT}`, 100_000_000n],
+  ],
+};
+const RECOVERY: Example = {
+  name: "recovery",
+  business: `ledgerline-payout-v3-1.${ROOT}`,
+  founder: `founder-p-v3.${ROOT}`,
+  buyer: `buyer-v3.${ROOT}`,
+  customer: `cara-v3-3.${ROOT}`,
+  meter: `meter-payout-v3.${ROOT}`,
+  register: [`ledgerline-payout-v3-1.${ROOT}`, `cara-v3-3.${ROOT}`],
+  fund: [
+    [`cara-v3-3.${ROOT}`, 5_000_000n],
+    [`buyer-v3.${ROOT}`, 100_000_000n],
+  ],
+};
+
+async function setupExample(ex: Example) {
+  await spendGuard(`${ex.name} setup start`);
+  const root = account(ROOT);
+  const log: Json[] = [];
+  const sent = (what: string, hash: string) => {
+    log.push({ what, hash, explorer: `${EXPLORER}${hash}` });
+    console.log(`+ ${what}: ${EXPLORER}${hash}`);
+  };
+  for (const id of [ex.founder, ex.customer, ...(ex.prober ? [ex.prober] : [])]) {
+    if (await exists(id)) {
+      console.log(`✓ ${id} exists`);
+      continue;
+    }
+    const key = KeyPair.fromRandom("ed25519");
+    saveKey(id, key);
+    const r = await root.signAndSendTransaction({
+      receiverId: id,
+      actions: [
+        actions.createAccount(),
+        actions.transfer(nearToYocto("0.2")),
+        actions.addFullAccessKey(key.getPublicKey()),
+      ],
+      waitUntil: "FINAL",
+    });
+    sent(`create ${id}`, r.transaction.hash);
+  }
+  // Function-call-only accounts: the metering account and (Gated) the closer.
+  const fcOnly: [string, string[]][] = [[ex.meter, METER_METHODS]];
+  if (ex.closer) fcOnly.push([ex.closer, ["close_sale"]]);
+  for (const [id, methods] of fcOnly) {
+    if (await exists(id)) {
+      console.log(`✓ ${id} exists`);
+      continue;
+    }
+    const key = KeyPair.fromRandom("ed25519");
+    saveKey(id, key);
+    const r = await root.signAndSendTransaction({
+      receiverId: id,
+      actions: [
+        actions.createAccount(),
+        actions.transfer(nearToYocto("0.3")),
+        actions.addFunctionCallAccessKey(
+          key.getPublicKey(),
+          ex.business,
+          methods,
+          nearToYocto("0.25"),
+        ),
+      ],
+      waitUntil: "FINAL",
+    });
+    sent(`create ${id} (function-call key only: ${methods.join(", ")})`, r.transaction.hash);
+  }
+  if (await exists(ex.business)) console.log(`✓ ${ex.business} exists`);
+  else {
+    const wasm = readV3Wasm();
+    await spendGuard(`${ex.name} before deploy`);
+    const r = await root.signAndSendTransaction({
+      receiverId: ex.business,
+      actions: [
+        actions.createAccount(),
+        actions.transfer(nearToYocto("4.3")),
+        actions.deployContract(wasm),
+        actions.functionCall(
+          "new",
+          {
+            name: "Ledgerline",
+            owner: ex.founder,
+            asset: TOKEN,
+            rules: RULES,
+            closer: ex.closer ?? null,
+          },
+          teraToGas(100),
+          0n,
+        ),
+      ],
+      waitUntil: "FINAL",
+    });
+    sent(
+      `deploy and init ${ex.business} (born locked${ex.closer ? `; closer ${ex.closer}` : ""})`,
+      r.transaction.hash,
+    );
+  }
+  const acc = await provider.viewAccount({
+    accountId: ex.business,
+    blockQuery: { finality: "final" },
+  });
+  if (acc.code_hash !== CODE_HASH)
+    throw new StopRun(`deployed code ${acc.code_hash} isn't ${CODE_HASH}`);
+  const keys = (await provider.query({
+    request_type: "view_access_key_list",
+    account_id: ex.business,
+    finality: "final",
+  } as never)) as unknown as { keys: unknown[] };
+  if (keys.keys.length !== 0) throw new StopRun(`${ex.business} has access keys: not locked`);
+  const control = await view<Json>(ex.business, "get_control");
+  if (control.owner !== ex.founder) throw new StopRun(`owner is ${control.owner}`);
+  if (ex.closer && control.close_mode !== "gated")
+    throw new StopRun(`close mode ${control.close_mode}`);
+  console.log(
+    `✓ code hash ${CODE_HASH}, no keys, owner ${control.owner}, close mode ${control.close_mode}`,
+  );
+  for (const id of ex.register) {
+    if (await view<Json | null>(TOKEN, "storage_balance_of", { account_id: id })) continue;
+    const r = await root.signAndSendTransaction({
+      receiverId: TOKEN,
+      actions: [
+        actions.functionCall(
+          "storage_deposit",
+          { account_id: id, registration_only: true },
+          teraToGas(30),
+          1_250_000_000_000_000_000_000n,
+        ),
+      ],
+      waitUntil: "FINAL",
+    });
+    sent(`register ${id} with tUSD`, r.transaction.hash);
+  }
+  for (const [id, want] of ex.fund) {
+    const have = BigInt(await view<string>(TOKEN, "ft_balance_of", { account_id: id }));
+    if (have >= want) continue;
+    const r = await root.signAndSendTransaction({
+      receiverId: TOKEN,
+      actions: [
+        actions.functionCall(
+          "ft_transfer",
+          { receiver_id: id, amount: String(want - have) },
+          teraToGas(30),
+          1n,
+        ),
+      ],
+      waitUntil: "FINAL",
+    });
+    sent(`fund ${id} with ${Number(want - have) / 1e6} tUSD`, r.transaction.hash);
+  }
+  await spendGuard(`${ex.name} setup end`);
+  const file = join(EVIDENCE_DIR, `v3-${ex.name}-setup-testnet.json`);
+  const prior = existsSync(file)
+    ? ((JSON.parse(readFileSync(file, "utf8")) as Json).transactions as Json[])
+    : [];
+  writeFileSync(
+    file,
+    JSON.stringify(
+      {
+        format: "everstreet-v3-rehearsal-setup",
+        network: "testnet",
+        commit: commit(),
+        contract: {
+          account: ex.business,
+          wasm_sha256: WASM_SHA256,
+          code_hash: CODE_HASH,
+          access_keys: 0,
+          close_mode: ex.closer ? "gated" : "direct",
+        },
+        accounts: ex,
+        metering_key: {
+          receiver: ex.business,
+          methods: METER_METHODS,
+          allowance_near: "0.25",
+          full_access_keys: 0,
+        },
+        ...(ex.closer
+          ? {
+              closer_key: {
+                receiver: ex.business,
+                methods: ["close_sale"],
+                allowance_near: "0.25",
+                full_access_keys: 0,
+              },
+            }
+          : {}),
+        rules: RULES,
+        transactions: [...prior, ...log],
+      },
+      (_k, v) => (typeof v === "bigint" ? v.toString() : v),
+      2,
+    ),
+  );
+}
+
+/** Boots the app for an example: founder creates the business, then the bound configuration. */
+async function bootExample(ex: Example, port: number) {
+  const dir = resolve("data", "runtime", `rehearsal-${ex.name}`);
+  if (existsSync(join(dir, "everstreet.db")))
+    throw new StopRun(`${dir} already holds a run: resolve it before starting another`);
+  mkdirSync(join(dir, "protected"), { recursive: true });
+  writeFileSync(
+    join(dir, "protected-keys.json"),
+    JSON.stringify({ k1: randomBytes(32).toString("base64") }),
+  );
+  writeFileSync(
+    join(dir, "ai.json"),
+    JSON.stringify({
+      config_version: "rehearsal-standin-1",
+      provider: "anthropic",
+      model: "claude-haiku-5-5",
+      pricing_version: "2026-11-02",
+      operator_ceiling_cents: 100,
+      runtime_operator_ceiling_cents: 100,
+    }),
+  );
+  const base = (bound: string | null): Json => ({
+    config_version: 1,
+    mode: "configured",
+    network: "testnet",
+    listen: { host: "127.0.0.1", port },
+    database: join(dir, "everstreet.db"),
+    sign_in: { recipient: "everstreet.local", session_hours: 8 },
+    rpc: { endpoint: RPC },
+    ...(bound
+      ? {
+          v3: { bindings: [{ business_id: bound, account: ex.business }] },
+          customer: {
+            operator_account: ex.meter,
+            writer: { key_file: resolve(".near-credentials", "testnet", `${ex.meter}.json`) },
+          },
+          ...(ex.closer
+            ? {
+                handover: {
+                  enabled: true,
+                  closer: {
+                    account: ex.closer,
+                    keys: [
+                      {
+                        business_id: bound,
+                        key_file: resolve(".near-credentials", "testnet", `${ex.closer}.json`),
+                      },
+                    ],
+                  },
+                  interval_ms: 15_000,
+                  batch: 5,
+                  pass_budget_ms: 12_000,
+                  op_deadline_ms: 10_000,
+                  dispatch_margin_ms: 60_000,
+                  max_orders: 8,
+                  stop_timeout_ms: 15_000,
+                  min_allowance_yocto: "1000",
+                },
+              }
+            : {}),
+        }
+      : {}),
+    protected_storage: {
+      root: join(dir, "protected"),
+      active_key_id: "k1",
+      keys_file: join(dir, "protected-keys.json"),
+    },
+    model: { ai_config_file: join(dir, "ai.json"), api_key_env: "EVERSTREET_REHEARSAL_MODEL_KEY" },
+    maintenance: {
+      enabled: true,
+      interval_ms: 20_000,
+      batch: 5,
+      pass_budget_ms: 10_000,
+      op_deadline_ms: 8_000,
+      stop_timeout_ms: 15_000,
+    },
+    operators: { accounts: [ex.founder] },
+  });
+  const configFile = join(dir, "config.json");
+  const boot1 = base(null);
+  validateConfig(boot1);
+  writeFileSync(configFile, JSON.stringify(boot1));
+  let app = startApp(configFile);
+  await app.ready();
+  const f = httpClient(port);
+  await signIn(f, ex.founder);
+  const made = await f("/api/product-projects", "POST", {
+    idea: "Turn invoices into clean, checked JSON for an accounting tool",
+    foundation: "ai_api",
+    name: "Ledgerline",
+  });
+  if (made.status !== 201)
+    throw new StopRun(`project: ${made.status} ${JSON.stringify(made.body)}`);
+  const list = (await f("/api/product-projects")).body.projects as Json[];
+  const proj = list[0];
+  if (!proj) throw new StopRun("no project after creating it");
+  await app.stop();
+  const boot2 = base(proj.business_id as string);
+  validateConfig(boot2);
+  writeFileSync(configFile, JSON.stringify(boot2));
+  app = startApp(configFile);
+  await app.ready();
+  return {
+    app,
+    dir,
+    business: { id: proj.business_id as string, project: proj.id as string, contract: ex.business },
+  };
+}
+
+function exampleEnv(ex: Example, port: number, business: Env["business"]): Env {
+  const accounts: Record<Who, string> = {
+    founder: ex.founder,
+    buyer: ex.buyer,
+    customer: ex.customer,
+    prober: ex.prober ?? ex.customer,
+  };
+  const clients = new Map<Who, Call>();
+  return {
+    label: "NEAR testnet",
+    accounts,
+    operator: ex.meter,
+    business,
+    client: (who) => {
+      if (!clients.has(who)) clients.set(who, httpClient(port));
+      return clients.get(who) as Call;
+    },
+    signIn: (who, call) => signIn(call, accounts[who]),
+    wallet: (who, call) => sendAs(accounts[who], call),
+    views: async () => {
+      const block = (await provider.viewBlock({ finality: "final" } as never)) as Json;
+      const people = [
+        ex.customer,
+        ex.business,
+        ex.founder,
+        ex.buyer,
+        ...(ex.prober ? [ex.prober] : []),
+      ];
+      return {
+        block: { height: String(block.header.height), hash: block.header.hash },
+        control: await view<Json>(ex.business, "get_control"),
+        treasury: await view<Json>(ex.business, "get_treasury"),
+        entitlement: await view<Json | null>(ex.business, "get_entitlement", {
+          customer: ex.customer,
+          plan_id: 1,
+        }).catch(() => null),
+        seller_party: await view<Json | null>(ex.business, "get_party", {
+          account: ex.founder,
+        }).catch(() => null),
+        tusd: Object.fromEntries(
+          await Promise.all(
+            people.map(async (a) => [
+              a,
+              await view<string>(TOKEN, "ft_balance_of", { account_id: a }),
+            ]),
+          ),
+        ),
+      };
+    },
+  };
+}
+
+/** One signed function call as this fictional account, final; failures kept, never thrown. */
+async function sendAs(
+  accountId: string,
+  call: { receiverId: string; methodName: string; args: Json; gas: string; deposit: string },
+) {
+  await spendGuard(`before ${call.methodName}`);
+  const r = await account(accountId).signAndSendTransaction({
+    receiverId: call.receiverId,
+    actions: [
+      actions.functionCall(call.methodName, call.args, BigInt(call.gas), BigInt(call.deposit)),
+    ],
+    waitUntil: "FINAL",
+    throwOnFailure: false,
+  });
+  const failure = (r.status as { Failure?: unknown }).Failure;
+  const downstream = r.receipts_outcome.filter((o) => "Failure" in (o.outcome.status as object));
+  console.log(
+    `  ${accountId.split(".")[0]} ${call.methodName}: ${EXPLORER}${r.transaction.hash}${failure ? " (FAILED)" : downstream.length ? " (a downstream receipt failed)" : ""}`,
+  );
+  return {
+    hash: r.transaction.hash,
+    ok: failure === undefined,
+    error: failure === undefined ? undefined : JSON.stringify(failure).slice(0, 400),
+    receipts: r.receipts_outcome.map((o) => ({
+      executor: o.outcome.executor_id,
+      status: Object.keys(o.outcome.status as object)[0],
+      logs: o.outcome.logs.filter((l) => l.startsWith("EVENT_JSON")).slice(0, 4),
+    })),
+  };
+}
+
+async function runExample(ex: Example, port: number) {
+  await spendGuard(`${ex.name} run start`);
+  const { app, business } = await bootExample(ex, port);
+  const env = exampleEnv(ex, port, business);
+  const rec = new Recorder({
+    example: ex.name,
+    network: "testnet",
+    label: "NEAR testnet",
+    commit: commit(),
+    contract: { account: ex.business, wasm_sha256: WASM_SHA256, code_hash_expected: CODE_HASH },
+    accounts: Object.fromEntries(
+      Object.entries(ex).filter(([, v]) => typeof v === "string"),
+    ) as Record<string, string>,
+    model: "stand-in (scripted answers; no AI provider called)",
+  });
+  const out = join(EVIDENCE_DIR, `v3-${ex.name}-testnet.json`);
+  try {
+    if (ex.name === "gated") {
+      const r = await runGated(env, rec, { closeWaitMs: 1_200_000, settleWaitMs: 180_000 });
+      console.log(`✓ example 2 complete: ${JSON.stringify(r)}`);
+    } else {
+      let fired = false;
+      app.onMessage((m) => {
+        if (m?.type === "dropped") fired = true;
+      });
+      const renv: RecoveryEnv = {
+        ...env,
+        relay: { arm: () => app.send({ type: "arm-drop" }), fired: () => fired },
+        unregister: async () =>
+          sendAs(ex.founder, {
+            receiverId: TOKEN,
+            methodName: "storage_unregister",
+            args: { force: false },
+            gas: "30000000000000",
+            deposit: "1",
+          }),
+        seller: async () => ({
+          party: await view<Json | null>(ex.business, "get_party", { account: ex.founder }).catch(
+            () => null,
+          ),
+          balance: await view<string>(TOKEN, "ft_balance_of", { account_id: ex.founder }),
+          registered: !!(await view<Json | null>(TOKEN, "storage_balance_of", {
+            account_id: ex.founder,
+          })),
+        }),
+      };
+      const r = await runRecovery(renv, rec, { settleWaitMs: 180_000 });
+      console.log(`✓ examples 3 and 4 complete: ${JSON.stringify(r)}`);
+    }
+    rec.write(out, { completed: true });
+  } catch (e) {
+    rec.write(out, { completed: false, reason: (e as Error).message.slice(0, 600) });
+    console.log(`app log (last part):\n${app.log().slice(-3000)}`);
+    throw e;
+  } finally {
+    await spendGuard(`${ex.name} run end`).catch(() => {});
+    await app.stop();
+  }
+  console.log(`evidence: ${out}`);
+}
+
 const cmd = process.argv[2];
 try {
   if (cmd === "setup-direct") await setupDirect();
   else if (cmd === "run-direct") await runDirectLive();
   else if (cmd === "resume-direct") await resumeDirectLive();
+  else if (cmd === "setup-gated") await setupExample(GATED);
+  else if (cmd === "run-gated") await runExample(GATED, 8833);
+  else if (cmd === "setup-recovery") await setupExample(RECOVERY);
+  else if (cmd === "run-recovery") await runExample(RECOVERY, 8834);
   else {
     console.error("usage: v3-rehearsal.ts setup-direct | run-direct");
     process.exit(2);
