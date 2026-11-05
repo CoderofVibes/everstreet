@@ -478,6 +478,16 @@ export class ManagedRuntime {
         const epoch = this.ownerEpoch(project.business_id);
         if (epoch.owner_id !== project.owner_id)
           throw new HttpError(404, "No such product project");
+        // Job 003wf1 (Astra's evaluation-admission probe): a check case is admitted only while its
+        // run is still this process's running run, in the SAME transaction as its reservation, so
+        // a peer's recovery between the loop's check and this admission dispatches nothing.
+        if (
+          evalRef &&
+          !this.db
+            .prepare("SELECT 1 FROM eval_runs WHERE id = ? AND state = 'running' AND runner IS ?")
+            .get(evalRef.run, this.runner)
+        )
+          throw new HttpError(409, "This check was stopped", "eval_stopped");
         this.reserveChecks(project.business_id, worst);
         this.insertRunning({
           id,
