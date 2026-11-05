@@ -147,6 +147,21 @@ customer's refund honoured under the original rules, and the seller's proceeds c
 step: [data/evidence/sale-testnet.json](data/evidence/sale-testnet.json).
 Who can do what, and what the sale does and does not cover: [docs/AUTHORITY.md](docs/AUTHORITY.md).
 
+### Business v3 handover and recovery examples
+
+The testnet records above cover the earlier contracts. The four examples below have local
+test coverage. Their v3 testnet rehearsals are pending.
+
+| Example | What the local check covers | Reproduce locally |
+|---|---|---|
+| Direct sale | A customer buys 100 uses, consumes 20 and retains 80 at close. The seller loses control, the buyer serves the next use, and the customer has 79 left. | `npx vitest run server/test/flagship-journey-process.test.ts` |
+| Gated sale | The closer returns one outstanding reservation, closes once and reopens service under the buyer. The customer retains 95 unused units and access to earlier results. | `npx vitest run server/test/flagship-gated-journey.test.ts` |
+| Lost purchase response | The payment lands in the chain fixture before the app loses its readback. Rechecking the original transaction confirms one purchase without adding units twice. | `npx vitest run server/test/flagship-restart-matrix.test.ts` |
+| Failed token payout | Contract tests simulate a failed transfer callback, check that the claim keeps its category and beneficiary, and exercise a successful retry and duplicate callback. The testnet rehearsal will exercise the downstream token receipt and check the recipient's actual test-token balance. | `cargo test --manifest-path contracts/business-v3/Cargo.toml payouts_keep_their_category_through_failures_claims_and_duplicates` |
+
+For each completed testnet run, this section will link the tested commit, finalized transaction
+receipts, observed balances and verification steps.
+
 ## Run it
 
 Requirements: Node 24+. For the contract: WSL Ubuntu with Rust and `cargo-near`.
