@@ -97,8 +97,14 @@ export function PurchasePanel({
   offerId,
   onChanged,
   onToken,
+  unitKey = null,
 }: {
   offerId: string;
+  /**
+   * Job 003wf3 (Astra 03:05): the page's current use and its unit state. When it changes, the
+   * reading here is taken again (later, if a purchase is being reviewed or sent).
+   */
+  unitKey?: string | null;
   /** Called when the contract shows something new (a registration or confirmed units). */
   onChanged: () => void;
   /** The token's validated symbol and decimals, once read (for the page's own price line). */
@@ -152,8 +158,25 @@ export function PurchasePanel({
     if (before.flow === flow && before.key !== null && before.key !== entKey) changed.current();
   }, [flow, entKey]);
 
+  // Job 003wf3: a changed unit on this page re-reads the contract here; a re-read that has to
+  // wait for a purchase in progress is done once that purchase is set aside or finished.
+  const lastUnit = useRef<string | null>(unitKey);
+  const [owed, setOwed] = useState(false);
+  useEffect(() => {
+    if (unitKey === lastUnit.current) return;
+    lastUnit.current = unitKey;
+    setOwed(true);
+  }, [unitKey]);
+  const idle = s.busy === null && s.review === null;
+  useEffect(() => {
+    if (!owed || !flow || !idle) return;
+    setOwed(false);
+    void flow.reread();
+  }, [owed, flow, idle]);
+
   if (!account || !wallet || !flow) return null;
   const setup = s.setup;
+  const readAt = s.readAtMs ? new Date(s.readAtMs).toLocaleTimeString() : null;
   const busy = s.busy !== null;
   const status =
     s.busy === "wallet"
@@ -181,9 +204,17 @@ export function PurchasePanel({
                 Each use costs <TokenAmount base={setup.plan.unit_price} setup={setup} />. You hold{" "}
                 <TokenAmount base={setup.token.balance} setup={setup} /> in this account
                 {setup.entitlement
-                  ? `, and the contract shows ${setup.entitlement.free} uses ready for you now.`
+                  ? s.rereadFailed || owed
+                    ? `. When last read${readAt ? ` (${readAt})` : ""}, the contract showed ${setup.entitlement.free} uses ready for you.`
+                    : `, and the contract shows ${setup.entitlement.free} uses ready for you${readAt ? ` (read ${readAt})` : ""}.`
                   : ". You have no uses for this product yet."}
               </p>
+              {s.rereadFailed && (
+                <p className="muted" role="status">
+                  It couldn't be read again just now, so this is the earlier reading. Your unit
+                  below is this use's own record.
+                </p>
+              )}
               {!setup.token.business_registered && (
                 <p className="error-text">
                   The business can't receive its token yet (its owner must register it). Buying

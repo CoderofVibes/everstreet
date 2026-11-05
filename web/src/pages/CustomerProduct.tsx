@@ -11,6 +11,7 @@ import {
   CUSTOMER_STEP_WORD,
   type CustomerStep,
   customerSteps,
+  endedNeutrally,
   WONT_RUN_RESULT,
   wontRun,
 } from "../customerView.ts";
@@ -295,7 +296,12 @@ export function ResultArea({
   // Astra 02:43: a use that won't run (its unit returned or returning, or the request ended)
   // never invites a run or promises a result.
   const ended = wontRun(use);
-  if (ended) return <p className="use-placeholder is-stopped">{WONT_RUN_RESULT[ended]}</p>;
+  if (ended)
+    return (
+      <p className={`use-placeholder ${endedNeutrally(use) ? "is-ended" : "is-stopped"}`}>
+        {WONT_RUN_RESULT[ended]}
+      </p>
+    );
   // Job 001j: nothing has run: a compact placeholder that says what will appear, not a tall blank.
   if (!x)
     return (
@@ -617,6 +623,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               offerId={offer.offer_id}
               onChanged={() => setReadKey((k) => k + 1)}
               onToken={setToken}
+              unitKey={use ? `${use.id}:${use.units.unit}` : null}
             />
             <DeviceKeyPanel
               offerId={offer.offer_id}

@@ -6,7 +6,17 @@
 import type { UseView } from "./customerApi.ts";
 import type { DoubtAction, WorkspaceState } from "./customerWorkspace.ts";
 
-export type CustomerStepStatus = "completed" | "current" | "waiting" | "stopped" | "attention";
+/**
+ * "ended" (Astra 03:05): an expected outcome that isn't a failure (a returned unit, a request the
+ * customer cancelled or let expire): shown neutrally. "stopped" stays for actual failures.
+ */
+export type CustomerStepStatus =
+  | "completed"
+  | "current"
+  | "waiting"
+  | "stopped"
+  | "ended"
+  | "attention";
 export interface CustomerStep {
   key: "document" | "authorize" | "run" | "result";
   title: string;
@@ -19,6 +29,7 @@ export const CUSTOMER_STEP_WORD: Record<CustomerStepStatus, string> = {
   current: "Current",
   waiting: "Waiting",
   stopped: "Stopped",
+  ended: "Ended",
   attention: "Needs checking",
 };
 
@@ -37,6 +48,13 @@ export function wontRun(u: UseView | null | undefined): "returned" | "returning"
   if (u.units.unit === "returned") return "returned";
   if (u.units.unit === "release_pending") return "returning";
   return null;
+}
+
+/** Whether a use that won't run ended as expected (neutral) rather than by a failure. */
+export function endedNeutrally(u: UseView | null | undefined): boolean {
+  const k = wontRun(u);
+  if (k === "returned" || k === "returning") return true;
+  return k === "ended" && (u?.state === "cancelled" || u?.state === "expired");
 }
 
 /** The words for a use that won't run, for its result step and its result panel. */
@@ -94,11 +112,11 @@ function runStep(s: View) {
   if (!x)
     return u.units.unit === "release_pending"
       ? is(
-          "stopped",
+          "ended",
           "Not run: you asked for your unit back. Waiting for the contract to confirm the return.",
         )
       : u.units.unit === "returned"
-        ? is("stopped", "Not run: the contract confirmed your unit returned.")
+        ? is("ended", "Not run: the contract confirmed your unit returned.")
         : is("current", "One run of the released product on this document.");
   if (x.state === "running")
     return is("current", "Running. Checking progress never runs it again.");
@@ -121,7 +139,7 @@ function resultStep(s: View) {
       ? is("completed", "Every required field was found. Compare it with your document.")
       : is("attention", "Not a complete extraction. Read what's missing before you use it.");
   const ended = wontRun(s.use);
-  if (ended) return is("stopped", WONT_RUN_RESULT[ended]);
+  if (ended) return is(endedNeutrally(s.use) ? "ended" : "stopped", WONT_RUN_RESULT[ended]);
   if (!x || x.state === "running") return is("waiting", "Appears here after the run.");
   if (x.result === "available") return is("current", "Ready. Only you can read it.");
   if (x.result === "pending") return is("current", "Being saved privately.");

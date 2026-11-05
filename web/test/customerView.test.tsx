@@ -205,12 +205,16 @@ describe("001j steps follow the real request", () => {
       expect(authorized()).not.toMatch(/holds/);
       expect(authorized()).toMatch(/^Authorized: the contract confirmed one unit reserved/);
       if (unit === "release_pending") {
-        expect(run()).toMatchObject({ status: "stopped" });
+        // Astra 03:05: an expected return is neutral ("ended"), never styled as a failure.
+        expect(run()).toMatchObject({ status: "ended" });
         expect(run()?.detail).toMatch(/Waiting for the contract to confirm the return/);
         expect(run()?.detail).not.toMatch(/returned/);
       }
       if (unit === "returned") {
-        expect(run()?.detail).toBe("Not run: the contract confirmed your unit returned.");
+        expect(run()).toMatchObject({
+          status: "ended",
+          detail: "Not run: the contract confirmed your unit returned.",
+        });
         break;
       }
       await ws.checkUnit();

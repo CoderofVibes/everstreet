@@ -271,6 +271,12 @@ export interface FlowState {
   busy: null | "checking" | "wallet" | "processing";
   notice: { tone: "info" | "warn" | "ok"; text: string } | null;
   resolution: Resolution | null;
+  /**
+   * Job 003wf3 (Astra 03:05): when the shown reading was taken (this browser's clock), and
+   * whether the latest attempt to read again failed (the reading shown is then older).
+   */
+  readAtMs?: number | null;
+  rereadFailed?: boolean;
 }
 
 const isPreview = (p: PurchaseSetup["preview"]): p is PurchasePreview => Boolean(p && "call" in p);
@@ -356,16 +362,27 @@ export class PurchaseFlow {
         });
         return false;
       }
-      this.set({ status: "ready", setup: s });
+      this.set({ status: "ready", setup: s, readAtMs: Date.now(), rereadFailed: false });
       return true;
     } catch (e) {
       if (!this.alive || mine !== this.reads) return false;
       this.set({
         status: this.state.setup ? "ready" : "error",
         notice: { tone: "warn", text: (e as Error).message },
+        rereadFailed: this.state.setup !== null,
       });
       return false;
     }
+  }
+
+  /**
+   * Job 003wf3 (Astra 03:05): reads the contract again because something this page knows changed
+   * (e.g. a unit came back). Never while a purchase is being reviewed or sent: that exact request
+   * and its recovery stay as they are, and false is returned so the caller can try later.
+   */
+  async reread(): Promise<boolean> {
+    if (!this.alive || this.state.busy !== null || this.state.review !== null) return false;
+    return this.load();
   }
 
   /**

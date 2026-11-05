@@ -40,10 +40,18 @@ describe("003wf3 a use that won't run never invites a run or promises a result",
   ] as const)("%s with its unit %s", (state, unit, kind) => {
     const u = use(state, unit);
     expect(wontRun(u)).toBe(kind);
-    expect(resultStep(u)).toMatchObject({ status: "stopped", detail: WONT_RUN_RESULT[kind] });
+    // Astra 03:05: each of these is an expected end, shown neutrally.
+    expect(resultStep(u)).toMatchObject({ status: "ended", detail: WONT_RUN_RESULT[kind] });
+    expect(panel(u)).toContain('class="use-placeholder is-ended"');
     const html = panel(u);
     expect(html).toContain(WONT_RUN_RESULT[kind].replaceAll("'", "&#x27;"));
     expect(html).not.toMatch(/Run it when|You&#x27;ll get/);
+  });
+
+  it("a refused request that never ran keeps the failure treatment", () => {
+    const u = use("refused", "not_held");
+    expect(resultStep(u)).toMatchObject({ status: "stopped", detail: WONT_RUN_RESULT.ended });
+    expect(panel(u)).toContain('class="use-placeholder is-stopped"');
   });
 
   it("a reserved use still awaiting its run keeps inviting it", () => {
