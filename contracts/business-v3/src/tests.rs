@@ -3697,3 +3697,120 @@ fn c06_the_guarded_release_names_its_registration() {
     w.call(METER, 0, |b| b.release_hold(id(CARA), 1, 3));
     assert!(!w.ent(CARA).hold_active);
 }
+
+// =====================================================================================
+// 003web: a fresh customer's purchase path, as the server and browser must model it. Every
+// value is the contract's own: the measured storage growth of sponsor_shell across customer and
+// payer account lengths (the client's shell-deposit quote is anchored to it), and ft_on_transfer's
+// accepted / returned outcomes with their exact events, for buy and buy-with-install.
+// =====================================================================================
+
+#[test]
+fn customer_purchase_matches_server_fixture() {
+    let raw = |v: String| serde_json::Value::String(v);
+    let byte_cost = env::storage_byte_cost().as_yoctonear();
+    let longest = long('k');
+    let long_payer = long('p');
+    let mut shells = Vec::new();
+    for (customer, payer) in [
+        ("xy", "xy"),
+        (CARA, CARA),
+        (CARA, SPONSOR),
+        (longest.as_str(), longest.as_str()),
+        (longest.as_str(), long_payer.as_str()),
+        ("dana.near", long_payer.as_str()),
+    ] {
+        // A fresh world per shell keeps each measurement independent.
+        let mut f = W::new();
+        let (reg, grew) = f.measured(payer, NEAR, |b| b.sponsor_shell(id(customer), 1));
+        let e = f.ent(customer);
+        shells.push(serde_json::json!({
+            "customer": customer,
+            "customer_len": customer.len(),
+            "payer": payer,
+            "bytes": grew,
+            "storage_paid": e.storage_paid,
+            "reg_id": reg,
+            "entitlement": raw(serde_json::to_string(&e).unwrap()),
+        }));
+    }
+
+    // Accepted: a fresh shell, then exactly units x price at the next sequence.
+    let mut a = W::new();
+    a.shell(CARA, CARA);
+    let accepted_msg = buy_msg(1, 100, 1, None);
+    let (r, _) = a.measured(TOKEN, 0, |b| b.ft_on_transfer(id(CARA), U128(100 * P), accepted_msg.clone()));
+    let unused = match r {
+        PromiseOrValue::Value(v) => v.0,
+        PromiseOrValue::Promise(_) => panic!("no promise"),
+    };
+    let accepted_logs = near_sdk::test_utils::get_logs();
+    let after_accept = a.ent(CARA);
+
+    // Refused purchases come back whole, with the contract's own reason.
+    let mut refusals = Vec::new();
+    let k = key(2);
+    for (label, amount, msg) in [
+        ("wrong_amount", 99 * P, buy_msg(1, 100, 2, None)),
+        ("stale_sequence", P, buy_msg(1, 1, 1, None)),
+        ("over_purchase_cap", 101 * P, buy_msg(1, 101, 2, None)),
+        ("fills_outstanding_cap", 100 * P, buy_msg(1, 100, 2, None)), // accepted: 100 + 100 = the cap of 200
+        ("over_outstanding_cap", P, buy_msg(1, 1, 3, None)), // one more than the cap: returned
+        ("no_shell", 1 * P, String::new()),
+    ] {
+        let (sender, m) = if label == "no_shell" { ("dana.near", buy_msg(1, 1, 1, None)) } else { (CARA, msg) };
+        let (r, _) = a.measured(TOKEN, 0, |b| b.ft_on_transfer(id(sender), U128(amount), m.clone()));
+        let back = match r {
+            PromiseOrValue::Value(v) => v.0,
+            PromiseOrValue::Promise(_) => panic!("no promise"),
+        };
+        refusals.push(serde_json::json!({
+            "case": label, "sender": sender, "amount": U128(amount), "msg": m,
+            "returned": U128(back), "logs": near_sdk::test_utils::get_logs(),
+        }));
+    }
+    let after_refusals = a.ent(CARA);
+
+    // Buy with install: the device key is enrolled in the same call (epoch 1, active).
+    let mut i = W::new();
+    i.shell(CARA, CARA);
+    let install_msg = buy_msg(1, 100, 1, Some((1, &k, 30)));
+    let (r, _) = i.measured(TOKEN, 0, |b| b.ft_on_transfer(id(CARA), U128(100 * P), install_msg.clone()));
+    let install_unused = match r {
+        PromiseOrValue::Value(v) => v.0,
+        PromiseOrValue::Promise(_) => panic!("no promise"),
+    };
+    let install_logs = near_sdk::test_utils::get_logs();
+    let after_install = i.ent(CARA);
+    // ...and an install into an active slot is returned whole.
+    let occupied_msg = buy_msg(1, 1, 2, Some((1, &key(3), 30)));
+    let (r, _) = i.measured(TOKEN, 0, |b| b.ft_on_transfer(id(CARA), U128(P), occupied_msg.clone()));
+    let occupied_back = match r {
+        PromiseOrValue::Value(v) => v.0,
+        PromiseOrValue::Promise(_) => panic!("no promise"),
+    };
+    let occupied_logs = near_sdk::test_utils::get_logs();
+
+    let out = serde_json::json!({
+        "note": "Produced by contracts/business-v3 tests.rs customer_purchase_matches_server_fixture (job 003web). Test-world accounts and keys only.",
+        "business": BIZ,
+        "token": TOKEN,
+        "unit_price": U128(P),
+        "storage_byte_cost": U128(byte_cost),
+        "plan": raw(serde_json::to_string(&a.b.get_plan(1)).unwrap()),
+        "shells": shells,
+        "accepted": {
+            "sender": CARA, "amount": U128(100 * P), "msg": accepted_msg, "returned": U128(unused),
+            "logs": accepted_logs, "entitlement": raw(serde_json::to_string(&after_accept).unwrap()),
+        },
+        "refusals": refusals,
+        "after_refusals": raw(serde_json::to_string(&after_refusals).unwrap()),
+        "install": {
+            "sender": CARA, "amount": U128(100 * P), "msg": install_msg, "returned": U128(install_unused),
+            "logs": install_logs, "entitlement": raw(serde_json::to_string(&after_install).unwrap()),
+            "occupied": { "msg": occupied_msg, "amount": U128(P), "returned": U128(occupied_back), "logs": occupied_logs },
+        },
+    });
+    let actual = serde_json::to_string_pretty(&out).unwrap() + "\n";
+    fixture("customer-purchase", include_str!("../../../server/test/fixtures/v3/customer-purchase.json"), actual);
+}

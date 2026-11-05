@@ -1,0 +1,155 @@
+{
+  "note": "Produced by contracts/business-v3 tests.rs customer_purchase_matches_server_fixture (job 003web). Test-world accounts and keys only.",
+  "business": "studio.biz.near",
+  "token": "tusd.near",
+  "unit_price": "50000",
+  "storage_byte_cost": "10000000000000000000",
+  "plan": "{\"unit_price\":\"50000\",\"max_units_per_purchase\":100,\"max_units_outstanding\":200,\"max_hold_units\":10,\"hold_ttl_ms\":\"1800000\",\"settle_grace_ms\":\"600000\",\"created_generation\":1}",
+  "shells": [
+    {
+      "customer": "xy",
+      "customer_len": 2,
+      "payer": "xy",
+      "bytes": 813,
+      "storage_paid": "8130000000000000000000",
+      "reg_id": "1",
+      "entitlement": "{\"reg_id\":\"1\",\"active\":false,\"free\":\"0\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"0\",\"purchase_seq\":0,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"xy\",\"storage_paid\":\"8130000000000000000000\"}"
+    },
+    {
+      "customer": "cara.near",
+      "customer_len": 9,
+      "payer": "cara.near",
+      "bytes": 820,
+      "storage_paid": "8200000000000000000000",
+      "reg_id": "1",
+      "entitlement": "{\"reg_id\":\"1\",\"active\":false,\"free\":\"0\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"0\",\"purchase_seq\":0,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"cara.near\",\"storage_paid\":\"8200000000000000000000\"}"
+    },
+    {
+      "customer": "cara.near",
+      "customer_len": 9,
+      "payer": "sponsor.near",
+      "bytes": 820,
+      "storage_paid": "8200000000000000000000",
+      "reg_id": "1",
+      "entitlement": "{\"reg_id\":\"1\",\"active\":false,\"free\":\"0\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"0\",\"purchase_seq\":0,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"sponsor.near\",\"storage_paid\":\"8200000000000000000000\"}"
+    },
+    {
+      "customer": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk.near",
+      "customer_len": 64,
+      "payer": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk.near",
+      "bytes": 875,
+      "storage_paid": "8750000000000000000000",
+      "reg_id": "1",
+      "entitlement": "{\"reg_id\":\"1\",\"active\":false,\"free\":\"0\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"0\",\"purchase_seq\":0,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk.near\",\"storage_paid\":\"8750000000000000000000\"}"
+    },
+    {
+      "customer": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk.near",
+      "customer_len": 64,
+      "payer": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp.near",
+      "bytes": 875,
+      "storage_paid": "8750000000000000000000",
+      "reg_id": "1",
+      "entitlement": "{\"reg_id\":\"1\",\"active\":false,\"free\":\"0\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"0\",\"purchase_seq\":0,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp.near\",\"storage_paid\":\"8750000000000000000000\"}"
+    },
+    {
+      "customer": "dana.near",
+      "customer_len": 9,
+      "payer": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp.near",
+      "bytes": 820,
+      "storage_paid": "8200000000000000000000",
+      "reg_id": "1",
+      "entitlement": "{\"reg_id\":\"1\",\"active\":false,\"free\":\"0\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"0\",\"purchase_seq\":0,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp.near\",\"storage_paid\":\"8200000000000000000000\"}"
+    }
+  ],
+  "accepted": {
+    "sender": "cara.near",
+    "amount": "5000000",
+    "msg": "{\"buy\":{\"plan_id\":1,\"units\":100,\"purchase_seq\":1}}",
+    "returned": "0",
+    "logs": [
+      "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"cara.near\",\"plan_id\":1,\"units\":100,\"amount\":\"5000000\"}]}"
+    ],
+    "entitlement": "{\"reg_id\":\"1\",\"active\":true,\"free\":\"100\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"100\",\"purchase_seq\":1,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"cara.near\",\"storage_paid\":\"8200000000000000000000\"}"
+  },
+  "refusals": [
+    {
+      "case": "wrong_amount",
+      "sender": "cara.near",
+      "amount": "4950000",
+      "msg": "{\"buy\":{\"plan_id\":1,\"units\":100,\"purchase_seq\":2}}",
+      "returned": "4950000",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"purchase_returned\",\"data\":[{\"customer\":\"cara.near\",\"amount\":\"4950000\",\"reason\":\"amount is not units times the plan price\"}]}"
+      ]
+    },
+    {
+      "case": "stale_sequence",
+      "sender": "cara.near",
+      "amount": "50000",
+      "msg": "{\"buy\":{\"plan_id\":1,\"units\":1,\"purchase_seq\":1}}",
+      "returned": "50000",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"purchase_returned\",\"data\":[{\"customer\":\"cara.near\",\"amount\":\"50000\",\"reason\":\"purchase sequence is not the next one\"}]}"
+      ]
+    },
+    {
+      "case": "over_purchase_cap",
+      "sender": "cara.near",
+      "amount": "5050000",
+      "msg": "{\"buy\":{\"plan_id\":1,\"units\":101,\"purchase_seq\":2}}",
+      "returned": "5050000",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"purchase_returned\",\"data\":[{\"customer\":\"cara.near\",\"amount\":\"5050000\",\"reason\":\"units outside the plan's purchase limit\"}]}"
+      ]
+    },
+    {
+      "case": "fills_outstanding_cap",
+      "sender": "cara.near",
+      "amount": "5000000",
+      "msg": "{\"buy\":{\"plan_id\":1,\"units\":100,\"purchase_seq\":2}}",
+      "returned": "0",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"cara.near\",\"plan_id\":1,\"units\":100,\"amount\":\"5000000\"}]}"
+      ]
+    },
+    {
+      "case": "over_outstanding_cap",
+      "sender": "cara.near",
+      "amount": "50000",
+      "msg": "{\"buy\":{\"plan_id\":1,\"units\":1,\"purchase_seq\":3}}",
+      "returned": "50000",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"purchase_returned\",\"data\":[{\"customer\":\"cara.near\",\"amount\":\"50000\",\"reason\":\"over the plan's outstanding units cap\"}]}"
+      ]
+    },
+    {
+      "case": "no_shell",
+      "sender": "dana.near",
+      "amount": "50000",
+      "msg": "{\"buy\":{\"plan_id\":1,\"units\":1,\"purchase_seq\":1}}",
+      "returned": "50000",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"purchase_returned\",\"data\":[{\"customer\":\"dana.near\",\"amount\":\"50000\",\"reason\":\"no entitlement record; sponsor a shell first\"}]}"
+      ]
+    }
+  ],
+  "after_refusals": "{\"reg_id\":\"1\",\"active\":true,\"free\":\"200\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"200\",\"purchase_seq\":2,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"cara.near\",\"storage_paid\":\"8200000000000000000000\"}",
+  "install": {
+    "sender": "cara.near",
+    "amount": "5000000",
+    "msg": "{\"buy\":{\"plan_id\":1,\"units\":100,\"purchase_seq\":1,\"install\":{\"slot\":1,\"pk\":\"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394\",\"max_hold_units\":10,\"max_units_per_day\":30}}}",
+    "returned": "0",
+    "logs": [
+      "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"cara.near\",\"plan_id\":1,\"units\":100,\"amount\":\"5000000\"}]}"
+    ],
+    "entitlement": "{\"reg_id\":\"1\",\"active\":true,\"free\":\"100\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"100\",\"purchase_seq\":1,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,1,0,0],\"key_epochs\":[0,1,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"active\",\"epoch\":1,\"public_key\":\"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394\",\"max_hold_units\":10,\"max_units_per_day\":30,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"cara.near\",\"storage_paid\":\"8200000000000000000000\"}",
+    "occupied": {
+      "msg": "{\"buy\":{\"plan_id\":1,\"units\":1,\"purchase_seq\":2,\"install\":{\"slot\":1,\"pk\":\"ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1\",\"max_hold_units\":10,\"max_units_per_day\":30}}}",
+      "amount": "50000",
+      "returned": "50000",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"purchase_returned\",\"data\":[{\"customer\":\"cara.near\",\"amount\":\"50000\",\"reason\":\"that key slot is in use\"}]}"
+      ]
+    }
+  }
+}
