@@ -112,3 +112,22 @@ Required full check31155 after the stronger regression: types pass, two lint war
 (compose optional chain; composeChild unused portText),1427pass/3fail/1skip. Failures are the
 body-response regression, lifecycle late-network code sign_in_unavailable versus stopping, and
 the existing protected-store200-write timeout. This is an in-progress snapshot, not acceptance.
+
+At20:34 after committedcc151d4 added an admitted-request cutoff, Astra independently reran
+the strengthened stop file:2/2pass. A stalled upload receives503 before its body is released;
+late continuation is stopped by the DB gate. This narrowly verifies HTTP admission/completion.
+Shared total stop budget, detached work/timers and actual process/settlement/provider evidence
+remain for the final handoff; no full lifecycle acceptance from these two tests alone.
+
+## Starting a standby process while another still serves customers
+
+The new two-process test starts B while A is idle and checks the maintenance lease. Also test
+startup with A holding an actual provider request/build. Current compose.start calls
+runtime.recover unconditionally; ManagedRuntime.recover selects EVERY running invocation and
+marks it unknown, with no process/lease ownership check. startBuildWorker similarly calls
+recover({orphanAll:true}). Thus a new standby could invalidate another healthy process's live
+work even though its maintenance lease behaves correctly. This is source evidence, not yet an
+executed independent reproduction. Gate recovery on actual abandoned ownership or otherwise
+enforce a supported topology; don't call live A's work an orphan merely because B starts.
+The declared support for multiple configured processes and two-holder evidence needs this case.
+Retain wider nonce/migration/close races for later003wf children as already specified.
