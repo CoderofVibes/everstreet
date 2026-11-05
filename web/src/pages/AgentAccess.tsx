@@ -40,8 +40,10 @@ const STATE_WORDS: Record<string, string> = {
 };
 
 export function AgentAccessPage() {
-  const { person, requireSignIn } = useSession();
-  const who = person?.id ?? null;
+  const { person, sessionEpoch, requireSignIn } = useSession();
+  // 006b2: bound to this SESSION, not just the account: signing out and in again as the same
+  // person is a new scope, and nothing started before it is shown or frees anything after it.
+  const who = person ? `${person.id}#${sessionEpoch}` : null;
   const offerFromUrl = new URLSearchParams(window.location.search).get("offer") ?? "";
   const list = useActorRead(who, fetchGrants);
   const [f, setF] = useState({
@@ -60,14 +62,22 @@ export function AgentAccessPage() {
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
   const current = useRef(who);
-  const busy = useRef(false);
+  // The one create (and one revoke) in flight, by request: only its own answer frees it.
+  const busy = useRef<number | null>(null);
+  const revokeBusy = useRef<number | null>(null);
+  const seq = useRef(0);
   const uid = useId();
   useEffect(() => {
     current.current = who;
-    // A different person (or none): nothing of the previous one stays on screen.
+    // A different session (or none): nothing of the previous one stays on screen, and its
+    // pending requests no longer hold this one's controls.
     setToken(null);
     setError(null);
     setRevokeError(null);
+    busy.current = null;
+    revokeBusy.current = null;
+    setCreating(false);
+    setRevoking(null);
   }, [who]);
 
   if (!person)
@@ -83,13 +93,16 @@ export function AgentAccessPage() {
         </button>
       </div>
     );
-  const me = person.id;
+  const me = who as string;
   const mine = <T extends { who: string }>(v: T | null) => (v && v.who === me ? v : null);
+  /** A failure with no answer from the server: the outcome isn't known until read back. */
+  const lost = (x: unknown) => !(x instanceof ApiError);
 
   const create = (e: { preventDefault: () => void }) => {
     e.preventDefault();
-    if (busy.current) return; // one create at a time
-    busy.current = true;
+    if (busy.current !== null) return; // one create at a time
+    const n = ++seq.current;
+    busy.current = n;
     setCreating(true);
     setError(null);
     setToken(null);
@@ -101,20 +114,30 @@ export function AgentAccessPage() {
       expires_in_days: Number(f.expires_in_days),
     })
       .then((d) => {
-        if (current.current !== asker) return; // a late answer for someone else
+        if (current.current !== asker) return; // a late answer for another session
         setToken({ who: asker, value: d.token as string });
         list.retry();
       })
       .catch((x: Error) => {
-        if (current.current === asker) setError({ who: asker, text: x.message });
+        if (current.current !== asker) return;
+        if (lost(x)) {
+          setError({
+            who: asker,
+            text: "We couldn't tell whether the access was created (no answer arrived). Checking your list again; look there before trying again.",
+          });
+          list.retry();
+        } else setError({ who: asker, text: x.message });
       })
       .finally(() => {
-        busy.current = false;
+        if (busy.current !== n) return; // a newer create (or session) owns the controls now
+        busy.current = null;
         setCreating(false);
       });
   };
   const revoke = (id: string) => {
-    if (revoking) return;
+    if (revokeBusy.current !== null) return;
+    const n = ++seq.current;
+    revokeBusy.current = n;
     setRevoking(id);
     setRevokeError(null);
     const asker = me;
@@ -123,14 +146,26 @@ export function AgentAccessPage() {
         if (current.current === asker) list.retry();
       })
       .catch((x: Error) => {
-        if (current.current === asker)
+        if (current.current !== asker) return;
+        if (lost(x)) {
+          setRevokeError({
+            who: asker,
+            id,
+            text: "We couldn't tell whether it was revoked (no answer arrived). Checking again; until the list says revoked, treat it as still working.",
+          });
+          list.retry();
+        } else
           setRevokeError({
             who: asker,
             id,
             text: `Not revoked: ${x.message}. It may still work; try again.`,
           });
       })
-      .finally(() => setRevoking(null));
+      .finally(() => {
+        if (revokeBusy.current !== n) return;
+        revokeBusy.current = null;
+        setRevoking(null);
+      });
   };
 
   const grants = list.state.data;

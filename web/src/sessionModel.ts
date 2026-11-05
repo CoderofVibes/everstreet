@@ -24,6 +24,11 @@ export interface SessionSnapshot {
   ready: boolean;
   env: SessionEnv;
   signInReason: string | null;
+  /**
+   * 006b2: bumped by every change of who is acting, including signing out and back in as the
+   * same account. Anything started in one session compares this before it shows or frees anything.
+   */
+  epoch: number;
 }
 
 export class SessionModel {
@@ -33,6 +38,7 @@ export class SessionModel {
     ready: false,
     env: { environment: "Local preview", localPreview: true },
     signInReason: null,
+    epoch: 0,
   };
   private listeners = new Set<() => void>();
   private resolver: ((p: Person | null) => void) | null = null;
@@ -59,8 +65,10 @@ export class SessionModel {
   private set(patch: Partial<SessionSnapshot>) {
     const before = this.state;
     this.state = { ...this.state, ...patch };
-    if (before.person?.id !== this.state.person?.id || before.account !== this.state.account)
+    if (before.person?.id !== this.state.person?.id || before.account !== this.state.account) {
+      this.state = { ...this.state, epoch: before.epoch + 1 };
       this.onIdentityChange();
+    }
     for (const l of this.listeners) l();
   }
 

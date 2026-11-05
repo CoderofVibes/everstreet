@@ -30,6 +30,8 @@ import {
 
 interface SessionState {
   person: Person | null;
+  /** 006b2: this session's identity epoch (changes on every sign-out, sign-in or switch). */
+  sessionEpoch: number;
   /** Job 003w-e1: the account a verified session proved (null in preview). */
   account: string | null;
   ready: boolean;
@@ -120,6 +122,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     <SessionContext.Provider
       value={{
         person: s.person,
+        sessionEpoch: s.epoch,
         account: s.account,
         ready: s.ready,
         localPreview: s.env.localPreview,

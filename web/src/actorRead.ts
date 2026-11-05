@@ -6,7 +6,7 @@
 // nothing, reads are sequenced (latestLoader), a retry re-reads for the same account, and losing
 // access (401/403/404) drops the data. The server's own ownership checks are unchanged.
 
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { initialLoad, type LoadState, latestLoader } from "./latestLoad.ts";
 
 /** What was loaded, and for whom. */
@@ -97,7 +97,11 @@ export function useActorRead<T>(
   who: string | null,
   get: (who: string) => Promise<T>,
 ): { state: LoadState<T>; retry: () => void } {
-  const [read] = useState(() => new ActorRead(get));
+  // 006b2: always the latest getter (it may close over props that changed in place), called
+  // with the account key it reads for; callers that read a scope put that scope in `who`.
+  const latest = useRef(get);
+  latest.current = get;
+  const [read] = useState(() => new ActorRead<T>((w) => latest.current(w)));
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => {
     read.open();

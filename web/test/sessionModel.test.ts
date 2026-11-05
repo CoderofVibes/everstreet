@@ -113,4 +113,27 @@ describe("003wea SessionProvider orderings", () => {
     await ending;
     expect(fenced).toBeGreaterThanOrEqual(2);
   });
+
+  it("006b2: the session epoch changes on sign-out and on signing in again as the same account", async () => {
+    const { api, me, out } = heldApi();
+    const m = new SessionModel(api);
+    const r = m.refresh();
+    me[0]?.resolve({ person: person("ava"), account: "ava.testnet" });
+    await r;
+    const first = m.getState().epoch;
+    const ending = m.signOut();
+    out[0]?.resolve({});
+    await ending;
+    expect(m.getState().epoch).toBeGreaterThan(first);
+    m.setPerson(person("ava"));
+    const again = m.getState().epoch;
+    expect(m.getState().person?.id).toBe("ava");
+    expect(again).toBeGreaterThan(first + 1);
+    // A refresh that answers with the same person changes nothing.
+    const r2 = m.refresh();
+    me[1]?.resolve({ person: person("ava"), account: null });
+    await r2;
+    await flush();
+    expect(m.getState().epoch).toBe(again);
+  });
 });

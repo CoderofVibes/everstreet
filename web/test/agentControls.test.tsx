@@ -11,20 +11,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const session = vi.hoisted(() => ({
   person: null as null | { id: string; display_name: string },
+  /** 006b2: bumped by every change of who is acting, like SessionModel's epoch. */
+  epoch: 0,
   listeners: new Set<() => void>(),
 }));
 vi.mock("../src/session.tsx", async () => {
   const React = await import("react");
   return {
     useSession: () => {
-      const person = React.useSyncExternalStore(
-        (cb: () => void) => {
-          session.listeners.add(cb);
-          return () => session.listeners.delete(cb);
-        },
-        () => session.person,
-      );
-      return { person, requireSignIn: () => {} };
+      const subscribe = (cb: () => void) => {
+        session.listeners.add(cb);
+        return () => session.listeners.delete(cb);
+      };
+      const person = React.useSyncExternalStore(subscribe, () => session.person);
+      const sessionEpoch = React.useSyncExternalStore(subscribe, () => session.epoch);
+      return { person, sessionEpoch, requireSignIn: () => {} };
     },
   };
 });
@@ -45,6 +46,7 @@ const BEA = { id: "person-bea", display_name: "Bea (fictional)" };
 const setPerson = (p: typeof AVA | null) =>
   act(async () => {
     session.person = p;
+    session.epoch++;
     for (const f of session.listeners) f();
   });
 
@@ -98,6 +100,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
   session.person = null;
+  session.epoch = 0;
 });
 async function mount(el: ReturnType<typeof createElement>) {
   const div = document.createElement("div");
@@ -159,10 +162,14 @@ describe("006b1 agent access page", () => {
     });
     expect(text()).toMatch(/Not revoked: Server error/);
     expect(text()).not.toMatch(/·\s*revoked/);
-    // A network failure too.
+    // 006b2: a lost answer is unknown, never "not revoked", and the list is read back.
     await click(button("Revoke"));
     await (await f.next((c) => c.url.endsWith("/revoke"), "revoke 2")).fail();
-    expect(text()).toMatch(/Not revoked/);
+    expect(text()).toMatch(/couldn't tell whether it was revoked/);
+    expect(text()).not.toMatch(/Not revoked/);
+    await (await f.next((c) => c.url.endsWith("/agent-grants"), "readback after loss")).reply(200, {
+      grants: [grant({})],
+    });
     // Success: the list is read back, and only then shows revoked.
     await click(button("Revoke"));
     await (await f.next((c) => c.url.endsWith("/revoke"), "revoke 3")).reply(200, {});
@@ -314,5 +321,102 @@ describe("006b1 owner's Agent use switch", () => {
     ).reply(200, { offers: [row] });
     expect(text()).toMatch(/is now not allowed/);
     expect(document.activeElement?.textContent).toMatch(/Allow agent use/);
+  });
+});
+
+describe("006b2 session boundaries", () => {
+  it("the same account signing out and in again never sees the earlier session's token, and an old answer never frees a newer create", async () => {
+    await setPerson(AVA);
+    const f = scriptFetch();
+    await mount(createElement(AgentAccessPage));
+    await (await f.next((c) => c.url.endsWith("/agent-grants"), "list 1")).reply(200, {
+      grants: [],
+    });
+    await fillForm();
+    await act(async () => (document.querySelector("form") as HTMLFormElement).requestSubmit());
+    const first = await f.next((c) => c.method === "POST", "create in session 1");
+    // Ava signs out and back in as Ava, on the same page, before the answer arrives.
+    await setPerson(null);
+    await setPerson(AVA);
+    await (await f.next((c) => c.url.endsWith("/agent-grants"), "list 2")).reply(200, {
+      grants: [],
+    });
+    // A create in the new session is possible, and is the only one pending.
+    await fillForm();
+    await act(async () => (document.querySelector("form") as HTMLFormElement).requestSubmit());
+    const second = await f.next((c) => c.method === "POST", "create in session 2");
+    await first.reply(201, { token: "evs_agent_OLD_SESSION_TOKEN_FICTIONAL", grant: {} });
+    expect(text()).not.toMatch(/OLD_SESSION/);
+    expect(text()).not.toMatch(/Copy this token now/);
+    // The old answer didn't free the new create's guard: another submit sends nothing.
+    await act(async () => (document.querySelector("form") as HTMLFormElement).requestSubmit());
+    expect(f.calls.filter((c) => c.method === "POST")).toHaveLength(2);
+    await second.reply(201, { token: "evs_agent_NEW_SESSION_TOKEN_FICTIONAL", grant: {} });
+    expect(text()).toMatch(/NEW_SESSION_TOKEN/);
+  });
+
+  it("a lost create answer is unknown until the list is read back", async () => {
+    await setPerson(AVA);
+    const f = scriptFetch();
+    await mount(createElement(AgentAccessPage));
+    await (await f.next((c) => c.url.endsWith("/agent-grants"), "list")).reply(200, { grants: [] });
+    await fillForm();
+    await act(async () => (document.querySelector("form") as HTMLFormElement).requestSubmit());
+    await (await f.next((c) => c.method === "POST", "create")).fail();
+    expect(text()).toMatch(/couldn't tell whether the access was created/);
+    await (await f.next((c) => c.url.endsWith("/agent-grants"), "readback")).reply(200, {
+      grants: [grant({ state: "active" })],
+    });
+    expect(text()).toMatch(/Fictional bookkeeping agent/);
+  });
+
+  it("the owner switch reads the business it shows: an in-place change re-reads it, and the prior business's late answer changes nothing", async () => {
+    await setPerson(AVA);
+    const f = scriptFetch();
+    const names = { "offer-1": "Ledgerline", "offer-2": "Relaydesk" };
+    await mount(createElement(AgentUseSwitches, { businessId: "biz-1", names }));
+    const old = await f.next((c) => c.url.includes("/biz-1/agent-access"), "biz-1 read");
+    await act(async () =>
+      root?.render(createElement(AgentUseSwitches, { businessId: "biz-2", names })),
+    );
+    const now = await f.next((c) => c.url.includes("/biz-2/agent-access"), "biz-2 read");
+    await now.reply(200, {
+      offers: [{ offer_id: "offer-2", offer_state: "active", agents: "off", active_grants: 0 }],
+    });
+    await old.reply(200, {
+      offers: [{ offer_id: "offer-1", offer_state: "active", agents: "on", active_grants: 3 }],
+    });
+    expect(text()).toMatch(/Relaydesk/);
+    expect(text()).not.toMatch(/Ledgerline/);
+    await click(button("Allow agent use"));
+    const put = await f.next((c) => c.method === "PUT", "put");
+    expect(put.url).toContain("/biz-2/customer-offers/offer-2/agent-access");
+  });
+
+  it("a switch change answered after the business changed announces nothing and frees nothing", async () => {
+    await setPerson(AVA);
+    const f = scriptFetch();
+    const names = { "offer-1": "Ledgerline", "offer-2": "Relaydesk" };
+    await mount(createElement(AgentUseSwitches, { businessId: "biz-1", names }));
+    await (await f.next((c) => c.url.includes("/biz-1/agent-access"), "biz-1")).reply(200, {
+      offers: [{ offer_id: "offer-1", offer_state: "active", agents: "off", active_grants: 0 }],
+    });
+    await click(button("Allow agent use"));
+    const put1 = await f.next((c) => c.method === "PUT", "put biz-1");
+    await act(async () =>
+      root?.render(createElement(AgentUseSwitches, { businessId: "biz-2", names })),
+    );
+    await (await f.next((c) => c.url.includes("/biz-2/agent-access"), "biz-2")).reply(200, {
+      offers: [{ offer_id: "offer-2", offer_state: "active", agents: "off", active_grants: 0 }],
+    });
+    await click(button("Allow agent use"));
+    const put2 = await f.next((c) => c.method === "PUT" && c.url.includes("/biz-2/"), "put biz-2");
+    await put1.reply(200, { offer_id: "offer-1", agents: "on" });
+    expect(text()).not.toMatch(/Ledgerline is now/);
+    // biz-2's change is still pending: another press sends nothing.
+    await click(button("Saving"));
+    expect(f.calls.filter((c) => c.method === "PUT")).toHaveLength(2);
+    await put2.reply(200, { offer_id: "offer-2", agents: "on" });
+    expect(text()).toMatch(/Relaydesk is now allowed/);
   });
 });

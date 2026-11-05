@@ -27,10 +27,13 @@ export function AgentUseSwitches({
   businessId: string;
   names: Record<string, string>;
 }) {
-  const { person } = useSession();
-  const who = person ? `${person.id}|${businessId}` : null;
-  const read = useActorRead(who, async () => {
-    const r = await fetch(`/api/businesses/${encodeURIComponent(businessId)}/agent-access`, {
+  const { person, sessionEpoch } = useSession();
+  // 006b2: the session AND the business: an in-place change of either is a new scope. The read
+  // takes its business from the scope it reads for, never from a closure of an earlier render.
+  const who = person ? `${person.id}#${sessionEpoch}|${businessId}` : null;
+  const read = useActorRead(who, async (scope) => {
+    const biz = scope.slice(scope.lastIndexOf("|") + 1);
+    const r = await fetch(`/api/businesses/${encodeURIComponent(biz)}/agent-access`, {
       credentials: "same-origin",
     });
     const d = (await r.json().catch(() => ({}))) as { offers?: Row[]; error?: string };
@@ -38,6 +41,9 @@ export function AgentUseSwitches({
     return d.offers ?? [];
   });
   const [pending, setPending] = useState<string | null>(null);
+  /** The one change in flight, by request: only its own answer frees the controls. */
+  const inFlight = useRef<number | null>(null);
+  const seq = useRef(0);
   const [message, setMessage] = useState<{
     who: string;
     text: string;
@@ -47,16 +53,22 @@ export function AgentUseSwitches({
   useEffect(() => {
     current.current = who;
     setMessage(null);
+    inFlight.current = null;
+    setPending(null);
   }, [who]);
   const rows = read.state.data;
   const flip = (r: Row) => {
-    if (pending || !who) return; // one change at a time; focus stays on the button
+    if (inFlight.current !== null || !who) return; // one change at a time; focus stays put
     const asker = who;
+    const biz = businessId;
+    const n = ++seq.current;
+    inFlight.current = n;
     const want = r.agents === "off";
     setPending(r.offer_id);
     setMessage(null);
+    let answered = false;
     fetch(
-      `/api/businesses/${encodeURIComponent(businessId)}/customer-offers/${encodeURIComponent(r.offer_id)}/agent-access`,
+      `/api/businesses/${encodeURIComponent(biz)}/customer-offers/${encodeURIComponent(r.offer_id)}/agent-access`,
       {
         method: "PUT",
         credentials: "same-origin",
@@ -65,6 +77,7 @@ export function AgentUseSwitches({
       },
     )
       .then(async (res) => {
+        answered = true;
         const d = (await res.json().catch(() => ({}))) as { error?: string; agents?: string };
         if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
         if (current.current !== asker) return;
@@ -80,11 +93,17 @@ export function AgentUseSwitches({
         setMessage({
           who: asker,
           tone: "error",
-          text: `Not changed: ${e.message}. Agent use is still ${r.agents === "on" ? "allowed" : "not allowed"}.`,
+          text: answered
+            ? `Not changed: ${e.message}. Agent use is still ${r.agents === "on" ? "allowed" : "not allowed"}.`
+            : "We couldn't tell whether it changed (no answer arrived). Checking again; the state shown is the last one read.",
         });
         read.retry();
       })
-      .finally(() => setPending(null));
+      .finally(() => {
+        if (inFlight.current !== n) return; // a newer change (or scope) owns the controls now
+        inFlight.current = null;
+        setPending(null);
+      });
   };
   const shown = message && message.who === who ? message : null;
   if (!who) return null;
