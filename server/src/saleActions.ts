@@ -2153,13 +2153,23 @@ export class SaleActions {
         // Job 003wf4 (§4): confirmed only once the plan reads back exactly as reviewed, at the
         // reviewed generation. Until then nothing is committed and the check can be repeated.
         const verified = await this.planReadback(p);
-        if (verified.ok === false)
+        if (verified.ok === false) {
+          // Astra 05:37: the receipt IS this request's own: its identity is kept durably now, so a
+          // reload or restart recovers it without the ID again. Only into an empty identity, on the
+          // row as read, and only while it is still checkable (a concurrent result is never undone).
+          if (p.tx_hash === null)
+            this.db
+              .prepare(
+                `UPDATE sale_actions SET tx_hash = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ? AND tx_hash IS NULL AND ${CHECKABLE_SQL}`,
+              )
+              .run(which, this.stamp(), p.id, p.rev);
           return {
-            action: view(p),
+            action: view(this.own(viewer, id)),
             resolution: { kind: "unknown", message: verified.message } as SaleResolution,
             transaction,
             effects: null,
           };
+        }
         Object.assign(res, { verified: verified.evidence });
       }
       if (res) {

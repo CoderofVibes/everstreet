@@ -395,7 +395,9 @@ export class TestnetCustomerRpcTransport extends TestnetRpcTransport {
       method === "get_control" ||
       method === "get_treasury" ||
       method === "get_outcomes" ||
-      method === "get_pending"
+      method === "get_pending" ||
+      // Job 003wf4: the guarded plan-creation terms and the measured quote.
+      method === "get_plan_terms"
     ) {
       if (keys.length !== 0) refuse("unsupported", "this view takes no arguments");
       return {};

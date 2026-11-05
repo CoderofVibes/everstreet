@@ -189,9 +189,20 @@ export class FixtureChain {
    */
   sale: SaleChain | null = null;
 
+  /**
+   * Job 003wf4 (P-3): a business with NO plan, NO operator and NO entitlement yet, so its first plan,
+   * the platform's grant and every customer unit come from the normal routes (never bootstrap).
+   */
+  withoutPlans() {
+    this.basePlan = null;
+    this.ents.clear();
+    this.control = { ...this.control, operators: [] };
+  }
+
   /** Attaches a coherent sale double derived from this double's own state (no live deal). */
-  attachSale(opts: { minReserve?: bigint; owner?: string; closer?: string } = {}) {
-    const price = BigInt(this.plan.unit_price);
+  attachSale(opts: { minReserve?: bigint; owner?: string; closer?: string; plans?: number } = {}) {
+    const plans = opts.plans ?? 1;
+    const price = this.basePlan ? BigInt(this.plan.unit_price) : 0n;
     let free = 0n;
     let held = 0n;
     let earned = 0n;
@@ -207,15 +218,15 @@ export class FixtureChain {
         asset: TOKEN,
         now_ms: this.ts,
         storage_byte_cost: this.byteCost,
-        min_reserve: opts.minReserve ?? 5n * price,
-        plan_count: 1,
+        min_reserve: opts.minReserve ?? (price > 0n ? 5n * price : 250_000n),
+        plan_count: plans,
         payout_seq: 0n,
         deal_seq: 0n,
         control: {
           owner,
           generation: 1,
-          // A plan created and the metering operator appointed: two control steps.
-          control_seq: "2",
+          // Each plan created and each operator appointed is one control step.
+          control_seq: String(plans + (this.control.operators as unknown[]).length),
           // Job 003wf3: a Gated business names its closer at construction.
           close_mode: opts.closer ? "gated" : "direct",
           closer: opts.closer ?? null,
@@ -492,8 +503,8 @@ export class FixtureChain {
     // The transaction's own final value: for ft_transfer_call, the token resolution's (the amount used).
     let topValue = "";
     try {
-      if (call.receiverId === BUSINESS && call.methodName === "sponsor_shell") {
-        receipts.push(ok(BUSINESS, this.sponsorShell(signer, call.args, deposit)));
+      if (call.receiverId === this.business && call.methodName === "sponsor_shell") {
+        receipts.push(ok(this.business, this.sponsorShell(signer, call.args, deposit)));
       } else if (call.receiverId === TOKEN && call.methodName === "storage_deposit") {
         if (deposit < this.storageMin)
           throw new ChainRefusal("The attached deposit is less than the minimum storage balance");
@@ -522,7 +533,7 @@ export class FixtureChain {
           },
         });
         const r = this.onTransfer(signer, amount, String(call.args.msg));
-        receipts.push(ok(BUSINESS, r.logs, b64(String(r.unused)), rid("receiver")));
+        receipts.push(ok(this.business, r.logs, b64(String(r.unused)), rid("receiver")));
         if (!this.failResolution) topValue = b64(String(amount - r.unused));
         if (r.unused > 0n) {
           // ft_resolve_transfer: the unused amount goes back to the sender.

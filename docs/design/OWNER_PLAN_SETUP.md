@@ -151,9 +151,12 @@ Two kinds of deadline exist, and they are never merged:
   evaluated against the worst accepted block: `window − maxBlockAgeMs − reserve −
   submitMarginMs − maxFutureSkewMs ≥ minSignMs`. With defaults: 600 000 − 120 000 − 120 000 −
   120 000 − 30 000 = 210 000 ≥ 60 000, so usable. **The minimum usable hold is 450 000 ms**; the
-  **guided default is 600 000 ms** (Q2) when the rules allow it. Rules that can't fit the
-  configured margins make guided creation unavailable, naming the margin and rule; the margins
-  are never squeezed.
+  **guided default is 600 000 ms** (Q2) when it fits. When the configuration needs more (Astra
+  05:42: a 300 000 ms runtime limit needs 690 000), the guided hold is that minimum rounded up to
+  a whole minute (720 000), within the contract's maximum. Guided creation is unavailable only
+  when no allowed hold meets the margins, and the remedy names which ceiling is in the way: the
+  server's serve window (an operator setting) or the business's rules. The margins are never
+  squeezed.
 - **Settlement grace**, from the actual deadlines (Q3). A use may start execution as late as
   `execute_by`. Its result is decided within `runtime.timeoutMs`, then delivery within
   `deliveryTimeoutMs` (recovery finalizes `not_delivered` after that). The settle then needs one
@@ -378,3 +381,21 @@ timeouts, disposable directories, no listener left running.
   reviewed resulting mask.)
 - Should the guided default be the usable minimum? (Q2: no, 600 s. The usable minimum is now
   450 s from the worst accepted block, §5, superseding the earlier 300 s.)
+
+## 13. Implementation status (Phase B, November 5)
+
+Built and committed: the contract source (§3), the serve policy (§5), the `create_plan` request
+and the appoint mask (§4, §5a, §6), `GET /api/businesses/:id/customer-access` (§8) and the guided
+page (§2, §9). Corrections found while building:
+- The production RPC transport sends only listed views with exact arguments; `get_plan_terms` (no
+  arguments) had to be added. Only the actual-process tests could show this.
+- A matched receipt's transaction ID is kept durably even when the plan readback is unavailable
+  (Astra 05:37).
+- The setup summary keeps the newest unresolved request (including `no_longer_possible` after a
+  lost answer) and a refused one visible. A new plan is never offered as recovery; it sits behind
+  an explicit, warned disclosure (Astra 05:42).
+- Older-generation operator slots are unreachable here. Business-v3 replaces every slot at a close
+  (Rust p07), and the server's coherence check refuses a reading that shows one. The review still
+  names those cases correctly from a control view (a pure function).
+
+The evidence and the remaining gates are in `docs/astra/reports/2026-11-05_003wf4_phase-b.md`.

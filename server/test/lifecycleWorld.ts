@@ -646,7 +646,14 @@ export async function bootstrap(
   dir: string,
   port: number,
   maintenance: Json,
-  opts: { second?: boolean } = {},
+  opts: {
+    second?: boolean;
+    /**
+     * Job 003wf4 (P-3): the business starts with no plan, no operator grant, no entitlement and no
+     * offer; the founder's own routes create them (the sale double is attached, owner the founder).
+     */
+    fresh?: boolean;
+  } = {},
 ) {
   const db = join(dir, "everstreet.db");
   const root = join(dir, "protected");
@@ -682,7 +689,8 @@ export async function bootstrap(
       httpsTransport(ai.apiKey, { fetchImpl: model.fetch() }),
     ),
   });
-  const offer = await w.offer();
+  // With `fresh`, no offer exists yet: the empty id (the founder creates one through the routes).
+  const offer: string = opts.fresh ? "" : await w.offer();
   // Job 003wf3 (P-4): a second founder's business on the SAME database, with its own project,
   // budgets and release (evaluated on the same runtime identity), its own contract (Cara's
   // prepaid entitlement there too, the platform's metering grant) and its own binding. Its
@@ -710,7 +718,10 @@ export async function bootstrap(
     second = { founder, chain: chain2, release: rel.id };
   }
   // The chain double appoints the platform's configured metering account; it follows real time.
-  w.chain.control = { ...w.chain.control, operators: [[OP, 1, w.chain.control.generation]] };
+  if (opts.fresh) {
+    w.chain.withoutPlans();
+    w.chain.attachSale({ owner: FOUNDER, plans: 0 });
+  } else w.chain.control = { ...w.chain.control, operators: [[OP, 1, w.chain.control.generation]] };
   w.chain.tick(BigInt(Date.now()) - w.chain.ts);
   // Verified sign-in resolves Cara's account to her person (as the wallet harness binds it).
   w.state.store.db

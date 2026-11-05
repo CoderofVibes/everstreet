@@ -15,7 +15,7 @@ import { Hono } from "hono";
 import { base58Encode } from "../../server/src/customerWriter.ts";
 import { AccountSignIn, nep413Digest } from "../../server/src/identity.ts";
 import type { Store } from "../../server/src/store.ts";
-import { CUSTOMER, type Json } from "../../server/test/customer-world.ts";
+import { CUSTOMER, type Json, OPERATOR } from "../../server/test/customer-world.ts";
 import { BUYER, SELLER, saleWorld } from "../../server/test/sale-world.ts";
 import { labelScript } from "./customerPreview.ts";
 import { HARNESS_CSP, HARNESS_LABEL, WALLET_SCRIPT, walletHistory } from "./walletHarness.ts";
@@ -284,6 +284,28 @@ export function saleControl(h: Awaited<ReturnType<typeof saleHarness>>) {
   control.post("/newer-contract", (c) => {
     s.sale.saleTerms = true;
     return c.json({ sale_terms: true });
+  });
+  // Job 003wf4 (Set up customer access): open the setup steps and set the states to review.
+  // Retires the world's customer offer (the plan and offer steps then need the founder).
+  control.post("/access/retire-offer", (c) => {
+    s.w.state.store.db
+      .prepare("UPDATE customer_offers SET state = 'retired' WHERE id = ? AND state = 'active'")
+      .run(s.offerId);
+    return c.json({ offer: s.offerId, state: "retired" });
+  });
+  // The platform's operator slot: none, support only, or metering (this generation).
+  control.post("/access/operator/:slot", (c) => {
+    const slot = c.req.param("slot");
+    const caps = slot === "support" ? 2 : slot === "metering" ? 1 : slot === "none" ? 0 : -1;
+    if (caps < 0) return c.json({ error: "none, support or metering" }, 400);
+    s.sale.operators = Array(8).fill(null);
+    if (caps) s.sale.operators[0] = { account: OPERATOR, caps, generation: s.sale.generation };
+    return c.json({ operator: OPERATOR, caps });
+  });
+  // The business answers with / without the guided plan capability (get_plan_terms).
+  control.post("/access/guided/:on", (c) => {
+    s.sale.planTerms = c.req.param("on") === "on";
+    return c.json({ plan_terms: s.sale.planTerms });
   });
   control.post("/fail-next-payout", (c) => {
     s.sale.failPayouts = 1;

@@ -51,7 +51,14 @@ const EMPTY_SALE: SaleFlowState = {
   focus: null,
 };
 
-const minutes = (ms: number | string) => `${Math.round(Number(ms) / 60_000)} min`;
+/** A duration, exactly: "7 min 30 s"; never rounded down. */
+const exact = (ms: number) => {
+  if (!Number.isFinite(ms) || ms < 0) return "?";
+  const s = Math.ceil(ms / 1000);
+  const m = Math.floor(s / 60);
+  return m === 0 ? `${s} s` : s % 60 === 0 ? `${m} min` : `${m} min ${s % 60} s`;
+};
+const minutes = (ms: number | string) => exact(Number(ms));
 
 /** The request a step waits on, shown apart from the draft, with its recovery actions. */
 function OpenRequest({
@@ -219,35 +226,103 @@ function PlanForm({
     </label>
   );
   const parsed = decimals === null ? null : planFromDraft(d, decimals);
+  const plan = parsed && "plan" in parsed ? parsed.plan : null;
   const why =
     decimals === null
       ? "The business's token couldn't be read, so a price can't be checked."
       : parsed && "problem" in parsed
         ? parsed.problem
         : null;
+  // An exact example purchase from the typed price (a preview only; integer base units).
+  const example =
+    plan && decimals !== null
+      ? (() => {
+          const units = BigInt(plan.max_units_per_purchase as number);
+          const base = (BigInt(plan.unit_price as string) * units).toString();
+          return `A customer buying ${units} uses pays ${tokenAmount(base, decimals)} ${symbol} (${base} base units).`;
+        })()
+      : null;
   return (
-    <div>
-      <div className="row offer-form" style={{ flexWrap: "wrap" }}>
-        {field("price", `Price per use (${symbol})`, "Charged only for a delivered result.")}
-        {field("perPurchase", "Units per purchase", "The most a customer buys at once.")}
-        {field("outstanding", "Units a customer may hold", "At least the units per purchase.")}
-        {field("perHold", "Uses per hold", `1 to ${g.rules?.max_hold_units ?? 10}.`)}
+    <div className="plan-form">
+      <div className="row offer-form">
         {field(
-          "holdMinutes",
-          "Hold length (minutes)",
-          `How long a customer has to sign and run one use. At least ${minutes(v.timing.min_hold_ms)} here; ${minutes(v.timing.guided_hold_ms)} is suggested.`,
-        )}
-        {field(
-          "graceMinutes",
-          "Settlement time (minutes)",
-          `At least ${minutes(v.timing.min_grace_ms)}, so a result delivered at the last moment is still paid.`,
+          "price",
+          `Price per use (${symbol})`,
+          "One use is one document request to this product. It is charged only for a delivered result.",
         )}
       </div>
-      {g.quote && (
+      {example && (
         <p className="muted" style={{ fontSize: 13 }}>
-          Creating it attaches {g.quote.deposit} yoctoNEAR for {g.quote.plan_bytes} bytes of
-          contract storage; any excess is refunded. A plan is permanent: a new price is a new plan.
+          {example}
         </p>
+      )}
+      <fieldset className="plan-limits">
+        <legend>Limits</legend>
+        <div className="row offer-form">
+          {field("perPurchase", "Units per purchase", "The most a customer buys at once.")}
+          {field(
+            "outstanding",
+            "Units a customer may hold",
+            "Unused units at any time; at least the units per purchase.",
+          )}
+        </div>
+      </fieldset>
+      <p style={{ fontSize: 14 }}>
+        Timing is set for you: each use holds one unit for {exact(Number(d.holdMinutes) * 60_000)}{" "}
+        so the customer can approve and run it, and a delivered result is settled within{" "}
+        {exact(Number(d.graceMinutes) * 60_000)} after that.
+      </p>
+      <details className="advanced">
+        <summary>Advanced: uses per hold and timing</summary>
+        <div className="row offer-form">
+          {field("perHold", "Uses per hold", `1 to ${g.rules?.max_hold_units ?? 10}.`)}
+          {field(
+            "holdMinutes",
+            "Hold length (minutes)",
+            `How long a customer has to approve and run one use. At least ${exact(v.timing.min_hold_ms)} on this server; ${exact(Number(g.defaults?.hold_ttl_ms ?? v.timing.guided_hold_ms))} is suggested.`,
+          )}
+          {field(
+            "graceMinutes",
+            "Settlement time (minutes)",
+            `At least ${exact(v.timing.min_grace_ms)}, so a result delivered at the last moment is still paid.`,
+          )}
+        </div>
+      </details>
+      {plan && decimals !== null && (
+        <div className="plan-summary">
+          <h4 style={{ fontSize: 14 }}>The plan, as it will be on the contract (permanent)</h4>
+          <ul style={{ fontSize: 13.5 }}>
+            <li>
+              {tokenAmount(String(plan.unit_price), decimals)} {symbol} per use (
+              {String(plan.unit_price)} base units)
+            </li>
+            <li>
+              At most {String(plan.max_units_per_purchase)} units per purchase and{" "}
+              {String(plan.max_units_outstanding)} held by one customer
+            </li>
+            <li>{String(plan.max_hold_units)} use per hold</li>
+            <li>
+              Holds of {exact(Number(plan.hold_ttl_ms))}; settlement within{" "}
+              {exact(Number(plan.settle_grace_ms))}
+            </li>
+          </ul>
+        </div>
+      )}
+      {g.quote && (
+        <div className="muted" style={{ fontSize: 13 }}>
+          <p>
+            Creating it attaches {tokenAmount(g.quote.deposit, 24)} NEAR for contract storage; any
+            excess is refunded. A plan is permanent and its storage isn't released: a new price is a
+            new plan.
+          </p>
+          <details className="advanced">
+            <summary>Exact amount</summary>
+            <span className="mono">
+              {g.quote.deposit} yoctoNEAR for {g.quote.plan_bytes} bytes at{" "}
+              {g.quote.storage_byte_cost} yoctoNEAR per byte
+            </span>
+          </details>
+        </div>
       )}
       <button
         type="button"
@@ -308,7 +383,7 @@ function StepBody({
           </details>
         </>
       );
-    if (step.action && reviewing !== "create_plan")
+    if (step.action && step.action.state !== "refused" && reviewing !== "create_plan")
       return <OpenRequest a={step.action} flow={flow} busy={busy} />;
     if (step.state === "confirmed") {
       const p = v.plans[0];
@@ -336,9 +411,10 @@ function StepBody({
     );
   }
   if (step.key === "permissions") {
-    if (step.action) return <OpenRequest a={step.action} flow={flow} busy={busy} />;
+    if (step.action && step.action.state !== "refused")
+      return <OpenRequest a={step.action} flow={flow} busy={busy} />;
     const o = v.operator;
-    if (step.state !== "needs_input" || !o) return null;
+    if ((step.state !== "needs_input" && step.state !== "refused") || !o) return null;
     if (reviewing === "appoint") return <Review sale={sale} flow={flow} busy={busy} />;
     return (
       <div>

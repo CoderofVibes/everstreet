@@ -17,6 +17,9 @@
 //   POST /advance/<minutes>     the synthetic chain's clock moves forward (e.g. past an expiry)
 //   POST /customer-use          one complete customer use by Cara (raises `available`)
 //   POST /older-contract | /newer-contract   the business answers without | with the sale capability
+//   POST /access/retire-offer   job 003wf4: retire the offer, so Set up customer access needs the founder
+//   POST /access/operator/<none|support|metering>   the platform account's operator slot
+//   POST /access/guided/<on|off>   the business answers with | without guided plans (get_plan_terms)
 //   POST /observations/down | /observations/up   the observation reads fail | work again
 //   GET  /                      contract, treasury and who owns the business here
 //   GET  /history[?account=<id>]  the synthetic wallet's activity (each transaction's ID and status)
@@ -66,6 +69,9 @@ const app = serve({ fetch: site.fetch, port: PORT, hostname: HOST });
 const ctl = serve({ fetch: saleControl(h).fetch, port: PORT + 1, hostname: HOST });
 console.log(`Sale review harness (SYNTHETIC wallet and chain, fictional): http://${HOST}:${PORT}/`);
 console.log(`  Sale page: http://${HOST}:${PORT}/sales/${h.world.biz}`);
+console.log(
+  `  Set up customer access (job 003wf4): http://${HOST}:${PORT}/studio/${h.world.w.f.project} (Service, Customer access)`,
+);
 console.log(`  Controls: http://${HOST}:${PORT + 1}/   Stops in ${minutes} min or on Ctrl+C.`);
 let ending = false;
 const end = () => {

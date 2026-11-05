@@ -161,10 +161,37 @@ describe("003wf4 Set up customer access (actual component, synthetic wallet)", {
       expect(i.closest("label.field")?.querySelector("span")?.textContent).toBeTruthy();
     expect(field("Hold length")?.value).toBe("10");
     expect(field("Settlement time")?.value).toBe("6");
+    // Astra 05:45: price first; limits in their own section; timing explained, its controls under
+    // Advanced; storage in readable NEAR with the exact amount under details; exact minimums.
+    const plan = step(0);
+    const first = plan.querySelector("label.field span")?.textContent;
+    expect(first).toBe("Price per use (TUSD)");
+    expect(plan.querySelector("fieldset.plan-limits legend")?.textContent).toBe("Limits");
+    expect(
+      [...plan.querySelectorAll("fieldset.plan-limits label.field span")].map((x) => x.textContent),
+    ).toEqual(["Units per purchase", "Units a customer may hold"]);
+    const advanced = [...plan.querySelectorAll("details")].find((x) =>
+      x.querySelector("summary")?.textContent?.startsWith("Advanced"),
+    ) as HTMLDetailsElement;
+    expect([...advanced.querySelectorAll("label.field span")].map((x) => x.textContent)).toEqual([
+      "Uses per hold",
+      "Hold length (minutes)",
+      "Settlement time (minutes)",
+    ]);
+    expect(advanced.open).toBe(false);
+    expect(plan.textContent).toContain("each use holds one unit for 10 min");
+    expect(plan.textContent).toContain("At least 7 min 30 s on this server");
+    expect(plan.textContent).toContain("Creating it attaches 0.0009 NEAR for contract storage");
+    expect(plan.textContent).toContain("900000000000000000000 yoctoNEAR for 90 bytes");
     // Without a price, review is unavailable and says why.
     expect(button("Review this plan")?.disabled).toBe(true);
     expect(step(0).textContent).toContain("Enter a price per use above 0.");
     await typeInto(field("Price per use") as HTMLInputElement, "0.15");
+    // The exact example purchase and the full plan summary, from the typed price (a preview).
+    expect(step(0).textContent).toContain(
+      "A customer buying 20 uses pays 3 TUSD (3000000 base units).",
+    );
+    expect(step(0).textContent).toContain("0.15 TUSD per use (150000 base units)");
     await click("Review this plan");
     await wait(() => text().includes("Review the plan"), "the review");
     expect(text()).toContain("Creates plan 2 on the contract: 0.15 TUSD per use");

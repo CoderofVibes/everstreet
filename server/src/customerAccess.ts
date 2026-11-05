@@ -40,6 +40,12 @@ const ACTION_STATE: Record<string, StepState> = {
 };
 
 const ceilMinute = (ms: number) => Math.ceil(ms / 60_000) * 60_000;
+/** Exact: "7 min 30 s", never rounded down. */
+const seconds = (ms: number) => {
+  const s = Math.ceil(ms / 1000);
+  const m = Math.floor(s / 60);
+  return m === 0 ? `${s} s` : s % 60 === 0 ? `${m} min` : `${m} min ${s % 60} s`;
+};
 
 export async function customerAccess(
   sales: SaleActions,
@@ -107,18 +113,24 @@ export async function customerAccess(
   else {
     const maxHold = Number(pt.rules.max_hold_ttl_ms);
     const maxGrace = Number(pt.rules.max_settle_grace_ms);
-    const hold = Math.min(GUIDED_HOLD_MS, maxHold);
+    const minHold = probe.min_hold_ms;
+    // Astra Q2 and 05:42: 600 000 ms when it fits; when this server's configuration needs more,
+    // the needed hold rounded up to a whole minute, within the contract's rules. Unavailable only
+    // when no allowed hold meets the margins, naming which ceiling is in the way.
+    const hold = Math.min(Math.max(GUIDED_HOLD_MS, ceilMinute(minHold)), maxHold);
     const grace = ceilMinute(probe.min_grace_ms);
     const fits = usable(hold, grace);
     const reason = deal
       ? "A plan can't be created while a sale is in progress."
       : pt.plan_count >= pt.max_plans
         ? `This contract already has the most plans allowed (${pt.max_plans}).`
-        : !fits.usable
-          ? `This business's rules allow holds of at most ${maxHold / 1000} s, and this server needs at least ${Math.ceil(fits.min_hold_ms / 1000)} s (its execution, submission and clock margins). The margins aren't reduced to fit.`
-          : grace > maxGrace
-            ? `This server needs a settlement grace of at least ${grace / 1000} s so a late result is paid, and this business's rules allow at most ${maxGrace / 1000} s.`
-            : null;
+        : timing.serveWindowMs < minHold
+          ? `This server serves at most ${seconds(timing.serveWindowMs)} of a hold, but its execution, submission and clock margins need at least ${seconds(minHold)}. The server's serve window must be widened (an operator setting); the margins aren't reduced to fit.`
+          : !fits.usable
+            ? `This business's rules allow holds of at most ${seconds(maxHold)}, and this server needs at least ${seconds(minHold)} (its execution, submission and clock margins). The margins aren't reduced to fit.`
+            : grace > maxGrace
+              ? `This server needs a settlement grace of at least ${seconds(grace)} so a late result is paid, and this business's rules allow at most ${seconds(maxGrace)}.`
+              : null;
     guided = {
       available: reason === null,
       reason,
@@ -167,15 +179,23 @@ export async function customerAccess(
             detail: `Plan ${offeredPlan} is already offered to customers.`,
             action: null,
           }
-        : {
-            key: "plan",
-            title: "Pricing plan",
-            state: guided.available ? "needs_input" : "unavailable",
-            detail: guided.available
-              ? "Create a plan: its price and limits are permanent on the contract."
-              : (guided.reason as string),
-            action: null,
-          };
+        : planRows[0]?.state === "refused" && guided.available
+          ? {
+              key: "plan",
+              title: "Pricing plan",
+              state: "refused",
+              detail: `The contract refused your last plan request (${(planRows[0].evidence as { reason?: string } | null)?.reason ?? "refused"}); nothing changed and nothing was charged beyond the network fee. Review the plan again.`,
+              action: planRows[0],
+            }
+          : {
+              key: "plan",
+              title: "Pricing plan",
+              state: guided.available ? "needs_input" : "unavailable",
+              detail: guided.available
+                ? "Create a plan: its price and limits are permanent on the contract."
+                : (guided.reason as string),
+              action: null,
+            };
 
   // ---------- 2. service permissions ----------
   const platform = r.platform;
@@ -212,21 +232,29 @@ export async function customerAccess(
                   : "Your wallet was asked; the permission is shown only by its own transaction.",
             action: openAppoint,
           }
-        : deal
+        : appointRows[0]?.state === "refused" && !deal
           ? {
               key: "permissions",
               title: "Service permissions",
-              state: "blocked",
-              detail: "Operators can't change while a sale is in progress.",
-              action: null,
+              state: "refused",
+              detail: `The contract refused your last permission request (${(appointRows[0].evidence as { reason?: string } | null)?.reason ?? "refused"}); nothing changed. Review it again: ${slot?.change ?? "Adds metering."}`,
+              action: appointRows[0],
             }
-          : {
-              key: "permissions",
-              title: "Service permissions",
-              state: "needs_input",
-              detail: slot?.change ?? "Adds metering.",
-              action: null,
-            };
+          : deal
+            ? {
+                key: "permissions",
+                title: "Service permissions",
+                state: "blocked",
+                detail: "Operators can't change while a sale is in progress.",
+                action: null,
+              }
+            : {
+                key: "permissions",
+                title: "Service permissions",
+                state: "needs_input",
+                detail: slot?.change ?? "Adds metering.",
+                action: null,
+              };
 
   // ---------- 3. customer offer ----------
   const service = uses.serviceReadiness(businessId, s.control);
