@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-05 | [Direct sale accepted](2026-11-05_DirectSaleAccepted.md) | Narrow local Direct acceptance and managed handover design dispatch | Actual configured recovery, payout, continuity, stale review, role and keyboard verified; wider gates retained |
 | 2026-11-04 | [Direct sale browser review](2026-11-04_DirectSaleBrowserReview.md) | Actual desktop/phone seller form and upcoming exact wallet journey | In progress; correct unstyled form and distinguish draft authority before acceptance |
 | 2026-11-04 | [Gated close planning](2026-11-04_GatedClosePlanning.md) | Grounded next acquisition slice: per-business handover, exact close order, customer continuity and process recovery | Planning only;003wf2 remains sole active job; no dispatch or external authorization |
 | 2026-11-04 | [Direct sale recovery addendum](2026-11-04_DirectSaleRecoveryAddendum.md) | Read latest committed review before implementing replacement admission: acceptance and registration state are reversible | Outstanding design corrections during active003wf2; full three-phase check reported green at604d889 |
@@ -121,4 +122,5 @@
 | 2026-11-01 | [Intact businesses and living profiles](2026-11-01_IntactProfiles.md) | Extends Launch pad: business continuity from activation, profitable API and customer-cooperative journeys, living profiles and social layer, computed financials and valuation, owner rules, seven wireframes, v2 requirements and eight-phase update | Proposal complete; six Tony decisions with recommendations |
 | 2026-11-01 | [Launch pad](2026-11-01_LaunchPad.md) | Launch-first product: founder journey from idea to first customers, profiles and distribution, early valuations, acquisitions, service discovery, NEAR architecture, mobile UI and phased build order | Proposal complete; five Tony decisions with recommendations |
 | 2026-11-01 | [Platform vision](2026-11-01_PlatformVision.md) | Full platform: founder and customer journeys, acquisitions and valuations, NEAR architecture, UI, bold extensions and phased build order | Proposal complete; Tony decisions open |
+
 

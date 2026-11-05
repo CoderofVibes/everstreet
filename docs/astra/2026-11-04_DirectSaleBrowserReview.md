@@ -294,3 +294,13 @@ Claude5627 is the sole active bounded role-wording continuation, samec64c374e se
 Opus5.5/high, init model/API-none verified. Predecessor6643 terminal0 and exact-session CIMabsent.
 Role correction page/controller18 and configured-page3 pass per builder; independent visual
 new-owner recheck remains. Main earlier independentfullcheck46286d6 passed as recorded above.
+
+Configured preview8961 completed its20-minute deadline: tool exit0, application child exit0, temporary directory removed. Independently ports8814/8815/56416 have no listeners. Tab67 closed; viewport reset. No active preview remains. Preserve this cleanup evidence rather than restarting an expired preview.
+
+## Configured browser follow-up — Nov 5, 00:38 Pacific
+
+Fresh finite preview exec11935 started about00:31 (30-minute limit), site8814/control8815, application child53556, business1dc34635-bc2f-4b4d-abc8-e890eb399ccb. IAB2/tab68 plus temporarytab69; no builder launched. Normal configured synthetic composition, no real wallet/NEAR.
+
+Actual stale-review scenario passes: seller proposes250; tab68 reviews revision300; tab69 confirms350/version2; sending tab68's old review produces “The sale changed since you reviewed it. Your terms are kept: review them again.” Contract view stays350/version2, focus returns to Review the exact request. No stale wallet request shown. Draft300 still requires explicit value reinspection below. Remaining new-owner label/browser keyboard checks in progress. All wider gates remain.
+
+Final follow-up: draft300 directly verified; buyer keyboard close after seller acceptance succeeded at350/version2. New-owner header correct,1280 and390 fit verified. See2026-11-05_DirectSaleAccepted.md for evidence/limits and cleanup. Zoom shortcuts had no observable effect; reduced-motion not exposed. No fabricated pass. Preview11935 stopped, ports/child absent, tabs closed, viewport reset.
