@@ -47,6 +47,39 @@ function setupCgroup() {
   writeFileSync(join(CG, "cpu.max"), "100000 100000");
 }
 
+/**
+ * 002f1 (correction 2): the untrusted cgroup's memory bound as the kernel reads it back, and its
+ * memory events (max: the limit was hit; oom / oom_kill: the OOM killer acted). Null when a file
+ * is missing or not a finite number: absent evidence, never zero.
+ */
+function readLimits() {
+  const n = (f) => {
+    try {
+      const v = readFileSync(join(CG, f), "utf8").trim();
+      return /^[0-9]+$/.test(v) ? Number(v) : v === "max" ? "max" : null;
+    } catch {
+      return null;
+    }
+  };
+  return { memory_max: n("memory.max"), swap_max: n("memory.swap.max") };
+}
+function memoryEvents() {
+  try {
+    const out = {};
+    for (const line of readFileSync(join(CG, "memory.events"), "utf8").split("\n")) {
+      const [k, v] = line.trim().split(/\s+/);
+      if (k === "max" || k === "oom" || k === "oom_kill") out[k] = /^[0-9]+$/.test(v ?? "") ? Number(v) : null;
+    }
+    return "max" in out && "oom" in out && "oom_kill" in out ? out : null;
+  } catch {
+    return null;
+  }
+}
+const eventsDelta = (a, b) =>
+  a && b && [a, b].every((e) => Object.values(e).every(Number.isFinite))
+    ? { max: b.max - a.max, oom: b.oom - a.oom, oom_kill: b.oom_kill - a.oom_kill }
+    : null;
+
 /** Raised when cleanup can't be confirmed: the job stops, failing closed. */
 class Unclean extends Error {}
 
@@ -104,7 +137,11 @@ function untrusted(args, stdin) {
       if (err.length < 1024) err = Buffer.concat([err, d]).subarray(0, 1024);
     });
     let unclean = null;
+    // 002f1 (correction 2): a timeout is OUR timer firing, nothing else. The kernel's OOM killer
+    // also sends SIGKILL, so "killed by SIGKILL" alone never means "took too long".
+    let timerFired = false;
     const timer = setTimeout(() => {
+      timerFired = true;
       child.kill("SIGKILL");
       try {
         killAll();
@@ -123,7 +160,7 @@ function untrusted(args, stdin) {
       resolve({
         code,
         signal,
-        timedOut: signal === "SIGKILL",
+        timedOut: timerFired,
         over,
         out: out.toString("utf8"),
         err: err.toString("utf8"),
@@ -183,7 +220,9 @@ async function main() {
   }
   // 2. Each declared case alone: only its value comes back; the comparison is ours.
   const cases = [];
+  const limits = readLimits();
   for (const c of bundle.checks) {
+    const before = memoryEvents();
     const r = await untrusted(
       ["/work/case-runner.mjs", c.module, c.export],
       JSON.stringify(c.input),
@@ -204,7 +243,7 @@ async function main() {
         detail = "Did not return a JSON value";
       }
     }
-    cases.push({ id: c.id, passed, detail });
+    cases.push({ id: c.id, passed, detail, memory_events: eventsDelta(before, memoryEvents()) });
   }
   let memoryPeak = null;
   try {
@@ -212,7 +251,13 @@ async function main() {
   } catch {
     // not available on this kernel
   }
-  writeReport({ ...bind, syntax, cases, usage: { untrusted_memory_peak_bytes: memoryPeak } });
+  writeReport({
+    ...bind,
+    syntax,
+    cases,
+    usage: { untrusted_memory_peak_bytes: memoryPeak },
+    limits,
+  });
 }
 
 try {

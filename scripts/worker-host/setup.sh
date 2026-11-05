@@ -48,8 +48,12 @@ for v in "$FC_SHA" "$K_ETAG" "$R_ETAG" "$N_SHA" "$K_URL" "$R_URL" "$N_URL" "$FC_
 done
 
 # Every command any phase uses, and the Ubuntu package that provides it.
+# 002f1 (correction 5): no host KVM ACL any more (the pinned jailer creates its own device node
+# inside each jail), so a new install doesn't need `acl`. An install recorded by an earlier setup
+# still rolls its ACL back (the `acl` manifest branch in uninstall; that install also recorded
+# the `acl` package, which reverse order removes after the ACL).
 NEEDS="curl:curl sha256sum:coreutils tar:tar xz:xz-utils unsquashfs:squashfs-tools mkfs.ext4:e2fsprogs \
-setfacl:acl getfacl:acl ip:iproute2 sudo:sudo visudo:sudo useradd:passwd userdel:passwd \
+ip:iproute2 sudo:sudo visudo:sudo useradd:passwd userdel:passwd \
 setpriv:util-linux prlimit:util-linux flock:util-linux install:coreutils timeout:coreutils truncate:coreutils \
 systemctl:systemd dpkg:dpkg"
 
@@ -115,7 +119,10 @@ conflicts() {
   done
   # `ip netns list` may annotate names ("everstreet-none (id: 0)"): compare the name field only.
   netns_present && c="$c netns:everstreet-none"
-  getfacl -p "$KVM" 2>/dev/null | grep -q "^user:everstreet-vm:" && c="$c acl:$KVM"
+  # An earlier install's ACL left behind is still a conflict (checked only where getfacl exists).
+  if command -v getfacl >/dev/null 2>&1 && getfacl -p "$KVM" 2>/dev/null | grep -q "^user:everstreet-vm:"; then
+    c="$c acl:$KVM"
+  fi
   echo "$c"
 }
 
@@ -193,21 +200,61 @@ install_all() {
   for u in everstreet-runner everstreet-vm; do
     record "user $u"; useradd --system --no-create-home --shell /usr/sbin/nologin "$u"
   done
-  # 3. KVM access for everstreet-vm only (ACL).
-  record "acl $KVM everstreet-vm"; setfacl -m u:everstreet-vm:rw "$KVM"
-  # 4. Files, then the boot unit (re-applies the ACL, creates the cgroup parent and empty netns).
+  # 3. (002f1 correction 5) No host KVM ACL: the jailer makes the VMM's own /dev/kvm node inside
+  #    each jail; the launcher's preflight still checks the device and the root-only open.
+  # 4. Files, then the boot unit (creates the cgroup parent and the empty netns).
   record "dir $ROOT"; install -d -m 0755 "$ROOT"
   record "dir $JAILS"; install -d -m 0700 "$JAILS"
+  # 002f1 (correction 1): the boot unit no longer writes controller names blindly. Three real
+  # boots answered "I/O error" when the parent didn't offer its controllers yet; a later manual
+  # restart worked. cgroup-ready waits, under a FINITE deadline, until the everstreet-worker parent
+  # offers cpu, memory and pids, enables them, reads them back, and otherwise fails naming what
+  # was missing (the unit fails, so preflight fails closed). It writes only inside
+  # everstreet-worker: never the root cgroup, another distro or WSL's global configuration.
+  install -d -m 0755 "$ROOT/bin"
+  cat > "$ROOT/bin/cgroup-ready" <<'READY'
+#!/bin/sh
+# Everstreet worker (002f1): enable cpu, memory and pids for the everstreet-worker cgroup parent.
+set -u
+P=${EVERSTREET_CGROUP_PARENT:-/sys/fs/cgroup/everstreet-worker}
+DEADLINE_S=${EVERSTREET_CGROUP_DEADLINE_S:-30}
+mkdir -p "$P" || { echo "cgroup-ready: cannot create $P" >&2; exit 1; }
+end=$(( $(date +%s) + DEADLINE_S )); last=""
+while :; do
+  have=$(cat "$P/cgroup.controllers" 2>/dev/null || true)
+  missing=""
+  for c in cpu memory pids; do
+    case " $have " in *" $c "*) ;; *) missing="$missing $c" ;; esac
+  done
+  if [ -z "$missing" ]; then
+    if err=$( { echo "+cpu +memory +pids" > "$P/cgroup.subtree_control"; } 2>&1 ); then
+      on=$(cat "$P/cgroup.subtree_control" 2>/dev/null || true)
+      ok=1; for c in cpu memory pids; do case " $on " in *" $c "*) ;; *) ok=0 ;; esac; done
+      [ "$ok" = 1 ] && { echo "cgroup-ready: cpu memory pids enabled ($on)"; exit 0; }
+      last="written, but read back as: ${on:-nothing}"
+    else
+      last="the write failed: $err"
+    fi
+  else
+    last="the parent doesn't offer:$missing (it offers: ${have:-nothing})"
+  fi
+  [ "$(date +%s)" -ge "$end" ] && break
+  sleep 0.25
+done
+echo "cgroup-ready: not ready after ${DEADLINE_S}s: $last" >&2
+exit 1
+READY
+  chmod 0755 "$ROOT/bin/cgroup-ready"
   record "file $UNIT"
   mkdir -p "$(dirname "$UNIT")"
   cat > "$UNIT" <<'UNITFILE'
 [Unit]
-Description=Everstreet check worker: KVM ACL, cgroup parent, empty netns
+Description=Everstreet check worker: cgroup parent, empty netns
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/setfacl -m u:everstreet-vm:rw /dev/kvm
-ExecStart=/bin/sh -c 'mkdir -p /sys/fs/cgroup/everstreet-worker && echo "+cpu +memory +pids" > /sys/fs/cgroup/everstreet-worker/cgroup.subtree_control'
+TimeoutStartSec=60
+ExecStart=/opt/everstreet-worker/bin/cgroup-ready
 ExecStart=/bin/sh -c 'ip netns list | grep -qx everstreet-none || ip netns add everstreet-none'
 [Install]
 WantedBy=multi-user.target

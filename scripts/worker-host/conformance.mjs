@@ -17,10 +17,10 @@
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { failedWith, makeJob, observed, selfTest } from "./conformance-lib.mjs";
+import { failedWith, makeJob, memoryClaim, memorySelfTest, observed, selfTest } from "./conformance-lib.mjs";
 
 // 002e1: the evidence rules first; `--self-test` stops here, before any launcher or host call.
-const problems = selfTest();
+const problems = [...selfTest(), ...memorySelfTest()];
 if (problems.length) {
   console.error(`conformance helpers accept non-evidence; refusing to run:\n  ${problems.join("\n  ")}`);
   process.exit(1);
@@ -88,8 +88,9 @@ const leftovers = () => {
     : [];
   return [...jails, ...cgs];
 };
-async function runCase(logic, checks, killAfterMs, onSpawn) {
+async function runCase(logic, checks, killAfterMs, onSpawn, onJob) {
   const job = makeJob(logic, checks);
+  onJob?.(job);
   let ticks = 0;
   const timer = setInterval(() => ticks++, 100);
   const started = Date.now();
@@ -147,13 +148,16 @@ if (!pre?.ok) fin();
   );
   record("network unreachable", observed(c.o, c.job, "net"), c.o);
 }
-// 4. Guest memory: past 160 MiB the guest cgroup kills it; the next case still runs.
+// 4. Guest memory (002f1 correction 2): the bound is read back, the kernel's memory events show
+// it acted (an OOM kill, or the step held at the ceiling until the timer), the peak stays within
+// it, and the next case still runs. Which of the two it was is recorded; a timeout alone fails.
 {
   const c = await runCase(
     "export function grow(){const a=[];for(let i=0;i<400;i++)a.push(Buffer.alloc(1048576,1));return a.length;}\nexport function ok(){return 1;}\n",
     [{ id: "grow", export: "grow", expect: 400 }, { id: "ok", export: "ok", expect: 1 }],
   );
-  record("guest memory bounded", failedWith(c.o, c.job, "grow", /killed by signal|exited/) && observed(c.o, c.job, "ok") && c.responsive, c.o);
+  const m = memoryClaim(c.o, c.job, "grow", "ok");
+  record("guest memory bounded", m.holds && c.responsive, { claim: m, o: c.o });
 }
 // 5. Guest processes: spawning stops below the guest pids limit.
 {
@@ -221,11 +225,37 @@ if (!pre?.ok) fin();
   const c = await running;
   record("preflight during a run is busy and harmless", mid?.busy === true && observed(c.o, c.job, "nap"), { mid, o: c.o });
 }
-// 10. A real orphan: the launcher is killed mid-run; preflight proves it orphaned and cleans it.
+// 10. (002f1 correction 3) A REAL orphan. Killing sudo's process group (the old method) never
+// reached the launcher: Ubuntu's use_pty puts it in another group, so run 2's `removed: []` proved
+// nothing. Now a TEST-ONLY root procedure (test-orphan.mjs, never installed by setup or granted in
+// production sudoers) is given this exact job's jail id; it kills only the launcher that holds the
+// lifecycle lock for it and confirms the job's VM is still live. Preflight must then prove and
+// remove exactly that jail. Without the procedure (EVERSTREET_TEST_ORPHAN, set only for a
+// dispatched host step) the case records exercised:false and does not pass.
 {
-  await runCase("export function spin(){for(;;){}}\n", [{ id: "spin", export: "spin", expect: 1 }], 2000);
-  const after = await launch("preflight");
-  record("orphan proven and cleaned", after?.ok === true && (after.removed ?? []).length >= 1 && leftovers().length === 0, { after, left: leftovers() });
+  const procedure = process.env.EVERSTREET_TEST_ORPHAN ?? "";
+  if (!procedure) {
+    record("orphan proven and cleaned", false, { exercised: false, reason: "the test-only orphan procedure isn't provided (EVERSTREET_TEST_ORPHAN)" });
+  } else {
+    let jail = "";
+    const running = runCase("export function spin(){for(;;){}}\n", [{ id: "spin", export: "spin", expect: 1 }], HARNESS_MS, undefined, (j) => {
+      jail = `es-${j.check_id.replace(/-/g, "").slice(0, 12)}-${j.attempt}`;
+    });
+    await new Promise((r) => setTimeout(r, 1500));
+    let killed = null;
+    try {
+      killed = JSON.parse(execFileSync("sudo", ["-n", procedure, jail], { timeout: 15000, encoding: "utf8" }).trim().split("\n").pop());
+    } catch (e) {
+      killed = { ok: false, reason: `procedure failed: ${String(e.message).slice(0, 200)}` };
+    }
+    await running;
+    const after = await launch("preflight");
+    record(
+      "orphan proven and cleaned",
+      killed?.ok === true && after?.ok === true && (after.removed ?? []).includes(jail) && leftovers().length === 0,
+      { exercised: killed?.ok === true, jail, killed, after, left: leftovers() },
+    );
+  }
 }
 // 11. (002e2) Part of the chain dies: only the outer sudo is SIGKILLed, not its group. While the
 // launcher (the lock holder) still runs, a preflight must NOT be admitted. If sudo's pty hangup
@@ -266,6 +296,13 @@ if (!pre?.ok) fin();
   );
 }
 record("no leftovers at the end", leftovers().length === 0, { left: leftovers() });
-// Host VMM limits are verified by the launcher before every VM start (limits_unverified).
+// (002f1 correction 4) The host VMM cgroup's bound is READ BACK by the launcher before every VM
+// start (limits_unverified otherwise). That is not enforcement under pressure, and no case here
+// can pressure the VMM's own memory without changing guest protections or host limits, so the
+// gate stays explicitly open (docs/design/WORKER_READINESS_002F1.md §4 specifies the method).
+record("host VMM memory bound enforced under pressure", false, {
+  exercised: false,
+  reason: "readback only; the pressure method needs a dispatched, reviewed host step",
+});
 // The fail-open trap (removing the parent cgroup) needs root: run by hand, EXECUTABLE_PRODUCTS §7.
 fin();

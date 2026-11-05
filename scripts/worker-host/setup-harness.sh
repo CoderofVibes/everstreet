@@ -116,7 +116,7 @@ else
 fi
 
 # 3. An install interrupted at each privileged stage is removed exactly; uninstall repeats safely.
-for stage in useradd setfacl systemctl visudo; do
+for stage in useradd systemctl visudo; do
   reset_sys; base=$(snapshot)
   if FAIL_AT=$stage run install "$IN" > "$T/out" 2>&1; then fail "install interrupted at $stage reported success"; fi
   [ -s "$M/manifest" ] || fail "no manifest after an install interrupted at $stage"
@@ -128,7 +128,7 @@ for stage in useradd setfacl systemctl visudo; do
   run uninstall > "$T/out" 2>&1 || fail "a second uninstall failed"
   grep -q "nothing recorded" "$T/out" || fail "a second uninstall should find nothing"
 done
-pass "installs interrupted at useradd, setfacl, systemctl and visudo are removed exactly; repeat uninstall safe"
+pass "installs interrupted at useradd, systemctl and visudo are removed exactly; repeat uninstall safe"
 
 # 4. A full install, with the clean baseline saved BEFORE it (Astra: the old step 5 reset first).
 reset_sys; base=$(snapshot)
@@ -139,6 +139,33 @@ done
 grep -q "conformance.mjs" "$T/out" || fail "install names the wrong conformance command"
 grep -qx everstreet-worker-host.service "$SYS/state/units" || fail "the unit wasn't enabled"
 pass "full install placed every file and enabled the unit"
+# 002f1 corrections 1 and 5: no host ACL is made or recorded; the boot unit runs the bounded
+# controller-readiness script instead of writing controller names blindly.
+U=$SYS/etc/systemd/system/everstreet-worker-host.service
+[ ! -s "$SYS/state/acl" ] || fail "a new install made a host KVM ACL"
+if grep -q "^acl " "$M/manifest"; then fail "a new install recorded an ACL"; fi
+if grep -q setfacl "$U"; then fail "the boot unit still sets an ACL"; fi
+grep -q "^ExecStart=/opt/everstreet-worker/bin/cgroup-ready$" "$U" || fail "the unit doesn't run cgroup-ready"
+if grep -q "cgroup.subtree_control" "$U"; then fail "the unit still writes controllers directly"; fi
+[ -x "$SYS/opt/everstreet-worker/bin/cgroup-ready" ] || fail "cgroup-ready not installed"
+grep -q 'DEADLINE_S=' "$SYS/opt/everstreet-worker/bin/cgroup-ready" || fail "cgroup-ready has no deadline"
+sh -n "$SYS/opt/everstreet-worker/bin/cgroup-ready" || fail "cgroup-ready doesn't parse"
+# The readiness logic itself, on a fake parent: missing controllers fail by the deadline, naming
+# them; offered controllers are enabled and read back.
+R=$SYS/opt/everstreet-worker/bin/cgroup-ready; FP=$T/fakecg; mkdir -p "$FP"
+if EVERSTREET_CGROUP_PARENT=$FP EVERSTREET_CGROUP_DEADLINE_S=1 sh "$R" > "$T/ready" 2>&1; then
+  fail "cgroup-ready succeeded without controllers"
+fi
+grep -q "doesn't offer: cpu memory pids" "$T/ready" || fail "cgroup-ready didn't name the missing controllers: $(cat "$T/ready")"
+echo "cpu io memory pids" > "$FP/cgroup.controllers"
+# A plain file isn't cgroupfs: it reads back "+cpu ..." where the kernel says "cpu ...", so the
+# script must NOT claim readiness (its readback is really checked). The kernel's own success
+# path needs a real cgroup v2 parent: unverified here.
+if EVERSTREET_CGROUP_PARENT=$FP EVERSTREET_CGROUP_DEADLINE_S=1 sh "$R" > "$T/ready" 2>&1; then
+  fail "cgroup-ready claimed readiness from an unconfirmed readback"
+fi
+grep -q "written, but read back as: +cpu +memory +pids" "$T/ready" || fail "no readback diagnosis: $(cat "$T/ready")"
+pass "no host KVM ACL; the boot unit runs the bounded controller-readiness script (deadline and strict readback exercised; real cgroupfs success unverified)"
 
 # 5. A removal that can't be confirmed keeps its record and fails; fixing it and repeating finishes.
 if FAIL_AT=userdel run uninstall > "$T/out" 2>&1; then fail "uninstall ignored a failed userdel"; fi
@@ -159,5 +186,15 @@ pass "uninstall refuses while the lifecycle lock is held and proceeds once it is
 # 7. The install from step 4 is gone exactly: the fake root equals its pre-install baseline.
 [ "$base" = "$(snapshot)" ] || { snapshot > "$T/after"; fail "leftovers after uninstall"; }
 pass "the full install and uninstall leave the fake root exactly as before"
+
+# 8. (002f1 correction 5) An EARLIER install's manifest still rolls its ACL back exactly.
+reset_sys; base=$(snapshot)
+mkdir -p "$M"; : > "$M/lifecycle.flock"; echo "everstreet-vm:rw $SYS/dev/kvm" >> "$SYS/state/acl"
+echo "acl $SYS/dev/kvm everstreet-vm" > "$M/manifest"
+run uninstall > "$T/out" 2>&1 || fail "uninstall of an earlier ACL record failed: $(cat "$T/out")"
+[ ! -s "$SYS/state/acl" ] || fail "the earlier install's ACL survived uninstall"
+rm -rf "$M"
+[ "$base" = "$(snapshot)" ] || { snapshot > "$T/after"; fail "leftovers after rolling back an earlier ACL"; }
+pass "an earlier install's ACL record still rolls back exactly"
 [ -s "$SYS/state/log" ] && echo "shim calls logged: $(wc -l < "$SYS/state/log")"
 echo "setup-harness: all checks passed (fake root and shims only; real commands unverified)"
