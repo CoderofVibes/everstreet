@@ -1,7 +1,10 @@
 # Proposed dedicated local execution host
 
 Status: Tony approved the exact setup below on November4 with **"Approve dedicated worker setup"**.
-Installation is not yet performed. Execution is assigned to bounded job002f after003v acceptance.
+Installation was performed under bounded job002f. Actual conformance was partial13/15; the
+dedicated distro is stopped and the engine remains disabled pending002f1 corrections. See
+WorkerConformanceReview and the002f report. This approval is already exercised; do not reinstall
+or ask for the same setup approval again.
 
 The approved question explicitly named the dedicated Everstreet-Worker WSL environment at
 C:\Dev\EverstreetWorker, free official dependencies, restricted worker permissions, bounded
