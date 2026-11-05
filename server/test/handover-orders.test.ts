@@ -299,3 +299,64 @@ describe("003wf3 S-20: imported local history is bound separately from the contr
     expect(w.sale.controlView()).toMatchObject({ owner: BUYER, generation: 2 });
   }, 90_000);
 });
+
+describe("003wf3 an older handover's unknown attempt still recovers after a resale (Astra 03:40)", () => {
+  it("sale 1's close lands with its answer and status hidden; after a resale completes, sale 1's original result is read by status only (no send) and recorded", async () => {
+    const w = await world();
+    const answer = w.b.rpc.answer.bind(w.b.rpc);
+    let hideStatus = false;
+    (w.b.rpc as unknown as { answer: (raw: string) => Promise<string> }).answer = async (raw) => {
+      const req = JSON.parse(raw) as { method: string; id: unknown };
+      if (req.method === "tx" && hideStatus)
+        return JSON.stringify({
+          jsonrpc: "2.0",
+          id: req.id,
+          error: { name: "HANDLER_ERROR", cause: { name: "UNKNOWN_TRANSACTION", info: {} } },
+        });
+      return answer(raw);
+    };
+    await closing(w);
+    hideStatus = true;
+    w.b.rpc.loseNextSendAnswer("close_sale");
+    await w.coordinator.pass();
+    w.b.rpc.dropSend = (method) => method === "close_sale";
+    await passUntil(w, (st) => st === "released_to_buyer", 10);
+    const first = w.handoverRow() as Json;
+    const firstAttempt = () =>
+      w.rows(
+        "SELECT state FROM closer_tx_attempts WHERE operation LIKE ?",
+        `close-${first.id}-%`,
+      )[0];
+    expect(firstAttempt()).toMatchObject({ state: "signed" });
+    // A resale back to the founder completes (the network delivers new sends again).
+    hideStatus = false;
+    w.b.rpc.dropSend = (method, args) =>
+      method === "close_sale" &&
+      String((args.order as Json | undefined)?.deal_seq) === String(first.deal_seq);
+    w.b.w.chain.balances.set(FOUNDER, 1_000_000_000n);
+    const back = await w.act(w.buyer, BUYER, "propose", w.terms({ buyer_account: FOUNDER }));
+    expect(back.check?.body.resolution?.kind, JSON.stringify(back.p.body)).toBe("confirmed");
+    for (const k of ["register", "fund", "accept"])
+      expect((await w.act(w.seller, FOUNDER, k)).check?.body.resolution?.kind, k).toBe("confirmed");
+    expect((await w.act(w.buyer, BUYER, "accept")).check?.body.resolution).toMatchObject({
+      result: "closing",
+    });
+    const second = () => w.handoverRow() as Json;
+    for (
+      let i = 0;
+      i < 12 && !(second().deal_seq === "2" && second().state === "released_to_buyer");
+      i++
+    )
+      await w.coordinator.pass();
+    expect(second()).toMatchObject({ deal_seq: "2", state: "released_to_buyer" });
+    expect(firstAttempt()).toMatchObject({ state: "signed" }); // still unknown, never failed
+    // Sale 1's order ages out; its original's status becomes readable: status only, no send.
+    w.b.w.chain.tick(21n * 60_000n);
+    const sends = w.b.rpc.sends;
+    for (let i = 0; i < 3 && firstAttempt()?.state === "signed"; i++) await w.coordinator.pass();
+    expect(firstAttempt()).toMatchObject({ state: "success" });
+    expect(w.b.rpc.sends).toBe(sends);
+    expect(w.rows("SELECT 1 FROM ownership WHERE business_id = ?", w.biz)).toHaveLength(2);
+    (w.b.rpc as unknown as { answer: (raw: string) => Promise<string> }).answer = answer;
+  }, 120_000);
+});

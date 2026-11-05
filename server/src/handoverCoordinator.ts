@@ -418,45 +418,49 @@ export class HandoverCoordinator {
     }
     let h = openHandover(this.db, businessId);
     if (!h) {
-      // S-12: a finished handover's close attempt still unresolved (an aged original that was
-      // replaced, say) is resolved by its own transaction, so its evidence is never left
-      // looking absent. It never moves the finished handover.
-      const last = latestHandover(this.db, businessId);
-      const open = last
-        ? (
-            this.db
-              .prepare(
-                "SELECT COUNT(*) AS n FROM closer_tx_attempts WHERE operation LIKE ? AND state = 'signed'",
-              )
-              .get(`close-${last.id}-%`) as { n: number }
-          ).n
-        : 0;
-      if (!last || open === 0) return "idle";
-      // Bounded: once every order is older than the contract's own limit (MAX_ISSUE_AGE_MS) none
-      // can ever execute (E_ISSUE_AGE), so nothing more is sent; an attempt still unproven then
-      // stays unknown on its own record, which is the truth.
-      const youngest = this.db
+      // S-12 / Astra 03:30, 03:40: finished handovers' close attempts still unresolved are
+      // resolved by their own transactions, so their evidence is never left looking absent, and
+      // nothing here moves a finished handover. The three most recent finished handovers with an
+      // unknown attempt are considered (a resale doesn't discard an earlier one's recovery).
+      // While an order is young enough to execute, its same bytes may be resent (the writer's
+      // rules); once every order is past the contract's limit (MAX_ISSUE_AGE_MS) nothing is
+      // sent: a status-only read of the original's own hash, at most once a minute per handover
+      // (this coordinator's memory, not durable across a restart). A missing status proves
+      // nothing: the attempt stays unknown.
+      const pending = this.db
         .prepare(
-          "SELECT MAX(json_extract(order_json, '$.issued_at_ms')) AS t FROM close_orders WHERE handover_id = ?",
+          `SELECT h.id FROM business_handovers h WHERE h.business_id = ? AND EXISTS (
+             SELECT 1 FROM closer_tx_attempts a WHERE a.operation LIKE 'close-' || h.id || '-%' AND a.state = 'signed')
+           ORDER BY h.created_ms DESC LIMIT 3`,
         )
-        .get(last.id) as { t: string | null };
-      if (
-        youngest.t === null ||
-        BigInt(r.block.timestamp_ms) - BigInt(youngest.t) > BigInt(MAX_ISSUE_AGE_MS)
-      ) {
-        // Astra 03:30: past the contract's limit none can execute any more, so nothing is sent;
-        // but the ORIGINAL transaction's own final result can still become readable. A bounded
-        // status-only read (its own hash; at most once a minute per handover) records it; a
-        // missing status proves nothing, and nothing here moves the finished handover.
-        const due = (this.statusReadAt.get(last.id) ?? 0) + STATUS_EVERY_MS <= this.now();
-        if (!due) return "idle";
-        this.statusReadAt.set(last.id, this.now());
+        .all(businessId) as { id: string }[];
+      if (pending.length === 0) return "idle";
+      const latest = latestHandover(this.db, businessId);
+      for (const p of pending) {
+        const old = this.db
+          .prepare("SELECT * FROM business_handovers WHERE id = ?")
+          .get(p.id) as unknown as HandoverRow;
+        const youngest = this.db
+          .prepare(
+            "SELECT MAX(json_extract(order_json, '$.issued_at_ms')) AS t FROM close_orders WHERE handover_id = ?",
+          )
+          .get(old.id) as { t: string | null };
+        const aged =
+          youngest.t === null ||
+          BigInt(r.block.timestamp_ms) - BigInt(youngest.t) > BigInt(MAX_ISSUE_AGE_MS);
+        if (!aged && latest?.id === old.id) {
+          if (!alive()) return "stopped";
+          await this.resolveAttempts(old, binding.account, gen);
+          return "attempts_resolved";
+        }
+        if (!aged) continue; // an older handover's young order: its own resolution comes later
+        const due = (this.statusReadAt.get(old.id) ?? 0) + STATUS_EVERY_MS <= this.now();
+        if (!due) continue;
+        this.statusReadAt.set(old.id, this.now());
         if (!alive()) return "stopped";
-        return this.statusOnly(last, gen);
+        return this.statusOnly(old, gen);
       }
-      if (!alive()) return "stopped";
-      await this.resolveAttempts(last, binding.account, gen);
-      return "attempts_resolved";
+      return "idle";
     }
     if (h.state === "attention") return "attention";
     if (h.state === "closed_observed" || h.state === "reconciled") {
