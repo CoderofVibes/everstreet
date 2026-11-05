@@ -793,7 +793,12 @@ export async function customerWorld(
     r.recover();
     return r;
   };
-  const make = (store: Store, runtime = runtimeFor(store)) => {
+  /** `extra` (job 003w-e harness): e.g. verified identity and the wallet configuration. */
+  const make = (
+    store: Store,
+    runtime = runtimeFor(store),
+    extra: Partial<Parameters<typeof everstreetApi>[1]> = {},
+  ) => {
     state.runtime = runtime;
     return everstreetApi(store, {
       localPreview: true,
@@ -801,6 +806,7 @@ export async function customerWorld(
       v3,
       customer: options(),
       runtime,
+      ...extra,
     });
   };
   /** A CustomerUses over the same store and runtime, for the worker-only methods (job 003n). */

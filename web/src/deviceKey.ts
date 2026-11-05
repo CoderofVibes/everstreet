@@ -59,6 +59,17 @@ export interface DeviceKeyStore {
   get(id: string): Promise<DeviceKeyRecord | null>;
   put(r: DeviceKeyRecord): Promise<void>;
   delete(id: string): Promise<void>;
+  /**
+   * Astra's DeviceKeyReview: stores `r` only if NO record exists for its id, atomically across
+   * tabs (an IndexedDB `add` in one transaction), and returns whichever record is stored: ours,
+   * or the one another tab stored first. An outstanding key is never overwritten.
+   */
+  claim?(r: DeviceKeyRecord): Promise<DeviceKeyRecord>;
+  /** Deletes the record only if it still holds this public key (one transaction). */
+  deleteIf?(id: string, publicKey: string): Promise<boolean>;
+  /** Updates the record only if it still holds this public key (one transaction). */
+  putIf?(r: DeviceKeyRecord): Promise<boolean>;
+  close?(): void;
 }
 
 export class DeviceKeyError extends Error {
@@ -122,7 +133,66 @@ export async function openDeviceKeyStore(
       s.delete(id);
       await done(s.transaction);
     },
+    claim: async (r) => {
+      const s = tx("readwrite");
+      const req = s.add(r);
+      req.onerror = (e) => e.preventDefault(); // ConstraintError: another tab stored one first
+      try {
+        await done(s.transaction);
+        return r;
+      } catch {
+        const winner = (await wrap(tx("readonly").get(r.id))) as DeviceKeyRecord | undefined;
+        if (!winner) throw new Error("The device key couldn't be stored; try again.");
+        return winner;
+      }
+    },
+    deleteIf: async (id, publicKey) => {
+      const s = tx("readwrite");
+      let deleted = false;
+      const g = s.get(id);
+      g.onsuccess = () => {
+        if ((g.result as DeviceKeyRecord | undefined)?.public_key === publicKey) {
+          s.delete(id);
+          deleted = true;
+        }
+      };
+      await done(s.transaction);
+      return deleted;
+    },
+    putIf: async (r) => {
+      const s = tx("readwrite");
+      let written = false;
+      const g = s.get(r.id);
+      g.onsuccess = () => {
+        if ((g.result as DeviceKeyRecord | undefined)?.public_key === r.public_key) {
+          s.put(r);
+          written = true;
+        }
+      };
+      await done(s.transaction);
+      return written;
+    },
+    close: () => db.close(),
   };
+}
+
+/** Atomic where the store supports it; otherwise write, then adopt whatever is stored. */
+async function claimRecord(store: DeviceKeyStore, r: DeviceKeyRecord): Promise<DeviceKeyRecord> {
+  if (store.claim) return store.claim(r);
+  const existing = await store.get(r.id);
+  if (existing) return existing;
+  await store.put(r);
+  return (await store.get(r.id)) ?? r;
+}
+async function updateRecord(store: DeviceKeyStore, r: DeviceKeyRecord): Promise<boolean> {
+  if (store.putIf) return store.putIf(r);
+  await store.put(r);
+  return true;
+}
+async function deleteRecord(store: DeviceKeyStore, r: DeviceKeyRecord): Promise<boolean> {
+  if (store.deleteIf) return store.deleteIf(r.id, r.public_key);
+  await store.delete(r.id);
+  return true;
 }
 
 export const recordId = (network: string, contract: string, planId: number, account: string) =>
@@ -187,6 +257,8 @@ export type DeviceAnswer =
   /** Asked the wallet; the readback doesn't show it yet (perhaps still processing, or refused). */
   | { kind: "not_confirmed"; readiness: Readiness; message: string }
   | { kind: "cancelled"; readiness: Readiness; message: string }
+  /** The exact request differs from the one the customer reviewed: shown again, nothing sent. */
+  | { kind: "changed"; call: WalletFunctionCall; message: string }
   | { kind: "refused"; message: string }
   | { kind: "stale" };
 
@@ -201,8 +273,14 @@ export interface DeviceKeysDeps {
 }
 
 const ED25519 = { name: "Ed25519" } as const;
+const sameCall = (a: WalletFunctionCall, b: WalletFunctionCall) =>
+  JSON.stringify(a) === JSON.stringify(b);
+const CANCEL = /closed the window|cancel|reject/i;
 
-/** One customer's device keys for this page; `retire()` (account change) fences it. */
+/**
+ * One customer's device keys for this page; `retire()` (sign-out, account change) fences it: after
+ * every asynchronous step it checks again, and a retired instance never signs, sends or writes.
+ */
 export class DeviceKeys {
   private alive = true;
   private readonly subtle: SubtleCrypto;
@@ -211,6 +289,9 @@ export class DeviceKeys {
   }
   retire() {
     this.alive = false;
+  }
+  get retired() {
+    return !this.alive;
   }
 
   private async view(offerId: string) {
@@ -241,23 +322,112 @@ export class DeviceKeys {
     return w;
   }
 
-  private async ask(
+  /**
+   * Step 1 of enrolling: this device's ONE key for this account and plan, made only if none is
+   * stored, and claimed atomically across tabs (a losing tab adopts the stored winner). Its slot is
+   * re-chosen only if another key took it meanwhile. Returns the exact request to review; nothing
+   * is sent.
+   */
+  async prepareEnrollment(
     offerId: string,
-    w: WalletBoundary,
-    call: WalletFunctionCall,
-    want: Readiness["kind"],
+    maxUnitsPerDay: number,
+  ): Promise<
+    { kind: "request"; call: WalletFunctionCall; record: DeviceKeyRecord } | DeviceAnswer
+  > {
+    if (!Number.isInteger(maxUnitsPerDay) || maxUnitsPerDay < 1 || maxUnitsPerDay > 65_535)
+      return { kind: "refused", message: "Choose a daily limit from 1 to 65535 uses." };
+    const v = await this.view(offerId);
+    if (!this.alive) return { kind: "stale" };
+    if (v.readiness.kind === "ready") return { kind: "done", readiness: v.readiness };
+    if (v.readiness.kind === "no_entitlement")
+      return { kind: "refused", message: "You have no units for this product yet." };
+    if (!v.rb.plan_max_hold_units)
+      return { kind: "refused", message: "The product's plan couldn't be read; try again." };
+    // A slot not active on the contract (empty or revoked); a slot another key took is active.
+    const free = () => v.rb.keys.find((k) => k.state !== "active")?.slot;
+    let record = v.record;
+    if (!record) {
+      const slot = free();
+      if (slot === undefined)
+        return { kind: "refused", message: "All four key slots are in use; revoke one first." };
+      let pair: CryptoKeyPair;
+      try {
+        pair = (await this.subtle.generateKey(ED25519, false, ["sign", "verify"])) as CryptoKeyPair;
+      } catch {
+        throw new DeviceKeyError(
+          "unsupported",
+          "This browser can't make a device key (it has no WebCrypto Ed25519).",
+        );
+      }
+      const pub = new Uint8Array(await this.subtle.exportKey("raw", pair.publicKey));
+      if (!this.alive) return { kind: "stale" };
+      record = await claimRecord(v.store, {
+        id: v.id,
+        network: v.rb.network,
+        contract: v.rb.contract,
+        plan_id: v.rb.plan_id,
+        account: this.deps.account,
+        slot,
+        public_key: toHex(pub),
+        key: pair.privateKey,
+        max_hold_units: 1, // envelopes authorize one-use holds
+        max_units_per_day: maxUnitsPerDay,
+        intent: null,
+        created_ms: (this.deps.now ?? Date.now)(),
+      });
+    }
+    const k = v.rb.keys[record.slot];
+    if (k?.state === "active" && k.public_key !== record.public_key) {
+      const slot = free();
+      if (slot === undefined)
+        return { kind: "refused", message: "All four key slots are in use; revoke one first." };
+      const moved = { ...record, slot };
+      if (!this.alive) return { kind: "stale" };
+      if (!(await updateRecord(v.store, moved)))
+        return { kind: "refused", message: "Another tab changed this device's key; check again." };
+      record = moved;
+    }
+    return { kind: "request", call: installCall(record), record };
+  }
+
+  /**
+   * Step 2: asks the wallet to enroll exactly `reviewed` (the request the customer saw). If the
+   * stored key or its slot changed meanwhile, the new request is returned to review, unsent. The
+   * intent is stored BEFORE the wallet is asked; readiness comes only from the readback after.
+   * Without `reviewed` (tests, a retry of the same stored request) it uses step 1's request.
+   */
+  async enroll(
+    offerId: string,
+    maxUnitsPerDay: number,
+    reviewed?: WalletFunctionCall,
   ): Promise<DeviceAnswer> {
+    const p = await this.prepareEnrollment(offerId, maxUnitsPerDay);
+    if (p.kind !== "request") return p;
+    if (reviewed && !sameCall(reviewed, p.call))
+      return {
+        kind: "changed",
+        call: p.call,
+        message:
+          "The request changed since you reviewed it (another key took its slot). Review it again.",
+      };
+    const store = await this.deps.store();
+    if (!this.alive) return { kind: "stale" };
+    if (!(await updateRecord(store, { ...p.record, intent: "enroll" })))
+      return { kind: "refused", message: "Another tab changed this device's key; check again." };
+    const w = await this.walletFor();
+    if (!this.alive) return { kind: "stale" };
+    if (!("send" in w)) return w;
     let cancelled = false;
     try {
-      await w.send(call);
+      await w.send(p.call);
     } catch (e) {
-      cancelled = /closed the window|cancel|reject/i.test((e as Error)?.message ?? "");
+      cancelled = CANCEL.test((e as Error)?.message ?? "");
       // Any other failure: the transaction may or may not have been sent. The readback decides.
     }
     if (!this.alive) return { kind: "stale" };
     const { readiness } = await this.view(offerId);
     if (!this.alive) return { kind: "stale" };
-    if (readiness.kind === want) return { kind: "done", readiness };
+    if (readiness.kind === "ready") return { kind: "done", readiness };
     if (cancelled)
       return {
         kind: "cancelled",
@@ -272,70 +442,6 @@ export class DeviceKeys {
     };
   }
 
-  /**
-   * Enrolls this device: makes ONE key (only if none is stored), stores the intent, then asks the
-   * wallet. An interrupted enrollment re-asks with the SAME key (in a free slot if its slot was
-   * taken meanwhile), never a silently generated replacement.
-   */
-  async enroll(offerId: string, maxUnitsPerDay: number): Promise<DeviceAnswer> {
-    if (!Number.isInteger(maxUnitsPerDay) || maxUnitsPerDay < 1 || maxUnitsPerDay > 65_535)
-      return { kind: "refused", message: "Choose a daily limit from 1 to 65535 uses." };
-    const v = await this.view(offerId);
-    if (!this.alive) return { kind: "stale" };
-    if (v.readiness.kind === "ready") return { kind: "done", readiness: v.readiness };
-    if (v.readiness.kind === "no_entitlement")
-      return { kind: "refused", message: "You have no units for this product yet." };
-    if (!v.rb.plan_max_hold_units)
-      return { kind: "refused", message: "The product's plan couldn't be read; try again." };
-    // A slot not active on the contract (empty or revoked); a slot another key took is active.
-    const free = () => v.rb.keys.find((k) => k.state !== "active")?.slot;
-    let record = v.record;
-    if (record) {
-      const k = v.rb.keys[record.slot];
-      if (k?.state === "active" && k.public_key !== record.public_key) {
-        const slot = free();
-        if (slot === undefined)
-          return { kind: "refused", message: "All four key slots are in use; revoke one first." };
-        record = { ...record, slot };
-      }
-      record = { ...record, intent: "enroll" };
-    } else {
-      const slot = free();
-      if (slot === undefined)
-        return { kind: "refused", message: "All four key slots are in use; revoke one first." };
-      let pair: CryptoKeyPair;
-      try {
-        pair = (await this.subtle.generateKey(ED25519, false, ["sign", "verify"])) as CryptoKeyPair;
-      } catch {
-        throw new DeviceKeyError(
-          "unsupported",
-          "This browser can't make a device key (it has no WebCrypto Ed25519).",
-        );
-      }
-      const pub = new Uint8Array(await this.subtle.exportKey("raw", pair.publicKey));
-      record = {
-        id: v.id,
-        network: v.rb.network,
-        contract: v.rb.contract,
-        plan_id: v.rb.plan_id,
-        account: this.deps.account,
-        slot,
-        public_key: toHex(pub),
-        key: pair.privateKey,
-        max_hold_units: 1, // envelopes authorize one-use holds
-        max_units_per_day: maxUnitsPerDay,
-        intent: "enroll",
-        created_ms: (this.deps.now ?? Date.now)(),
-      };
-    }
-    if (!this.alive) return { kind: "stale" };
-    await v.store.put(record); // BEFORE the wallet is asked
-    const w = await this.walletFor();
-    if (!this.alive) return { kind: "stale" };
-    if (!("send" in w)) return w;
-    return this.ask(offerId, w, installCall(record), "ready");
-  }
-
   /** Revokes a slot from the customer's account (this device's key, or a lost one). */
   async revoke(offerId: string, slot: number): Promise<DeviceAnswer> {
     const v = await this.view(offerId);
@@ -343,7 +449,8 @@ export class DeviceKeys {
     if (v.rb.keys[slot]?.state !== "active")
       return { kind: "refused", message: "That key slot isn't active." };
     const mine = v.record?.slot === slot ? v.record : null;
-    if (mine) await v.store.put({ ...mine, intent: "revoke" });
+    if (mine && !(await updateRecord(v.store, { ...mine, intent: "revoke" })))
+      return { kind: "refused", message: "Another tab changed this device's key; check again." };
     const w = await this.walletFor();
     if (!this.alive) return { kind: "stale" };
     if (!("send" in w)) return w;
@@ -351,18 +458,19 @@ export class DeviceKeys {
     try {
       await w.send(revokeCall(v.rb.contract, v.rb.plan_id, slot));
     } catch (e) {
-      cancelled = /closed the window|cancel|reject/i.test((e as Error)?.message ?? "");
+      cancelled = CANCEL.test((e as Error)?.message ?? "");
     }
     if (!this.alive) return { kind: "stale" };
     const after = await this.view(offerId);
+    if (!this.alive) return { kind: "stale" };
     const k = after.rb.keys[slot];
     const gone = k?.state !== "active" || (mine !== null && k.public_key !== mine.public_key);
     if (gone) {
-      if (mine) await after.store.delete(mine.id); // only once the readback shows it
-      const latest = await this.view(offerId);
-      return { kind: "done", readiness: latest.readiness };
+      // Only once the readback shows it, and only if the stored record is still THAT key.
+      if (mine) await deleteRecord(after.store, mine);
+      return { kind: "done", readiness: (await this.view(offerId)).readiness };
     }
-    if (mine) await after.store.put({ ...mine, intent: null }); // still active: not revoked
+    if (mine) await updateRecord(after.store, { ...mine, intent: null }); // still active
     const readiness = (await this.view(offerId)).readiness;
     return cancelled
       ? {
@@ -379,28 +487,32 @@ export class DeviceKeys {
   }
 
   /**
-   * Deletes this device's key locally. If its slot is active on the contract it STAYS active
-   * there until revoked (nobody can sign with it any more: the private key is gone).
+   * Deletes this device's key locally (only the record still holding the key seen). If its slot is
+   * active on the contract it STAYS active there until revoked; nobody can sign with it any more.
    */
   async forget(offerId: string) {
     const v = await this.view(offerId);
-    if (v.record) await v.store.delete(v.record.id);
+    if (!this.alive) return v.readiness;
+    if (v.record) await deleteRecord(v.store, v.record);
     return (await this.view(offerId)).readiness;
   }
 
   /**
    * The real authorizer for one offer (§9.6), only while this device is `ready`. Before signing it
-   * reads again and refuses if the slot, epoch, key or account changed.
+   * reads again and refuses if the slot, epoch, key or account changed, and it stops at once if this
+   * instance is retired at any point (no signature, and no pair delivered).
    */
   authorizer(offerId: string, ready: Extract<Readiness, { kind: "ready" }>): CustomerAuthorizer {
+    const gone = () => new Error("You're no longer signed in as this account.");
     return {
       label: `This device's key for ${this.deps.account} (slot ${ready.slot})`,
       synthetic: false,
       slot: ready.slot,
       publicKey: async () => ready.public_key,
       sign: async ({ hold_message_hex, use_message_hex }) => {
-        if (!this.alive) throw new Error("You're no longer signed in as this account.");
+        if (!this.alive) throw gone();
         const v = await this.view(offerId);
+        if (!this.alive) throw gone();
         const now = v.readiness;
         if (
           now.kind !== "ready" ||
@@ -412,19 +524,18 @@ export class DeviceKeys {
           throw new Error(
             "This device's key changed since you checked it; check it again before authorizing.",
           );
+        const key = v.record.key;
         const signHex = async (hex: string) => {
           if (!/^[0-9a-f]{64}$/.test(hex)) throw new Error("That isn't a 32-byte digest.");
-          const sig = await this.subtle.sign(
-            ED25519,
-            (v.record as DeviceKeyRecord).key,
-            fromHex(hex) as BufferSource,
-          );
+          if (!this.alive) throw gone();
+          const sig = await this.subtle.sign(ED25519, key, fromHex(hex) as BufferSource);
+          if (!this.alive) throw gone();
           return toHex(new Uint8Array(sig));
         };
-        return {
-          hold_signature: await signHex(hold_message_hex),
-          use_signature: await signHex(use_message_hex),
-        };
+        const hold_signature = await signHex(hold_message_hex);
+        const use_signature = await signHex(use_message_hex);
+        if (!this.alive) throw gone();
+        return { hold_signature, use_signature };
       },
     };
   }

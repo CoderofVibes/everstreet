@@ -180,6 +180,16 @@ export class CustomerWorkspace {
     this.state.authorizer = a ? { label: a.label, synthetic: a.synthetic } : null;
   }
 
+  /** Job 003w-e2: the authorizer may become ready (or stop being) after the page opened. */
+  refreshAuthorizer() {
+    const a = this.opts.authorizer();
+    const next = a ? { label: a.label, synthetic: a.synthetic } : null;
+    const cur = this.state.authorizer;
+    // Unchanged: no new snapshot (a new one re-renders the page; Astra's DeviceKeyReview loop).
+    if (cur?.label === next?.label && cur?.synthetic === next?.synthetic) return;
+    this.set({ authorizer: next });
+  }
+
   getState = () => this.state;
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);

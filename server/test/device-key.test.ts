@@ -12,6 +12,7 @@
 import { createPublicKey, verify } from "node:crypto";
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
+import { applyKeyCall } from "../../scripts/lib/walletHarness.ts";
 import { verifyEnvelope } from "../../web/src/customerEnvelope.ts";
 import {
   classify,
@@ -45,29 +46,14 @@ function syntheticWallet(w: CustomerWorld, account = CUSTOMER) {
     mode: "apply" as "apply" | "lose" | "drop" | "close",
     beforeSend: null as null | (() => Promise<void> | void),
   };
+  // The same double as the review harness: lib.rs install_key / revoke_key rules.
   const apply = (c: WalletFunctionCall) => {
-    if (c.receiverId !== BUSINESS || c.deposit !== "1") throw new Error("E_DEPOSIT");
-    const e = w.chain.ent(account) as Json;
-    const a = c.args as Json;
-    const k = e.keys[a.slot] as Json;
-    if (c.methodName === "install_key") {
-      if (k.state === "active") throw new Error("E_KEY: that key slot is in use");
-      if (!/^[0-9a-f]{64}$/.test(a.pk)) throw new Error("E_KEY_INVALID");
-      Object.assign(k, {
-        state: "active",
-        epoch: k.epoch + 1,
-        public_key: a.pk,
-        max_hold_units: a.max_hold_units,
-        max_units_per_day: a.max_units_per_day,
-      });
-    } else if (c.methodName === "revoke_key") {
-      if (k.state !== "active") throw new Error("E_KEY: that key is not active");
-      Object.assign(k, { state: "revoked", epoch: k.epoch + 1 });
-    } else throw new Error("unexpected method");
-    e.key_states = e.keys.map(
-      (x: Json) => ({ empty: 0, active: 1, revoked: 2 })[x.state as string],
-    );
-    e.key_epochs = e.keys.map((x: Json) => x.epoch);
+    if (c.receiverId !== BUSINESS) throw new Error("E_RECEIVER");
+    applyKeyCall(w.chain.ent(account) as Json, c, {
+      plan_id: 1,
+      max_hold_units: Number(w.chain.plan.max_hold_units),
+      now_ms: w.chain.ts,
+    });
   };
   const wallet: WalletBoundary = {
     label: "synthetic wallet (test)",
@@ -453,5 +439,121 @@ describe("003w-e2 revocation, removal and lost storage", () => {
   it("classify: no units yet means the fresh-customer steps come first", () => {
     const rb = { registered: false, active: false, keys: [] } as unknown as KeysReadback;
     expect(classify(null, rb)).toEqual({ kind: "no_entitlement" });
+  });
+});
+
+describe("003w-e2 storage-level atomicity (Astra's DeviceKeyReview), over separate IndexedDB handles", () => {
+  it("two tabs enrolling at once keep ONE key: the second adopts the first's stored record", async () => {
+    const t = await world();
+    const tab = () =>
+      new DeviceKeys({
+        // Each tab opens its own connection to the same browser storage.
+        store: () => openDeviceKeyStore(t.idb),
+        read: t.read,
+        wallet: () => Promise.resolve(t.wal.wallet),
+        account: CUSTOMER,
+      });
+    const [a, b] = await Promise.all([
+      tab().prepareEnrollment(t.offer, 10),
+      tab().prepareEnrollment(t.offer, 10),
+    ]);
+    if (a.kind !== "request" || b.kind !== "request") throw new Error("not prepared");
+    expect(a.call).toEqual(b.call); // the same key and slot for both
+    const stored = await (await openDeviceKeyStore(t.idb)).get(
+      recordId("testnet", BUSINESS, 1, CUSTOMER),
+    );
+    expect(stored?.public_key).toBe(a.call.args.pk);
+  });
+
+  it("the claim itself: a second claim for the same id returns the stored winner, never overwrites", async () => {
+    const idb = new IDBFactory();
+    const [s1, s2] = await Promise.all([openDeviceKeyStore(idb), openDeviceKeyStore(idb)]);
+    const base = {
+      id: "testnet|b|1|c",
+      network: "testnet",
+      contract: "b",
+      plan_id: 1,
+      account: "c",
+      slot: 1,
+      max_hold_units: 1,
+      max_units_per_day: 1,
+      intent: null,
+      created_ms: 0,
+    };
+    const k = (await crypto.subtle.generateKey({ name: "Ed25519" }, false, [
+      "sign",
+    ])) as CryptoKeyPair;
+    const won = await s1.claim?.({ ...base, public_key: "aa".repeat(32), key: k.privateKey });
+    const lost = await s2.claim?.({ ...base, public_key: "bb".repeat(32), key: k.privateKey });
+    expect([won?.public_key, lost?.public_key]).toEqual(["aa".repeat(32), "aa".repeat(32)]);
+    // A late delete for an older key leaves a newer record alone.
+    expect(await s2.deleteIf?.(base.id, "bb".repeat(32))).toBe(false);
+    expect((await s1.get(base.id))?.public_key).toBe("aa".repeat(32));
+    s1.close?.();
+    s2.close?.();
+  });
+
+  it("the reviewed request must still be the request: a changed slot is shown again, unsent", async () => {
+    const t = await world();
+    const k = t.keys();
+    const p = await k.prepareEnrollment(t.offer, 10);
+    if (p.kind !== "request") throw new Error("not prepared");
+    t.wal.apply(
+      installCall({
+        contract: BUSINESS,
+        plan_id: 1,
+        slot: 1,
+        public_key: "cd".repeat(32),
+        max_hold_units: 1,
+        max_units_per_day: 5,
+      } as never),
+    );
+    const out = await k.enroll(t.offer, 10, p.call);
+    expect(out).toMatchObject({ kind: "changed", call: { args: { slot: 2, pk: p.call.args.pk } } });
+    expect(t.wal.sent).toEqual([]);
+  });
+});
+
+describe("003w-e2 the harness double keeps the contract's continuity rules", () => {
+  it("install checks the plan and its hold limit; revoke stops an active hold's serving now", async () => {
+    const t = await customerWorld();
+    const e = t.chain.ent(CUSTOMER) as Json;
+    const plan = {
+      plan_id: 1,
+      max_hold_units: Number(t.chain.plan.max_hold_units),
+      now_ms: t.chain.ts,
+    };
+    const install = (args: Json) =>
+      applyKeyCall(e, { methodName: "install_key", args, deposit: "1" }, plan);
+    expect(() =>
+      install({
+        plan_id: 2,
+        slot: 1,
+        pk: "ab".repeat(32),
+        max_hold_units: 1,
+        max_units_per_day: 1,
+      }),
+    ).toThrow(/plan/);
+    expect(() =>
+      install({
+        plan_id: 1,
+        slot: 1,
+        pk: "ab".repeat(32),
+        max_hold_units: plan.max_hold_units + 1,
+        max_units_per_day: 1,
+      }),
+    ).toThrow(/hold units/);
+    Object.assign(e, {
+      hold_active: true,
+      hold_key_slot: 0,
+      serve_until_ms: String(plan.now_ms + 600_000n),
+    });
+    applyKeyCall(
+      e,
+      { methodName: "revoke_key", args: { plan_id: 1, slot: 0 }, deposit: "1" },
+      plan,
+    );
+    expect(e.serve_until_ms).toBe(String(plan.now_ms));
+    expect(e.hold_active).toBe(true); // uses already signed stay settleable until settle_until
   });
 });

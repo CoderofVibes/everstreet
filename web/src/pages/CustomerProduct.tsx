@@ -3,9 +3,9 @@
 // in memory, the browser checks a request itself before any authorization, and units are shown
 // only as the contract's views reported them, with their block and time.
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { customerHttp, type ResultView, type UseView } from "../customerApi.ts";
-import { pageAuthorizer } from "../customerAuthorizer.ts";
+import { type CustomerAuthorizer, pageAuthorizer } from "../customerAuthorizer.ts";
 import {
   activeCustomerStep,
   CUSTOMER_STEP_WORD,
@@ -20,6 +20,7 @@ import {
 } from "../customerWorkspace.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { DeviceKeyPanel } from "./DeviceKeyPanel.tsx";
 
 const UNIT_WORDS: Record<UseView["units"]["unit"], { label: string; tone: string; text: string }> =
   {
@@ -394,19 +395,30 @@ export function CustomerProgress({
 }
 
 export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: string }) {
-  const { person, requireSignIn } = useSession();
+  const { person, requireSignIn, identity } = useSession();
   const { go } = useRouter();
+  // Job 003w-e2: in verified mode the authorizer is this device's enrolled key (DeviceKeyPanel),
+  // only while the contract shows it ready; the preview keeps its labelled synthetic one.
+  const device = useRef<CustomerAuthorizer | null>(null);
   const [w] = useState(
     () =>
       new CustomerWorkspace(customerHttp, {
         personId: person?.id ?? "anon",
         offerId,
         useId,
-        authorizer: pageAuthorizer,
+        authorizer: identity === "verified" ? () => device.current : pageAuthorizer,
         storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
       }),
   );
   const s = useSyncExternalStore(w.subscribe, w.getState);
+  // Stable across renders, so the device panel's effects don't re-run on every page update.
+  const onAuthorizer = useCallback(
+    (a: CustomerAuthorizer | null) => {
+      device.current = a;
+      w.refreshAuthorizer();
+    },
+    [w],
+  );
   useEffect(() => {
     if (person) void w.start();
     return () => w.retire();
@@ -544,6 +556,9 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
           {use?.state === "prepared" && <Consent use={use} check={s.check} />}
 
           <StepActions s={s} onAction={run} />
+          {identity === "verified" && offer && (
+            <DeviceKeyPanel offerId={offer.offer_id} onAuthorizer={onAuthorizer} />
+          )}
           {s.authorizer?.synthetic && (
             <p className="use-provenance" role="note">
               <strong>{s.authorizer.label}.</strong> Authorizing here makes a synthetic test
