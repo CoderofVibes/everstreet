@@ -43,6 +43,12 @@ import {
 
 /** lib.rs MAX_ISSUE_AGE_MS: a close order must land within 20 minutes of its issue time. */
 export const MAX_ISSUE_AGE_MS = 1_200_000;
+/**
+ * Astra 04:06: the history recovery's local bounds: at most `page` finished handovers are read
+ * per pass per business (one keyset query), and the cursor and backoff maps keep at most `cap`
+ * entries (the oldest dropped: at worst one status read happens earlier than its minute).
+ */
+const HISTORY = { page: 16, cap: 512 };
 /** A finished handover's aged attempts are read by status at most this often. */
 const STATUS_EVERY_MS = 60_000;
 
@@ -65,6 +71,8 @@ export interface CoordinatorOptions {
   /** A function-call key's allowance must be unlimited or at least this (yoctoNEAR). */
   minAllowanceYocto?: bigint;
   journal?: JournalCaps;
+  /** Astra 04:06: the history recovery bounds (default page 16, cap 512). */
+  history?: { page?: number; cap?: number };
   leaseMs?: number;
   readTimeoutMs?: number;
   now?: () => number;
@@ -75,6 +83,18 @@ export type Capability = { ready: boolean; reason: string | null };
 class LeaseLost extends Error {}
 
 const OPEN_STATES = ["gated", "ready", "ordering", "outcome_unknown"];
+/** Every non-terminal handover state (a finished handover is any other). */
+const OPEN_STATES_SQL = [
+  "gated",
+  "ready",
+  "ordering",
+  "outcome_unknown",
+  "closed_observed",
+  "reconciled",
+  "attention",
+]
+  .map((s) => `'${s}'`)
+  .join(",");
 
 /** Live processes (presence) that don't declare the handover gate (D3). */
 export function incompatiblePeers(db: Db, nowMs: number): number {
@@ -99,8 +119,13 @@ export class HandoverCoordinator {
    * skipped, never stepped twice at once.
    */
   private readonly ops = new Map<string, { gen: number; dead: boolean; done: Promise<unknown> }>();
-  /** Per business: the finished handover last read by status only (the next read starts after it). */
-  private readonly historyCursor = new Map<string, string>();
+  /**
+   * Astra 04:06: per business, the keyset position (created_ms, id) after the last finished
+   * handover a history page looked at; the next page starts after it, and wraps after the end.
+   * Coordinator memory, bounded (HISTORY.cap entries, oldest dropped): not durable across a
+   * restart, where the scan simply starts again from the oldest.
+   */
+  private readonly historyCursor = new Map<string, { created: number; id: string }>();
   /** When each finished handover's aged attempts were last read by status only. */
   private readonly statusReadAt = new Map<string, number>();
   /** The last business a pass visited (the next pass starts after it). */
@@ -108,6 +133,7 @@ export class HandoverCoordinator {
   private readonly now: () => number;
   private readonly leaseMs: number;
   private readonly caps: JournalCaps;
+  private readonly history: { page: number; cap: number };
 
   constructor(
     private readonly db: Db,
@@ -121,6 +147,7 @@ export class HandoverCoordinator {
     this.now = opts.now ?? Date.now;
     this.leaseMs = opts.leaseMs ?? 3 * Math.max(opts.intervalMs, opts.passBudgetMs);
     this.caps = opts.journal ?? DEFAULT_JOURNAL;
+    this.history = { ...HISTORY, ...(opts.history ?? {}) };
     if (this.caps.reserve < 3 * opts.maxOrders + 8)
       throw new Error("handover: the journal reserve must fit every order's entries (D2)");
   }
@@ -420,56 +447,22 @@ export class HandoverCoordinator {
     }
     let h = openHandover(this.db, businessId);
     if (!h) {
-      // S-12 / Astra 03:30, 03:40, 03:47: finished handovers' close attempts still unresolved are
-      // resolved by their own transactions, so their evidence is never left looking absent;
-      // nothing here moves a finished handover. The latest handover's order, while young enough
-      // to execute, may have its same bytes resent (the writer's rules). Every handover whose
-      // orders are all past the contract's limit (MAX_ISSUE_AGE_MS) gets status-only reads of its
-      // original's own hash, in turn: a per-business cursor visits each such handover in
-      // creation order, one per pass, at most once a minute each (this coordinator's memory, not
-      // durable across a restart). No fixed window: an old handover can't be starved by newer
-      // ones. A missing status proves nothing: the attempt stays unknown.
-      const pending = this.db
-        .prepare(
-          `SELECT h.id FROM business_handovers h WHERE h.business_id = ? AND EXISTS (
-             SELECT 1 FROM closer_tx_attempts a WHERE a.operation LIKE 'close-' || h.id || '-%' AND a.state = 'signed')
-           ORDER BY h.created_ms, h.id`,
-        )
-        .all(businessId) as { id: string }[];
-      if (pending.length === 0) return "idle";
-      const aged = (id: string) => {
-        const y = this.db
-          .prepare(
-            "SELECT MAX(json_extract(order_json, '$.issued_at_ms')) AS t FROM close_orders WHERE handover_id = ?",
-          )
-          .get(id) as { t: string | null };
-        return (
-          y.t === null || BigInt(r.block.timestamp_ms) - BigInt(y.t) > BigInt(MAX_ISSUE_AGE_MS)
-        );
-      };
-      const load = (id: string) =>
-        this.db
-          .prepare("SELECT * FROM business_handovers WHERE id = ?")
-          .get(id) as unknown as HandoverRow;
+      // Finished handovers' close attempts still unresolved are resolved by their own
+      // transactions; nothing here moves a finished handover (S-12; Astra 03:30-04:06).
+      // 1. The latest handover's order, while young enough to execute, may have its same bytes
+      //    resent (the writer's rules): current, young work first.
       const latest = latestHandover(this.db, businessId);
-      if (latest && pending.some((p) => p.id === latest.id) && !aged(latest.id)) {
+      if (latest && this.unknownAttempts(latest.id) && !this.aged(latest.id, r.block)) {
         if (!alive()) return "stopped";
         await this.resolveAttempts(latest, binding.account, gen);
         return "attempts_resolved";
       }
-      const ids = pending.map((p) => p.id);
-      const after = this.historyCursor.get(businessId);
-      const from = after === undefined ? 0 : ids.indexOf(after) + 1;
-      const order = [...ids.slice(from), ...ids.slice(0, from)];
-      for (const id of order) {
-        if (!aged(id)) continue; // a young order of an older handover: resolved by its own rules
-        if ((this.statusReadAt.get(id) ?? 0) + STATUS_EVERY_MS > this.now()) continue;
-        this.historyCursor.set(businessId, id);
-        this.statusReadAt.set(id, this.now());
-        if (!alive()) return "stopped";
-        return this.statusOnly(load(id), gen);
-      }
-      return "idle";
+      // 2. Every aged one, in turn: a bounded page of history per pass (pickHistory), status
+      //    reads only (no send), a missing status stays unknown.
+      const pick = this.pickHistory(businessId, BigInt(r.block.timestamp_ms));
+      if (!pick) return "idle";
+      if (!alive()) return "stopped";
+      return this.statusOnly(pick, gen);
     }
     if (h.state === "attention") return "attention";
     if (h.state === "closed_observed" || h.state === "reconciled") {
@@ -753,6 +746,84 @@ export class HandoverCoordinator {
       }
     }
     return resolved > 0 ? "attempts_status_resolved" : "attempts_status_unknown";
+  }
+
+  /** Whether a handover has a close attempt still unknown (signed, not final). */
+  private unknownAttempts(handoverId: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          "SELECT 1 FROM closer_tx_attempts WHERE operation LIKE ? AND state = 'signed' LIMIT 1",
+        )
+        .get(`close-${handoverId}-%`),
+    );
+  }
+
+  /** Whether every order of a handover is past the contract's limit at this block. */
+  private aged(handoverId: string, block: PinnedBlock): boolean {
+    const y = this.db
+      .prepare(
+        "SELECT MAX(json_extract(order_json, '$.issued_at_ms')) AS t FROM close_orders WHERE handover_id = ?",
+      )
+      .get(handoverId) as { t: string | null };
+    return y.t === null || BigInt(block.timestamp_ms) - BigInt(y.t) > BigInt(MAX_ISSUE_AGE_MS);
+  }
+
+  /** A bounded map write: re-inserted at the end; past the cap the oldest entry is dropped. */
+  private remember<K, V>(m: Map<K, V>, k: K, v: V) {
+    m.delete(k);
+    m.set(k, v);
+    while (m.size > this.history.cap) m.delete(m.keys().next().value as K);
+  }
+
+  /**
+   * Astra 04:06: the next finished handover of this business to read by status, from ONE bounded
+   * keyset page (at most `page` rows, each with its youngest order's time, in creation order)
+   * starting after the business's cursor. The cursor advances past every row looked at (eligible
+   * or not, due or not), so no row is skipped for ever; a short page means the end was reached
+   * and the next pass starts again from the oldest. Returns null when this page has nothing due.
+   */
+  pickHistory(businessId: string, blockMs: bigint): HandoverRow | null {
+    const cur = this.historyCursor.get(businessId) ?? null;
+    const rows = this.db
+      .prepare(
+        `SELECT h.id, h.created_ms,
+           (SELECT MAX(json_extract(o.order_json, '$.issued_at_ms')) FROM close_orders o WHERE o.handover_id = h.id) AS youngest
+         FROM business_handovers h
+         WHERE h.business_id = ? AND h.state NOT IN (${OPEN_STATES_SQL})
+           AND EXISTS (SELECT 1 FROM closer_tx_attempts a WHERE a.operation LIKE 'close-' || h.id || '-%' AND a.state = 'signed')
+           AND (? IS NULL OR h.created_ms > ? OR (h.created_ms = ? AND h.id > ?))
+         ORDER BY h.created_ms, h.id LIMIT ?`,
+      )
+      .all(
+        businessId,
+        cur ? cur.created : null,
+        cur ? cur.created : 0,
+        cur ? cur.created : 0,
+        cur ? cur.id : "",
+        this.history.page,
+      ) as { id: string; created_ms: number; youngest: string | null }[];
+    this.historyScanned += rows.length;
+    for (const row of rows) {
+      this.remember(this.historyCursor, businessId, { created: row.created_ms, id: row.id });
+      const aged =
+        row.youngest === null || blockMs - BigInt(row.youngest) > BigInt(MAX_ISSUE_AGE_MS);
+      if (!aged) continue; // an older handover's young order: resolved by its own rules
+      if ((this.statusReadAt.get(row.id) ?? 0) + STATUS_EVERY_MS > this.now()) continue;
+      this.remember(this.statusReadAt, row.id, this.now());
+      return this.db
+        .prepare("SELECT * FROM business_handovers WHERE id = ?")
+        .get(row.id) as unknown as HandoverRow;
+    }
+    if (rows.length < this.history.page) this.historyCursor.delete(businessId); // wrap
+    return null;
+  }
+
+  /** Rows the history pages have read, for tests and diagnostics (local work, not RPCs). */
+  historyScanned = 0;
+  /** The current sizes of the bounded history bookkeeping. */
+  historyBookkeeping() {
+    return { cursors: this.historyCursor.size, backoff: this.statusReadAt.size };
   }
 
   /** Sends one admitted order. The writer persists the signed attempt before broadcasting. */
