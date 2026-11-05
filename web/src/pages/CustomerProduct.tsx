@@ -11,6 +11,8 @@ import {
   CUSTOMER_STEP_WORD,
   type CustomerStep,
   customerSteps,
+  WONT_RUN_RESULT,
+  wontRun,
 } from "../customerView.ts";
 import {
   type Action,
@@ -290,6 +292,10 @@ export function ResultArea({
       </p>
     );
   const x = use?.execution;
+  // Astra 02:43: a use that won't run (its unit returned or returning, or the request ended)
+  // never invites a run or promises a result.
+  const ended = wontRun(use);
+  if (ended) return <p className="use-placeholder is-stopped">{WONT_RUN_RESULT[ended]}</p>;
   // Job 001j: nothing has run: a compact placeholder that says what will appear, not a tall blank.
   if (!x)
     return (

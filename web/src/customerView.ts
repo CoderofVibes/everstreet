@@ -27,6 +27,25 @@ type View = Pick<WorkspaceState, "use" | "result" | "check" | "unanswered" | "dr
 const ENDED: UseView["state"][] = ["refused", "unresolved", "cancelled", "expired"];
 const is = (status: CustomerStepStatus, detail: string) => ({ status, detail });
 
+/**
+ * Astra 02:43: a use that never ran and now never can (its unit is returned or being returned, or
+ * the request ended): no step or panel may invite running it or promise a result.
+ */
+export function wontRun(u: UseView | null | undefined): "returned" | "returning" | "ended" | null {
+  if (!u || u.execution) return null;
+  if (ENDED.includes(u.state)) return "ended";
+  if (u.units.unit === "returned") return "returned";
+  if (u.units.unit === "release_pending") return "returning";
+  return null;
+}
+
+/** The words for a use that won't run, for its result step and its result panel. */
+export const WONT_RUN_RESULT: Record<"returned" | "returning" | "ended", string> = {
+  returned: "No result: this use didn't run, and its unit was returned. Nothing was charged.",
+  returning: "No result: this use won't run. Its unit is being returned; you aren't charged.",
+  ended: "No result: this request ended before it ran.",
+};
+
 /** Whether the shown result is a complete extraction (every required field found). */
 export const completeResult = (s: Pick<WorkspaceState, "result">) =>
   s.result?.result.outcome === "extracted";
@@ -101,6 +120,8 @@ function resultStep(s: View) {
     return completeResult(s)
       ? is("completed", "Every required field was found. Compare it with your document.")
       : is("attention", "Not a complete extraction. Read what's missing before you use it.");
+  const ended = wontRun(s.use);
+  if (ended) return is("stopped", WONT_RUN_RESULT[ended]);
   if (!x || x.state === "running") return is("waiting", "Appears here after the run.");
   if (x.result === "available") return is("current", "Ready. Only you can read it.");
   if (x.result === "pending") return is("current", "Being saved privately.");
