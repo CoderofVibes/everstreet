@@ -35,6 +35,20 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **ALL FOUR business-v3 examples VERIFIED ON NEAR TESTNET** (Nov 5 evening): Direct (6a4d8c8),
+  Gated (aee32f1), lost purchase response + failed token payout (344ca90); README d40134f. Spend
+  16.73 of 20 testnet NEAR (root everstreet.testnet ~6.2 NEAR left). Evidence data/evidence/
+  v3-{direct,gated,recovery}-testnet.json (+ setup files); verify with scripts/verify-rehearsal.ts.
+  Operational lessons: FastNEAR free tier 429s -> later runs used dRPC
+  (NEAR_RPC=https://near-testnet.drpc.org); dRPC 500s on FINAL-waiting sends -> the script wallet
+  now signs first (hash known), sends async, polls final status, re-broadcasts the same bytes;
+  an exhausted settle stays unknown by design (writer history proves nothing) -> after the
+  contract's settle deadline anyone may release_hold_for (the customer did; recorded as an
+  operator note); explorer API listed no activity -> the original hash was found by reading
+  public blocks (scratch script, not in repo). Runtime dirs data/runtime/rehearsal-* hold the
+  run DBs and device keys (gitignored). NEXT (Astra's order): showcase proposal corrections job,
+  then the homepage with Ledgerline, engines, 006a, team/co-op, Fable for the dashboard (step 7).
+
 - **Example 1 (Direct) VERIFIED ON NEAR TESTNET** (6a4d8c8; evidence data/evidence/v3-direct-testnet.json,
   setup v3-setup-testnet.json; `npx tsx scripts/verify-rehearsal.ts <file>`). Spend 6.35 of 20 testnet
   NEAR (root started at 22.89 after two faucet accounts everstreet-fund-1/2). Tooling:
