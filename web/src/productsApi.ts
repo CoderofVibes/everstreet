@@ -51,7 +51,7 @@ export interface BuildAvailability {
   reason: string;
 }
 
-export type CheckState = "pass" | "todo" | "unavailable" | "manual";
+export type CheckState = "pass" | "todo" | "unavailable" | "manual" | "fail";
 export type KnownState = "ok" | "missing" | "manual" | "assumption" | "known" | "unknown";
 
 export interface StudioView {
@@ -79,9 +79,17 @@ export interface StudioView {
   checks: {
     deterministic: { id: string; label: string; state: CheckState; detail: string }[];
     passed: number;
+    /** Phase B: what the records show for the saved revision's build. */
+    build: { state: CheckState; detail: string };
     model_evaluations: { state: CheckState; detail: string };
     journey_tests: { state: CheckState; detail: string };
-    manual: { label: string; state: CheckState }[];
+    manual: {
+      key: "audience_walkthrough" | "manual_fallback";
+      label: string;
+      state: CheckState;
+      /** Self-reported by the founder; never an automated pass. */
+      recorded: { outcome: "done" | "issues"; note: string; by: string; at: string } | null;
+    }[];
     unknowns: string[];
   };
   continuity: {
@@ -142,6 +150,15 @@ export const productsApi = {
     fields: { base_revision: number; brief: Brief; prototype: Prototype; note?: string },
   ) =>
     call<StudioView>(`/api/product-projects/${encodeURIComponent(id)}/revisions`, "POST", fields),
+  recordManualCheck: (
+    id: string,
+    input: { revision: number; check_key: string; outcome: "done" | "issues"; note: string },
+  ) =>
+    call<StudioView>(
+      `/api/product-projects/${encodeURIComponent(id)}/manual-checks`,
+      "POST",
+      input,
+    ),
   restore: (id: string, revision: number, base_revision: number) =>
     call<StudioView>(`/api/product-projects/${encodeURIComponent(id)}/restore`, "POST", {
       revision,

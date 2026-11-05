@@ -655,6 +655,19 @@ CREATE TRIGGER IF NOT EXISTS build_usage_no_update BEFORE UPDATE ON build_usage
 BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_delete BEFORE DELETE ON build_usage
 BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
+-- Phase B (November 5 build): a founder's own manual checks of a saved revision, self-reported
+-- and append-only; the newest record per check is the current answer.
+CREATE TABLE IF NOT EXISTS product_manual_checks (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES product_projects(id),
+  revision INTEGER NOT NULL,
+  check_key TEXT NOT NULL CHECK (check_key IN ('audience_walkthrough','manual_fallback')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('done','issues')), note TEXT NOT NULL,
+  recorded_by TEXT NOT NULL REFERENCES people(id), created_at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS product_manual_checks_no_update BEFORE UPDATE ON product_manual_checks
+BEGIN SELECT RAISE(ABORT, 'manual checks are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS product_manual_checks_no_delete BEFORE DELETE ON product_manual_checks
+BEGIN SELECT RAISE(ABORT, 'manual checks are append-only'); END;
 -- Job 003wf slice 3 (docs/design/WRITER_HISTORY.md): every operator check of an unresolved writer
 -- attempt, append-only. What was asked, who asked, what the network's FINAL status showed (or
 -- that nothing final was shown) and whether the attempt's recorded state changed. Never bytes.

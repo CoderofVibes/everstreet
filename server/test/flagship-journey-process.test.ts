@@ -160,7 +160,7 @@ const ok = (r: { status: number; body: Json }, want: number | number[], what: st
 };
 
 describe("003wf parent: the flagship journey in one configured child (SYNTHETIC chain, wallet and model)", () => {
-  it("founder builds, evaluates, releases and offers; a fresh customer buys 100 and uses 20; a Direct sale closes; 80 at close, 79 after the buyer's next use; the buyer's reviewed update reaches the same customer", async () => {
+  it("founder builds, evaluates, releases and offers; a fresh customer buys 100 and uses 20; a Direct sale closes; 80 at close, 79 after the buyer's next use; a draft never changes the served product; the buyer's reviewed update reaches the same customer", async () => {
     const dir = mkdtempSync(join(tmpdir(), "flagship-"));
     cleanups.push(() =>
       rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
@@ -540,6 +540,10 @@ describe("003wf parent: the flagship journey in one configured child (SYNTHETIC 
       60_000,
     );
     expect([done2.state, done2.release_ready]).toEqual(["complete", true]);
+    // Phase B: the buyer's new revision is built and checked but NOT released yet; the customer's
+    // next use is still served by the released version (a draft never changes the product).
+    const whileDrafting = await serveOneUse(cara, offer.id as string, 22);
+    expect(b.w.chain.ent(CUSTOMER)).toMatchObject({ free: "78", consumed: "22" });
     const rel2 = ok(
       await noah(`/api/product-projects/${project}/releases`, "POST", {
         artifact_job: job2,
@@ -551,8 +555,8 @@ describe("003wf parent: the flagship journey in one configured child (SYNTHETIC 
     const rel2Id = rel2.active.id as string;
     expect(rel2.active).toMatchObject({ artifact_job: job2, state: "active" });
     const offer2 = await offerFor(noah, rel2Id, 1, "flagship-offer-0002");
-    const updated = await serveOneUse(cara, offer2.id as string, 22);
-    expect(b.w.chain.ent(CUSTOMER)).toMatchObject({ free: "78", consumed: "22" });
+    const updated = await serveOneUse(cara, offer2.id as string, 23);
+    expect(b.w.chain.ent(CUSTOMER)).toMatchObject({ free: "77", consumed: "23" });
     const st = ok(await cara(`/api/customer/uses/${updated}`), 200, "updated use");
     expect(st.use.offer_id).toBe(offer2.id);
     // Cara's earlier result is still hers, unchanged, after the buyer's update.
@@ -577,6 +581,8 @@ describe("003wf parent: the flagship journey in one configured child (SYNTHETIC 
       const r1 = served(uses[0]) as Json;
       const r21 = served(uses[20]) as Json;
       const r22 = served(updated) as Json;
+      // The use made while the update was only a draft ran on the released (first) artifact.
+      expect(served(whileDrafting)).toMatchObject({ artifact_job: jobId, delivery: "delivered" });
       expect(r1).toMatchObject({ artifact_job: jobId, delivery: "delivered" });
       expect(r21).toMatchObject({ artifact_job: jobId, delivery: "delivered" });
       expect(r22).toMatchObject({ release_id: rel2Id, artifact_job: job2, delivery: "delivered" });
@@ -589,7 +595,7 @@ describe("003wf parent: the flagship journey in one configured child (SYNTHETIC 
       const charges = rec
         .prepare("SELECT COUNT(*) AS n FROM customer_settlements WHERE kind = 'charge'")
         .get() as { n: number };
-      expect(charges.n).toBe(22);
+      expect(charges.n).toBe(23);
     } finally {
       rec.close();
     }

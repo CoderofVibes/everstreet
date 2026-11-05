@@ -1318,3 +1318,10 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .wh-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px; }
 .wh-result { margin-top: 8px; padding: 8px 12px; border-radius: 8px; background: var(--paper-2, #eef2fa); }
 .wh-checks { margin: 6px 0 0; padding-left: 18px; }
+
+/* Phase B: Checks shows build, evaluation and release evidence side by side; manual records. */
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { .grid-3 { grid-template-columns: minmax(0, 1fr); } }
+.state-icon.fail { background: var(--danger, #b42318); color: #fff; }
+.manual-check .manual-form { display: grid; gap: 6px; margin-top: 8px; }
+.manual-check .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }

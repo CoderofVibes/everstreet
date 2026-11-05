@@ -597,6 +597,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const { created, view } = products.save(me(c), c.req.param("id"), await body(c));
     return c.json({ ...view, created }, created ? 201 : 200);
   });
+  // Phase B: a founder's own manual check of a saved revision (self-reported, append-only).
+  app.post("/api/product-projects/:id/manual-checks", async (c) =>
+    c.json(products.recordManualCheck(me(c), c.req.param("id"), await body(c)), 201),
+  );
   app.post("/api/product-projects/:id/restore", async (c) => {
     const { created, view } = products.restore(me(c), c.req.param("id"), await body(c));
     return c.json({ ...view, created }, created ? 201 : 200);

@@ -168,7 +168,8 @@ function StateIcon({ state }: { state: CheckState | KnownState }) {
     missing: "Missing",
     unavailable: "Not available",
     unknown: "Unknown",
-    manual: "Checked by you",
+    manual: "Not recorded",
+    fail: "Found problems",
     assumption: "Assumption",
     known: "Known",
   };
@@ -289,8 +290,137 @@ function BriefDoc({ view, brief, starter }: { view: StudioView; brief: Brief; st
   );
 }
 
-function ChecksView({ view, dirty }: { view: StudioView; dirty: boolean }) {
+const PILL: Record<string, { label: string; tone: string }> = {
+  pass: { label: "Passed", tone: "mint" },
+  fail: { label: "Found problems", tone: "caution" },
+  todo: { label: "To do", tone: "caution" },
+  unavailable: { label: "Not available", tone: "" },
+  manual: { label: "Not recorded", tone: "" },
+};
+
+function EvidenceRow({ c }: { c: { state: CheckState; detail: string } }) {
+  return (
+    <div className="check-row">
+      <StateIcon state={c.state} />
+      <span className="detail">{c.detail}</span>
+      <span className={`pill ${PILL[c.state]?.tone ?? ""}`}>{PILL[c.state]?.label ?? c.state}</span>
+    </div>
+  );
+}
+
+/** Phase B: one manual check, recorded by the founder (self-reported, kept with the revision). */
+function ManualCheck({
+  m,
+  view,
+  onView,
+}: {
+  m: StudioView["checks"]["manual"][number];
+  view: StudioView;
+  onView: (v: StudioView) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const record = async (outcome: "done" | "issues") => {
+    setBusy(true);
+    setError(null);
+    try {
+      onView(
+        await productsApi.recordManualCheck(view.project.id, {
+          revision: view.head.number,
+          check_key: m.key,
+          outcome,
+          note,
+        }),
+      );
+      setOpen(false);
+      setNote("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const noteId = `manual-note-${m.key}`;
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  // Opening the form moves focus to its first field (keyboard and screen-reader users).
+  useEffect(() => {
+    if (open) noteRef.current?.focus();
+  }, [open]);
+  return (
+    <div className="check-row manual-check">
+      <StateIcon state={m.state} />
+      <span>
+        {m.label}
+        {m.recorded && (
+          <div className="detail">
+            {m.recorded.outcome === "done" ? "Done" : "Problems found"}, recorded by {m.recorded.by}{" "}
+            on {new Date(m.recorded.at).toLocaleDateString()} for revision {view.head.number}
+            {m.recorded.note ? `: ${m.recorded.note}` : "."}
+          </div>
+        )}
+        {open && (
+          <div className="manual-form">
+            <label htmlFor={noteId}>What you did or found (required for problems)</label>
+            <textarea
+              ref={noteRef}
+              id={noteId}
+              className="input"
+              rows={2}
+              maxLength={600}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <div className="row-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => record("done")}
+              >
+                Record as done
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={busy || !note.trim()}
+                onClick={() => record("issues")}
+              >
+                Record problems found
+              </button>
+              <button type="button" className="btn btn-quiet" onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+            </div>
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+      </span>
+      {!open && (
+        <button type="button" className="btn btn-sm" onClick={() => setOpen(true)}>
+          {m.recorded ? "Record again" : "Record result"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ChecksView({
+  view,
+  dirty,
+  onView,
+}: {
+  view: StudioView;
+  dirty: boolean;
+  onView: (v: StudioView) => void;
+}) {
   const c = view.checks;
+  const built = c.build.state === "pass";
   return (
     <div style={{ maxWidth: 860 }}>
       {dirty && (
@@ -304,7 +434,10 @@ function ChecksView({ view, dirty }: { view: StudioView; dirty: boolean }) {
         </h3>
         <p>
           Rules that check whether the brief and prototype of revision {view.head.number} say
-          enough. They do not test a product: no build exists yet.
+          enough.{" "}
+          {built
+            ? "They describe the product; the checks below test what was built."
+            : "They do not test a product: this revision hasn't been built."}
         </p>
         {c.deterministic.map((d) => (
           <div className="check-row" key={d.id}>
@@ -319,26 +452,24 @@ function ChecksView({ view, dirty }: { view: StudioView; dirty: boolean }) {
           </div>
         ))}
       </section>
-      <div className="grid-2" style={{ gap: 12 }}>
+      <div className="grid-3" style={{ gap: 12 }}>
+        <section className="check-group">
+          <h3>
+            <Icon name="spark" /> Build
+          </h3>
+          <EvidenceRow c={c.build} />
+        </section>
         <section className="check-group">
           <h3>
             <Icon name="spark" /> Model evaluations
           </h3>
-          <div className="check-row">
-            <StateIcon state={c.model_evaluations.state} />
-            <span className="detail">{c.model_evaluations.detail}</span>
-            <span className="pill">Not available</span>
-          </div>
+          <EvidenceRow c={c.model_evaluations} />
         </section>
         <section className="check-group">
           <h3>
-            <Icon name="user" /> Customer journey tests
+            <Icon name="user" /> Released and in use
           </h3>
-          <div className="check-row">
-            <StateIcon state={c.journey_tests.state} />
-            <span className="detail">{c.journey_tests.detail}</span>
-            <span className="pill">Not available</span>
-          </div>
+          <EvidenceRow c={c.journey_tests} />
         </section>
       </div>
       <div className="grid-2" style={{ gap: 12 }}>
@@ -346,13 +477,12 @@ function ChecksView({ view, dirty }: { view: StudioView; dirty: boolean }) {
           <h3>
             <Icon name="eye" /> Check yourself
           </h3>
-          <p>Not tracked by Everstreet.</p>
+          <p>
+            Your own checks of revision {view.head.number}. Everstreet records what you report; it
+            doesn't verify it.
+          </p>
           {c.manual.map((m) => (
-            <div className="check-row" key={m.label}>
-              <StateIcon state={m.state} />
-              <span>{m.label}</span>
-              <span />
-            </div>
+            <ManualCheck key={m.key} m={m} view={view} onView={onView} />
           ))}
         </section>
         <section className="check-group">
@@ -1512,7 +1642,7 @@ export function ProductStudio({ id }: { id: string }) {
                   }}
                 />
               )}
-              {tab === "checks" && <ChecksView view={view} dirty={dirty} />}
+              {tab === "checks" && <ChecksView view={view} dirty={dirty} onView={setView} />}
               {tab === "versions" && (
                 <VersionsView view={view} dirty={dirty} busy={busy} onRestore={restore} />
               )}

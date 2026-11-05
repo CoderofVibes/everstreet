@@ -424,9 +424,118 @@ export const hashOf = (brief: Brief, prototype: Prototype) =>
 
 // ---------- checks and continuity: only what is actually known ----------
 
-type CheckState = "pass" | "todo" | "unavailable" | "manual";
+type CheckState = "pass" | "todo" | "unavailable" | "manual" | "fail";
 
-export function checks(brief: Brief, prototype: Prototype, build: BuildAvailability) {
+/** Manual checks a founder can record (self-reported; labelled as such everywhere). */
+export const MANUAL_CHECKS = {
+  audience_walkthrough: "Walk someone from your audience through the prototype",
+  manual_fallback: "Confirm you could deliver the promise by hand if the AI step failed",
+} as const;
+export type ManualCheckKey = keyof typeof MANUAL_CHECKS;
+
+/**
+ * Phase B (November 5 build): what is actually recorded for a saved revision, so Checks never
+ * says "no build exists" when one does, and never claims more than the records show.
+ */
+export interface RevisionEvidence {
+  build: { id: string; state: string; finished_at: string | null } | null;
+  evaluation: {
+    id: string;
+    state: string;
+    passed: number;
+    failed: number;
+    errors: number;
+    total: number;
+    finished_at: string | null;
+  } | null;
+  release: { id: string; artifact_job: string; revision: number; activated_at: string } | null;
+  customer_results: number;
+  manual: Partial<
+    Record<ManualCheckKey, { outcome: "done" | "issues"; note: string; by: string; at: string }>
+  >;
+}
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+function buildCheck(build: BuildAvailability, revision: number | null, e: RevisionEvidence | null) {
+  if (e?.build)
+    return {
+      state: (e.build.state === "succeeded"
+        ? "pass"
+        : e.build.state === "failed"
+          ? "fail"
+          : "todo") as CheckState,
+      detail:
+        e.build.state === "succeeded"
+          ? `Revision ${revision} was built.`
+          : `The build of revision ${revision} is ${e.build.state.replaceAll("_", " ")}.`,
+    };
+  return {
+    state: (build.available ? "todo" : "unavailable") as CheckState,
+    detail: build.available
+      ? `Revision ${revision} hasn't been built yet.`
+      : "No build provider is connected, so nothing is generated here yet.",
+  };
+}
+
+function evaluationCheck(build: BuildAvailability, e: RevisionEvidence | null) {
+  const ev = e?.evaluation;
+  if (ev) {
+    const wrong = ev.failed + ev.errors;
+    if (ev.state !== "complete")
+      return {
+        state: "todo" as CheckState,
+        detail: `An evaluation of this revision's build is ${ev.state}.`,
+      };
+    return {
+      state: (wrong === 0 ? "pass" : "fail") as CheckState,
+      detail: `${ev.passed} of ${ev.total} named test cases passed on this revision's build${
+        wrong > 0 ? ` (${ev.failed} wrong, ${ev.errors} errors)` : ""
+      }. Quality on these cases only, not a claim of general accuracy.`,
+    };
+  }
+  return {
+    state: "unavailable" as CheckState,
+    detail:
+      e?.build?.state === "succeeded"
+        ? "This revision's build hasn't been evaluated yet."
+        : build.available
+          ? "No evaluation set has been run for this revision."
+          : "No build provider is connected, so no model output exists to evaluate.",
+  };
+}
+
+function customerCheck(revision: number | null, e: RevisionEvidence | null) {
+  const r = e?.release;
+  if (!r)
+    return {
+      state: "unavailable" as CheckState,
+      detail:
+        e?.build?.state === "succeeded"
+          ? "Not released yet, so no customer has used it."
+          : "Customer journey tests need a working build; this project has a prototype only.",
+    };
+  const which =
+    r.revision === revision
+      ? `Revision ${revision} is released.`
+      : `Released: revision ${r.revision}. This revision isn't released; customers keep the released one.`;
+  const used =
+    (e?.customer_results ?? 0) > 0
+      ? ` Customers have received ${plural(e?.customer_results ?? 0, "result")} from the released version (observed use, not a test).`
+      : " No customer has used the released version yet.";
+  return {
+    state: ((e?.customer_results ?? 0) > 0 ? "pass" : "todo") as CheckState,
+    detail: which + used,
+  };
+}
+
+export function checks(
+  brief: Brief,
+  prototype: Prototype,
+  build: BuildAvailability,
+  revision: number | null = null,
+  evidence: RevisionEvidence | null = null,
+) {
   const priced =
     brief.price.model === "free" ||
     (brief.price.model !== "undecided" && brief.price.amount_cents !== null);
@@ -463,29 +572,29 @@ export function checks(brief: Brief, prototype: Prototype, build: BuildAvailabil
   return {
     deterministic,
     passed: deterministic.filter((d) => d.state === "pass").length,
-    model_evaluations: {
-      state: "unavailable" as CheckState,
-      detail: build.available
-        ? "No evaluation set has been run for this revision."
-        : "No build provider is connected, so no model output exists to evaluate.",
-    },
-    journey_tests: {
-      state: "unavailable" as CheckState,
-      detail: "Customer journey tests need a working build; this project has a prototype only.",
-    },
-    manual: [
-      {
-        label: "Walk someone from your audience through the prototype",
-        state: "manual" as CheckState,
-      },
-      {
-        label: "Confirm you could deliver the promise by hand if the AI step failed",
-        state: "manual" as CheckState,
-      },
-    ],
+    build: buildCheck(build, revision, evidence),
+    model_evaluations: evaluationCheck(build, evidence),
+    journey_tests: customerCheck(revision, evidence),
+    manual: (Object.keys(MANUAL_CHECKS) as ManualCheckKey[]).map((key) => {
+      const r = evidence?.manual[key];
+      return {
+        key,
+        label: MANUAL_CHECKS[key],
+        state: (r ? (r.outcome === "done" ? "pass" : "fail") : "manual") as CheckState,
+        recorded: r ?? null,
+      };
+    }),
     unknowns: [
-      "Compute cost per customer request: unknown until a build runs",
-      "Whether customers will pay the assumed price",
+      ...((evidence?.customer_results ?? 0) > 0
+        ? []
+        : [
+            evidence?.build?.state === "succeeded"
+              ? "Compute cost per customer request: shown in operations once customers use the released version"
+              : "Compute cost per customer request: unknown until a build runs",
+          ]),
+      (evidence?.customer_results ?? 0) > 0
+        ? "Whether customers keep paying the price over time"
+        : "Whether customers will pay the assumed price",
     ],
   };
 }
@@ -526,6 +635,91 @@ export class Products {
     /** The build service's own answer (which also requires an operator ceiling), if wired. */
     private readonly availability: (() => BuildAvailability) | null = null,
   ) {}
+
+  /** What the records show for one saved revision (Checks; never more than is recorded). */
+  private evidence(projectId: string, revision: number): RevisionEvidence {
+    const build = this.db
+      .prepare(
+        "SELECT id, state, finished_at FROM build_jobs WHERE project_id = ? AND revision = ? AND intent = 'build' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(projectId, revision) as RevisionEvidence["build"] | undefined;
+    const evaluation = build
+      ? (this.db
+          .prepare(
+            "SELECT id, state, passed, failed, errors, total, finished_at FROM eval_runs WHERE artifact_job = ? ORDER BY created_at DESC LIMIT 1",
+          )
+          .get(build.id) as RevisionEvidence["evaluation"] | undefined)
+      : undefined;
+    const release = this.db
+      .prepare(
+        `SELECT r.id, r.artifact_job, j.revision, r.activated_at FROM runtime_releases r
+           JOIN build_jobs j ON j.id = r.artifact_job
+          WHERE r.project_id = ? AND r.state = 'active' ORDER BY r.activated_at DESC LIMIT 1`,
+      )
+      .get(projectId) as RevisionEvidence["release"] | undefined;
+    const customer = release
+      ? (this.db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM customer_executions e
+               JOIN runtime_invocations i ON i.id = e.invocation_id
+              WHERE i.release_id = ? AND e.delivery = 'delivered'`,
+          )
+          .get(release.id) as { n: number })
+      : { n: 0 };
+    const manual: RevisionEvidence["manual"] = {};
+    const rows = this.db
+      .prepare(
+        `SELECT m.check_key, m.outcome, m.note, m.created_at, p.display_name FROM product_manual_checks m
+           JOIN people p ON p.id = m.recorded_by
+          WHERE m.project_id = ? AND m.revision = ? ORDER BY m.created_at ASC, m.rowid ASC`,
+      )
+      .all(projectId, revision) as {
+      check_key: ManualCheckKey;
+      outcome: "done" | "issues";
+      note: string;
+      created_at: string;
+      display_name: string;
+    }[];
+    for (const r of rows)
+      manual[r.check_key] = {
+        outcome: r.outcome,
+        note: r.note,
+        by: r.display_name,
+        at: r.created_at,
+      };
+    return {
+      build: build ?? null,
+      evaluation: evaluation ?? null,
+      release: release ?? null,
+      customer_results: customer.n,
+      manual,
+    };
+  }
+
+  /**
+   * Records a founder's own manual check of a saved revision: self-reported, append-only, and
+   * shown as recorded by that person, never as an automated pass. The newest record counts.
+   */
+  recordManualCheck(viewer: Person, projectId: string, input: Record<string, unknown>) {
+    const p = this.owned(viewer, projectId);
+    const key = input.check_key;
+    if (typeof key !== "string" || !(key in MANUAL_CHECKS))
+      throw new HttpError(400, "Choose one of the manual checks");
+    const outcome = input.outcome;
+    if (outcome !== "done" && outcome !== "issues")
+      throw new HttpError(400, "The outcome is done or issues");
+    const revision = Number(input.revision);
+    if (!Number.isSafeInteger(revision) || !this.revisionRow(p.id, revision))
+      throw new HttpError(404, "No such revision");
+    const note = text(input.note, LIMITS.text, "The note", true);
+    if (outcome === "issues" && !note) throw new HttpError(400, "Say what you found");
+    this.db
+      .prepare(
+        "INSERT INTO product_manual_checks (id, project_id, revision, check_key, outcome, note, recorded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(randomUUID(), p.id, revision, key, outcome, note, viewer.id, new Date().toISOString());
+    return this.view(viewer, projectId);
+  }
 
   private build(): BuildAvailability {
     return this.availability ? this.availability() : buildAvailability(this.provider);
@@ -762,7 +956,13 @@ export class Products {
       head: current,
       revisions,
       starter,
-      checks: checks(current.brief, current.prototype, build),
+      checks: checks(
+        current.brief,
+        current.prototype,
+        build,
+        head.number,
+        this.evidence(p.id, head.number),
+      ),
       continuity: this.continuity(viewer, business.id, business.name, def, current.brief),
       build,
       // Job 005a: where the idea came from, if it came from a publicly shared request.
