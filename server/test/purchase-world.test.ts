@@ -143,4 +143,44 @@ describe("003web registration-bound purchases and the contract's declared terms"
     expect(businessLogs(ok)).toEqual(x.bound_current.logs);
     expect(returned(ok)).toBe("0");
   });
+
+  it("history (the contract's own run): accepted, validly emptied and removed, then the same request is returned", () => {
+    const h = PURCHASE.history as Json;
+    // The contract's facts: it WAS accepted (units_bought, nothing unused)...
+    expect(h.accepted.returned).toBe("0");
+    expect(h.accepted.logs.join("")).toContain('"event":"units_bought"');
+    // ...its units went back through the contract's own refund payout (callback succeeded),
+    expect(JSON.parse(h.after_refund).free).toBe("0");
+    // ...the registration was removed, and a new one has another id,
+    expect(h.after_unregister).toBe("null");
+    expect(h.second_reg_id).not.toBe(h.first_reg_id);
+    // ...and the same request replayed now is returned whole. Absent now; accepted then.
+    expect(h.replay.returned).toBe(h.accepted.amount);
+    expect(h.replay.logs.join("")).toContain(
+      "registration changed since this purchase was prepared",
+    );
+    // The double, from its own accepted purchase and a removed registration, says the same.
+    const c = fresh();
+    shell(c, h.customer, h.customer, "8200000000000000000000");
+    const first = (c.ent(h.customer) as Json).reg_id;
+    const msg = h.accepted.msg.replace(`"reg_id":"${h.first_reg_id}"`, `"reg_id":"${first}"`);
+    c.balances.set(h.customer, 10n ** 12n);
+    const a = pay(c, h.customer, h.accepted.amount, msg);
+    expect(businessLogs(a)).toEqual(h.accepted.logs);
+    c.ents.delete(h.customer);
+    shell(c, h.customer, h.customer, "8200000000000000000000");
+    const again = pay(c, h.customer, h.accepted.amount, msg);
+    expect(businessLogs(again)).toEqual(h.replay.logs);
+    expect(returned(again)).toBe(h.replay.returned);
+  });
+
+  it("the transaction's own status is the token resolution's value: the amount used", () => {
+    const c = fresh();
+    shell(c, CUSTOMER, CUSTOMER, "8200000000000000000000");
+    const a = PURCHASE.accepted as Json;
+    const top = (o: Json) =>
+      JSON.parse(Buffer.from(o.status.SuccessValue, "base64").toString()) as string;
+    expect(top(pay(c, a.sender, a.amount, a.msg))).toBe(a.amount);
+    expect(top(pay(c, a.sender, a.amount, a.msg))).toBe("0"); // the same sequence again: returned
+  });
 });

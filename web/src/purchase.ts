@@ -139,7 +139,9 @@ export interface PurchaseView {
     | "confirmed"
     | "returned"
     | "not_accepted"
-    | "set_aside";
+    | "registration_replaced"
+    | "set_aside"
+    | "legacy_abandoned";
   reg_id: string;
   network: string;
   asks: number;
@@ -150,6 +152,7 @@ export type Resolution =
   | { kind: "confirmed"; units: number; amount: string }
   | { kind: "returned"; amount: string; reason: string }
   | { kind: "not_accepted"; message: string }
+  | { kind: "registration_replaced"; message: string; reg_id_now: string | null }
   | { kind: "unknown"; message: string; purchase_seq_now: number | null; free_now: string | null };
 export interface PurchaseSetup {
   network: string;
@@ -182,6 +185,8 @@ export interface PurchaseSetup {
   token_storage: { needed: boolean; call: WalletFunctionCall | null };
   steps: string[];
   open: PurchaseView | null;
+  /** Earlier purchases that no longer block a payment, but whose outcome is still unknown. */
+  unresolved?: PurchaseView[];
   preview: PurchasePreview | { code: string; problem: string } | null;
 }
 
@@ -564,7 +569,7 @@ export class PurchaseFlow {
             ? { tone: "ok", text: "Purchase confirmed by the contract." }
             : res.kind === "returned"
               ? { tone: "warn", text: `The contract returned this payment in full: ${res.reason}.` }
-              : res.kind === "not_accepted"
+              : res.kind === "not_accepted" || res.kind === "registration_replaced"
                 ? { tone: "info", text: res.message }
                 : {
                     tone: "info",

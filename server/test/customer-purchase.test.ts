@@ -305,7 +305,7 @@ describe("003web refusals and uncertainty", () => {
     expect((await buy(t.w, t.offer, 2, "buy-key-0017")).c.status).toBe(201);
   });
 
-  it("a replaced registration closes a requested purchase as not accepted (the contract refuses it)", async () => {
+  it("a replaced registration: the old request no longer blocks, stays checkable, and is returned if it executes", async () => {
     const { w, offer } = await ready();
     const { c } = await buy(w, offer, 2, "buy-key-0018");
     const id = c.body.purchase.id as string;
@@ -313,13 +313,97 @@ describe("003web refusals and uncertainty", () => {
     // Unregistered and a new shell (as the contract test does): a new reg_id, sequence 0.
     w.chain.ents.delete(FRESH);
     wallet(w, (await setup(w, offer)).body.shell.call);
+    const now = (await setup(w, offer)).body.entitlement.reg_id;
+    expect(now).not.toBe(c.body.purchase.reg_id);
     const r = await w.dana(`/api/customer/purchases/${id}/check`, "POST", {});
-    expect(r.body.resolution.kind).toBe("not_accepted");
+    // Not "not accepted": the reading shows only that it can't be accepted from now on.
+    expect(r.body.resolution).toMatchObject({ kind: "registration_replaced", reg_id_now: now });
+    expect(r.body.resolution.message).toMatch(/isn't known from this/);
+    expect(r.body.purchase.state).toBe("registration_replaced");
+    // A purchase for the new registration may be made; the old one is listed as unresolved.
+    const s = (await setup(w, offer, 2)).body;
+    expect(s.open).toBeNull();
+    expect(s.unresolved.map((p: Json) => p.id)).toEqual([id]);
+    expect((await buy(w, offer, 2, "buy-key-0019")).c.status).toBe(201);
     // ...and indeed the old request is returned by the contract if it ever executes.
     const late = wallet(w, c.body.purchase.call);
     const logs = (late.receipts_outcome as Json[]).find((x) => x.outcome.executor_id === BUSINESS)
       ?.outcome.logs;
     expect(JSON.stringify(logs)).toContain("registration changed since this purchase was prepared");
+    const settled = await w.dana(`/api/customer/purchases/${id}/check`, "POST", {
+      tx_hash: late.transaction.hash,
+    });
+    expect(settled.body.resolution).toMatchObject({ kind: "returned" });
+  });
+
+  it("a request from before registration binding never inherits it: a replaced registration leaves it open and blocking", async () => {
+    const { w, offer } = await ready();
+    const { c } = await buy(w, offer, 2, "buy-key-0020");
+    const id = c.body.purchase.id as string;
+    await w.dana(`/api/customer/purchases/${id}/requested`, "POST", {});
+    // An earlier version's stored request: its message names no registration.
+    const call = c.body.purchase.call;
+    const msg = JSON.parse(call.args.msg);
+    delete msg.buy.reg_id;
+    const unbound = { ...call, args: { ...call.args, msg: JSON.stringify(msg) } };
+    const db = w.rw.store.db;
+    db.prepare("UPDATE customer_purchases SET call = ? WHERE id = ?").run(
+      JSON.stringify(unbound),
+      id,
+    );
+    w.chain.ents.delete(FRESH);
+    wallet(w, (await setup(w, offer)).body.shell.call);
+    const r = await w.dana(`/api/customer/purchases/${id}/check`, "POST", {});
+    expect(r.body.resolution.kind).toBe("unknown");
+    expect(r.body.resolution.message).toMatch(/could still accept it/);
+    expect(r.body.purchase.state).toBe("unknown");
+    expect((await buy(w, offer, 2, "buy-key-0021")).c.body.code).toBe("purchase_open");
+    // The new registration indeed accepts the unbound request; its own transaction confirms it.
+    const late = wallet(w, unbound);
+    const ok = await w.dana(`/api/customer/purchases/${id}/check`, "POST", {
+      tx_hash: late.transaction.hash,
+    });
+    expect(ok.body.resolution).toMatchObject({ kind: "confirmed", units: 2 });
+  });
+
+  it("an earlier version's not_accepted record stays checkable: its own transaction confirms it; unbound ones block", async () => {
+    const { w, offer } = await ready();
+    const { c } = await buy(w, offer, 3, "buy-key-0022");
+    const id = c.body.purchase.id as string;
+    await w.dana(`/api/customer/purchases/${id}/requested`, "POST", {});
+    const accepted = wallet(w, c.body.purchase.call);
+    // The earlier version closed it on a later missing-registration reading.
+    const old = { kind: "not_accepted", message: "an earlier version's reading" };
+    const db = w.rw.store.db;
+    db.prepare(
+      "UPDATE customer_purchases SET state = 'not_accepted', evidence = ? WHERE id = ?",
+    ).run(JSON.stringify(old), id);
+    // Its request names its registration: it doesn't block, and is listed as unresolved.
+    const s = (await setup(w, offer)).body;
+    expect(s.open).toBeNull();
+    expect(s.unresolved.map((p: Json) => p.id)).toEqual([id]);
+    // Without its transaction, a check leaves it as it is (never back into the open states).
+    const plain = await w.dana(`/api/customer/purchases/${id}/check`, "POST", {});
+    expect(plain.body.purchase.state).toBe("not_accepted");
+    const r = await w.dana(`/api/customer/purchases/${id}/check`, "POST", {
+      tx_hash: accepted.transaction.hash,
+    });
+    expect(r.body.resolution).toMatchObject({ kind: "confirmed", units: 3 });
+    expect(r.body.purchase.evidence.earlier).toEqual(old);
+    // An unbound not_accepted record blocks a fresh payment.
+    const t = await ready();
+    const u = await buy(t.w, t.offer, 2, "buy-key-0023");
+    const call = u.c.body.purchase.call;
+    const msg = JSON.parse(call.args.msg);
+    delete msg.buy.reg_id;
+    t.w.rw.store.db
+      .prepare("UPDATE customer_purchases SET state = 'not_accepted', call = ? WHERE id = ?")
+      .run(
+        JSON.stringify({ ...call, args: { ...call.args, msg: JSON.stringify(msg) } }),
+        u.c.body.purchase.id,
+      );
+    expect((await setup(t.w, t.offer)).body.open?.id).toBe(u.c.body.purchase.id);
+    expect((await buy(t.w, t.offer, 2, "buy-key-0024")).c.body.code).toBe("purchase_open");
   });
 
   it("an older contract without get_purchase_terms: purchase unavailable (an upgrade), no quote applied", async () => {

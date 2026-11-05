@@ -355,6 +355,8 @@ export class FixtureChain {
     });
     const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64");
     let failure: string | null = null;
+    // The transaction's own final value: for ft_transfer_call, the token resolution's (the amount used).
+    let topValue = "";
     try {
       if (call.receiverId === BUSINESS && call.methodName === "sponsor_shell") {
         receipts.push(ok(BUSINESS, this.sponsorShell(signer, call.args, deposit)));
@@ -387,6 +389,7 @@ export class FixtureChain {
         });
         const r = this.onTransfer(signer, amount, String(call.args.msg));
         receipts.push(ok(BUSINESS, r.logs, b64(String(r.unused)), rid("receiver")));
+        if (!this.failResolution) topValue = b64(String(amount - r.unused));
         if (r.unused > 0n) {
           // ft_resolve_transfer: the unused amount goes back to the sender.
           this.balances.set(receiver, (this.balances.get(receiver) ?? 0n) - r.unused);
@@ -431,7 +434,7 @@ export class FixtureChain {
         ? { Failure: { ActionError: { kind: { FunctionCallError: { ExecutionError: failure } } } } }
         : this.failResolution && call.methodName === "ft_transfer_call"
           ? { Failure: { ActionError: "synthetic resolution failure" } }
-          : { SuccessValue: "" },
+          : { SuccessValue: topValue },
       transaction_outcome: {
         id: hash,
         outcome: {

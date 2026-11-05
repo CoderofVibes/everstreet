@@ -180,6 +180,9 @@ export function PurchasePanel({
             {status ?? s.notice?.text ?? ""}
           </p>
 
+          {(setup.unresolved ?? []).length > 0 && (
+            <Unresolved flow={flow} setup={setup} busy={busy} />
+          )}
           {setup.open ? (
             <OpenPurchase flow={flow} s={s} setup={setup} account={account} busy={busy} />
           ) : s.review ? (
@@ -326,7 +329,51 @@ const STATE_WORDS: Record<string, string> = {
   prepared: "stored; your wallet hasn't been asked yet",
   requested: "your wallet was asked; waiting for its outcome",
   unknown: "the outcome isn't known yet",
+  legacy_abandoned:
+    "set aside by an earlier version after your wallet was asked; it may still have gone through",
+  not_accepted: "an earlier version recorded it as not accepted, which wasn't proof",
 };
+
+/**
+ * Earlier purchases that no longer block a payment (their registration was replaced, so the
+ * contract can't accept them now) but whose outcome is still unknown: each can still be checked
+ * by its own transaction.
+ */
+function Unresolved({
+  flow,
+  setup,
+  busy,
+}: {
+  flow: PurchaseFlow;
+  setup: PurchaseSetup;
+  busy: boolean;
+}) {
+  return (
+    <section className="use-consent" aria-labelledby="buy-unresolved-title">
+      <h4 id="buy-unresolved-title">Earlier purchases with an unknown outcome</h4>
+      <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+        {(setup.unresolved ?? []).map((p) => (
+          <li key={p.id}>
+            <p>
+              <strong>{p.units} uses</strong> for <TokenAmount base={p.amount} setup={setup} />{" "}
+              (registration {p.reg_id}, purchase {p.purchase_seq}). That registration was removed or
+              replaced, so the contract can't accept this request now; whether it was accepted
+              before isn't known. Its own transaction can still show it.
+            </p>
+            <button
+              type="button"
+              className="btn btn-quiet"
+              disabled={busy}
+              onClick={() => flow.checkOpen(p.id)}
+            >
+              Check its outcome
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 function OpenPurchase({
   flow,

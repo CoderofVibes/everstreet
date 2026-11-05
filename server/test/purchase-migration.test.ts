@@ -52,4 +52,33 @@ describe("003web upgrading the earlier purchase table", () => {
       db.close();
     }
   });
+
+  it("the table with asks gains the registration_replaced state; not_accepted rows and counts stay as they are", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      const withAsks = OLD.replace(
+        "'abandoned'))",
+        "'not_accepted','set_aside','legacy_abandoned'))",
+      ).replace("tx_hash TEXT,", "tx_hash TEXT, asks INTEGER NOT NULL DEFAULT 0,");
+      db.exec(withAsks + row("a", "not_accepted", 1) + row("b", "unknown", 2));
+      db.exec(
+        "UPDATE customer_purchases SET asks = 1, evidence = '{\"kind\":\"not_accepted\"}' WHERE id = 'a'",
+      );
+      migratePurchases(db as never);
+      expect(
+        db.prepare("SELECT id, state, asks, evidence FROM customer_purchases ORDER BY id").all(),
+      ).toEqual([
+        { id: "a", state: "not_accepted", asks: 1, evidence: '{"kind":"not_accepted"}' },
+        { id: "b", state: "unknown", asks: 0, evidence: null },
+      ]);
+      db.exec("UPDATE customer_purchases SET state = 'registration_replaced' WHERE id = 'b'");
+      // The one-open index is rebuilt (a registration_replaced row is outside it).
+      db.exec(row("c", "prepared", 3));
+      expect(() => db.exec(row("d", "prepared", 4))).toThrow(/UNIQUE/);
+      migratePurchases(db as never);
+      expect(db.prepare("SELECT COUNT(*) AS n FROM customer_purchases").get()).toEqual({ n: 3 });
+    } finally {
+      db.close();
+    }
+  });
 });

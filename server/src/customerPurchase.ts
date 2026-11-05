@@ -10,11 +10,14 @@
 // - A durable intent keeps the original purchase through a lost answer, a reload, another tab and
 //   a restart. Only THIS purchase's own FINAL transaction resolves it, through its exact receipt
 //   graph (the token's transfer, the business's receiver outcome, the token's resolution). A
-//   readback alone never confirms one. A requested purchase is never "cancelled": it is closed as
-//   not accepted only when its registration was replaced (registration-bound buys can't be
-//   accepted by another). No time window closes it: the wallet picks the transaction's reference
-//   block when it signs, which can be long after it was asked (Astra's recovery probe). Only a
-//   preparation the wallet was never asked for can be set aside.
+//   readback alone never confirms one, and never shows one wasn't accepted. A requested purchase
+//   is never "cancelled". When its named registration is later read as absent or replaced, it
+//   stops blocking a new payment (the contract can't accept it from then on) but stays checkable
+//   by its own transaction: it may have been accepted before (Astra's handoff review). A request
+//   that names no registration (an earlier version's) keeps blocking. No time window closes it:
+//   the wallet picks the transaction's reference block when it signs, which can be long after it
+//   was asked (Astra's recovery probe). Only a preparation the wallet was never asked for can be
+//   set aside.
 
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -228,7 +231,14 @@ type State =
   | "unknown"
   | "confirmed"
   | "returned"
+  /** Written only by an earlier version (90659d2–6aa4979) when the registration was gone; that
+   * proved only that it couldn't be accepted from then on. Kept, and checkable by its own
+   * transaction; it blocks a fresh payment unless its request names its registration. */
   | "not_accepted"
+  /** Asked for, then its (named) registration was removed or replaced: the contract can no longer
+   * accept it, so a purchase for a new registration can't be confused with it, but whether it was
+   * accepted EARLIER is unknown. Checkable by its own transaction; it doesn't block. */
+  | "registration_replaced"
   | "set_aside"
   /** Set aside by an earlier version (which allowed it after the wallet was asked): checkable,
    * and blocking a fresh payment until resolved. */
@@ -259,9 +269,33 @@ export interface PurchaseRow {
   updated_at: string;
 }
 const OPEN: State[] = ["prepared", "requested", "unknown"];
-/** States a check may still resolve (an old set-aside may yet have executed). */
-const CHECKABLE: State[] = [...OPEN, "legacy_abandoned"];
-const CHECKABLE_SQL = "state IN ('prepared','requested','unknown','legacy_abandoned')";
+/** Past states whose payment may yet have been (or be) accepted; a check never moves them back. */
+const HISTORICAL: State[] = ["legacy_abandoned", "not_accepted", "registration_replaced"];
+/** States a check may still resolve by the purchase's own transaction. */
+const CHECKABLE: State[] = [...OPEN, ...HISTORICAL];
+const CHECKABLE_SQL = `state IN (${CHECKABLE.map((s) => `'${s}'`).join(",")})`;
+
+/**
+ * Whether the stored request names its registration (`reg_id` in the buy message), so that the
+ * contract refuses it for any other registration. Requests prepared before registration binding
+ * (cb740e0) don't: a later registration could still accept them, so they never inherit that
+ * guarantee (Astra's handoff review).
+ */
+export function namesRegistration(p: Pick<PurchaseRow, "call" | "reg_id">) {
+  try {
+    const c = JSON.parse(p.call) as WalletCall;
+    const m = JSON.parse(String(c.args?.msg)) as { buy?: { reg_id?: unknown } };
+    return typeof m?.buy?.reg_id === "string" && m.buy.reg_id === p.reg_id;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a checkable purchase must be settled before another payment is offered. */
+function blocks(p: PurchaseRow) {
+  if (OPEN.includes(p.state) || p.state === "legacy_abandoned") return true;
+  return !namesRegistration(p);
+}
 
 const PURCHASES_TABLE = (name: string) => `
     CREATE TABLE IF NOT EXISTS ${name} (
@@ -270,7 +304,7 @@ const PURCHASES_TABLE = (name: string) => `
       contract TEXT NOT NULL, asset TEXT NOT NULL, plan_id INTEGER NOT NULL, reg_id TEXT NOT NULL,
       purchase_seq INTEGER NOT NULL, units INTEGER NOT NULL, amount TEXT NOT NULL, install TEXT,
       call TEXT NOT NULL, terms_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL,
-      state TEXT NOT NULL CHECK (state IN ('prepared','requested','unknown','confirmed','returned','not_accepted','set_aside','legacy_abandoned')),
+      state TEXT NOT NULL CHECK (state IN ('prepared','requested','unknown','confirmed','returned','not_accepted','registration_replaced','set_aside','legacy_abandoned')),
       tx_hash TEXT, asks INTEGER NOT NULL DEFAULT 0,
       evidence TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE (person_id, idempotency_key)
@@ -289,16 +323,28 @@ const ONE_OPEN = `CREATE UNIQUE INDEX IF NOT EXISTS customer_purchases_one_open
  *   transaction, and, like any open purchase, it blocks a fresh payment until resolved (Astra's
  *   migration probe). That rule is the service's, not the unique index's, so several old rows
  *   for one account never collide when the index is built.
+ * The table with asks but without 'registration_replaced' (9138fe1–6aa4979) is rebuilt the same
+ * way to admit the new state, keeping every row and value as it is (a 'not_accepted' row stays
+ * so, and checkable).
  */
 export function migratePurchases(db: Db) {
   const cols = (
     db.prepare("PRAGMA table_info(customer_purchases)").all() as { name: string }[]
   ).map((c) => c.name);
-  if (cols.length > 0 && !cols.includes("asks")) {
+  const sql =
+    (
+      db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'customer_purchases'",
+        )
+        .get() as { sql?: string } | undefined
+    )?.sql ?? "";
+  if (cols.length > 0 && !sql.includes("'registration_replaced'")) {
+    const counted = cols.includes("asks");
     db.exec("BEGIN IMMEDIATE");
     try {
       db.exec("DROP INDEX IF EXISTS customer_purchases_one_open");
-      db.exec("ALTER TABLE customer_purchases RENAME TO customer_purchases_before_asks");
+      db.exec("ALTER TABLE customer_purchases RENAME TO customer_purchases_before_upgrade");
       db.exec(PURCHASES_TABLE("customer_purchases"));
       const keep =
         "id, person_id, customer_account, offer_id, business_id, network, contract, asset, plan_id, reg_id, purchase_seq, units, amount, install, call, terms_digest, idempotency_key, tx_hash, evidence, created_at, updated_at";
@@ -306,10 +352,10 @@ export function migratePurchases(db: Db) {
         `INSERT INTO customer_purchases (${keep}, state, asks)
          SELECT ${keep},
            CASE WHEN state = 'abandoned' THEN 'legacy_abandoned' ELSE state END,
-           CASE WHEN state IN ('requested', 'unknown', 'abandoned') THEN 2 ELSE 0 END
-         FROM customer_purchases_before_asks`,
+           ${counted ? "asks" : "CASE WHEN state IN ('requested', 'unknown', 'abandoned') THEN 2 ELSE 0 END"}
+         FROM customer_purchases_before_upgrade`,
       );
-      db.exec("DROP TABLE customer_purchases_before_asks");
+      db.exec("DROP TABLE customer_purchases_before_upgrade");
       db.exec(ONE_OPEN);
       db.exec("COMMIT");
     } catch (e) {
@@ -325,7 +371,9 @@ export function migratePurchases(db: Db) {
 export type Resolution =
   | { kind: "confirmed"; units: number; amount: string }
   | { kind: "returned"; amount: string; reason: string }
+  /** Only an earlier version wrote this; never produced now. */
   | { kind: "not_accepted"; message: string }
+  | { kind: "registration_replaced"; message: string; reg_id_now: string | null }
   | { kind: "unknown"; message: string; purchase_seq_now: number | null; free_now: string | null };
 
 type Receipt = {
@@ -351,8 +399,9 @@ const value = (r: Receipt): unknown => {
  * returned 0 unused and logged `units_bought` for exactly this purchase, and the resolution
  * succeeded using the whole amount. Returned: the receiver logged `purchase_returned` with the
  * whole amount unused AND the resolution succeeded using none (and the transaction didn't fail).
- * Anything else, including a failed or disconnected receipt or a non-final answer, is no evidence
- * (null).
+ * Either way the transaction's own status must be an affirmative SuccessValue equal to the
+ * resolution's. Anything else, including a failed or disconnected receipt, a status that merely
+ * lacks a Failure, or a non-final answer, is no evidence (null).
  */
 export function resolveFromTx(
   p: PurchaseRow,
@@ -372,8 +421,19 @@ export function resolveFromTx(
     receipts_outcome?: { id?: unknown; outcome?: Receipt }[];
   } | null;
   if (o?.final_execution_status !== "FINAL") return null;
-  // The whole transaction must not have failed, whatever its receipts say.
-  if (!o.status || typeof o.status !== "object" || "Failure" in o.status) return null;
+  // The whole transaction must AFFIRMATIVELY have succeeded (Astra's handoff review: no Failure
+  // field is not proof): exactly { SuccessValue: <base64> }, whose value is checked below against
+  // the token resolution's (for ft_transfer_call the transaction's value is the amount used).
+  const top = o.status;
+  if (
+    !top ||
+    typeof top !== "object" ||
+    Array.isArray(top) ||
+    Object.keys(top).length !== 1 ||
+    typeof top.SuccessValue !== "string"
+  )
+    return null;
+  const topUsed = value({ status: top });
   const t = o.transaction;
   if (
     !t ||
@@ -434,6 +494,7 @@ export function resolveFromTx(
   const d = event?.data?.[0];
   if (!event || !d) return null;
   const used = succeeded(resolution) ? value(resolution) : undefined;
+  if (used === undefined || topUsed !== used) return null;
   if (
     event.event === "units_bought" &&
     d.plan_id === p.plan_id &&
@@ -492,21 +553,33 @@ export class CustomerPurchases {
     if (!p || p.person_id !== viewer.id) bad(404, "No such purchase");
     return p as PurchaseRow;
   }
-  private open(account: string, contract: string, planId: number) {
-    return (
-      (this.db
-        .prepare(
-          "SELECT * FROM customer_purchases WHERE customer_account = ? AND contract = ? AND plan_id = ? AND state IN ('prepared','requested','unknown','legacy_abandoned') ORDER BY CASE WHEN state = 'legacy_abandoned' THEN 1 ELSE 0 END, created_at LIMIT 1",
-        )
-        .get(account, contract, planId) as unknown as PurchaseRow | undefined) ?? null
-    );
+  /** Every purchase for this account, contract and plan whose outcome may still be checked. */
+  private checkable(account: string, contract: string, planId: number) {
+    return this.db
+      .prepare(
+        `SELECT * FROM customer_purchases WHERE customer_account = ? AND contract = ? AND plan_id = ? AND ${CHECKABLE_SQL} ORDER BY CASE WHEN state IN ('prepared','requested','unknown') THEN 0 ELSE 1 END, created_at`,
+      )
+      .all(account, contract, planId) as unknown as PurchaseRow[];
   }
-  private settle(id: string, state: State, evidence: unknown) {
+  /** The purchase that must be settled before another payment is offered, if any. */
+  private open(account: string, contract: string, planId: number) {
+    return this.checkable(account, contract, planId).find(blocks) ?? null;
+  }
+  /**
+   * Records a check's outcome. A final outcome (confirmed, returned) is written over any checkable
+   * state; an unknown one never moves a historical row back into the open states (and never into
+   * the one-open index). An earlier version's 'not_accepted' evidence is kept alongside, as what
+   * it was: an earlier reading, not proof.
+   */
+  private settle(p: PurchaseRow, state: State, evidence: Resolution) {
+    const next = state === "unknown" && HISTORICAL.includes(p.state) ? p.state : state;
+    const prior = p.evidence ? (JSON.parse(p.evidence) as Record<string, unknown>) : null;
+    const earlier = prior?.kind === "not_accepted" ? prior : (prior?.earlier ?? undefined);
     this.db
       .prepare(
         `UPDATE customer_purchases SET state = ?, evidence = ?, updated_at = ? WHERE id = ? AND ${CHECKABLE_SQL}`,
       )
-      .run(state, JSON.stringify(evidence), this.stamp(), id);
+      .run(next, JSON.stringify(earlier ? { ...evidence, earlier } : evidence), this.stamp(), p.id);
   }
 
   /** One view on `account` at the pinned block, bounded and from that block only. */
@@ -583,7 +656,8 @@ export class CustomerPurchases {
     if (!e) steps.push("shell");
     if (mine === null) steps.push("token_storage");
     if (biz === null) steps.push("business_token_storage");
-    const openRow = this.open(account, o.account, o.plan_id);
+    const rows = this.checkable(account, o.account, o.plan_id);
+    const openRow = rows.find(blocks) ?? null;
     const out = {
       block,
       network: o.network,
@@ -629,6 +703,8 @@ export class CustomerPurchases {
       },
       steps,
       open: openRow ? view(openRow) : null,
+      /** Earlier purchases that no longer block a payment but whose outcome is still unknown. */
+      unresolved: rows.filter((r) => !blocks(r)).map(view),
       preview: null as null | ReturnType<typeof preview>,
     };
     if (want.units !== undefined)
@@ -753,16 +829,18 @@ export class CustomerPurchases {
       if (res && res.kind !== "unknown") {
         if (res.kind === "confirmed" && which !== p.tx_hash)
           this.db.prepare("UPDATE customer_purchases SET tx_hash = ? WHERE id = ?").run(which, id);
-        this.settle(id, res.kind, res);
+        this.settle(p, res.kind, res);
         return { purchase: view(this.own(viewer, id)), resolution: res };
       }
       if (res) {
-        this.settle(id, "unknown", res);
+        this.settle(p, "unknown", res);
         return { purchase: view(this.own(viewer, id)), resolution: res };
       }
     }
-    // No proof from this purchase's own transaction: the readback informs and may close it as not
-    // accepted (never confirm it).
+    // No proof from this purchase's own transaction: the readback informs. It never confirms a
+    // purchase, and never says one wasn't accepted: a registration read as absent or replaced now
+    // proves only what that reading says (Astra's handoff review; the contract's own test shows
+    // an accepted purchase whose registration was later emptied and removed).
     const read = await readCustomerViews(
       reader,
       { network: p.network, account: p.contract },
@@ -770,28 +848,31 @@ export class CustomerPurchases {
       this.timeout,
     ).catch(readFailed);
     const e = read.entitlement as EntitlementV3 | null;
-    if (p.state !== "prepared" && (!e || e.reg_id !== p.reg_id)) {
+    const gone = !e || e.reg_id !== p.reg_id;
+    if (p.state !== "prepared" && gone && namesRegistration(p)) {
       const res: Resolution = {
-        kind: "not_accepted",
-        message:
-          "The registration this purchase was made for no longer exists, and the contract refuses a purchase for any other registration, so it can't be accepted. If the token took a payment for it, the contract returned it; the token's own records show that refund.",
+        kind: "registration_replaced",
+        reg_id_now: e ? e.reg_id : null,
+        message: `Your registration with this business (${p.reg_id}) was removed or replaced after your wallet was asked for this purchase. The request names that registration, so the contract can't accept it from now on, and a purchase for ${e ? `your current registration (${e.reg_id})` : "a new registration"} can't be mistaken for it. Whether it was accepted before that isn't known from this: its own transaction can still show it, so it stays checkable here.`,
       };
-      this.settle(id, "not_accepted", res);
+      this.settle(p, "registration_replaced", res);
       return { purchase: view(this.own(viewer, id)), resolution: res };
     }
-    const seqNow = e ? e.purchase_seq : null;
+    const seqNow = e && !gone ? e.purchase_seq : null;
     const res: Resolution = {
       kind: "unknown",
       purchase_seq_now: seqNow,
-      free_now: e ? e.free : null,
+      free_now: e && !gone ? e.free : null,
       message:
-        seqNow !== null && seqNow >= p.purchase_seq
-          ? "A purchase with this request's sequence is recorded, but it can't be shown to be this one (no transaction from your wallet was available to check). The units shown are what the contract holds for you."
-          : p.state === "prepared"
-            ? "Your wallet hasn't been asked for this purchase yet."
-            : "This purchase isn't recorded yet. If you approved it, it may still be processing; if your wallet's window is still open, it can still be approved. It stays open until its own transaction shows the outcome. You can ask your wallet again for exactly the same purchase: at most one is ever accepted.",
+        p.state !== "prepared" && gone
+          ? "Your registration with this business was removed or replaced since this purchase was prepared, and this request (prepared by an earlier version) doesn't name its registration, so a later registration could still accept it. It stays open until its own transaction shows the outcome."
+          : seqNow !== null && seqNow >= p.purchase_seq
+            ? "A purchase with this request's sequence is recorded, but it can't be shown to be this one (no transaction from your wallet was available to check). The units shown are what the contract holds for you."
+            : p.state === "prepared"
+              ? "Your wallet hasn't been asked for this purchase yet."
+              : "This purchase isn't recorded yet. If you approved it, it may still be processing; if your wallet's window is still open, it can still be approved. It stays open until its own transaction shows the outcome. You can ask your wallet again for exactly the same purchase: at most one is ever accepted.",
     };
-    if (p.state !== "prepared") this.settle(id, "unknown", res);
+    if (p.state !== "prepared") this.settle(p, "unknown", res);
     return { purchase: view(this.own(viewer, id)), resolution: res };
   }
 
@@ -802,14 +883,16 @@ export class CustomerPurchases {
    */
   abandon(viewer: Viewer, id: string) {
     const p = this.own(viewer, id);
-    if (p.state !== "prepared")
+    if (p.state !== "prepared") {
+      const asked = CHECKABLE.includes(p.state);
       bad(
         409,
-        OPEN.includes(p.state)
-          ? "Your wallet was asked for this purchase, so it stays open until its outcome is known"
+        asked
+          ? `Your wallet was asked for this purchase, so it stays ${OPEN.includes(p.state) ? "open" : "tracked"} until its outcome is known`
           : "That purchase already has its outcome",
-        OPEN.includes(p.state) ? "purchase_requested" : "purchase_settled",
+        asked ? "purchase_requested" : "purchase_settled",
       );
+    }
     this.db
       .prepare(
         "UPDATE customer_purchases SET state = 'set_aside', updated_at = ? WHERE id = ? AND state = 'prepared'",
