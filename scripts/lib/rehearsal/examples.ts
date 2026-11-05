@@ -11,6 +11,7 @@
 import type { Recorder } from "./evidence.ts";
 import {
   buy,
+  type DeviceKey,
   type Env,
   found,
   type Json,
@@ -51,40 +52,106 @@ const ent = (v: Json) => v.entitlement as Json | null;
 
 // ---------- example 2: Gated close with work outstanding ----------
 
+export interface GatedContext {
+  offer: string;
+  key: DeviceKey;
+  slot: number;
+  probeKey: DeviceKey;
+  probeSlot: number;
+  /** Earlier requests whose unit outcome must be decided first (a resume). */
+  pending?: string[];
+  /** The next use number to prepare. */
+  nextN: number;
+}
+
 export async function runGated(
   env: Env,
   rec: Recorder,
-  o: { settleWaitMs?: number; closeWaitMs?: number } = {},
+  o: {
+    settleWaitMs?: number;
+    closeWaitMs?: number;
+    keepKeys?: (k: { key: DeviceKey; probeKey: DeviceKey }) => void;
+  } = {},
+) {
+  const s = steps(env, rec, o.settleWaitMs ?? 120_000);
+  for (const w of ["founder", "customer", "buyer", "prober"] as const)
+    await env.signIn(w, env.client(w));
+  await rec.checkpoint("start", await env.views());
+  const { offer } = await found(env, rec, s, "gated");
+  const key = newDeviceKey();
+  const probeKey = newDeviceKey();
+  o.keepKeys?.({ key, probeKey });
+  await buy(env, rec, s, { who: "customer", offer, units: 100, key, slot: 0, tag: "gated" });
+  await buy(env, rec, s, { who: "prober", offer, units: 2, key: probeKey, slot: 0, tag: "gated" });
+  return continueGated(
+    env,
+    rec,
+    { offer, key, slot: 0, probeKey, probeSlot: 0, nextN: 1 },
+    { ...o, signedIn: true },
+  );
+}
+
+/**
+ * From "bought" to the end: (after a resume, the earlier requests' outcomes first) uses until five
+ * are consumed, one reserved and not run, the Gated sale, a request during the gate, the managed
+ * close, the reservation returned, service under the buyer. Counts are taken from the chain at
+ * acceptance and checked RELATIVE to it (a resumed run may have had a use released, not charged).
+ */
+export async function continueGated(
+  env: Env,
+  rec: Recorder,
+  ctx: GatedContext,
+  o: { settleWaitMs?: number; closeWaitMs?: number; signedIn?: boolean } = {},
 ) {
   const settleMs = o.settleWaitMs ?? 120_000;
   const s = steps(env, rec, settleMs);
   const { ava, cara, noah } = s;
   const probe = env.client("prober");
-  for (const w of ["founder", "customer", "buyer", "prober"] as const)
-    await env.signIn(w, env.client(w));
+  if (!o.signedIn)
+    for (const w of ["founder", "customer", "buyer", "prober"] as const)
+      await env.signIn(w, env.client(w));
   const { id: biz } = env.business;
-  await rec.checkpoint("start", await env.views());
-  const { offer } = await found(env, rec, s, "gated");
-  const key = newDeviceKey();
-  await buy(env, rec, s, { who: "customer", offer, units: 100, key, slot: 0, tag: "gated" });
-  const probeKey = newDeviceKey();
-  await buy(env, rec, s, { who: "prober", offer, units: 2, key: probeKey, slot: 0, tag: "gated" });
+  const { offer, key, slot } = ctx;
+  // A resume: each earlier request's unit is decided by the contract first (charged or returned).
+  for (const id of ctx.pending ?? []) {
+    const v = await until(
+      async () => {
+        await cara(`/api/customer/uses/${id}/units/reconcile`, "POST");
+        return (await cara(`/api/customer/uses/${id}`)).body;
+      },
+      (x) => ["charged", "returned"].includes(String(x?.use?.units?.unit)),
+      `request ${id} decided by the contract`,
+      1_800_000,
+    );
+    rec.app("earlier_request_decided", {
+      use: id,
+      unit: v.use.units.unit,
+      note:
+        v.use.units.unit === "returned"
+          ? "its charge never landed (the platform never re-sent it); the contract's deadline returned the unit: delivered, not charged"
+          : "charged once",
+    });
+  }
+  let n = ctx.nextN;
   const uses: string[] = [];
-  for (let n = 1; n <= 5; n++) uses.push(await s.serve(offer, n, key, 0, "customer", "gated-use"));
-  const first = ok(await cara(`/api/customer/uses/${uses[0]}/result`), 200, "result 1");
+  while (ent(await env.views())?.consumed !== "5")
+    uses.push(await s.serve(offer, n++, key, slot, "customer", "gated-use"));
+  const firstUse =
+    uses[0] ?? ((await cara("/api/customer/requests/by-key/gated-use-00001")).body as Json).use?.id;
+  const first = ok(await cara(`/api/customer/uses/${firstUse}/result`), 200, "an earlier result");
   // One use reserved, not run, when the seller accepts.
   const prep = ok(
     await readAgain(() =>
       cara(`/api/customer/offers/${offer}/prepare`, "POST", {
-        idempotency_key: "gated-use-00006",
-        input:
-          "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD (copy 6)",
-        key_slot: 0,
+        idempotency_key: `gated-use-${String(n).padStart(5, "0")}`,
+        input: `Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD (copy ${n})`,
+        key_slot: slot,
       }),
     ),
     [200, 201],
-    "prepare 6",
+    "prepare the reserved use",
   );
+  n++;
   const reservedId = prep.use.id as string;
   const e6 = prep.use.envelope as Json;
   const conf = ok(
@@ -94,19 +161,21 @@ export async function runGated(
       use_signature: key.sign(e6.use.message_hex),
     }),
     200,
-    "confirm 6",
+    "confirm the reserved use",
   );
   if (conf.use?.state !== "reserved")
     await until(
       async () => (await cara(`/api/customer/uses/${reservedId}/reconcile`, "POST")).body,
       (v) => v.use?.state === "reserved",
-      "use 6 reserved",
+      "the use reserved",
       settleMs,
     );
   rec.app("reserved_not_run", { use: reservedId });
   const before = await env.views();
   await rec.checkpoint("reserved_before_close", before);
-  expect(ent(before)?.consumed === "5", "five consumed before the close", ent(before));
+  const F = BigInt(ent(before)?.free ?? "0");
+  const C = BigInt(ent(before)?.consumed ?? "0");
+  expect(C === 5n && ent(before)?.hold_active === true, "five consumed and one held", ent(before));
 
   // The Gated sale; the seller's acceptance starts the managed close.
   const terms = {
@@ -126,22 +195,21 @@ export async function runGated(
   });
   await s.act("founder", ava, "accept", {}, "gated-close-00001");
 
-  // While the gate is up: a fresh customer request is paused (no hold, no charge). If the close
-  // was already done by now, that is recorded as "window missed" (the local process suite keeps
-  // the paused-admission assertion).
+  // While the gate is up: a fresh request by another customer is paused (no hold, no charge). If
+  // the close had already finished, that is recorded as "window missed".
   const pr = await probe(`/api/customer/offers/${offer}/prepare`, "POST", {
     idempotency_key: "gated-probe-00001",
     input:
       "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD (probe)",
-    key_slot: 0,
+    key_slot: ctx.probeSlot,
   });
   let probeOutcome: Json = { at: "prepare", status: pr.status, code: pr.body?.code ?? null };
   if (pr.status === 200 || pr.status === 201) {
     const pe = pr.body.use.envelope as Json;
     const pc = await probe(`/api/customer/uses/${pr.body.use.id}/confirm`, "POST", {
       envelope_digest: pe.envelope_digest,
-      hold_signature: probeKey.sign(pe.hold.message_hex),
-      use_signature: probeKey.sign(pe.use.message_hex),
+      hold_signature: ctx.probeKey.sign(pe.hold.message_hex),
+      use_signature: ctx.probeKey.sign(pe.use.message_hex),
     });
     probeOutcome = {
       at: "confirm",
@@ -156,10 +224,10 @@ export async function runGated(
     ...probeOutcome,
     result: paused
       ? "paused: no hold, no charge"
-      : "window missed (the close had finished); local suite keeps this assertion",
+      : "window missed (the close had finished); the local suite keeps this assertion",
   });
 
-  // The managed close: wait for the buyer to manage the business and the reservation's return.
+  // The managed close: the buyer manages the business; the reservation is returned once.
   await until(
     async () => (await noah(`/api/sales/${biz}`)).body,
     (v) => v?.local_owner === true,
@@ -179,20 +247,24 @@ export async function runGated(
   await rec.checkpoint("released_to_buyer", after);
   expect(after.control?.owner === env.accounts.buyer, "the buyer owns the business", after.control);
   expect(
-    ent(after)?.free === "95" && ent(after)?.consumed === "5",
-    "95 free / 5 consumed under the buyer",
+    BigInt(ent(after)?.free ?? "-1") === F + 1n && BigInt(ent(after)?.consumed ?? "-1") === C,
+    `${F + 1n} free / ${C} consumed under the buyer (the reservation back, nothing charged)`,
     ent(after),
   );
-  const firstAfter = ok(await cara(`/api/customer/uses/${uses[0]}/result`), 200, "result 1 after");
+  const firstAfter = ok(await cara(`/api/customer/uses/${firstUse}/result`), 200, "result after");
   expect(JSON.stringify(firstAfter) === JSON.stringify(first), "the earlier result unchanged");
   const denied = await ava(`/api/product-projects/${env.business.project}/releases`, "POST", {});
   rec.app("old_owner_write_denied", { route: "POST releases", status: denied.status });
   expect(denied.status === 404 || denied.status === 403, "the former owner refused", denied.status);
   // Service under the buyer.
-  await s.serve(offer, 7, key, 0, "customer", "gated-use");
+  await s.serve(offer, n, key, slot, "customer", "gated-use");
   const end = await env.views();
   await rec.checkpoint("next_use_under_buyer", end);
-  expect(ent(end)?.free === "94" && ent(end)?.consumed === "6", "94 free / 6 consumed", ent(end));
+  expect(
+    BigInt(ent(end)?.free ?? "-1") === F && BigInt(ent(end)?.consumed ?? "-1") === C + 1n,
+    `${F} free / ${C + 1n} consumed`,
+    ent(end),
+  );
   const record = await noah(`/api/businesses/${biz}/handover-record`);
   rec.app("handover_record", {
     status: record.status,
@@ -216,7 +288,7 @@ export interface RecoveryEnv extends Env {
 export async function runRecovery(
   env: RecoveryEnv,
   rec: Recorder,
-  o: { settleWaitMs?: number } = {},
+  o: { settleWaitMs?: number; keepKey?: (k: DeviceKey) => void } = {},
 ) {
   const settleMs = o.settleWaitMs ?? 120_000;
   const s = steps(env, rec, settleMs);
@@ -228,6 +300,7 @@ export async function runRecovery(
 
   // ---- Example 3: the purchase lands; the app's readback answer is dropped; a recheck recovers.
   const key = newDeviceKey();
+  o.keepKey?.(key);
   const before = await env.views();
   await buy(env, rec, s, {
     who: "customer",

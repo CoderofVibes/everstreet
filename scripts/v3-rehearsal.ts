@@ -31,7 +31,12 @@ import {
   view,
 } from "./lib/near.ts";
 import { Recorder } from "./lib/rehearsal/evidence.ts";
-import { type RecoveryEnv, runGated, runRecovery } from "./lib/rehearsal/examples.ts";
+import {
+  continueGated,
+  type RecoveryEnv,
+  runGated,
+  runRecovery,
+} from "./lib/rehearsal/examples.ts";
 import {
   type Call,
   type DeviceKey,
@@ -907,13 +912,13 @@ async function bootExample(ex: Example, port: number) {
     database: join(dir, "everstreet.db"),
     sign_in: { recipient: "everstreet.local", session_hours: 8 },
     rpc: { endpoint: RPC },
+    customer: {
+      operator_account: ex.meter,
+      writer: { key_file: resolve(".near-credentials", "testnet", `${ex.meter}.json`) },
+    },
     ...(bound
       ? {
           v3: { bindings: [{ business_id: bound, account: ex.business }] },
-          customer: {
-            operator_account: ex.meter,
-            writer: { key_file: resolve(".near-credentials", "testnet", `${ex.meter}.json`) },
-          },
           ...(ex.closer
             ? {
                 handover: {
@@ -1088,7 +1093,15 @@ async function runExample(ex: Example, port: number) {
   const out = join(EVIDENCE_DIR, `v3-${ex.name}-testnet.json`);
   try {
     if (ex.name === "gated") {
-      const r = await runGated(env, rec, { closeWaitMs: 1_200_000, settleWaitMs: 180_000 });
+      const dir = resolve("data", "runtime", `rehearsal-${ex.name}`);
+      const r = await runGated(env, rec, {
+        closeWaitMs: 1_200_000,
+        settleWaitMs: 180_000,
+        keepKeys: ({ key, probeKey }) => {
+          writeFileSync(join(dir, "device-key-customer.pem"), key.pem, { mode: 0o600 });
+          writeFileSync(join(dir, "device-key-prober.pem"), probeKey.pem, { mode: 0o600 });
+        },
+      });
       console.log(`✓ example 2 complete: ${JSON.stringify(r)}`);
     } else {
       let fired = false;
@@ -1116,7 +1129,15 @@ async function runExample(ex: Example, port: number) {
           })),
         }),
       };
-      const r = await runRecovery(renv, rec, { settleWaitMs: 180_000 });
+      const r = await runRecovery(renv, rec, {
+        settleWaitMs: 180_000,
+        keepKey: (k) =>
+          writeFileSync(
+            join(resolve("data", "runtime", `rehearsal-${ex.name}`), "device-key-customer.pem"),
+            k.pem,
+            { mode: 0o600 },
+          ),
+      });
       console.log(`✓ examples 3 and 4 complete: ${JSON.stringify(r)}`);
     }
     rec.write(out, { completed: true });
@@ -1131,6 +1152,162 @@ async function runExample(ex: Example, port: number) {
   console.log(`evidence: ${out}`);
 }
 
+/**
+ * Resumes a stopped example 2 on the same database and evidence record. First the operators'
+ * writer-history procedure for any unresolved write (its own final status; nothing is marked or
+ * re-sent). The device keys of the first attempt were kept only in memory: as a real customer
+ * would, each is revoked (guarded) and replaced in slot 1, and the new keys are kept privately.
+ */
+async function resumeGated(ex: Example, port: number) {
+  const dir = resolve("data", "runtime", `rehearsal-${ex.name}`);
+  const configFile = join(dir, "config.json");
+  const out = join(EVIDENCE_DIR, `v3-${ex.name}-testnet.json`);
+  if (!existsSync(join(dir, "everstreet.db")) || !existsSync(out))
+    throw new StopRun("nothing to resume");
+  const prior = JSON.parse(readFileSync(out, "utf8")) as Json;
+  if (prior.outcome?.completed) throw new StopRun("example 2 already completed");
+  await spendGuard(`${ex.name} resume start`);
+  const cfg = JSON.parse(readFileSync(configFile, "utf8")) as Json;
+  if (cfg.rpc.endpoint !== RPC) {
+    cfg.rpc.endpoint = RPC; // the public RPC used from here on (recorded below)
+    writeFileSync(configFile, JSON.stringify(cfg));
+  }
+  const app = startApp(configFile);
+  await app.ready();
+  const bizId = cfg.v3.bindings[0].business_id as string;
+  const f = httpClient(port);
+  await signIn(f, ex.founder);
+  const proj = ((await f("/api/product-projects")).body.projects as Json[]).find(
+    (x) => x.business_id === bizId,
+  );
+  if (!proj) throw new StopRun("the project isn't listed");
+  const env = exampleEnv(ex, port, {
+    id: bizId,
+    project: proj.id as string,
+    contract: ex.business,
+  });
+  const rec = Recorder.resume(prior, { at: new Date().toISOString(), commit: commit(), rpc: RPC });
+  try {
+    for (const w of ["founder", "customer", "buyer", "prober"] as const)
+      await env.signIn(w, env.client(w));
+    // The operators' procedure (the founder's account is this installation's operator).
+    const wh = await env.client("founder")("/api/operator/writer-history");
+    const ops = (wh.body?.operations ?? []) as Json[];
+    for (const op of ops)
+      for (const at of (op.attempts ?? []) as Json[]) {
+        if (at.state !== "signed") continue;
+        const c = await env.client("founder")("/api/operator/writer-history/check", "POST", {
+          table: op.table ?? "chain_tx_attempts",
+          operation: op.operation,
+          attempt: at.attempt,
+        });
+        rec.app("writer_history_check", {
+          operation: op.operation,
+          attempt: at.attempt,
+          method: at.method,
+          hash: at.tx_hash ?? at.hash ?? null,
+          status: c.status,
+          observed: c.body?.observed ?? c.body?.result ?? null,
+          recorded: c.body?.recorded ?? null,
+          note: "its own final status only; nothing marked, nothing re-sent",
+        });
+      }
+    const cara = env.client("customer");
+    const offers = (await env.client("founder")(`/api/businesses/${bizId}/customer-offers`)).body
+      .offers as Json[];
+    const offer = offers.find((o) => o.state === "active");
+    if (!offer) throw new StopRun("no active offer");
+    // Earlier requests and the next use number, from the app's own records.
+    const pending: string[] = [];
+    let nextN = 1;
+    for (let n = 1; n <= 20; n++) {
+      const r = (
+        await cara(`/api/customer/requests/by-key/gated-use-${String(n).padStart(5, "0")}`)
+      ).body as Json;
+      const id = r?.use?.id as string | undefined;
+      if (!id) break;
+      nextN = n + 1;
+      if (!["charged", "returned"].includes(String(r.use?.units?.unit))) pending.push(id);
+    }
+    // Device keys: kept ones are reused; lost ones are revoked (guarded) and replaced in slot 1.
+    const keyFor = async (who: "customer" | "prober", acct: string, file: string) => {
+      const pem = join(dir, file);
+      const e = await view<Json | null>(ex.business, "get_entitlement", {
+        customer: acct,
+        plan_id: 1,
+      });
+      if (!e) throw new StopRun(`${acct} has no entitlement`);
+      if (existsSync(pem)) {
+        const k = loadDeviceKey(readFileSync(pem, "utf8"));
+        const slot = (e.keys as Json[]).find(
+          (x) => x.state === "active" && x.public_key === k.pk,
+        )?.slot;
+        if (slot === undefined) throw new StopRun(`the kept key for ${acct} isn't active`);
+        return { key: k, slot: slot as number };
+      }
+      const k0 = (e.keys as Json[])[0] as Json;
+      if (k0.state === "active") {
+        const revoke = {
+          receiverId: ex.business,
+          methodName: "revoke_key_guarded",
+          args: {
+            plan_id: 1,
+            slot: 0,
+            reg_id: String(e.reg_id),
+            epoch: k0.epoch,
+            pk: k0.public_key,
+          },
+          gas: "30000000000000",
+          deposit: "1",
+        };
+        const rv = await env.wallet(who, revoke);
+        rec.tx(`device_key_lost_revoked_${who}`, who, acct, revoke, rv, null);
+        if (!rv.ok) throw new StopRun(`revoking ${acct}'s lost key failed: ${rv.error}`);
+      }
+      const key = newDeviceKey();
+      writeFileSync(pem, key.pem, { mode: 0o600 });
+      const install = {
+        receiverId: ex.business,
+        methodName: "install_key",
+        args: { plan_id: 1, slot: 1, pk: key.pk, max_hold_units: 1, max_units_per_day: 100 },
+        gas: "30000000000000",
+        deposit: "1",
+      };
+      const ins = await env.wallet(who, install);
+      rec.tx(`device_key_replacement_installed_${who}`, who, acct, install, ins, null);
+      if (!ins.ok) throw new StopRun(`installing ${acct}'s new key failed: ${ins.error}`);
+      return { key, slot: 1 };
+    };
+    const c = await keyFor("customer", ex.customer, "device-key-customer.pem");
+    const p = await keyFor("prober", ex.prober as string, "device-key-prober.pem");
+    await rec.checkpoint("resumed_keys_ready", await env.views());
+    const r = await continueGated(
+      env,
+      rec,
+      {
+        offer: offer.id as string,
+        key: c.key,
+        slot: c.slot,
+        probeKey: p.key,
+        probeSlot: p.slot,
+        pending,
+        nextN,
+      },
+      { signedIn: true, settleWaitMs: 180_000, closeWaitMs: 1_200_000 },
+    );
+    console.log(`✓ example 2 complete: ${JSON.stringify(r)}`);
+    rec.write(out, { completed: true });
+  } catch (e) {
+    rec.write(out, { completed: false, reason: (e as Error).message.slice(0, 600) });
+    console.log(`app log (last part):\n${app.log().slice(-3000)}`);
+    throw e;
+  } finally {
+    await spendGuard(`${ex.name} resume end`).catch(() => {});
+    await app.stop();
+  }
+  console.log(`evidence: ${out}`);
+}
+
 const cmd = process.argv[2];
 try {
   if (cmd === "setup-direct") await setupDirect();
@@ -1138,6 +1315,7 @@ try {
   else if (cmd === "resume-direct") await resumeDirectLive();
   else if (cmd === "setup-gated") await setupExample(GATED);
   else if (cmd === "run-gated") await runExample(GATED, 8833);
+  else if (cmd === "resume-gated") await resumeGated(GATED, 8833);
   else if (cmd === "setup-recovery") await setupExample(RECOVERY);
   else if (cmd === "run-recovery") await runExample(RECOVERY, 8834);
   else {
