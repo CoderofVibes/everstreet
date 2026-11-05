@@ -50,7 +50,9 @@ Nothing below is independently accepted. No milestone is complete.
   - The full check after the packet commit: exit 0; main 1656 passed / 1 skipped;
     protected 12; process 60.
   - 006b was added after that check: agent-access 3 + the route guard pass, plus tsc, biome and
-    the web build. **A last full check runs at the end (result below).**
+    the web build.
+  - **The last full check, at aebf78d (everything above included): exit 0; main 1659 passed /
+    1 skipped; protected 12; process 60.**
 - Real browser: Claude's built-in browser pane, Chromium, mostly 1280x800, two at 390, against
   synthetic harnesses only. No 1440 pass, keyboard-only traversal, zoom, reduced motion or screen
   reader pass was done; those stay unverified.
