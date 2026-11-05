@@ -1130,3 +1130,57 @@ The design held. Astra's reviews during the job changed how the boundary works:
 
 The report `docs/astra/reports/2026-11-04_003wf1_configured-maintenance-lifecycle.md` maps each
 requirement to its evidence and lists what is left.
+
+### 12.8 Corrections after Astra's handoff review (003wf1 continuation)
+
+Astra's ConfiguredLifecycleHandoffReview found four original requirements unmet. Items 3 and 4
+were reproduced and fixed first in `a9635e0`; this section was written after that commit and
+before any code for items 1 and 2.
+
+**Item 3: the whole response lifetime** (reproduced: after stop the runtime still had one request
+running, reading a body held after its headers).
+- `Fence.wrap` now passes every body read through the fence. At close, a pending read is rejected
+  at once (`StoppedError`) and the underlying reader is cancelled, so a held body can't keep a run,
+  its timer or its caller alive.
+- The url and redirect flag are kept for `httpsTransport`'s own redirect check. This covers RPC
+  bodies too: every injected fetch goes through it.
+- `lastStop().work_running` reports provider requests still running after the gates close.
+
+**Item 4: an evaluation left by a dead process while another lives** (reproduced: it stayed
+running indefinitely).
+- `eval_runs.runner` is recorded, and `Evaluations.recover({ isLive })` runs at start and on every
+  presence tick (10 s). The no-peers gate is gone.
+- A live runner's evaluation is never stopped; a gone runner's is stopped within one tick of its
+  presence ending. Its in-doubt case request is recorded unknown by the runtime's own recovery.
+
+**Item 2: the configured build adapter** (the real `AnthropicProvider` through the composition's
+own build worker, over the model seam):
+- **Success:** a founder's build through the route; the composition's worker runs it. The synthetic
+  model answers count and generation as the provider expects (a JSON text block, examples as
+  key/value pairs), and the job's usage, final flag and charge are checked.
+- **Budget refusal:** a business build budget below the worst case is refused at admission, with no
+  provider call and nothing reserved.
+- **Cancellation:** the owner cancels while the generation is held. Production's own outcome for a
+  dispatched build is asserted, never resent.
+- **Timeout:** the composition's provider timeout is the transport's fixed 120 s, so the timeout is
+  shown on the production adapters directly (`httpsTransport({ timeoutMs })` with the provider and
+  the runtime), labelled as adapter-level evidence.
+- **A peer starting during a live build:** the build worker recovers only lapsed leases. Two
+  compositions on one database: a running, leased build is left alone and completes. When its
+  process stops, the survivor's worker recovers it after the lease lapses (30 s), as production's
+  rules say, and never resends it.
+
+**Item 1: process barriers for reservation and retention cleanup** (actual children):
+- **Reservation:** the confirm's `open_hold` is held at the node; the child stops gracefully (the
+  confirm is answered 503). The node then applies it, and after a restart the maintenance reserve
+  phase resolves the recorded attempt by its exact transaction: the request is reserved once, with
+  one `open_hold`.
+- **Retention cleanup:** there is no network boundary to hold, because protected storage is a local
+  SQLite file. The interruptible boundary is between items: each deletion removes the object, then
+  marks the record (idempotent, so the safe order).
+  - Several executed uses are made due by the child's clock. The composition's existing `now`
+    dependency is set from a labelled test environment variable in `entryChild.ts` only.
+  - A child is killed as soon as the first deletion is recorded, then another finishes.
+  - Asserted: every result ends deleted with its object gone, and no record still marked stored
+    lacks its object.
+  - It can't prove a per-item barrier inside one SQLite delete; it states that.
