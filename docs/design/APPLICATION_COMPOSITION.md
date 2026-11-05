@@ -1206,3 +1206,36 @@ before it was fixed. This section was written after their code (`a40eab1`, `52f2
   a pass a second. The kill lands with deletions genuinely still due, which is asserted.
 - **`npm test`:** the four long lifecycle evidence files (process, peers, builds, body) run in
   the second required phase.
+
+### 12.10 Owned cleanup, exactly bounded (003wf1 final correction)
+
+Astra's final handoff review (21:40) found three source gaps in item 3:
+- `stop()` awaited only the runtime's owned work after the gates closed, not owner stoppers
+  (the build worker, maintenance) still pending, so `work_running` could read 0 while an owner
+  was unfinished;
+- the cleanup wait used `max(250, deadline - now)`, which could run past the stated deadline;
+- `startBuildWorker`'s stop raced its drain against timers that were never cleared.
+
+**The deadline is exact, with a reserve.** `D = start + stop_timeout_ms`. A cleanup reserve
+`R = min(250, stop_timeout_ms / 4)` is held back from it:
+1. Every owner's stop and the admitted requests drain until `D − R`; requests get at most
+   2 s of that.
+2. The gates close, and still-running requests are answered 503.
+3. Owner stoppers still pending AND the runtime's owned work (runs, evaluation loops) are awaited
+   together until `D`.
+
+The whole stop therefore stays within `stop_timeout_ms`, plus timer scheduling.
+
+**Reported, not implied.** `lastStop()` gains `owners_running`: owner stoppers still unsettled at
+`D`. `work_running` is the runtime's owned work unsettled at `D`. `forced` is true if any drain
+ran out or either count is above 0.
+
+**The build worker's waits clear their timers** when the race settles, whichever side wins.
+
+**Evidence:**
+- In process: a build held at the model by a transport that never answers or honours its abort.
+  The stop finishes within `stop_timeout_ms` (with a small scheduling tolerance), the build
+  worker's stop has settled (`owners_running` 0), runtime work is 0, and nothing is written after
+  close.
+- An idle and a held `startBuildWorker` stop leave no timers of their own behind (Node's active
+  resources return to their count before it started).
