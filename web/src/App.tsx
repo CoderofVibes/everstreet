@@ -39,6 +39,7 @@ import { Profile } from "./pages/Profile.tsx";
 import { PublicPage } from "./pages/PublicPage.tsx";
 import { PublicProfileEditor } from "./pages/PublicProfile.tsx";
 import { SaleRoom } from "./pages/SaleRoom.tsx";
+import { ExamplePage } from "./pages/Showcase.tsx";
 import { SignInReturn } from "./pages/SignInReturn.tsx";
 import { Start } from "./pages/Start.tsx";
 import { Studio } from "./pages/Studio.tsx";
@@ -332,6 +333,7 @@ function Routes() {
   if (path === "/agent-access") return <AgentAccessPage />;
   // Job 005d: the viewer's portfolio.
   if (path === "/portfolio") return <PortfolioPage />;
+  if (path.startsWith("/example/")) return <ExamplePage which={path.slice("/example/".length)} />;
   // Job 005c: expert help (directory, a profile and its request form, my requests, a thread).
   if (path === "/experts") return <ExpertsDirectory />;
   const expert = match("/experts/:id", path);

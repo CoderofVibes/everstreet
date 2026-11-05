@@ -11,6 +11,7 @@ import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { Composer, fetchProjects, ProjectCard, ReadFailed } from "./Build.tsx";
 import { FeaturedProduct, MarketList } from "./Market.tsx";
+import { ExampleBusinesses, SamplePanel } from "./Showcase.tsx";
 
 const STAGES: { icon: IconName; title: string; text: string; now: "now" | "partial" | "later" }[] =
   [
@@ -94,7 +95,7 @@ export function Home() {
     {
       icon: "upload",
       title: "Bring a product",
-      text: "Inspect its package.json and see what handing it over would take. Connecting accounts comes later.",
+      text: "Bring an existing product and see what it needs to launch or transfer.",
       to: "/import",
     },
     {
@@ -126,23 +127,11 @@ export function Home() {
           </p>
           <Composer variant="hero" />
         </div>
-        {lead ? (
-          <FeaturedProduct b={lead} />
-        ) : (
-          <aside className="lifecycle" aria-label="What works today">
-            <h2>From idea to handover: what works today</h2>
-            {STAGES.map((s) => (
-              <div className="lifecycle-row" key={s.title}>
-                <Icon name={s.icon} />
-                <span>
-                  <strong>{s.title}</strong>
-                  <span className="muted">{s.text}</span>
-                </span>
-                <span className={`state-tag ${s.now}`}>{TAG[s.now]}</span>
-              </div>
-            ))}
-          </aside>
-        )}
+        {/* Showcase (SHOWCASE_SPEC.md §2, Astra 1): the Ledgerline sample stays in the rail; it
+            reads only the bundled samples, so it works even when the catalog read fails. */}
+        <div id="try-ledgerline" className="home-stage-rail">
+          <SamplePanel />
+        </div>
       </section>
 
       <nav className="entries" aria-label="Ways in">
@@ -177,6 +166,25 @@ export function Home() {
           ),
         )}
       </nav>
+
+      {/* Preview readiness, now a small disclosure (Astra's homepage note). */}
+      <details className="readiness">
+        <summary>What works today, from idea to handover</summary>
+        <div className="lifecycle">
+          {STAGES.map((s) => (
+            <div className="lifecycle-row" key={s.title}>
+              <Icon name={s.icon} />
+              <span>
+                <strong>{s.title}</strong>
+                <span className="muted">{s.text}</span>
+              </span>
+              <span className={`state-tag ${s.now}`}>{TAG[s.now]}</span>
+            </div>
+          ))}
+        </div>
+      </details>
+
+      <ExampleBusinesses />
 
       {/* Job 001f2: only the signed-in account's own projects, read for that account; nothing
           from a previous account is shown while the next one loads. */}
@@ -250,6 +258,8 @@ export function Home() {
                 No software products are published yet. These are the earlier examples.
               </p>
             )}
+            {/* Real published products lead the live catalog (Astra 1). */}
+            {lead && <FeaturedProduct b={lead} />}
             <MarketList list={catalog.shown} />
             {catalog.more && (
               <p style={{ marginTop: 12 }}>

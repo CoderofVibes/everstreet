@@ -43,7 +43,7 @@ function keyPaths(v: unknown, prefix = ""): string[] {
 const ALLOWED = new Set(
   `.example .label .record .record.format .record.digest .record.commit .record.verified_offline
   .record.reproduce .network .contract .contract.account .contract.code_hash .model .model.source
-  .model.note .figures .checkpoints .transactions .refusals .releases`
+  .model.note .token .token.account .token.symbol .token.decimals .token.source .figures .checkpoints .transactions .refusals .releases`
     .split(/\s+/)
     .filter(Boolean),
 );

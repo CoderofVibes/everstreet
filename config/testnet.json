@@ -15,5 +15,6 @@
   "v2CodeHash": "HdJDDpN28ms4XHVZxdSxAc6VF67zSA4kK1zXtwcphyBP",
   "token": "tusd.everstreet.testnet",
   "tokenDecimals": 6,
-  "ftGlobalHash": "3vaopJ7aRoivvzZLngPQRBEd8VJr2zPLTxQfnRCoFgNX"
+  "ftGlobalHash": "3vaopJ7aRoivvzZLngPQRBEd8VJr2zPLTxQfnRCoFgNX",
+  "tokenSymbol": "tUSD"
 }

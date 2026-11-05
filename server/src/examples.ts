@@ -22,6 +22,25 @@ const DIGITS = /^\d{1,40}$/;
 const str = (v: unknown, re: RegExp) => (typeof v === "string" && re.test(v) ? v : null);
 const int = (v: unknown) => (Number.isSafeInteger(v) ? (v as number) : null);
 
+/**
+ * The test token's identity and decimals, from the committed deployment config (the token
+ * deployed for the testnet runs; its ft_metadata reads tUSD, 6 decimals). Null if absent: amounts
+ * are then shown in exact base units only.
+ */
+function tokenOfRecord() {
+  try {
+    const c = JSON.parse(readFileSync(join("config", "testnet.json"), "utf8")) as Json;
+    const decimals = int(c.tokenDecimals);
+    const symbol = str(c.tokenSymbol, /^[A-Za-z0-9.$_-]{1,16}$/);
+    const account = str(c.token, ACCOUNT);
+    return decimals !== null && symbol && account
+      ? { account, symbol, decimals, source: "config/testnet.json (the deployed test token)" }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The public projection of the verified Ledgerline record, or an error if it can't be served. */
 export function ledgerlineExample(path = DEFAULT_LEDGERLINE_RECORD) {
   let raw: string;
@@ -143,6 +162,7 @@ export function ledgerlineExample(path = DEFAULT_LEDGERLINE_RECORD) {
       reproduce: "npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json",
     },
     network: "testnet",
+    token: tokenOfRecord(),
     contract: {
       account: str(r.header.contract?.account, ACCOUNT),
       code_hash: str(r.header.contract?.code_hash_expected, /^[1-9A-HJ-NP-Za-km-z]{43,44}$/),
