@@ -6,7 +6,7 @@
 // method here. The customer's key is the contract tests' synthetic seed 1, never a wallet key.
 // Every producer has its own finite ceiling.
 
-import { createPrivateKey, sign } from "node:crypto";
+import { createHash, createPrivateKey, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,9 +53,29 @@ export const SIGNING = JSON.parse(
   readFileSync(join(here, "fixtures", "v3", "customer-signing.json"), "utf8"),
 ) as Json;
 export const view = (k: string) => JSON.parse(READBACK[k] as string) as Json;
+/** Job 003web: the contract's own purchase-path fixture (customer-purchase.json). */
+export const PURCHASE = JSON.parse(
+  readFileSync(join(here, "fixtures", "v3", "customer-purchase.json"), "utf8"),
+) as Json;
+/** An event log line exactly as the contract writes it (lib.rs `emit`). */
+const event = (name: string, data: Json) =>
+  `EVENT_JSON:${JSON.stringify({ standard: "business_core", version: "3.0.0", event: name, data: [data] })}`;
+const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function base58(b: Buffer) {
+  let n = BigInt(`0x${b.toString("hex")}`);
+  let out = "";
+  while (n > 0n) {
+    out = B58[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  return out;
+}
 
 export const BUSINESS = "studio.biz.near";
 export const CUSTOMER = "cara.near";
+/** Job 003web: a fictional customer with no entitlement and no key, holding their own test tokens. */
+export const FRESH = "dana.near";
+export const TOKEN = "tusd.near";
 export const OPERATOR = "meter.near";
 export const T0 = 1_793_577_600_000n; // the contract tests' T0: 2026-11-02T00:00:00Z
 
@@ -158,7 +178,213 @@ export class FixtureChain {
     if (method === "get_entitlement")
       return JSON.stringify(args.plan_id === 1 ? this.ent(String(args.customer)) : null);
     if (method === "check_use") return JSON.stringify(this.checkUse(args));
+    if (method.startsWith("ft_") || method.startsWith("storage_balance"))
+      return this.tokenAnswer(method, args);
     throw new Error(`no view ${method}`);
+  }
+
+  // ---------- Job 003web: the offer's token and a fresh customer's purchase ----------
+  // A TEST DOUBLE of the business's own fungible token (NEP-141/145, tusd.near) and of the
+  // contract's sponsor_shell / ft_on_transfer, applying lib.rs's rules to the CALLS a wallet sends
+  // (never seeding a post-state). Every outcome is checked against the contract's own
+  // customer-purchase.json in server/test/purchase-world.test.ts. Its metadata is fictional.
+  token = { spec: "ft-1.0.0", name: "Test USD (fixture)", symbol: "TUSD", decimals: 6 };
+  /** Fictional balances: the fresh customer holds their OWN test tokens (no faucet here). */
+  balances = new Map<string, bigint>([
+    [CUSTOMER, 10_000_000n],
+    [FRESH, 10_000_000n],
+  ]);
+  tokenRegistered = new Set<string>([CUSTOMER, FRESH, BUSINESS]);
+  readonly storageMin = 1_250_000_000_000_000_000_000n;
+  readonly byteCost = 10_000_000_000_000_000_000n;
+  private regSeq = 1;
+  readonly txs = new Map<string, Json>();
+  private txCount = 0;
+
+  private tokenAnswer(method: string, args: Record<string, unknown>): string {
+    if (method === "ft_metadata")
+      return JSON.stringify({ ...this.token, icon: null, reference: null, reference_hash: null });
+    if (method === "ft_balance_of")
+      return JSON.stringify(String(this.balances.get(String(args.account_id)) ?? 0n));
+    if (method === "storage_balance_of")
+      return JSON.stringify(
+        this.tokenRegistered.has(String(args.account_id))
+          ? { total: String(this.storageMin), available: "0" }
+          : null,
+      );
+    if (method === "storage_balance_bounds")
+      return JSON.stringify({ min: String(this.storageMin), max: String(this.storageMin) });
+    throw new Error(`no token view ${method}`);
+  }
+
+  /** sponsor_shell (lib.rs): exactly the measured growth, the excess refunded, never twice. */
+  private sponsorShell(payer: string, args: Json, deposit: bigint): string[] {
+    const customer = String(args.customer);
+    if (args.plan_id !== 1) throw new ChainRefusal("E_ARGS: no such plan");
+    if (this.ents.has(customer)) throw new ChainRefusal("E_EXISTS: already registered");
+    const bytes = 811n + BigInt(Buffer.byteLength(customer));
+    const cost = bytes * this.byteCost;
+    if (deposit < cost)
+      throw new ChainRefusal(`E_STORAGE: attach at least ${cost} yoctoNEAR for ${bytes} bytes`);
+    const regId = ++this.regSeq;
+    const shell = JSON.parse(PURCHASE.shells[5].entitlement as string) as Json;
+    this.ents.set(customer, {
+      ...shell,
+      reg_id: String(regId),
+      storage_payer: payer,
+      storage_paid: String(cost),
+    });
+    this.nextBlock();
+    return [event("shell_sponsored", { customer, plan_id: 1, reg_id: String(regId), payer })];
+  }
+
+  /** ft_on_transfer + validate_buy (lib.rs): accepted, or the whole amount returned. */
+  onTransfer(sender: string, amount: bigint, msg: string): { unused: bigint; logs: string[] } {
+    const back = (reason: string) => ({
+      unused: amount,
+      logs: [event("purchase_returned", { customer: sender, amount: String(amount), reason })],
+    });
+    let buy: Json;
+    try {
+      buy = (JSON.parse(msg) as Json).buy as Json;
+      if (!buy || typeof buy !== "object") return back("malformed message");
+    } catch {
+      return back("malformed message");
+    }
+    if (buy.plan_id !== 1) return back("no such plan");
+    const e = this.ents.get(sender);
+    if (!e) return back("no entitlement record; sponsor a shell first");
+    const units = Number(buy.units);
+    if (!Number.isInteger(units) || units < 1 || units > this.plan.max_units_per_purchase)
+      return back("units outside the plan's purchase limit");
+    if (BigInt(units) * BigInt(this.plan.unit_price) !== amount)
+      return back("amount is not units times the plan price");
+    if (buy.purchase_seq !== e.purchase_seq + 1)
+      return back("purchase sequence is not the next one");
+    const held = e.hold_active ? e.hold_units - e.hold_charged : 0;
+    if (BigInt(e.free) + BigInt(held) + BigInt(units) > BigInt(this.plan.max_units_outstanding))
+      return back("over the plan's outstanding units cap");
+    const install = buy.install as Json | null | undefined;
+    if (install) {
+      const k = e.keys[install.slot] as Json | undefined;
+      if (!k) return back("key slot 0-3");
+      if (k.state === "active") return back("that key slot is in use");
+      if (!/^[0-9a-f]{64}$/.test(String(install.pk)))
+        return back("public key is 64 hex characters");
+      if (
+        install.max_hold_units < 1 ||
+        install.max_hold_units > this.plan.max_hold_units ||
+        install.max_units_per_day < 1
+      )
+        return back("key policy outside the plan");
+      Object.assign(k, {
+        state: "active",
+        epoch: k.epoch + 1,
+        public_key: install.pk,
+        max_hold_units: install.max_hold_units,
+        max_units_per_day: install.max_units_per_day,
+      });
+      e.key_states = e.keys.map(
+        (x: Json) => ({ empty: 0, active: 1, revoked: 2 })[x.state as string],
+      );
+      e.key_epochs = e.keys.map((x: Json) => x.epoch);
+    }
+    Object.assign(e, {
+      free: String(BigInt(e.free) + BigInt(units)),
+      purchased: String(BigInt(e.purchased) + BigInt(units)),
+      purchase_seq: e.purchase_seq + 1,
+      active: true,
+    });
+    this.nextBlock();
+    return {
+      unused: 0n,
+      logs: [
+        event("units_bought", { customer: sender, plan_id: 1, units, amount: String(amount) }),
+      ],
+    };
+  }
+
+  /**
+   * One wallet transaction from `signer`: sponsor_shell, the token's storage_deposit or its
+   * ft_transfer_call, by their real rules. Returns the transaction's FINAL outcome (also kept by
+   * hash for `tx`), with the business receipt's logs. A refusal is a failed transaction.
+   */
+  walletCall(
+    signer: string,
+    call: { receiverId: string; methodName: string; args: Json; deposit: string; gas: string },
+  ): Json {
+    this.bump();
+    const hash = base58(
+      createHash("sha256")
+        .update(`fixture-tx-${++this.txCount}`)
+        .digest(),
+    );
+    const deposit = BigInt(call.deposit);
+    const receipts: Json[] = [];
+    const ok = (executor: string, logs: string[], value = "") => ({
+      outcome: { executor_id: executor, logs, status: { SuccessValue: value } },
+    });
+    const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64");
+    let failure: string | null = null;
+    try {
+      if (call.receiverId === BUSINESS && call.methodName === "sponsor_shell") {
+        receipts.push(ok(BUSINESS, this.sponsorShell(signer, call.args, deposit)));
+      } else if (call.receiverId === TOKEN && call.methodName === "storage_deposit") {
+        if (deposit < this.storageMin)
+          throw new ChainRefusal("The attached deposit is less than the minimum storage balance");
+        this.tokenRegistered.add(String(call.args.account_id ?? signer));
+        receipts.push(ok(TOKEN, []));
+      } else if (call.receiverId === TOKEN && call.methodName === "ft_transfer_call") {
+        if (deposit !== 1n)
+          throw new ChainRefusal("Requires attached deposit of exactly 1 yoctoNEAR");
+        const amount = BigInt(String(call.args.amount));
+        const receiver = String(call.args.receiver_id);
+        if (!this.tokenRegistered.has(signer))
+          throw new ChainRefusal(`The account ${signer} is not registered`);
+        if (!this.tokenRegistered.has(receiver))
+          throw new ChainRefusal(`The account ${receiver} is not registered`);
+        const have = this.balances.get(signer) ?? 0n;
+        if (have < amount) throw new ChainRefusal("The account doesn't have enough balance");
+        this.balances.set(signer, have - amount);
+        this.balances.set(receiver, (this.balances.get(receiver) ?? 0n) + amount);
+        receipts.push(ok(TOKEN, []));
+        const r = this.onTransfer(signer, amount, String(call.args.msg));
+        receipts.push(ok(BUSINESS, r.logs, b64(String(r.unused))));
+        if (r.unused > 0n) {
+          // ft_resolve_transfer: the unused amount goes back to the sender.
+          this.balances.set(receiver, (this.balances.get(receiver) ?? 0n) - r.unused);
+          this.balances.set(signer, (this.balances.get(signer) ?? 0n) + r.unused);
+        }
+        receipts.push(ok(TOKEN, [], b64(String(amount - r.unused))));
+      } else throw new ChainRefusal("E_ARGS: not a purchase-path call");
+    } catch (err) {
+      if (!(err instanceof ChainRefusal)) throw err;
+      failure = err.message;
+    }
+    const outcome = {
+      final_execution_status: "FINAL",
+      transaction: {
+        hash,
+        signer_id: signer,
+        receiver_id: call.receiverId,
+        actions: [
+          {
+            FunctionCall: {
+              method_name: call.methodName,
+              args: Buffer.from(JSON.stringify(call.args)).toString("base64"),
+              gas: Number(call.gas),
+              deposit: call.deposit,
+            },
+          },
+        ],
+      },
+      status: failure
+        ? { Failure: { ActionError: { kind: { FunctionCallError: { ExecutionError: failure } } } } }
+        : { SuccessValue: "" },
+      receipts_outcome: receipts,
+    };
+    this.txs.set(hash, outcome);
+    return outcome;
   }
 
   /** check_use (lib.rs `check_use`), over the double's state. */
@@ -451,6 +677,14 @@ export class FixtureReader implements CustomerViewTransport {
   }
   /** Runs once before the next view answers (job 003n: something lands during the read). */
   duringRead: (() => void) | null = null;
+  /** Job 003web: the protocol storage price per byte (as the contract tests run it). */
+  async storageByteCost() {
+    return String(this.chain.byteCost);
+  }
+  /** Job 003web: a transaction's FINAL outcome, by hash, as the double recorded it. */
+  async txOutcome(hash: string) {
+    return this.chain.txs.get(hash) ?? null;
+  }
   async view(input: { method: string; args: Record<string, unknown>; block: BlockRef }) {
     const during = this.duringRead;
     this.duringRead = null;
@@ -863,6 +1097,9 @@ export async function customerWorld(
   const owner = caller(f.ava.id);
   const cara = person("Cara Okafor");
   link(cara.id, CUSTOMER);
+  // Job 003web: a fresh customer: linked account, no entitlement, no key, their own test tokens.
+  const dana = person("Dana Reyes");
+  link(dana.id, FRESH);
   /** Job 003r: inspect a plan as the owner and return the digest a create must present. */
   const reviewed = async (
     terms: { plan_id?: number; retention_days?: number; release_id?: string } = {},
@@ -909,6 +1146,7 @@ export async function customerWorld(
     make,
     owner,
     cara,
+    dana,
     person,
     link,
     caller,

@@ -40,6 +40,10 @@ export interface CustomerViewTransport {
     block: BlockRef;
     signal?: AbortSignal;
   }): Promise<{ result: string; block: BlockRef }>;
+  /** Job 003web: the protocol storage price per byte (yoctoNEAR); absent: no shell quote. */
+  storageByteCost?(network: string, signal?: AbortSignal): Promise<string>;
+  /** Job 003web: one transaction's FINAL outcome, raw; null when unknown or not final. */
+  txOutcome?(hash: string, sender: string, signal?: AbortSignal): Promise<unknown | null>;
 }
 
 export interface PlanV3 {
@@ -69,6 +73,8 @@ export interface EntitlementV3 {
   free: string;
   consumed: string;
   purchased: string;
+  /** Job 003web: the last accepted purchase's sequence (the next must be this + 1). */
+  purchase_seq: number;
   hold_seq: number;
   hold_active: boolean;
   hold_key_slot: number;
@@ -203,6 +209,7 @@ export function decodeEntitlement(v: unknown): EntitlementV3 | null {
     free: u64(o.free, "entitlement.free"),
     consumed: u64(o.consumed, "entitlement.consumed"),
     purchased: u64(o.purchased, "entitlement.purchased"),
+    purchase_seq: u32(o.purchase_seq, "entitlement.purchase_seq"),
     hold_seq: u32(o.hold_seq, "entitlement.hold_seq"),
     hold_active,
     hold_key_slot: u8(o.hold_key_slot, "entitlement.hold_key_slot"),

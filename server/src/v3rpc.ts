@@ -245,7 +245,7 @@ export class TestnetRpcTransport implements ViewTransport {
   }
 
   protected async rpc(
-    method: "block" | "query" | "send_tx" | "tx",
+    method: "block" | "query" | "send_tx" | "tx" | "EXPERIMENTAL_protocol_config",
     params: Record<string, unknown>,
     outer?: AbortSignal,
     /** Job 003w-d: return a JSON-RPC error object (as { rpcError }) instead of throwing. */
@@ -432,7 +432,56 @@ export class TestnetCustomerRpcTransport extends TestnetRpcTransport {
         fingerprint: args.fingerprint,
       };
     }
+    // Job 003web (§10.2): the offer token's standard views, with exact arguments.
+    if (method === "ft_metadata" || method === "storage_balance_bounds") {
+      if (keys.length !== 0) refuse("unsupported", "this view takes no arguments");
+      return {};
+    }
+    if (method === "ft_balance_of" || method === "storage_balance_of") {
+      if (
+        !exactly("account_id") ||
+        typeof args.account_id !== "string" ||
+        !isAccountId(args.account_id)
+      )
+        refuse("unsupported", `${method} takes one account_id`);
+      return { account_id: args.account_id };
+    }
     return refuse("unsupported", "not a supported customer view");
+  }
+
+  /**
+   * Job 003web (§10.2): the protocol's storage price per byte (yoctoNEAR, a decimal string), the
+   * second half of the shell quote. Read at final finality; anything malformed refuses.
+   */
+  async storageByteCost(network: string, signal?: AbortSignal): Promise<string> {
+    if (network !== this.network) refuse("unsupported", "this transport reads testnet only");
+    const r = (await this.rpc("EXPERIMENTAL_protocol_config", { finality: "final" }, signal)) as {
+      runtime_config?: { storage_amount_per_byte?: unknown };
+    } | null;
+    const v = r?.runtime_config?.storage_amount_per_byte;
+    if (typeof v !== "string" || !/^[1-9][0-9]{0,38}$/.test(v))
+      return refuse("malformed", "the protocol config has no storage price");
+    return v;
+  }
+
+  /**
+   * Job 003web (§10.4): one transaction's FINAL outcome, raw (the purchase resolver checks its
+   * exact identity, arguments and receipts). Null when it isn't known or isn't final.
+   */
+  async txOutcome(hash: string, sender: string, signal?: AbortSignal): Promise<unknown | null> {
+    if (!/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(hash) || !isAccountId(sender)) return null;
+    try {
+      const r = (await this.rpc(
+        "tx",
+        { tx_hash: hash, sender_account_id: sender, wait_until: "FINAL" },
+        signal,
+        true,
+      )) as Record<string, unknown> | null;
+      if (!r || "rpcError" in r) return null;
+      return r.final_execution_status === "FINAL" ? r : null;
+    } catch {
+      return null;
+    }
   }
 }
 

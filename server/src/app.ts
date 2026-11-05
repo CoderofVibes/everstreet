@@ -13,6 +13,7 @@ import type { BuildProvider } from "./build.ts";
 import { Builds, proposalBudget } from "./builds.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
+import { CustomerPurchases } from "./customerPurchase.ts";
 import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
 import { Deals } from "./deals.ts";
 import { digitalDesk } from "./digitalDesk.ts";
@@ -114,6 +115,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const v3Intents = new V3Intents(store.db, store, v3);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const customerUses = new CustomerUses(store.db, store, v3, options.customer, runtime);
+  const purchases = new CustomerPurchases(store.db, options.customer?.reader ?? null);
   const publications = new Publications(store.db, store);
   const evaluations = new Evaluations(store.db, store, runtime);
   const releases = new Releases(store.db, store, runtime, evaluations);
@@ -388,6 +390,42 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.post("/api/businesses/:id/customer-offer-inspections", async (c) =>
     c.json(await customerUses.inspectOffer(me(c), c.req.param("id"), await body(c))),
+  );
+  // Job 003web (§10): a fresh customer's purchase: the prerequisite picture with an exact preview,
+  // the durable reviewed intent, the wallet-asked mark, the bounded check and an explicit set-aside.
+  app.get("/api/customer/offers/:offer/purchase-setup", async (c) => {
+    const units = c.req.query("units");
+    const install = c.req.query("install");
+    let parsed: unknown = null;
+    if (install) {
+      try {
+        parsed = JSON.parse(install);
+      } catch {
+        throw new HttpError(400, "install must be JSON");
+      }
+    }
+    return c.json(
+      await purchases.setup(me(c), c.req.param("offer"), {
+        units: units === undefined ? undefined : Number(units),
+        install: parsed as never,
+      }),
+    );
+  });
+  app.post("/api/customer/offers/:offer/purchases", async (c) => {
+    const r = await purchases.create(me(c), c.req.param("offer"), await body(c));
+    return c.json(r, r.created ? 201 : 200);
+  });
+  app.get("/api/customer/purchases", (c) =>
+    c.json(purchases.list(me(c), c.req.query("offer") || undefined)),
+  );
+  app.post("/api/customer/purchases/:id/requested", async (c) =>
+    c.json(purchases.requested(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/customer/purchases/:id/check", async (c) =>
+    c.json(await purchases.check(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/customer/purchases/:id/abandon", async (c) =>
+    c.json(await purchases.abandon(me(c), c.req.param("id"))),
   );
   // Job 003w-e2: a fresh readback of the caller's own key slots for an offer (device readiness).
   app.get("/api/customer/offers/:offer/keys", async (c) =>
