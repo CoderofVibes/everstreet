@@ -118,7 +118,8 @@ export class FixtureChain {
   charged = 0;
   released = 0;
   calls = 0;
-  readonly ceiling = 400;
+  /** A finite call budget; a longer scenario names its own (still bounded) budget explicitly. */
+  ceiling = 400;
 
   constructor() {
     // Funded 100, key slot 0 active at epoch 1, nothing held (the contract's own JSON).

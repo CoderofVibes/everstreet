@@ -1257,11 +1257,21 @@ export class SaleActions {
             "Your account isn't registered with the business's token, so a payout to it would fail. Register first.",
           );
         call = claimCall(contract, cat as number, amount, terms.payout_seq);
+        // Which sale's proceeds this collects (Astra's repeat-sale counterexample): the newest
+        // close that made this account its seller, as read. Collection of a sale is shown only
+        // from a payout bound to THAT sale.
+        const forDeal =
+          cat === CLAIM_SALE_PROCEEDS
+            ? ([...s.outcomes]
+                .filter((o) => o.status === "closed" && o.seller === g.account)
+                .sort((a, b) => (BigInt(b.seq) > BigInt(a.seq) ? 1 : -1))[0]?.seq ?? null)
+            : null;
         review = {
           category: cat,
           category_name: CATEGORY_NAMES[cat as number],
           amount,
           payout_seq: terms.payout_seq,
+          for_deal: forDeal,
           effects: [
             `The contract starts a payout of exactly ${amount} base units of ${meta.symbol} to your account.`,
             "It is called paid only once the token's transfer and the contract's settlement are both seen. If the transfer fails, the amount is restored as your claim.",

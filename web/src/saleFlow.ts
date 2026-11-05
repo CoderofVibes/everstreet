@@ -629,19 +629,24 @@ export function saleSteps(s: SaleSetup) {
     (i) => i.deal_seq === o.seq && i.version === o.version && i.status === "applied",
   );
   const mineAsSeller = o.seller === s.account;
-  const paidEvidence = s.actions.some(
-    (a) =>
-      a.kind === "claim" &&
-      a.review.category === 2 &&
-      a.evidence?.kind === "confirmed" &&
-      a.evidence.result === "paid",
+  // Only a proceeds claim bound to THIS sale (its review names the deal) speaks for it; an older
+  // sale's confirmed payout says nothing about this one (Astra's repeat-sale counterexample).
+  const forThis = s.actions.filter(
+    (a) => a.kind === "claim" && a.review.category === 2 && a.review.for_deal === o.seq,
   );
+  const paidEvidence = forThis.some(
+    (a) => a.evidence?.kind === "confirmed" && a.evidence.result === "paid",
+  );
+  const inFlight =
+    forThis.some((a) =>
+      ["prepared", "requested", "unknown", "no_longer_possible"].includes(a.state),
+    ) || s.payouts.some((p) => p.kind === "sale_proceeds");
   const owed = s.party ? s.party.sale_proceeds_claim !== "0" : false;
   const collect: StepStatus = !mineAsSeller
     ? "unknown"
-    : paidEvidence && !owed && !s.payouts.some((p) => p.kind === "sale_proceeds")
+    : paidEvidence && !owed && !inFlight
       ? "done"
-      : owed || s.payouts.some((p) => p.kind === "sale_proceeds")
+      : owed || inFlight
         ? "current"
         : "unknown";
   return [

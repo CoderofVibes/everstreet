@@ -272,3 +272,29 @@ Sequence: Ava sells to Noah; Ava registers/collects category2; Noah sells back t
 to Noah, registers only if needed, funds and accepts. Investigate this with a focused fixture/
 view-decoding test before claiming repeat-sale support; do not treat the incomplete probe as a
 confirmed cause or final-code failure while source is still changing.
+
+## Repeat-sale probe resolved — 23:13 Pacific
+
+The earlier third-sale read_failed was the customer FixtureChain's finite400-call ceiling, not a
+proved application/contract regression. In a new disposable in-memory probe ONLY, Astra set that
+instance's ceiling to800 (still bounded; no repository limit edited). The same three-sale route
+sequence and latest claim completed in442 fixture calls, exit0; SQLite closed. Do not file the
+previous generic read_failed as a product failure. A longer authored test needs an explicitly
+bounded scenario budget without weakening production checks or making loops unbounded.
+
+This completed the previously incomplete payout counterexample: Ava sold deal1 and collected its
+proceeds (confirmed action); Noah sold it back (deal2); Ava sold deal3; Ava's deal3 claim was sent
+with its wallet answer lost and never checked. The current action remains requested. Yet
+saleSteps on Ava's current setup says collect=done, "Paid: confirmed by its own transaction."
+Only the OLD claim is confirmed in the application's records. The latest chain effect happens
+inside the synthetic double, but no exact transaction evidence for this new claim reached the
+application. The old paidEvidence scan incorrectly supplies that proof. Keep current collection
+unknown/in-flight until relevant affirmative evidence; do not use any historical category2
+payment plus zero balance as proof of this sale. This is now reproduced through real routes,
+not merely a source concern. Scope remains synthetic, no real funds or wallet.
+
+Astra also independently read and ran the committed f3e85d8 actual-process suite at23:13:
+3/3 passed, exit0 with localhost permission. The added test holds both RPC lookups until a chosen
+completion order, exercising both success-first and refusal-first across two actual processes.
+The persisted state/hash/evidence remain coherent. This covers the earlier transaction-check CAS
+race; it does not cover a race between local reconciliation effects or concurrent startup.

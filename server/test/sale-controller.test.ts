@@ -274,6 +274,41 @@ describe("003wf2 SaleFlow controller against the real routes", () => {
     expect(saleNext(seller.f.getState())).toMatchObject({ action: "fund" });
   });
 
+  it("a repeat sale: an earlier sale's confirmed payout never marks this sale's proceeds collected", async () => {
+    const s = await saleWorld();
+    s.w.chain.ceiling = 900; // an explicit, still finite budget for three sales
+    const sell = async (from: Caller, fromAcct: string, to: Caller, toAcct: string) => {
+      await s.act(from, fromAcct, "propose", { ...proposal(), buyer_account: toAcct });
+      if (!(await s.setup(to)).body.token.registered) await s.act(to, toAcct, "register");
+      await s.act(to, toAcct, "fund");
+      await s.act(to, toAcct, "accept");
+      expect((await s.act(from, fromAcct, "accept")).check?.body.resolution.result).toBe("closed");
+    };
+    s.w.chain.balances.set(SELLER, 2_000_000_000n);
+    await sell(s.ava, SELLER, s.noah, BUYER); // deal 1: Ava -> Noah
+    await s.act(s.ava, SELLER, "register");
+    expect(
+      (await s.act(s.ava, SELLER, "claim", { category: 2 })).check?.body.resolution.result,
+    ).toBe("paid");
+    await sell(s.noah, BUYER, s.ava, SELLER); // deal 2: Noah -> Ava
+    await sell(s.ava, SELLER, s.noah, BUYER); // deal 3: Ava -> Noah
+    // Ava's deal 3 claim: the wallet sends it, its answer is lost, and nobody has checked it.
+    const lost = await s.act(s.ava, SELLER, "claim", { category: 2 }, { lose: true });
+    expect(lost.action?.review.for_deal).toBe("3");
+    const seller = flowFor(s, s.ava, SELLER);
+    await seller.f.load();
+    const collect = saleSteps(seller.f.getState().setup as never).find((x) => x.key === "collect");
+    expect(collect).toMatchObject({ status: "current" });
+    expect(collect?.detail).not.toContain("Paid");
+    // Its own transaction confirms it: only then is THIS sale's collection done.
+    await seller.f.checkWithTransaction(
+      lost.action?.id as string,
+      lost.outcome?.transaction.hash as string,
+    );
+    const after = saleSteps(seller.f.getState().setup as never).find((x) => x.key === "collect");
+    expect(after).toMatchObject({ status: "done" });
+  });
+
   it("a wallet that switches accounts after the ask sends nothing; switching back resumes the same request once", async () => {
     const s = await saleWorld();
     await s.act(s.ava, SELLER, "propose", proposal());
