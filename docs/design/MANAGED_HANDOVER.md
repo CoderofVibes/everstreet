@@ -177,7 +177,7 @@ Source references are `file:line` at `3651645`.
 | W3 | First reservation submission of an already-confirmed row | `reserve_requested`, `submissions = 0`, no `chain_tx_attempts` row | `submit` intent write under lease (`:2028`) | **Gate**, then **Cancel**: no attempt exists for the operation, so nothing can land. A new transition `reserve_requested → cancelled` (reason `handover_pause`, allocation freed) only when no attempt row exists | the row is `cancelled` | no |
 | W4 | Reservation already submitted (`reserve_unknown`, or with attempts) | attempts row with signed bytes | resubmission in `step` (`:2230-2242`) | **Gate the resend.** Keep exact readback until decided: reserved (then W5), refused or unresolved. **Provably dead** when the contract's block time passes `serve_until_ms − MIN_SERVE_MS` (`open_hold` then fails `E_EXPIRED`, `lib.rs:1587`) and readback shows no active hold with that sequence | `decideReservation` final, or the dead-by-contract-time proof at a pinned block | resend not gated |
 | W5 | Reserved, not executed | `reserved` row, no `customer_executions` | `execute` dispatch transaction (`:2496-2541`) | **Gate** new dispatch, then **Return**: a coordinator-requested release intent (`kind release`, reason `handover_pause`) settled by `release_hold_for` | settlement `returned` | no gate in `inTx`; no handover release reason |
-| W6 | Execution in flight (provider call) | `customer_executions` + `runtime_invocations` `running` | — (already admitted) | **Finish**: never cancelled to "prove" it stopped. Wait for the invocation to be terminal and delivery decided. A runner that is gone is recovered by its own process's recovery, or the next start's (existing) | invocation terminal and delivery final | yes (existing states) |
+| W6 | Execution in flight (provider call, then result protection) | `customer_executions` + `runtime_invocations` `running` | — (already admitted) | **Finish**: never cancelled to "prove" it stopped. The invocation commits `completed` **before** the customer sink protects and records the result (`invocations.ts:790-805` → `customerUse.ts:2549-2608`), so "not running" is not "delivered". Wait for `customer_executions.delivery` to be final. A runner that is gone is recovered by its own process's recovery, or the next start's (existing) | invocation terminal **and** `delivery ∈ {delivered, not_delivered}` (the existing `deliveryDecision`, with its 5 min timeout) | yes (existing states) |
 | W7 | Settlement of a delivered or ineligible use | `customer_settlements` `requested/unknown` | `unitStep` (leased) | **Finish**, prioritized for the gated business. Settled under the **seller's** generation before the order | settlement `charged` or `returned` | yes; no priority |
 | W8 | Holds opened outside the platform (by the seller's wallet or another current-generation METERING operator) | none here | — (the contract allows it during Closing) | can't be gated off-platform. **Detected** at the readiness read by `ent_held_value == 0`. Afterwards it is limitation L1 | `get_treasury.ent_held_value == "0"` at the readiness block | n/a |
 | W9 | Customer purchases (wallet `ft_transfer_call` to the contract) | `customer_purchases` (the customer's own wallet sends) | purchase prepare | **Allowed** (question Q4): units are contract obligations that carry over unchanged, and they don't touch `available` | none | n/a |
@@ -185,8 +185,8 @@ Source references are `file:line` at `3651645`.
 | W11 | Owner administration routes (business profile, offer, publish/unpublish, public profile, listing, team, value settings, costs, budgets, updates, sessions, deals, payments, imports for this business) | each route's own rows | `store.stillControls` inside each write transaction (where used) | **Gate** while closing (409 `handover_in_progress`). Afterwards they are the buyer's (the existing control-epoch change already fences seller tabs) | none | partial: `stillControls` is used by many routes, but not all (§11 list) |
 | W12 | Customer offers: create and retire | `customer_offers` | `CustomerUses.createOffer` / `retireOffer` (`stillControls`) | **Gate** | — | via `stillControls` |
 | W13 | Release activate and rollback | `runtime_releases` | `Releases` (own owner check, `releases.ts:67`) | **Gate** (they change what customers get mid-handover) | — | no |
-| W14 | Build request, retry, and queued dispatch | `build_jobs` queued (owner and generation bound) | build request route; worker claim (`builds.ts:956-969`) | **Gate** new requests and dispatch of the gated business's queued jobs. A queued job is left queued; it is fenced after the close (existing `fenceStale`). A **running** build is **Fenced**: its artifact is bound to the seller's generation, so it can never be released by the buyer | none (not blocking); listed as "won't carry over" | dispatch not gated |
-| W15 | Evaluations, app checks, owner trials | `eval_runs`, `runtime_invocations` (purpose trial/evaluation) | evaluation and trial routes | **Gate** new ones. A running one **Finishes or is Fenced**: bound to the seller's artifact | none (not blocking) | no |
+| W14 | Build request, retry, claim, dispatch and artifact publication | `build_jobs` queued (owner and generation bound) | four distinct points: the request transaction; the worker **claim** (`builds.ts:941-969`); the **dispatch** transaction before `provider.start` (`:1094`); the final artifact/state transaction | **Gate** the request, the claim and the dispatch for the gated business. A claimed job waiting before `provider.start` is refused at dispatch and requeued, and is fenced after the close. A build **already dispatched** is **Fenced, non-blocking**: a lease expiry or abort never proves its provider call didn't run, so its usage stays `unknown` until receipts say otherwise. Its artifact, published during or after the gate, carries the seller's `owner_generation`, which `releases.ts:67` and `fenceStale` (`:390-410`) make unusable by the buyer. Builds don't touch customers or the contract, and can run 15 min (`builds.ts:44`), so blocking the close on them would trade a real risk for none | none (non-blocking); listed in readiness as "won't carry over", with any unknown usage | claim and dispatch not gated |
+| W15 | Evaluations, app checks, owner trials | `eval_runs` (a **loop** of cases) and one `runtime_invocations` row per case (purpose evaluation/trial) | **every case's** `runtime.start` dispatch transaction (`evaluations.ts:501-512`), not only the run's start; the trial route; the app-check start | **Gate** each case dispatch: a live seller loop refused between cases ends its run (`stopped`, reason `handover_pause`). **Blocking** while any evaluation or trial invocation of the business is `running`, or any eval run is still `running` (bounded by one case, at most 60 s). Results bind to the seller's artifact (fenced) | no evaluation/trial invocation running, and no eval run `running`, for the business | no |
 | W16 | Sale actions on this deal | `sale_actions` | `SaleActions` | Allowed where the contract allows: claims, registration, and (after the deadline) the abort. Proposing, revising, funding, unfunding and cancelling are already refused by the contract during Closing | — | Gated refused today (§8) |
 | W17 | Local authority reconciliation | `v3_intents` `recorded` | `V3Intents.reconcile` | **Reconcile** only after the contract shows this exact close. It is reused, never bypassed | intent `applied` (or `already`/`superseded`) | yes; participant-only entry |
 | W18 | Late answers after the close | the attempt and execution rows | — | A late writer answer is an event only. A late result is the customer's own (the customer keeps it). A late build or eval stays fenced by generation. A late close or abort transaction is resolved by contract state only | — | yes |
@@ -204,6 +204,10 @@ Source references are `file:line` at `3651645`.
   true today for every row above. §11 lists the code that must be made to check the gate.
 - What the gate can't cover is W8 (off-platform actors). It is *measured* at the readiness read,
   not assumed.
+- **The checks live in the services' write transactions, never in route middleware.** A handler
+  that awaits its body, a chain read or a protected-input load before mutating, or a call made
+  by a service outside HTTP (maintenance, the build worker, an eval loop), still meets the gate
+  at its commit. A pre-handler read in one process can't protect a later commit in another.
 
 ## 4. The per-business handover state machine
 
@@ -223,6 +227,15 @@ fields are immutable (a trigger refuses updates to them):
 
 They are taken from **one pinned read** showing `live_deal.state == "closing"` with these exact
 values, never from a local belief.
+
+**Two different epochs, both bound and never assumed equal.**
+- The contract's `expected_generation` comes from the read. The order carries it.
+- The **local** control epoch (`store.controlEpoch`, the count of ownership rows,
+  `store.ts:908-916`) comes from the intent's `local_epoch` (`v3_intents`).
+- They can differ, for example after an import or a reconciliation history that started at
+  another count. The handover checks each against its own source: the chain generation at every
+  pinned read, and the local epoch in the reconciliation's existing monotonic check
+  (`v3intents.ts:401-406`).
 
 ### 4.2 States
 
@@ -267,7 +280,8 @@ values, never from a local belief.
   1. R shows the identical closing deal and the contract checks of §2.1 (state, control_seq,
      generation, digest, manifest, escrow);
   2. every W2–W7 row of this business is final (W3 cancelled, W4 decided or provably dead,
-     W5 returned, W6 terminal, W7 charged/returned), with none in conflict or unresolved;
+     W5 returned, W6 terminal with delivery final, W7 charged/returned), with none in conflict
+     or unresolved; and no W15 evaluation/trial invocation or eval run is running;
   3. `ent_held_value == "0"` at R;
   4. `available ≥ available_floor` at R;
   5. there is time: `deadline_ms − R.timestamp_ms ≥ dispatch_margin_ms`.
@@ -514,8 +528,9 @@ values, never from a local belief.
   labelled "returned: the business was changing hands", with no charge.
 - **Seller desk during Closing:** a banner ("This business is closing; changes are paused until
   the contract decides") and disabled controls with that reason. Read-only views continue.
-- **Buyer after close:** the desk as owner, plus the released-to-buyer handover record (a link
-  toward 003x's portable record later).
+- **Buyer after close:** the primary action opens the business workspace, with continuity and
+  any unresolved item. Resale is a secondary action (§14.3). The released-to-buyer handover
+  record links toward 003x's portable record later.
 
 ## 9. Data model, migrations, compatibility and budgets
 
@@ -614,6 +629,30 @@ Then `cargo test`, `cargo clippy --all-targets` and the wasm32 release build.
 - **S-14** The next use after the close runs under the buyer's grants, and the
   `operator_not_authorized` branch applies when the platform meter isn't granted.
 - **S-15** A coordinator lease CAS: an expired holder's late write changes nothing.
+- **S-16** Delivery barrier: the invocation is `completed` while the sink's protection is held.
+  Readiness fails (`delivery_pending`). On release, the same result reference, outcome and unit
+  identity are recorded, and the close follows. A protection failure gives `not_delivered`, then
+  release and `returned`, with no orphan kept (the existing orphan sweep).
+- **S-17** Evaluation loop: the gate closes **between two cases** of a live seller run. The next
+  case's dispatch is refused, the run ends `stopped`, and readiness then passes. A case already
+  dispatched blocks readiness until it ends.
+- **S-18** Build points: a job claimed and held before `provider.start` when the gate closes is
+  refused at dispatch and requeued, and fenced after the close. A job already dispatched
+  finishes after the close: its artifact is unusable by the buyer and its usage stays `unknown`
+  until a receipt. A build request and a retry during the gate are refused.
+- **S-19** Races at the end:
+  - close and abort both sent after the deadline: the contract decides; exactly one outcome is
+    recorded and the gate follows it;
+  - the original close sent with no reply, then a coordinator lease change: the new holder
+    resolves by contract state and never opens the gate on a timeout;
+  - the reconciliation fails after the chain close (a forced local conflict): `attention`, the
+    gate stays closed, the seller's writes stay refused, and nothing is reopened.
+- **S-20** Epochs: a business whose local ownership-row count differs from the contract
+  generation (an imported history) is bound by both. A mismatch in either is refused with its
+  own code, and nothing is assumed equal.
+- **S-21** Route coverage: one test per classified mutation in §14.2 (gated owner write,
+  customer recovery that stays allowed, read, not applicable), each through its service and,
+  where relevant, with a body awaited before the mutation.
 
 ### 10.4 Actual processes (entryChild over `serve.ts`; IPC RPC/model; disposable directories; heap caps)
 
@@ -662,9 +701,12 @@ Rust checks above. The requirement matrix maps every Phase B item to a test ID.
   - a per-business settlement priority.
 - **`maintenance.ts`:** the reserve phase reports `handover_paused`, and the settle phase
   prefers gated businesses.
-- **`builds.ts`:** the request and claim loop skip gated businesses' queued jobs.
-- **`evaluations.ts` and `invocations.ts` (trials), `releases.ts` (activate and rollback),
-  `appVersions` and checks:** gate checks.
+- **`builds.ts`:** gate checks at the request, the claim (`:941`) and the dispatch transaction
+  before `provider.start` (`:1094`); a refused claimed job is requeued.
+- **`evaluations.ts`:** a gate check at **each case's** `runtime.start` (`:501-512`); a refused
+  run ends `stopped`.
+- **`invocations.ts` (trials), `releases.ts` (activate and rollback), `appVersions` and
+  checks:** gate checks in their write transactions.
 - **Owner routes in `app.ts` that don't use `stillControls` today:** audited one by one in
   Phase B against the W11 list, each with a test in S-6.
 - **`saleActions.ts`:** the Gated kinds, `abort`, and gate arming on a `closing` result.
@@ -724,7 +766,83 @@ Rust checks above. The requirement matrix maps every Phase B item to a test ID.
   given that today only a participant can trigger reconciliation (the same decide/apply code,
   audited)?
 
-## 14. Not in Phase A, and retained
+## 14. Astra's service-boundary review notes (00:48 / 00:54) and how this design answers them
+
+Astra's `2026-11-05_ManagedHandoverReviewNotes.md` was written while this design was being
+drafted. Each point was checked against the source and folded in above.
+
+### 14.1 The eight boundaries
+
+1. **A completed invocation isn't a completed delivery.** Confirmed: `invocations.ts:790-805`
+   finishes the row before awaiting the sink. Readiness requires a final
+   `customer_executions.delivery` (W6, §4.2). Test S-16 holds the sink at a barrier.
+2. **Admission after asynchronous reads.** The gate is checked in `execute`'s `inTx`, the
+   atomic dispatch transaction, after every await (W5, §3.1). Test S-2 pauses a request before
+   `inTx` while the gate commits.
+3. **An evaluation is a loop.** The gate is checked at each case's `runtime.start` transaction.
+   Readiness blocks on a running eval run, not only on a running invocation (W15). Test S-17
+   closes the gate between cases.
+4. **Build claim and dispatch are different points.** They are gated separately (W14).
+   Artifact publication and stale-owner fencing are covered. Usage stays `unknown`, never
+   inferred from a lease expiry or abort. Test S-18.
+5. **Synchronous owner mutations need an in-transaction check.** `stillControls(…, { gate:
+   true })` runs inside each write transaction. `Releases.activate`/`rollback` and every other
+   owner mutation in §14.2 get the check in their own transaction (§11). Tests S-6 and S-21.
+6. **Local epoch versus chain generation.** Both are bound and checked against their own
+   sources (§4.1). Test S-20.
+7. **A transport deadline isn't terminal work.** The rule:
+   - **blocks the close:** customer work until final, delivery included (W2–W7), and evaluation
+     or trial provider work in flight (W15);
+   - **journaled, not blocking:** builds already dispatched (W14) and their unknown usage, and
+     writer and closer attempts whose result is still unknown (they are resolved by their own
+     hash).
+   
+   An expired peer lease never proves that no external effect happened. It only lets another
+   holder continue the same item from its own durable state and exact evidence (§4.4).
+8. **Gate release needs exact terminal sale evidence.** Only the contract's `closed` (for this
+   exact deal, plus the reconciliation) or `aborted` outcome opens the gate (§4.2, §5). The
+   no-reply close, lease change, abort race and failed reconciliation are each specified, and
+   tested in S-19 and P-1. No stale seller write is ever reopened by a local timeout.
+
+### 14.2 Route classification (`app.ts` mutation inventory)
+
+Every check is in the service's write transaction; the route only maps the refusal.
+
+| Class | Routes / service calls | During a handover |
+|---|---|---|
+| Gated owner mutation | product projects: create for this business, revisions, restore, conversation, proposal apply; app-version current, checks and preview issuance; builds: request, retry; `build-budget`, `runtime-budget`; runtime trial invocations; test cases; evaluations; releases and rollback; business profile `PATCH /api/businesses/:id`, `offer`, `idea`; publish, unpublish, public-profile draft and publish; customer offers create and retire, offer inspections; listing; team add and remove; value settings, try and scenarios; costs add and delete; updates; sessions; imports for this business (create, edit, inspections, dependencies); v2 payments activate and withdraw; v2 deals | 409 `handover_in_progress` |
+| Allowed participant or customer recovery (never frozen by an owner shortcut) | customer use status, result, `reconcile`, `units/reconcile`, `release`, execution cancel, cancel of a prepared use; customer purchases (prepare, requested, check, abandon), see Q4; sale actions: check, requested, abandon, claims, registration, abort after the deadline; v3 intent reconcile by a participant | allowed; each keeps its existing exact rules |
+| Gated customer admission | customer prepare, confirm, execute | 409 `handover_pause` |
+| Harmless read or evidence | every GET; `v3/refresh` (records observations through the existing ordering rules; never authority) | allowed |
+| Not applicable | businesses not bound to a v3 contract (`v3.bindings`), and v3 businesses in Direct mode | unchanged: no handover row can exist for them |
+
+- **Legacy applicability rule.** A handover exists only for a business bound in `v3.bindings`
+  whose contract reports `close_mode: "gated"`. Older v2 routes (bookings, payments, deals) keep
+  their own existing rules. The gate refuses their owner mutations only when that same business
+  has a non-terminal handover, which a v2-only business can't have.
+- **Phase B verifies this list against the source.** Any mutation not listed here is found by
+  an audit of every `app.post/put/patch/delete` and every service write reachable outside HTTP,
+  classified, and given its S-21 test. The list doesn't quietly assume completeness.
+
+### 14.3 Acquisition aftercare
+
+After `released_to_buyer`, the buyer's **primary** action opens the business workspace, with
+continuity and readiness and any unresolved handover item visible. Proposing a resale stays an
+explicit secondary action that opens its form. A fresh owner with no earlier deal keeps
+"Prepare terms" reachable. Before the reconciliation, no operating readiness is shown and
+nothing unresolved is hidden.
+
+The same composition applies to Direct's post-close next action (`saleFlow.ts` around 626) when
+the handover UI is built. It changes no transaction authority.
+
+### 14.4 Product-wide copy (DirectSaleBrowserReview 00:52)
+
+The handover's customer and storefront copy follows Astra's follow-up: continuity language fit
+for digital-only, legacy-only and mixed storefronts, with no invented transferred rights and
+private terms kept private. The broader copy review (Home stages, PublicPage history, the
+releases note) stays in the cross-journey finish, as Astra placed it. It isn't added to 003wf3.
+
+## 15. Not in Phase A, and retained
 
 - **Not in Phase A:** any implementation, migration, config, test, harness or browser work.
   The Phase B items 1–6 of the brief stay required in full.
