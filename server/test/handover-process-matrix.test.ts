@@ -459,6 +459,56 @@ const isProviderCall = (r: { channel: string; url?: string; body: string }) =>
 const isBuild = (r: { channel: string; url?: string; body: string }) =>
   isProviderCall(r) && r.body.includes('"examples"');
 
+describe("003wf3 P-5: a graceful stop at each remaining durable boundary", () => {
+  const STOPS: [string, (i: Installation) => boolean, (i: Installation) => void][] = [
+    [
+      "the order saved, before the writer ran",
+      (i) => i.read("SELECT 1 FROM close_orders").length > 0,
+      (i) => {
+        expect(i.read("SELECT 1 FROM close_orders")).toHaveLength(1);
+        expect(i.read("SELECT 1 FROM closer_tx_attempts")).toHaveLength(0);
+      },
+    ],
+    [
+      "closed observed, before reconciliation (reconciled is transient: the next boundary is the release)",
+      (i) => i.read("SELECT 1 FROM business_handovers WHERE state = 'closed_observed'").length > 0,
+      (i) => {
+        expect(i.read("SELECT state FROM business_handovers")[0]?.state).toBe("closed_observed");
+        expect(i.read("SELECT 1 FROM ownership")).toHaveLength(0);
+      },
+    ],
+  ];
+  for (const [name, reached, at] of STOPS)
+    it(`A stops gracefully (exit 0, listener gone) at ${name}; B completes the same handover: one order, one close, one application`, async () => {
+      const i = await installation();
+      const ctlA: Control = {};
+      const a = child(i.fileA, i.rpc, i.model, ctlA);
+      await a.ready();
+      const { seller } = await upToTheSellersAcceptance(i, i.portA);
+      ctlA.cut = () => (reached(i) ? "defer" : "answer");
+      const x = await act(i, seller, FOUNDER, "accept");
+      await seller(`/api/sales/actions/${x.id}/requested`, "POST", { tx_hash: x.hash }).catch(
+        () => null,
+      );
+      await until(() => (ctlA.deferred?.length ?? 0) > 0, `A at ${name}`, 60_000);
+      at(i);
+      expect(await a.shutdown()).toBe(0);
+      await expect(fetch(`http://127.0.0.1:${i.portA}/api/me`)).rejects.toThrow();
+      for (const go of ctlA.deferred ?? []) go(); // its held request, answered to nobody
+      const b = child(i.fileB, i.rpc, i.model);
+      await b.ready();
+      await until(
+        () => i.read("SELECT state FROM business_handovers")[0]?.state === "released_to_buyer",
+        `B completing after ${name}`,
+        60_000,
+      );
+      expect(i.read("SELECT n FROM close_orders")).toEqual([{ n: 1 }]);
+      expect(i.rpc.applied.filter((y) => y.method === "close_sale")).toHaveLength(1);
+      expect(i.read("SELECT 1 FROM ownership WHERE business_id = ?", i.biz)).toHaveLength(1);
+      expect(await b.shutdown()).toBe(0);
+    }, 180_000);
+});
+
 describe("003wf3 P-5: stopped with its close send in flight", () => {
   it("A stops (exit 0) while its close transaction is still on its way; it lands afterwards, to nobody; B resolves the original by its own hash: one order, one close, one application", async () => {
     const i = await installation();
@@ -758,28 +808,41 @@ describe("003wf3 P-4: a second genuinely bound business serves its customers thr
     expect(
       i.read("SELECT state FROM business_handovers WHERE business_id = ?", i.biz)[0]?.state,
     ).toMatch(/^(ordering|outcome_unknown)$/);
-    // Business 2, meanwhile: a full customer use on its own contract.
-    const p = await cara(`/api/customer/offers/${offer2}/prepare`, "POST", {
+    // Business 2, meanwhile, through the OTHER child: B serves (configured without the handover,
+    // so it can't take over business 1's held close and release it early); the same database,
+    // bindings, synthetic network, nonces and budgets.
+    void cara;
+    const serveOnly = JSON.parse(readFileSync(i.fileB, "utf8")) as Json;
+    delete serveOnly.handover;
+    const fileServe = join(i.dir, "config-b-serve.json");
+    writeFileSync(fileServe, JSON.stringify(serveOnly));
+    const b = child(fileServe, i.rpc, i.model);
+    await b.ready();
+    const caraB = browser(i.portB);
+    await signInAs(caraB, CUSTOMER, i.cara);
+    const benB = browser(i.portB);
+    await signInAs(benB, FOUNDER2, i.ben);
+    const p = await caraB(`/api/customer/offers/${offer2}/prepare`, "POST", {
       idempotency_key: "matrix-use2-0001",
       input: INVOICE,
     });
     expect(p.status, JSON.stringify(p.body).slice(0, 400)).toBe(201);
-    const c = await cara(
+    const c = await caraB(
       `/api/customer/uses/${p.body.use.id}/confirm`,
       "POST",
       i.w.signed(p.body.use.envelope),
     );
     expect(c.body.use?.state, JSON.stringify(c.body).slice(0, 400)).toBe("reserved");
-    const run = await cara(`/api/customer/uses/${p.body.use.id}/execute`, "POST", {});
+    const run = await caraB(`/api/customer/uses/${p.body.use.id}/execute`, "POST", {});
     expect(run.body.use?.execution?.fulfilled, JSON.stringify(run.body).slice(0, 400)).toBe(true);
     const on2 = (m: string) =>
       i.rpc.applied.filter((y) => y.receiver === BIZ2 && y.method === m).length;
     await until(() => on2("settle_hold") === 1, "business 2's use settled (maintenance)", 30_000);
     expect(on2("open_hold")).toBe(1);
     expect(on2("release_hold_for")).toBe(0);
-    expect((await cara(`/api/customer/uses/${p.body.use.id}/result`)).status).toBe(200);
+    expect((await caraB(`/api/customer/uses/${p.body.use.id}/result`)).status).toBe(200);
     // Its founder's edit takes effect while business 1 is still changing hands.
-    const renamed = await ben(`/api/businesses/${biz2}`, "PATCH", {
+    const renamed = await benB(`/api/businesses/${biz2}`, "PATCH", {
       name: "Second business, live",
     });
     expect(renamed.status, JSON.stringify(renamed.body)).toBe(200);
@@ -833,6 +896,7 @@ describe("003wf3 P-4: a second genuinely bound business serves its customers thr
     const nonces = metered.map((y) => y.nonce as bigint);
     for (let n = 1; n < nonces.length; n++)
       expect((nonces[n] as bigint) > (nonces[n - 1] as bigint)).toBe(true);
+    expect(await b.shutdown()).toBe(0);
     expect(await a.shutdown()).toBe(0);
   }, 240_000);
 });
