@@ -105,6 +105,25 @@ are separately labelled. External accounts are not called transferred until veri
 
 ## Milestones and acceptance gates
 
+### Additional approved capability — November 4
+
+Tony approved Astra's proposed additions in chat: "I like your assessment - make it so".
+Implement a buyer authority/continuity sheet, portable verifiable handover record, deeper
+operating economics and recovery views, and an agent-accessible API/MCP product path. Include
+a successor rehearsal proving that the buyer serves existing customers and releases an update.
+These extend M3/M5/M6; they do not replace or close any of the six milestones below.
+
+Payment/refund evidence, restart recovery, exact reviewed-key revocation, independent product
+quality and actual worker verification belong in the initial build. Complete the coherent
+fresh-customer/acquisition journey first, then build the added product surfaces on that evidence.
+Keep connected imports, expert help, portfolios, additional product families and team ownership.
+Cross-chain funding and confidential execution remain later proposals, not current dispatches.
+This approval adds product scope, not deployment, spending, external access or publication rights.
+
+Implementation briefs: 003x buyer control and handover record;005e operating economics and recovery;
+006b agent-accessible product;006c successor rehearsal. They require independent behavior/UI
+verification and honest live-versus-synthetic evidence, like the original roadmap.
+
 | ID | Scope | Gate |
 |---|---|---|
 | M1 | New product system and persistent studio | A signed-in founder can create, reopen, edit and version a digital project; routes and existing workflows remain usable |

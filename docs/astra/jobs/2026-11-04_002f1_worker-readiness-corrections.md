@@ -1,9 +1,11 @@
 # Finish the remaining real worker gates
 
 P0/M, follow-up to actual002f evidence at8c8599a/reportb1acd40. Queued, NOT dispatched.
-001k remains the sole active job, then003w. Read ASTRA, PLATFORM_VISION, EXECUTABLE_PRODUCTS,
+The application-composition/customer work currently owns the sole writer. Read ASTRA,
+PLATFORM_VISION, EXECUTABLE_PRODUCTS,
 WorkerHostSetupProposal, WorkerConformanceReview and the two saved002f runs before work.
-Do not register/edit JOBS concurrently with001k; Astra will register this at the handoff.
+This job is registered as open in JOBS. Start only after explicit dispatch at a verified handoff;
+neither this brief nor an earlier active-job name authorizes a second writer.
 
 ## Product result
 
@@ -49,7 +51,7 @@ limits were enforced. Keep unavailable states until the actual gates pass;13/15 
 First deliver a reviewable correction design and repository implementation with meaningful
 finite tests. Review the actual unit, root test harness and rollback changes before any new
 host attempt. This queued brief alone does not start/reinstall the worker. No host changes
-while001k or003w owns the writer; no automatic retry of002f.
+while another job owns the writer; no automatic retry of002f.
 
 After explicit Astra dispatch of a reviewed host step, Tony's existing dedicated-worker
 authorization applies only to Everstreet-Worker atC:\Dev\EverstreetWorker with the same8 GiB
