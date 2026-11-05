@@ -131,3 +131,44 @@ executed independent reproduction. Gate recovery on actual abandoned ownership o
 enforce a supported topology; don't call live A's work an orphan merely because B starts.
 The declared support for multiple configured processes and two-holder evidence needs this case.
 Retain wider nonce/migration/close races for later003wf children as already specified.
+
+## Concurrent recovery snapshot reproduced — 20:54 Pacific
+
+Astra added server/test/astra-runtime-recovery-review.test.ts after reviewing the process-presence
+change. It uses actual ManagedRuntime records and transactions with a fictional held provider.
+At the supported isLive callback, A has selected the running row; B recovers it before A enters
+its transaction. This deterministic interleaving models two recovery readers, not an actual
+child-process race. The independent focused test FAILS: two unknown ledger entries instead of
+one. finish checks the stale row and writes ledger/settlement before its conditional UPDATE.
+Re-read eligibility inside the same transaction as all completion effects; an UPDATE CAS alone
+at the end does not protect earlier ledger inserts or the admission callback. Assert exactly
+one ledger transition and one settlement callback, and retain the active-peer process case.
+
+The prior full check (builder1435+1skip plus8 process tests) predates this new regression.
+Required full check for this Astra test remains to run after the correction, without overlapping
+Claude's suite. All earlier incomplete shutdown/cancellation and requirement-matrix items remain.
+
+At20:56 Astra repeated the corrected runtime recovery probe:1/1pass. The conditional UPDATE
+now claims completion before any ledger/admission side effect in the same transaction. This
+satisfies the reproduced double-settlement interleaving; broader process evidence remains separate.
+
+Astra also added astra-fence-close-review.test.ts for the already-requested outstanding-waiter
+requirement. It independently FAILS: Fence.close leaves its wrapper pending while the raw adapter
+never answers. The test waits100ms, then releases the raw promise in finally (no hanging fixture).
+Fix the fence's own pending promises, not just HTTP cutoffs or child process.exit. Preserve durable
+unknown state and ensure detached completion handlers/timers clean up without unhandled errors.
+The actual total stop deadline still adds owner and request waits in compose.ts at this snapshot.
+
+At20:58 the independent stop/fence/recovery probes pass4/4 across3files. Fence now rejects
+outstanding wrapper promises at close; compose uses a shared absolute stop deadline. Source
+review confirms completion CAS precedes ledger/admission effects. These are narrow corrections.
+
+Final handoff must still map the original brief's reservation-stop, retention-cleanup-stop and
+real configured build-adapter/model timeout/budget cases to executed evidence (current process
+file covers runtime success/error/held-before-response, settlement, holders and listen failure).
+Also inspect the full response lifetime: compose currently fences fetch's Promise<Response>,
+whereas httpsTransport reads the body afterwards with readCapped. A received header followed by
+a held/non-cooperating body is outside that fetch-promise fence. Prove this path terminates its
+owned runtime/build work/timers at stop, with no late writes/unhandled rejection; don't infer it
+from holding the initial fetch. This is source-grounded remaining verification, not a claimed
+independent failed body test. Keep the original cancellation/cleanup requirement intact.
