@@ -22,6 +22,7 @@ import { Deals } from "./deals.ts";
 import { digitalDesk } from "./digitalDesk.ts";
 import { economics } from "./economics.ts";
 import { Evaluations } from "./evaluations.ts";
+import { ledgerlineExample } from "./examples.ts";
 import { ExpertHelp } from "./expertHelp.ts";
 import { StoppedError } from "./fence.ts";
 import { HandoverRecords } from "./handoverRecord.ts";
@@ -602,6 +603,9 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/public/businesses/:slug/customer-offers", (c) =>
     c.json(customerUses.publicOffers(c.req.param("slug"))),
   );
+  // Showcase (SHOWCASE_SPEC.md §3): the public example, an allowlisted projection of a verified
+  // committed testnet record. No sign-in; no database read.
+  app.get("/api/examples/ledgerline", (c) => c.json(ledgerlineExample()));
   app.get("/api/public/customer-offers/:offer", (c) =>
     c.json(customerUses.publicOffer(c.req.param("offer"))),
   );

@@ -1,0 +1,198 @@
+{
+  "format": "everstreet-showcase-samples",
+  "version": 1,
+  "model": "stand-in (scripted answers prepared in advance; no AI provider)",
+  "product": {
+    "name": "Ledgerline",
+    "spec_name": "Invoice reader",
+    "fields": [
+      {
+        "key": "vendor",
+        "label": "Vendor",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "invoice_number",
+        "label": "Invoice number",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "invoice_date",
+        "label": "Invoice date",
+        "type": "date",
+        "required": true
+      },
+      {
+        "key": "total",
+        "label": "Total",
+        "type": "number",
+        "required": true
+      },
+      {
+        "key": "currency",
+        "label": "Currency",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "due_date",
+        "label": "Due date",
+        "type": "date",
+        "required": false
+      }
+    ]
+  },
+  "charging_rule": "A unit is charged only for a delivered result whose outcome is extracted. A refused or failed run returns the unit.",
+  "samples": [
+    {
+      "id": "req_clean",
+      "title": "One clean invoice",
+      "why": "Every promised field is read correctly.",
+      "input": "FICTIONAL EXAMPLE - not a real company or invoice\nINVOICE\nStackline Hosting Ltd\nInvoice no. SH-1042\nInvoice date: 2026-10-14\nBill to: Ledgerline Labs\nManaged VPS, 3 months    USD 300.00\nOff-site backups         USD 112.50\nTotal: USD 412.50",
+      "extraction": {
+        "outcome": "extracted",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "Vendor",
+            "type": "text",
+            "required": true,
+            "value": "Stackline Hosting Ltd",
+            "note": ""
+          },
+          {
+            "key": "invoice_number",
+            "label": "Invoice number",
+            "type": "text",
+            "required": true,
+            "value": "SH-1042",
+            "note": ""
+          },
+          {
+            "key": "invoice_date",
+            "label": "Invoice date",
+            "type": "date",
+            "required": true,
+            "value": "2026-10-14",
+            "note": ""
+          },
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "number",
+            "required": true,
+            "value": "412.50",
+            "note": ""
+          },
+          {
+            "key": "currency",
+            "label": "Currency",
+            "type": "text",
+            "required": false,
+            "value": "USD",
+            "note": ""
+          },
+          {
+            "key": "due_date",
+            "label": "Due date",
+            "type": "date",
+            "required": false,
+            "value": null,
+            "note": ""
+          }
+        ],
+        "missing": [],
+        "problems": [],
+        "reason": null,
+        "issues": [],
+        "model_status": "extracted"
+      },
+      "charged_on_a_real_run": true
+    },
+    {
+      "id": "req_totals_disagree",
+      "title": "Line items don't add up to the stated total",
+      "why": "The stated total is kept as stated, and the disagreement is reported, not corrected.",
+      "input": "FICTIONAL EXAMPLE - not a real company or invoice\nINVOICE\nMarten Automation Co\nInvoice no. MA-2026-07\nInvoice date: 2026-08-19\nWorkflow runs   USD 200.00\nSupport hours   USD 60.00\nTotal: USD 300.00",
+      "extraction": {
+        "outcome": "extracted",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "Vendor",
+            "type": "text",
+            "required": true,
+            "value": "Marten Automation Co",
+            "note": ""
+          },
+          {
+            "key": "invoice_number",
+            "label": "Invoice number",
+            "type": "text",
+            "required": true,
+            "value": "MA-2026-07",
+            "note": ""
+          },
+          {
+            "key": "invoice_date",
+            "label": "Invoice date",
+            "type": "date",
+            "required": true,
+            "value": "2026-08-19",
+            "note": ""
+          },
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "number",
+            "required": true,
+            "value": "300.00",
+            "note": ""
+          },
+          {
+            "key": "currency",
+            "label": "Currency",
+            "type": "text",
+            "required": false,
+            "value": "USD",
+            "note": ""
+          },
+          {
+            "key": "due_date",
+            "label": "Due date",
+            "type": "date",
+            "required": false,
+            "value": null,
+            "note": ""
+          }
+        ],
+        "missing": [],
+        "problems": [],
+        "reason": null,
+        "issues": [
+          "Line items add up to 260.00, not the stated 300.00"
+        ],
+        "model_status": "extracted"
+      },
+      "charged_on_a_real_run": true
+    },
+    {
+      "id": "req_unrelated_text",
+      "title": "Not an invoice at all",
+      "why": "No invoice is fabricated from unrelated text.",
+      "input": "FICTIONAL EXAMPLE - not a real company or invoice\nRelease notes for ledgerctl 2.4: faster sync, a new --dry-run flag, and fixed timezone handling in exports.",
+      "extraction": {
+        "outcome": "refused",
+        "fields": [],
+        "missing": [],
+        "problems": [],
+        "reason": "The text doesn't contain the document this service reads",
+        "issues": [],
+        "model_status": "not_a_document"
+      },
+      "charged_on_a_real_run": false
+    }
+  ]
+}

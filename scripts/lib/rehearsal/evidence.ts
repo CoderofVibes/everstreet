@@ -9,12 +9,16 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { canonical, sha256 } from "../../../server/src/handoverVerify.ts";
+import {
+  EVIDENCE_FORMAT,
+  EVIDENCE_VERSION,
+  SECRETISH,
+} from "../../../server/src/rehearsalRecord.ts";
 import type { Json, WalletCall, Who } from "./journey.ts";
 
-export const EVIDENCE_FORMAT = "everstreet-v3-rehearsal";
-export const EVIDENCE_VERSION = 1;
+export { EVIDENCE_FORMAT, EVIDENCE_VERSION };
+
 const EXPLORER = "https://testnet.nearblocks.io/txns/";
-const SECRETISH = /ed25519:[1-9A-HJ-NP-Za-km-z]{60,}|evs_agent_|"private_key"|"secret"/;
 
 export interface RunHeader {
   example: string;
@@ -122,24 +126,5 @@ export class Recorder {
   }
 }
 
-/** Offline integrity check of a rehearsal record: digests and the absence of secret material. */
-export function verifyRehearsal(raw: string) {
-  const problems: string[] = [];
-  let r: Json;
-  try {
-    r = JSON.parse(raw) as Json;
-  } catch {
-    return { ok: false, problems: ["not JSON"] };
-  }
-  if (r.format !== EVIDENCE_FORMAT || r.version !== EVIDENCE_VERSION)
-    problems.push("unknown format");
-  for (const k of ["header", "steps", "checkpoints", "outcome"]) {
-    if (!(k in r)) problems.push(`missing ${k}`);
-    else if (r.digests?.sections?.[k] !== sha256(canonical(r[k])))
-      problems.push(`${k} digest differs`);
-  }
-  if (r.digests?.record !== sha256(canonical(r.digests?.sections ?? {})))
-    problems.push("record digest differs");
-  if (SECRETISH.test(raw)) problems.push("contains key or token material");
-  return { ok: problems.length === 0, problems };
-}
+/** The offline check lives with the format in the server (it's pure); re-exported here. */
+export { verifyRehearsal } from "../../../server/src/rehearsalRecord.ts";
