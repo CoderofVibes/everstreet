@@ -17,6 +17,7 @@ import type { BuildProvider } from "./build.ts";
 import { Builds, startBuildWorker } from "./builds.ts";
 import type { CustomerViewTransport } from "./customerRead.ts";
 import type { CustomerChainWriter, CustomerUseOptions } from "./customerUse.ts";
+import { OperatorKey, TestnetCustomerWriter, TestnetTxTransport } from "./customerWriter.ts";
 import { openDb } from "./db.ts";
 import { Evaluations } from "./evaluations.ts";
 import { AccountSignIn } from "./identity.ts";
@@ -295,8 +296,30 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         },
   );
 
-  // Customer use: reads can be on without the writer; the writer adapter is 003w-d.
-  const writer = deps.preview?.writer ?? null;
+  // Customer use: reads can be on without the writer. The writer (003w-d) only with an explicit
+  // operator key file whose account IS the configured metering account and whose key matches its
+  // public key; validated here, before any effect. Nothing about the key reaches status.
+  let writer: CustomerChainWriter | null = deps.preview?.writer ?? null;
+  if (config.customer?.writer && fetchImpl && config.rpc) {
+    const k = JSON.parse(readFile(config.customer.writer.key_file)) as {
+      account_id?: unknown;
+      public_key?: unknown;
+      private_key?: unknown;
+    };
+    if (k.account_id !== config.customer.operator_account)
+      throw new Error(
+        "compose: the writer key file is for another account than the metering account",
+      );
+    if (typeof k.public_key !== "string" || typeof k.private_key !== "string")
+      throw new Error("compose: the writer key file is incomplete");
+    writer = new TestnetCustomerWriter(store.db, {
+      network: "testnet",
+      signer: config.customer.operator_account,
+      key: new OperatorKey(k.private_key, k.public_key),
+      rpc: new TestnetTxTransport({ network: "testnet", endpoint: config.rpc.endpoint }, fetchImpl),
+      now: deps.now,
+    });
+  }
   let customer: CustomerUseOptions | undefined;
   if (config.customer && customerTransport && protection)
     customer = {
@@ -329,15 +352,16 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
           key: "customer_writer",
           label: "Reserving and settling units",
           state: "on",
-          detail: "Submits holds as the metering account.",
-          provenance: previewLabel,
+          detail:
+            "Submits open_hold, settle_hold and the registration-guarded release as the metering account, one durable transaction per operation; only the contract's readback proves a charge.",
+          provenance: previewLabel ?? rpcLabel,
         }
       : {
           key: "customer_writer",
           label: "Reserving and settling units",
           state: "unavailable",
           detail:
-            "No hold writer is built yet (sub-job 003w-d), so nothing can be reserved or charged.",
+            "No operator key is configured for the metering account, so nothing can be reserved or charged.",
           provenance: null,
         },
   );

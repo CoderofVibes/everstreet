@@ -55,7 +55,14 @@ export type WriterAnswer =
 export interface CustomerChainWriter {
   readonly network: string;
   readonly signer: string;
+  /**
+   * Job 003w-d: every call carries `operation`, the durable identity of this one submission (the
+   * request's id; the writer adds the method). A real writer keeps at most one transaction that
+   * can land per operation, so the callers' bounded resends of the identical payload never become
+   * a second transaction while an earlier one may still land.
+   */
   openHold(input: {
+    operation?: string;
     network: string;
     account: string;
     customer: string;
@@ -75,6 +82,7 @@ export interface CustomerChainWriter {
    * one-unit hold. The answer is an event; only readback proves a charge.
    */
   settleHold?(input: {
+    operation?: string;
     network: string;
     account: string;
     customer: string;
@@ -91,6 +99,7 @@ export interface CustomerChainWriter {
    * without this method can't release at all. Only readback proves the unit returned.
    */
   releaseHoldFor?(input: {
+    operation?: string;
     network: string;
     account: string;
     customer: string;
@@ -1959,6 +1968,7 @@ export class CustomerUses {
     try {
       answer = await Promise.race([
         writer.openHold({
+          operation: r.id,
           network: r.network,
           account: r.account,
           customer: r.customer_account,
@@ -3184,6 +3194,7 @@ export class CustomerUses {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.writeTimeoutMs);
     const base = {
+      operation: id,
       network: cur.network,
       account: cur.account,
       customer: cur.customer_account,

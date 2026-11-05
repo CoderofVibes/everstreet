@@ -28,7 +28,11 @@ export interface AppConfig {
   /** Business-v3 bindings the operator vouches for. */
   v3?: { bindings: { business_id: string; account: string }[] };
   /** Customer use: the platform's metering account. */
-  customer?: { operator_account: string };
+  /**
+   * Customer use: the platform's metering account; optionally (003w-d) the writer, from an operator
+   * key file the config names (NEAR form: account_id, public_key, private_key). Never echoed.
+   */
+  customer?: { operator_account: string; writer?: { key_file: string } };
   /** Protected customer storage (003v): its root and the file holding its keys. */
   protected_storage?: { root: string; active_key_id: string; keys_file: string };
   /** Model build/runtime: the AI config file and the NAME of the variable holding the key. */
@@ -190,12 +194,16 @@ export function validateConfig(raw: unknown): AppConfig {
 
   let customer: AppConfig["customer"];
   if (c.customer !== undefined) {
+    const cu = c.customer as { operator_account?: unknown; writer?: { key_file?: unknown } };
     customer = {
-      operator_account: testnetAccount(
-        (c.customer as { operator_account?: unknown })?.operator_account,
-        "customer.operator_account",
-      ),
+      operator_account: testnetAccount(cu?.operator_account, "customer.operator_account"),
     };
+    if (cu?.writer !== undefined) {
+      if (mode !== "configured") bad("the customer writer signs, so it needs configured mode");
+      if (typeof cu.writer?.key_file !== "string" || !isAbsolute(cu.writer.key_file))
+        bad("customer.writer.key_file must be absolute");
+      customer.writer = { key_file: cu.writer.key_file as string };
+    }
     if (!rpc) bad("customer use needs rpc");
     if (!protected_storage) bad("customer use needs protected_storage (no plaintext fallback)");
   }

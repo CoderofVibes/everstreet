@@ -245,9 +245,11 @@ export class TestnetRpcTransport implements ViewTransport {
   }
 
   protected async rpc(
-    method: "block" | "query",
+    method: "block" | "query" | "send_tx" | "tx",
     params: Record<string, unknown>,
     outer?: AbortSignal,
+    /** Job 003w-d: return a JSON-RPC error object (as { rpcError }) instead of throwing. */
+    rawErrors = false,
   ) {
     const controller = new AbortController();
     const stopOuter = () => controller.abort();
@@ -302,6 +304,7 @@ export class TestnetRpcTransport implements ViewTransport {
         const hasError = "error" in e;
         if (hasResult === hasError)
           refuse("malformed", "the response has neither or both of result and error");
+        if (hasError && rawErrors) return { rpcError: e.error } as unknown;
         if (hasError) rpcFailure(e.error);
         return e.result;
       } finally {

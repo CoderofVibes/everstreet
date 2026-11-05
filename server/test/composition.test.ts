@@ -465,6 +465,82 @@ describe("003w-a/b configured composition on a loopback listener", () => {
   });
 });
 
+describe("003w-d the writer through configuration", () => {
+  /** A newly generated operator key in NEAR's key-file form (never a real account's). */
+  const keyFile = (dir: string, account: string) => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const seed = privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32);
+    const pub = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
+    const file = join(dir, "operator-key.json");
+    const secret = `ed25519:${base58(Buffer.concat([seed, pub]))}`;
+    writeFileSync(
+      file,
+      JSON.stringify({
+        account_id: account,
+        public_key: `ed25519:${base58(Buffer.from(pub))}`,
+        private_key: secret,
+      }),
+    );
+    return { file, secret };
+  };
+
+  it("an explicit operator key turns the writer on; status names its provenance and never the key", async () => {
+    const dir = tempDir();
+    const k = keyFile(dir, "operator-synthetic.testnet");
+    const cfg = configuredFiles(dir, {});
+    const withWriter = validateConfig({
+      ...cfg,
+      customer: { operator_account: "operator-synthetic.testnet", writer: { key_file: k.file } },
+    });
+    const c = compose(withWriter, syntheticRpc(new Map()));
+    const l = await listen(c);
+    const inv = await l.call("/api/system/capabilities");
+    const w = (inv.body.capabilities as { key: string; state: string; provenance: string }[]).find(
+      (x) => x.key === "customer_writer",
+    );
+    expect(w).toMatchObject({ state: "on", provenance: "synthetic RPC (test)" });
+    const text = JSON.stringify(inv.body);
+    expect(text).not.toContain(k.secret.slice(8, 40));
+    expect(text).not.toContain(k.file);
+  });
+
+  it("a key file for another account is refused at composition, and what was opened is closed", () => {
+    const dir = tempDir();
+    const k = keyFile(dir, "someone-else.testnet");
+    const cfg = validateConfig({
+      ...configuredFiles(dir),
+      customer: { operator_account: "operator-synthetic.testnet", writer: { key_file: k.file } },
+    });
+    expect(() => composeApplication(cfg, { fetch: syntheticRpc(new Map()) })).toThrow(
+      /another account/,
+    );
+    // The unwind closed the records database: the directory can be removed now (Windows locks open files).
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
+
+  it("a writer is refused outside configured mode", () => {
+    expect(() =>
+      validateConfig({
+        config_version: 1,
+        mode: "preview",
+        network: "testnet",
+        listen: { host: "127.0.0.1", port: 8800 },
+        database: ":memory:",
+        rpc: { endpoint: ENDPOINT },
+        protected_storage: {
+          root: join(tmpdir(), "p"),
+          active_key_id: "k1",
+          keys_file: join(tmpdir(), "k.json"),
+        },
+        customer: {
+          operator_account: "op.testnet",
+          writer: { key_file: join(tmpdir(), "op.json") },
+        },
+      }),
+    ).toThrow(/needs configured mode/);
+  });
+});
+
 describe("003w-b NEP-413 and the access-key reader", () => {
   it("a signature over the raw message (a generic signer's bytes) is not a NEP-413 signature", () => {
     const k = accountKey();

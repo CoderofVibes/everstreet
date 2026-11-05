@@ -731,6 +731,26 @@ export function openDb(path: string) {
       network TEXT NOT NULL, created_at TEXT NOT NULL
     ) STRICT;
   `);
+  // Job 003w-d: the customer writer's durable submissions: one row per transaction attempt of an
+  // operation (written before broadcast, with its exact signed bytes), and each signer key's next
+  // nonce, both changed only under the write lock.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chain_tx_nonces (
+      signer TEXT NOT NULL, public_key TEXT NOT NULL, next_nonce TEXT NOT NULL,
+      PRIMARY KEY (signer, public_key)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS chain_tx_attempts (
+      operation TEXT NOT NULL, attempt INTEGER NOT NULL, payload_digest TEXT NOT NULL,
+      method TEXT NOT NULL CHECK (method IN ('open_hold', 'settle_hold', 'release_hold_for')),
+      receiver TEXT NOT NULL, signer TEXT NOT NULL, public_key TEXT NOT NULL, nonce TEXT NOT NULL,
+      block_hash TEXT NOT NULL, block_height TEXT NOT NULL, tx_hash TEXT NOT NULL UNIQUE,
+      signed_tx TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('signed', 'success', 'failure', 'invalid')),
+      code TEXT, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
+      PRIMARY KEY (operation, attempt)
+    ) STRICT;
+    CREATE UNIQUE INDEX IF NOT EXISTS chain_tx_one_nonce ON chain_tx_attempts (signer, public_key, nonce);
+  `);
   const requestCols003m = columns("customer_requests");
   if (!requestCols003m.has("evidence_mark"))
     db.exec("ALTER TABLE customer_requests ADD COLUMN evidence_mark TEXT");
