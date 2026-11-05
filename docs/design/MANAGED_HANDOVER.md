@@ -1063,3 +1063,77 @@ own hash, and the contract outcome decides. They are never recorded as absent.
 
 **Tests:** an expired lease with no takeover yet; a takeover; recovery of the original order
 after a takeover.
+
+## 17. Phase B as built: deltas from sections 1-16 (Claude, November 5)
+
+What the implementation does where it differs from, or makes exact, the text above. The
+requirement matrix and its limits are in `docs/astra/reports/2026-11-05_003wf3_phase-b.md`.
+
+### 17.1 Contract
+
+- `open_hold` refuses `E_CLOSING` while the live deal is Closing, for **every** caller (seller
+  included), after its "already" branch, so a hold opened before the closing keeps its retry.
+  **L1 is superseded:** the seller can no longer open a hold during Closing (h01).
+- `get_handover_terms() -> { version: 1, closing_hold_guard: true }`. Code without this view is
+  treated as unguarded: the acceptance that would start a closing is refused
+  (`handover_unavailable: contract_upgrade`).
+- Undeployed. No account, key or transaction was used.
+
+### 17.2 The gate
+
+- Checked inside each admission's write transaction (`store.tx`, BEGIN IMMEDIATE), as designed.
+- **Database backstops** (beyond the design): `handover_gate_<table>` INSERT triggers on
+  build_jobs, eval_runs, runtime_invocations, runtime_releases, customer_offers, app_checks,
+  app_preview_tokens, customer_requests, product_revisions and customer_executions; an
+  offer-retire trigger; the customer confirm (prepared→reserve_requested) trigger; owner
+  administration triggers on build_budgets, runtime_budgets, costs, value_scenarios, team,
+  updates, offers, ideas, listings (except closing it) and value_settings (except the reset),
+  and on the business profile columns. Each raises `handover_in_progress`. This answers Astra's
+  01:32 point: a direct service caller can't write past an open gate even without the route's
+  transaction.
+- Legacy v2 deal routes, team and session routes are refused at entry (`notDuringHandover`).
+
+### 17.3 Coordinator
+
+- Lease = holder + generation + `until_ms`. **Operation tokens** (Astra 01:41): each step in
+  flight has a token, killed when its deadline passes or the coordinator stops. `requireLease`
+  checks the token and the lease row in the write's own transaction. A business with a step
+  still running is skipped (`busy`), never stepped twice at once.
+- The system reconcile takes a **fence** that runs first in each of its write transactions
+  (Astra 01:47): a token or lease that lapsed during reconcile's awaited read writes nothing.
+- A late final answer for an attempt is persisted as that attempt's own evidence
+  (`attempt_final`, journaled once). It never moves the handover without the lease.
+- `stop()` kills every token, waits a bounded time and returns `{ quiescent, running }`. The
+  composition always stops the coordinator (started or not). A step still running keeps that
+  owner unsettled under the one shared deadline and is reported as
+  `lastStop().handover_running`. Closing the gates cuts a blocked transport call.
+
+### 17.4 D1, D2, D3, D4 as built
+
+- **D1:** `buyerApplied` requires the exact intent's ownership row at `generation_after`, that
+  row to be the newest local generation, and the chain to still show the buyer at that
+  generation. `resolveCurrent` requires local generation = chain generation and the newest
+  ownership row's `to_id` = the chain owner. Anything else is `attention`.
+- **D2:** the caps are **fixed in code** (256 entries, 40 reserved), not configurable. The
+  constructor refuses a reserve below `3 · max_orders + 8`; at the largest `max_orders` (8)
+  that is 32. Ordinary entries stop at cap − reserve and repeat-coalesce. A full journal sets
+  `journal_full` on an open row only; terminal rows are never updated. Orders, attempts and
+  evidence live in their own immutable tables, never in the journal.
+- **D3:** `process_presence.capabilities = {"handover_gate":1}`. A live peer without it blocks
+  orders (`capability_incompatible_peer`). A binary from before 003wf1 writes no presence and
+  can't be detected (stated in §16.9).
+- **D4:** `serviceReadiness` returns `{ eligible, reasons, note }`, separate from the
+  handover's state. Reasons come from the existing checks: active release, `releaseFor`
+  (artifact, provider configuration, policy), runtime availability, budget against one
+  request's worst case, writer, protection and the platform's metering grant. It is
+  re-derived at each read, so a restart with a changed configuration is reflected.
+
+### 17.5 Other changes found while building
+
+- The database and the protected store set `busy_timeout` **before** their journal mode. Two
+  processes starting together otherwise failed with "database is locked" (found by the
+  overlapping-process test).
+- The page has no close-window field. A Gated proposal uses the server's default of 60 minutes
+  (accepted range 10-1440).
+- The handover panel speaks from evidence only (Astra 02:00). It shows `ordering` as "prepared",
+  and says "sent" only when the attempt's `broadcasts` count shows a send.
