@@ -1901,6 +1901,25 @@ export class SaleActions {
       if (p.kind === "propose" || p.kind === "revise") {
         await this.ensureRecorded(viewer, p.business_id, review);
         out = { recorded: { deal_seq: review.deal_seq, version: review.version } };
+      } else if (p.kind === "accept" && res.result === "closing") {
+        // Job 003wf3 (S-2): the gate starts as soon as this closing is confirmed here, from one
+        // fresh pinned read (keyless; idempotent). Not stored as a finished follow-up: a later
+        // check arms again if this read failed.
+        const s = await this.read(
+          { network: p.network, account: p.contract },
+          p.account,
+          p.account,
+        );
+        const h = armHandover(this.db, {
+          businessId: p.business_id,
+          network: p.network,
+          account: p.contract,
+          block: s.block,
+          control: s.control,
+          source: "sale_closing",
+          now: (this.opts.now ?? Date.now)(),
+        });
+        out = { handover: h ? { state: h.state, id: h.id } : null };
       } else if (p.kind === "accept" && res.result === "closed") {
         const intent = this.db
           .prepare(

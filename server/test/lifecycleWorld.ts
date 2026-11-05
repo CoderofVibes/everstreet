@@ -274,6 +274,7 @@ export class SyntheticRpc {
    */
   private snapshots = new Map<number, Json>();
   private heldSend: Barrier | null = null;
+  private heldQuery: Barrier | null = null;
   constructor(readonly chain: FixtureChain) {}
 
   private snapshot(height: number) {
@@ -289,6 +290,16 @@ export class SyntheticRpc {
       tokenRegistered: new Set(c.tokenRegistered),
     });
     for (const h of [...this.snapshots.keys()]) if (h < height - 64) this.snapshots.delete(h);
+  }
+
+  /**
+   * Job 003wf3: the next view query (call_function) is answered from its pinned block, then waits
+   * until opened before the answer is returned: the reader keeps that block's evidence while the
+   * chain moves on (an awaited read racing a later state change).
+   */
+  holdNextQuery() {
+    this.heldQuery = barrier();
+    return this.heldQuery;
   }
 
   /** The next send_tx waits (before it is applied) until opened. */
@@ -356,6 +367,12 @@ export class SyntheticRpc {
         text = this.chain.answer.call(then, String(p.method_name), args);
       } catch {
         return ok({ error: "synthetic: no such view", logs: [] });
+      }
+      const hq = this.heldQuery;
+      if (hq) {
+        this.heldQuery = null;
+        hq.arrive();
+        await hq.release;
       }
       return ok({
         result: [...Buffer.from(text, "utf8")],
