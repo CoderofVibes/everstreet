@@ -99,6 +99,8 @@ export class HandoverCoordinator {
    * skipped, never stepped twice at once.
    */
   private readonly ops = new Map<string, { gen: number; dead: boolean; done: Promise<unknown> }>();
+  /** Per business: the finished handover last read by status only (the next read starts after it). */
+  private readonly historyCursor = new Map<string, string>();
   /** When each finished handover's aged attempts were last read by status only. */
   private readonly statusReadAt = new Map<string, number>();
   /** The last business a pass visited (the next pass starts after it). */
@@ -418,47 +420,54 @@ export class HandoverCoordinator {
     }
     let h = openHandover(this.db, businessId);
     if (!h) {
-      // S-12 / Astra 03:30, 03:40: finished handovers' close attempts still unresolved are
-      // resolved by their own transactions, so their evidence is never left looking absent, and
-      // nothing here moves a finished handover. The three most recent finished handovers with an
-      // unknown attempt are considered (a resale doesn't discard an earlier one's recovery).
-      // While an order is young enough to execute, its same bytes may be resent (the writer's
-      // rules); once every order is past the contract's limit (MAX_ISSUE_AGE_MS) nothing is
-      // sent: a status-only read of the original's own hash, at most once a minute per handover
-      // (this coordinator's memory, not durable across a restart). A missing status proves
-      // nothing: the attempt stays unknown.
+      // S-12 / Astra 03:30, 03:40, 03:47: finished handovers' close attempts still unresolved are
+      // resolved by their own transactions, so their evidence is never left looking absent;
+      // nothing here moves a finished handover. The latest handover's order, while young enough
+      // to execute, may have its same bytes resent (the writer's rules). Every handover whose
+      // orders are all past the contract's limit (MAX_ISSUE_AGE_MS) gets status-only reads of its
+      // original's own hash, in turn: a per-business cursor visits each such handover in
+      // creation order, one per pass, at most once a minute each (this coordinator's memory, not
+      // durable across a restart). No fixed window: an old handover can't be starved by newer
+      // ones. A missing status proves nothing: the attempt stays unknown.
       const pending = this.db
         .prepare(
           `SELECT h.id FROM business_handovers h WHERE h.business_id = ? AND EXISTS (
              SELECT 1 FROM closer_tx_attempts a WHERE a.operation LIKE 'close-' || h.id || '-%' AND a.state = 'signed')
-           ORDER BY h.created_ms DESC LIMIT 3`,
+           ORDER BY h.created_ms, h.id`,
         )
         .all(businessId) as { id: string }[];
       if (pending.length === 0) return "idle";
-      const latest = latestHandover(this.db, businessId);
-      for (const p of pending) {
-        const old = this.db
-          .prepare("SELECT * FROM business_handovers WHERE id = ?")
-          .get(p.id) as unknown as HandoverRow;
-        const youngest = this.db
+      const aged = (id: string) => {
+        const y = this.db
           .prepare(
             "SELECT MAX(json_extract(order_json, '$.issued_at_ms')) AS t FROM close_orders WHERE handover_id = ?",
           )
-          .get(old.id) as { t: string | null };
-        const aged =
-          youngest.t === null ||
-          BigInt(r.block.timestamp_ms) - BigInt(youngest.t) > BigInt(MAX_ISSUE_AGE_MS);
-        if (!aged && latest?.id === old.id) {
-          if (!alive()) return "stopped";
-          await this.resolveAttempts(old, binding.account, gen);
-          return "attempts_resolved";
-        }
-        if (!aged) continue; // an older handover's young order: its own resolution comes later
-        const due = (this.statusReadAt.get(old.id) ?? 0) + STATUS_EVERY_MS <= this.now();
-        if (!due) continue;
-        this.statusReadAt.set(old.id, this.now());
+          .get(id) as { t: string | null };
+        return (
+          y.t === null || BigInt(r.block.timestamp_ms) - BigInt(y.t) > BigInt(MAX_ISSUE_AGE_MS)
+        );
+      };
+      const load = (id: string) =>
+        this.db
+          .prepare("SELECT * FROM business_handovers WHERE id = ?")
+          .get(id) as unknown as HandoverRow;
+      const latest = latestHandover(this.db, businessId);
+      if (latest && pending.some((p) => p.id === latest.id) && !aged(latest.id)) {
         if (!alive()) return "stopped";
-        return this.statusOnly(old, gen);
+        await this.resolveAttempts(latest, binding.account, gen);
+        return "attempts_resolved";
+      }
+      const ids = pending.map((p) => p.id);
+      const after = this.historyCursor.get(businessId);
+      const from = after === undefined ? 0 : ids.indexOf(after) + 1;
+      const order = [...ids.slice(from), ...ids.slice(0, from)];
+      for (const id of order) {
+        if (!aged(id)) continue; // a young order of an older handover: resolved by its own rules
+        if ((this.statusReadAt.get(id) ?? 0) + STATUS_EVERY_MS > this.now()) continue;
+        this.historyCursor.set(businessId, id);
+        this.statusReadAt.set(id, this.now());
+        if (!alive()) return "stopped";
+        return this.statusOnly(load(id), gen);
       }
       return "idle";
     }

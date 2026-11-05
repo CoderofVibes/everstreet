@@ -360,3 +360,91 @@ describe("003wf3 an older handover's unknown attempt still recovers after a resa
     (w.b.rpc as unknown as { answer: (raw: string) => Promise<string> }).answer = answer;
   }, 120_000);
 });
+
+describe("003wf3 historical recovery is fair beyond any fixed window (Astra 03:47)", () => {
+  it("four finished sales each leave an unknown close attempt; only the OLDEST's status becomes readable; it is still recorded by status only within a bounded number of passes", async () => {
+    const w = await world();
+    const answer = w.b.rpc.answer.bind(w.b.rpc);
+    const visible = new Set<string>();
+    (w.b.rpc as unknown as { answer: (raw: string) => Promise<string> }).answer = async (raw) => {
+      const req = JSON.parse(raw) as { method: string; id: unknown; params: Json };
+      const closer = w.rows("SELECT tx_hash FROM closer_tx_attempts").map((x) => String(x.tx_hash));
+      const hash = String(req.params?.tx_hash);
+      if (req.method === "tx" && closer.includes(hash) && !visible.has(hash))
+        return JSON.stringify({
+          jsonrpc: "2.0",
+          id: req.id,
+          error: { name: "HANDLER_ERROR", cause: { name: "UNKNOWN_TRANSACTION", info: {} } },
+        });
+      return answer(raw);
+    };
+    w.b.w.chain.balances.set(FOUNDER, 1_000_000_000n);
+    const parties = [
+      { seller: w.seller, sellerAcct: FOUNDER, buyer: w.buyer, buyerAcct: BUYER },
+      { seller: w.buyer, sellerAcct: BUYER, buyer: w.seller, buyerAcct: FOUNDER },
+    ];
+    const registered = new Set<string>();
+    for (let k = 0; k < 4; k++) {
+      const p = parties[k % 2] as (typeof parties)[number];
+      const prop = await w.act(
+        p.seller,
+        p.sellerAcct,
+        "propose",
+        w.terms({ buyer_account: p.buyerAcct }),
+      );
+      expect(
+        prop.check?.body.resolution?.kind,
+        `sale ${k + 1}: ${JSON.stringify(prop.p.body)}`,
+      ).toBe("confirmed");
+      if (!registered.has(p.buyerAcct)) {
+        expect((await w.act(p.buyer, p.buyerAcct, "register")).check?.body.resolution?.kind).toBe(
+          "confirmed",
+        );
+        registered.add(p.buyerAcct);
+      }
+      for (const kind of ["fund", "accept"])
+        expect((await w.act(p.buyer, p.buyerAcct, kind)).check?.body.resolution?.kind, kind).toBe(
+          "confirmed",
+        );
+      expect((await w.act(p.seller, p.sellerAcct, "accept")).check?.body.resolution).toMatchObject({
+        result: "closing",
+      });
+      w.b.rpc.dropSend = null;
+      w.b.rpc.loseNextSendAnswer("close_sale");
+      await w.coordinator.pass(); // the close lands; its answer is lost
+      const seq = String(k + 1);
+      w.b.rpc.dropSend = (method, args) =>
+        method === "close_sale" && String((args.order as Json | undefined)?.deal_seq) === seq;
+      for (let n = 0; n < 12; n++) {
+        const h = w.handoverRow() as Json;
+        if (h.deal_seq === seq && h.state === "released_to_buyer") break;
+        await w.coordinator.pass();
+      }
+      expect(w.handoverRow()).toMatchObject({ deal_seq: seq, state: "released_to_buyer" });
+      w.b.rpc.dropSend = () => true; // no later send of any close reaches the network
+    }
+    const attempts = () =>
+      w.rows(
+        "SELECT h.deal_seq, a.state, a.tx_hash FROM closer_tx_attempts a JOIN close_orders o ON a.operation = 'close-' || o.handover_id || '-' || o.n || '|close_sale' JOIN business_handovers h ON h.id = o.handover_id ORDER BY h.created_ms",
+      );
+    expect(attempts().map((x) => [x.deal_seq, x.state])).toEqual([
+      ["1", "signed"],
+      ["2", "signed"],
+      ["3", "signed"],
+      ["4", "signed"],
+    ]);
+    // Every order is past the contract's limit; only sale 1's original result becomes readable.
+    w.b.w.chain.tick(21n * 60_000n);
+    visible.add(String(attempts()[0]?.tx_hash));
+    const sends = w.b.rpc.sends;
+    for (let n = 0; n < 8 && attempts()[0]?.state === "signed"; n++) await w.coordinator.pass();
+    expect(attempts()[0]?.state).toBe("success");
+    expect(
+      attempts()
+        .slice(1)
+        .map((x) => x.state),
+    ).toEqual(["signed", "signed", "signed"]);
+    expect(w.b.rpc.sends).toBe(sends);
+    (w.b.rpc as unknown as { answer: (raw: string) => Promise<string> }).answer = answer;
+  }, 180_000);
+});
