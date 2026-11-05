@@ -51,7 +51,7 @@ describe("business-v3 rehearsal driver: local dry run of example 1 (SYNTHETIC)",
       model: "stand-in (scripted; no AI provider)",
     });
     const out = await runDirect(env, rec);
-    expect(out.uses).toHaveLength(22);
+    expect(out.uses).toHaveLength(3); // the first, the one under the buyer, the one on the update
     const { record, text } = rec.build({ completed: true });
     const at = (name: string) =>
       (record.checkpoints as Json[]).find((c) => c.name === name)?.views.entitlement;

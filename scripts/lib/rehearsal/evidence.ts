@@ -32,6 +32,16 @@ export class Recorder {
   private n = 0;
   constructor(readonly header: RunHeader) {}
 
+  /** Continues an earlier, stopped record (its steps and checkpoints kept as they were). */
+  static resume(prior: Json, note: Json) {
+    const r = new Recorder(prior.header as RunHeader);
+    for (const x of prior.steps as Json[]) r.steps.push(x);
+    for (const x of prior.checkpoints as Json[]) r.checkpoints.push(x);
+    r.n = r.steps.length;
+    r.app("resumed", { previous_outcome: prior.outcome, ...note });
+    return r;
+  }
+
   /** A transaction a person signed: what was asked, its hash and finalized outcome, and what the app concluded. */
   tx(
     step: string,

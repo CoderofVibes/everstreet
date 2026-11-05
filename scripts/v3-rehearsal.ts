@@ -11,7 +11,7 @@
 import { type ChildProcess, execFileSync, fork } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { baseEncode } from "near-api-js";
 import { validateConfig } from "../server/src/appConfig.ts";
 import { nep413Digest } from "../server/src/identity.ts";
@@ -33,9 +33,13 @@ import {
 import { Recorder } from "./lib/rehearsal/evidence.ts";
 import {
   type Call,
+  type DeviceKey,
   type Env,
   type Json,
+  loadDeviceKey,
+  newDeviceKey,
   runDirect,
+  runDirectSale,
   StopRun,
   type Who,
 } from "./lib/rehearsal/journey.ts";
@@ -336,92 +340,7 @@ function startApp(configFile: string) {
   };
 }
 
-async function runDirectLive() {
-  const dir = join("data", "runtime", "rehearsal-direct");
-  if (existsSync(join(dir, "everstreet.db")))
-    throw new StopRun(
-      `${dir} already holds a run: resolve it (writer history) before starting another`,
-    );
-  mkdirSync(join(dir, "protected"), { recursive: true });
-  await spendGuard("run start");
-  const port = 8830;
-  writeFileSync(
-    join(dir, "protected-keys.json"),
-    JSON.stringify({ k1: randomBytes(32).toString("base64") }),
-  );
-  writeFileSync(
-    join(dir, "ai.json"),
-    JSON.stringify({
-      config_version: "rehearsal-standin-1",
-      provider: "anthropic",
-      model: "claude-haiku-5-5",
-      pricing_version: "2026-11-02",
-      operator_ceiling_cents: 100,
-      runtime_operator_ceiling_cents: 100,
-    }),
-  );
-  const base = (bound: string | null) => ({
-    config_version: 1,
-    mode: "configured",
-    network: "testnet",
-    listen: { host: "127.0.0.1", port },
-    database: join(dir, "everstreet.db"),
-    sign_in: { recipient: "everstreet.local", session_hours: 8 },
-    rpc: { endpoint: RPC },
-    ...(bound ? { v3: { bindings: [{ business_id: bound, account: DIRECT.business }] } } : {}),
-    customer: {
-      operator_account: DIRECT.meter,
-      writer: { key_file: join(".near-credentials", "testnet", `${DIRECT.meter}.json`) },
-    },
-    protected_storage: {
-      root: join(dir, "protected"),
-      active_key_id: "k1",
-      keys_file: join(dir, "protected-keys.json"),
-    },
-    model: { ai_config_file: join(dir, "ai.json"), api_key_env: "EVERSTREET_REHEARSAL_MODEL_KEY" },
-    maintenance: {
-      enabled: true,
-      interval_ms: 3_000,
-      batch: 5,
-      pass_budget_ms: 10_000,
-      op_deadline_ms: 8_000,
-      stop_timeout_ms: 15_000,
-    },
-    operators: { accounts: [DIRECT.founder] },
-  });
-  const configFile = join(dir, "config.json");
-  // Boot 1: no binding yet; the founder creates the business through the Studio route.
-  let cfg: Json = base(null);
-  try {
-    validateConfig(cfg);
-  } catch {
-    const { customer: _c, ...rest } = cfg;
-    cfg = rest; // the customer section needs a binding: the first boot runs without it
-    validateConfig(cfg);
-  }
-  writeFileSync(configFile, JSON.stringify(cfg));
-  let app = startApp(configFile);
-  await app.ready();
-  const founderCall = httpClient(port);
-  await signIn(founderCall, DIRECT.founder);
-  const made = await founderCall("/api/product-projects", "POST", {
-    idea: "Turn invoices into clean, checked JSON for an accounting tool",
-    foundation: "ai_api",
-    name: "Ledgerline",
-  });
-  if (made.status !== 201)
-    throw new StopRun(`project: ${made.status} ${JSON.stringify(made.body)}`);
-  const list = (await founderCall("/api/product-projects")).body.projects as Json[];
-  const proj =
-    list.find((p) => p.business_name === "Ledgerline" || p.name === "Ledgerline") ?? list[0];
-  if (!proj) throw new StopRun("no project after creating it");
-  await app.stop();
-  // Boot 2: bound to the deployed business.
-  writeFileSync(configFile, JSON.stringify(base(proj.business_id as string)));
-  validateConfig(JSON.parse(readFileSync(configFile, "utf8")));
-  app = startApp(configFile);
-  await app.ready();
-
+function liveEnv(port: number, business: { id: string; project: string }) {
   const accounts: Record<Who, string> = {
     founder: DIRECT.founder,
     buyer: DIRECT.buyer,
@@ -433,8 +352,8 @@ async function runDirectLive() {
     accounts,
     operator: DIRECT.meter,
     business: {
-      id: proj.business_id as string,
-      project: proj.id as string,
+      id: business.id,
+      project: business.project,
       contract: DIRECT.business,
     },
     client: (who) => {
@@ -497,9 +416,104 @@ async function runDirectLive() {
     accounts: { ...accounts, operator: DIRECT.meter },
     model: "stand-in (scripted answers; no AI provider called)",
   });
+  return { env, rec, accounts };
+}
+
+async function runDirectLive() {
+  const dir = resolve("data", "runtime", "rehearsal-direct");
+  if (existsSync(join(dir, "everstreet.db")))
+    throw new StopRun(
+      `${dir} already holds a run: resolve it (writer history) before starting another`,
+    );
+  mkdirSync(join(dir, "protected"), { recursive: true });
+  await spendGuard("run start");
+  const port = 8830;
+  writeFileSync(
+    join(dir, "protected-keys.json"),
+    JSON.stringify({ k1: randomBytes(32).toString("base64") }),
+  );
+  writeFileSync(
+    join(dir, "ai.json"),
+    JSON.stringify({
+      config_version: "rehearsal-standin-1",
+      provider: "anthropic",
+      model: "claude-haiku-5-5",
+      pricing_version: "2026-11-02",
+      operator_ceiling_cents: 100,
+      runtime_operator_ceiling_cents: 100,
+    }),
+  );
+  const base = (bound: string | null) => ({
+    config_version: 1,
+    mode: "configured",
+    network: "testnet",
+    listen: { host: "127.0.0.1", port },
+    database: join(dir, "everstreet.db"),
+    sign_in: { recipient: "everstreet.local", session_hours: 8 },
+    rpc: { endpoint: RPC },
+    ...(bound ? { v3: { bindings: [{ business_id: bound, account: DIRECT.business }] } } : {}),
+    customer: {
+      operator_account: DIRECT.meter,
+      writer: { key_file: resolve(".near-credentials", "testnet", `${DIRECT.meter}.json`) },
+    },
+    protected_storage: {
+      root: join(dir, "protected"),
+      active_key_id: "k1",
+      keys_file: join(dir, "protected-keys.json"),
+    },
+    model: { ai_config_file: join(dir, "ai.json"), api_key_env: "EVERSTREET_REHEARSAL_MODEL_KEY" },
+    maintenance: {
+      enabled: true,
+      interval_ms: 3_000,
+      batch: 5,
+      pass_budget_ms: 10_000,
+      op_deadline_ms: 8_000,
+      stop_timeout_ms: 15_000,
+    },
+    operators: { accounts: [DIRECT.founder] },
+  });
+  const configFile = join(dir, "config.json");
+  // Boot 1: no binding yet; the founder creates the business through the Studio route.
+  let cfg: Json = base(null);
+  try {
+    validateConfig(cfg);
+  } catch {
+    const { customer: _c, ...rest } = cfg;
+    cfg = rest; // the customer section needs a binding: the first boot runs without it
+    validateConfig(cfg);
+  }
+  writeFileSync(configFile, JSON.stringify(cfg));
+  let app = startApp(configFile);
+  await app.ready();
+  const founderCall = httpClient(port);
+  await signIn(founderCall, DIRECT.founder);
+  const made = await founderCall("/api/product-projects", "POST", {
+    idea: "Turn invoices into clean, checked JSON for an accounting tool",
+    foundation: "ai_api",
+    name: "Ledgerline",
+  });
+  if (made.status !== 201)
+    throw new StopRun(`project: ${made.status} ${JSON.stringify(made.body)}`);
+  const list = (await founderCall("/api/product-projects")).body.projects as Json[];
+  const proj =
+    list.find((p) => p.business_name === "Ledgerline" || p.name === "Ledgerline") ?? list[0];
+  if (!proj) throw new StopRun("no project after creating it");
+  await app.stop();
+  // Boot 2: bound to the deployed business.
+  writeFileSync(configFile, JSON.stringify(base(proj.business_id as string)));
+  validateConfig(JSON.parse(readFileSync(configFile, "utf8")));
+  app = startApp(configFile);
+  await app.ready();
+
+  const { env, rec } = liveEnv(port, {
+    id: proj.business_id as string,
+    project: proj.id as string,
+  });
   const out = join(EVIDENCE_DIR, "v3-direct-testnet.json");
   try {
-    const r = await runDirect(env, rec);
+    const r = await runDirect(env, rec, {
+      keepDeviceKey: (k) => writeFileSync(join(dir, "device-key.pem"), k.pem, { mode: 0o600 }),
+    });
     console.log(`✓ example 1 complete: ${JSON.stringify(r)}`);
     rec.write(out, { completed: true });
   } catch (e) {
@@ -513,10 +527,122 @@ async function runDirectLive() {
   console.log(`evidence: ${out}`);
 }
 
+/**
+ * Resumes a stopped example 1 from its sale phase, on the same database and evidence record.
+ * The customer's device key from the first process is gone: as a real customer would, the lost key
+ * is revoked (guarded: only this exact key at this epoch) and a new one installed in slot 1; both
+ * transactions are in the record.
+ */
+async function resumeDirectLive() {
+  const dir = resolve("data", "runtime", "rehearsal-direct");
+  const configFile = join(dir, "config.json");
+  const out = join(EVIDENCE_DIR, "v3-direct-testnet.json");
+  if (!existsSync(join(dir, "everstreet.db")) || !existsSync(out))
+    throw new StopRun("nothing to resume");
+  const prior = JSON.parse(readFileSync(out, "utf8")) as Json;
+  if (prior.outcome?.completed) throw new StopRun("example 1 already completed");
+  await spendGuard("resume start");
+  const cfg = JSON.parse(readFileSync(configFile, "utf8")) as Json;
+  const port = cfg.listen.port as number;
+  const app = startApp(configFile);
+  await app.ready();
+  const bizId = cfg.v3.bindings[0].business_id as string;
+  // The project id, from the founder's own list (still the owner before the close).
+  const founder = httpClient(port);
+  await signIn(founder, DIRECT.founder);
+  const proj = ((await founder("/api/product-projects")).body.projects as Json[]).find(
+    (x) => x.business_id === bizId,
+  );
+  if (!proj) throw new StopRun("the project isn't listed");
+  const { env } = liveEnv(port, { id: bizId, project: proj.id as string });
+  const rec = Recorder.resume(prior, { at: new Date().toISOString(), commit: commit() });
+  try {
+    for (const w of ["founder", "customer", "buyer"] as const) await env.signIn(w, env.client(w));
+    const ava = env.client("founder");
+    const cara = env.client("customer");
+    // Context, from the app's own routes and the earlier record.
+    const offers = (await ava(`/api/businesses/${bizId}/customer-offers`)).body.offers as Json[];
+    const offer = offers.find((o) => o.state === "active");
+    if (!offer) throw new StopRun("no active offer");
+    const firstReq = (await cara("/api/customer/requests/by-key/rehearsal-use-00001")).body as Json;
+    const firstUse = (firstReq.use?.id ?? firstReq.request?.id ?? firstReq.id) as
+      | string
+      | undefined;
+    if (!firstUse)
+      throw new StopRun(`the first use isn't found: ${JSON.stringify(firstReq).slice(0, 300)}`);
+    const release1 = (prior.steps as Json[]).find((x) => x.step === "release_1")?.facts;
+    const evals = (await ava(`/api/product-projects/${proj.id}/evaluations`)).body as Json;
+    const runs = (evals.runs ?? evals.evaluations ?? []) as Json[];
+    const evalRun = runs.find((r) => r.artifact_job === release1?.artifact_job);
+    if (!release1 || !evalRun) throw new StopRun("the first release's evaluation isn't found");
+    const before = await env.views();
+    if (!before.control?.live_deal) throw new StopRun("no live proposal on the contract");
+    // The lost device key: revoke exactly it (guarded), then install a replacement in slot 1.
+    let key: DeviceKey;
+    let slot = 0;
+    const pemFile = join(dir, "device-key.pem");
+    if (existsSync(pemFile)) key = loadDeviceKey(readFileSync(pemFile, "utf8"));
+    else {
+      const e = before.entitlement as Json;
+      const k0 = (e.keys as Json[])[0] as Json;
+      const revoke = {
+        receiverId: DIRECT.business,
+        methodName: "revoke_key_guarded",
+        args: { plan_id: 1, slot: 0, reg_id: String(e.reg_id), epoch: k0.epoch, pk: k0.public_key },
+        gas: "30000000000000",
+        deposit: "1",
+      };
+      const rv = await env.wallet("customer", revoke);
+      rec.tx("device_key_lost_revoked", "customer", DIRECT.customer, revoke, rv, null);
+      if (!rv.ok) throw new StopRun(`revoking the lost key failed: ${rv.error}`);
+      key = newDeviceKey();
+      writeFileSync(pemFile, key.pem, { mode: 0o600 });
+      slot = 1;
+      const install = {
+        receiverId: DIRECT.business,
+        methodName: "install_key",
+        args: { plan_id: 1, slot, pk: key.pk, max_hold_units: 1, max_units_per_day: 100 },
+        gas: "30000000000000",
+        deposit: "1",
+      };
+      const ins = await env.wallet("customer", install);
+      rec.tx("device_key_replacement_installed", "customer", DIRECT.customer, install, ins, null);
+      if (!ins.ok) throw new StopRun(`installing the new key failed: ${ins.error}`);
+      await rec.checkpoint("device_key_replaced", await env.views());
+    }
+    const r = await runDirectSale(
+      env,
+      rec,
+      {
+        offer: offer.id as string,
+        firstUse,
+        usesBefore: 20,
+        jobId: release1.artifact_job as string,
+        evalRunId: evalRun.id as string,
+        key,
+        slot,
+      },
+      { signedIn: true, proposed: true },
+    );
+    console.log(`✓ example 1 complete: ${JSON.stringify(r)}`);
+    rec.write(out, { completed: true });
+  } catch (e) {
+    rec.write(out, { completed: false, reason: (e as Error).message.slice(0, 600) });
+    console.log(`app log (last part):
+${app.log().slice(-3000)}`);
+    throw e;
+  } finally {
+    await spendGuard("resume end").catch(() => {});
+    await app.stop();
+  }
+  console.log(`evidence: ${out}`);
+}
+
 const cmd = process.argv[2];
 try {
   if (cmd === "setup-direct") await setupDirect();
   else if (cmd === "run-direct") await runDirectLive();
+  else if (cmd === "resume-direct") await resumeDirectLive();
   else {
     console.error("usage: v3-rehearsal.ts setup-direct | run-direct");
     process.exit(2);

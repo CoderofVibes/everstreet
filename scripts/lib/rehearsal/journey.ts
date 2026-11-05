@@ -5,7 +5,13 @@
 // clients, sign-in, the wallet (it signs exactly the call the app prepared) and the chain views.
 // Fictional people; no customer document beyond the fictional sample invoice.
 
-import { generateKeyPairSync, sign } from "node:crypto";
+import {
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  type KeyObject,
+  sign,
+} from "node:crypto";
 import type { Recorder } from "./evidence.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: loosely typed route answers, read field by field
@@ -90,38 +96,175 @@ const expect = (cond: boolean, what: string, detail?: unknown) => {
 };
 
 /** The customer device's use key (ed25519); it signs hold/use messages, never a transaction. */
-function deviceKey() {
+export interface DeviceKey {
+  pk: string;
+  sign: (hex: string) => string;
+  /** PKCS#8 PEM, for the run's private runtime folder only (never evidence). */
+  pem: string;
+}
+const fromKeyObject = (privateKey: KeyObject, publicHex: string): DeviceKey => ({
+  pk: publicHex,
+  sign: (hex) => sign(null, Buffer.from(hex, "hex"), privateKey).toString("hex"),
+  pem: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+});
+export function newDeviceKey(): DeviceKey {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const pk = publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("hex");
-  return {
-    pk,
-    sign: (hex: string) => sign(null, Buffer.from(hex, "hex"), privateKey).toString("hex"),
-  };
+  return fromKeyObject(
+    privateKey,
+    publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("hex"),
+  );
+}
+export function loadDeviceKey(pem: string): DeviceKey {
+  const privateKey = createPrivateKey(pem);
+  const publicHex = createPublicKey(privateKey)
+    .export({ format: "der", type: "spki" })
+    .subarray(-32)
+    .toString("hex");
+  return fromKeyObject(privateKey, publicHex);
 }
 
 export interface DirectOptions {
   /** Delivered uses before the sale (the packet: 20). */
   uses?: number;
-  /** Seconds to wait for each settlement (testnet blocks are ~1 s; the writer needs a few). */
+  /** How long to wait for each reservation or settlement. */
   settleWaitMs?: number;
+  /** Called once the customer's device key exists, so the run can keep it privately. */
+  keepDeviceKey?: (k: DeviceKey) => void;
+}
+
+/** The steps shared by both phases, bound to one environment and record. */
+function steps(env: Env, rec: Recorder, settleMs: number) {
+  const ava = env.client("founder");
+  const cara = env.client("customer");
+  const noah = env.client("buyer");
+  const { id: biz } = env.business;
+  const act = async (
+    who: Who,
+    c: Call,
+    kind: string,
+    input: Json,
+    key: string,
+    o: { satisfiedBy?: string } = {},
+  ) => {
+    const pr = await c(`/api/sales/${biz}/prepare`, "POST", { kind, input });
+    // A step already satisfied (e.g. the setup registered the buyer with the token): recorded as
+    // such, never forced.
+    if (pr.status === 409 && o.satisfiedBy && pr.body?.code === o.satisfiedBy) {
+      rec.app(`${kind}_already_satisfied`, { code: pr.body.code, detail: pr.body.error });
+      return null;
+    }
+    const p = ok(pr, 200, `prepare ${kind}`);
+    const made = ok(
+      await c(`/api/sales/${biz}/actions`, "POST", {
+        kind,
+        input: p.input,
+        action_digest: p.action_digest,
+        idempotency_key: key,
+      }),
+      201,
+      `create ${kind}`,
+    );
+    const id = made.action.id as string;
+    const ask = (await c(`/api/sales/actions/${id}/requested`, "POST", {})).body.ask;
+    expect(ask === "granted", `the app to grant the ${kind} request`, ask);
+    const tx = await env.wallet(who, made.action.call as WalletCall);
+    await c(`/api/sales/actions/${id}/requested`, "POST", { tx_hash: tx.hash });
+    const checked = ok(await c(`/api/sales/actions/${id}/check`, "POST", {}), 200, `check ${kind}`);
+    rec.tx(kind, who, env.accounts[who], made.action.call as WalletCall, tx, checked.resolution);
+    expect(checked.resolution?.kind === "confirmed", `${kind} confirmed`, checked.resolution);
+    return checked;
+  };
+  const offerFor = async (c: Call, rel: string, key: string) => {
+    const ins = ok(
+      await c(`/api/businesses/${biz}/customer-offer-inspections`, "POST", {
+        release_id: rel,
+        plan_id: 1,
+        retention_days: 30,
+      }),
+      200,
+      "inspection",
+    );
+    return ok(
+      await c(`/api/businesses/${biz}/customer-offers`, "POST", {
+        idempotency_key: key,
+        release_id: rel,
+        plan_id: 1,
+        retention_days: 30,
+        reviewed_terms: ins.inspection.terms_digest,
+      }),
+      201,
+      "offer",
+    ).offer as Json;
+  };
+  const serve = async (offerId: string, n: number, key: DeviceKey, slot: number) => {
+    const prep = ok(
+      await cara(`/api/customer/offers/${offerId}/prepare`, "POST", {
+        idempotency_key: `rehearsal-use-${String(n).padStart(5, "0")}`,
+        input: invoice(n),
+        key_slot: slot,
+      }),
+      [200, 201],
+      `prepare ${n}`,
+    );
+    const e = prep.use.envelope as Json;
+    const id = prep.use.id as string;
+    const conf = ok(
+      await cara(`/api/customer/uses/${id}/confirm`, "POST", {
+        envelope_digest: e.envelope_digest,
+        hold_signature: key.sign(e.hold.message_hex),
+        use_signature: key.sign(e.use.message_hex),
+      }),
+      200,
+      `confirm ${n}`,
+    );
+    if (conf.use?.state !== "reserved")
+      await until(
+        async () => (await cara(`/api/customer/uses/${id}/reconcile`, "POST")).body,
+        (v) => v.use?.state === "reserved",
+        `use ${n} reserved`,
+        settleMs,
+      );
+    const x = ok(await cara(`/api/customer/uses/${id}/execute`, "POST", {}), 200, `execute ${n}`);
+    expect(x.use?.execution?.fulfilled === true, `use ${n} delivered`, x.use?.execution);
+    await until(
+      async () => (await cara(`/api/customer/uses/${id}/units/reconcile`, "POST")).body,
+      (v) => v.use?.units?.unit === "charged",
+      `use ${n} charged`,
+      settleMs,
+    );
+    rec.app(`use_${n}`, {
+      use: id,
+      offer: offerId,
+      key_slot: slot,
+      delivered: true,
+      unit: "charged",
+    });
+    return id;
+  };
+  return { ava, cara, noah, act, offerFor, serve };
+}
+
+/** What the sale phase needs from the first phase (rebuilt from the app when resuming). */
+export interface SaleContext {
+  offer: string;
+  firstUse: string;
+  usesBefore: number;
+  jobId: string;
+  evalRunId: string;
+  key: DeviceKey;
+  slot: number;
 }
 
 /**
- * Example 1. Returns the run's key ids. Throws StopRun at the first mismatch (never retries a
- * write blindly: an unknown outcome stops the run for writer-history recovery).
+ * Example 1. Throws StopRun at the first mismatch (never retries a write blindly: an unknown
+ * outcome stops the run for writer-history recovery).
  */
 export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) {
   const USES = o.uses ?? 20;
   const settleMs = o.settleWaitMs ?? 120_000;
-  const ava = env.client("founder");
-  const cara = env.client("customer");
-  const noah = env.client("buyer");
-  for (const [w, c] of [
-    ["founder", ava],
-    ["customer", cara],
-    ["buyer", noah],
-  ] as const)
-    await env.signIn(w, c);
+  const s = steps(env, rec, settleMs);
+  const { ava, cara } = s;
+  for (const w of ["founder", "customer", "buyer"] as const) await env.signIn(w, env.client(w));
   const { id: biz, project } = env.business;
   await rec.checkpoint("start", await env.views());
 
@@ -177,76 +320,25 @@ export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) 
   rec.app("release_1", {
     release: released.active?.id,
     artifact_job: jobId,
-    evaluation: {
-      total: run.total,
-      passed: run.passed ?? run.total,
-      release_ready: run.release_ready,
-    },
+    evaluation: { total: run.total, release_ready: run.release_ready },
     model: "stand-in (scripted; no AI provider)",
   });
 
   // ---- 2. Plan, metering appointment, offer.
-  const act = async (who: Who, c: Call, kind: string, input: Json, key: string) => {
-    const p = ok(
-      await c(`/api/sales/${biz}/prepare`, "POST", { kind, input }),
-      200,
-      `prepare ${kind}`,
-    );
-    const made = ok(
-      await c(`/api/sales/${biz}/actions`, "POST", {
-        kind,
-        input: p.input,
-        action_digest: p.action_digest,
-        idempotency_key: key,
-      }),
-      201,
-      `create ${kind}`,
-    );
-    const id = made.action.id as string;
-    const ask = (await c(`/api/sales/actions/${id}/requested`, "POST", {})).body.ask;
-    expect(ask === "granted", `the app to grant the ${kind} request`, ask);
-    const tx = await env.wallet(who, made.action.call as WalletCall);
-    await c(`/api/sales/actions/${id}/requested`, "POST", { tx_hash: tx.hash });
-    const checked = ok(await c(`/api/sales/actions/${id}/check`, "POST", {}), 200, `check ${kind}`);
-    rec.tx(kind, who, env.accounts[who], made.action.call as WalletCall, tx, checked.resolution);
-    expect(checked.resolution?.kind === "confirmed", `${kind} confirmed`, checked.resolution);
-    return checked;
-  };
-  await act("founder", ava, "create_plan", { plan: PLAN }, "rehearsal-plan-0001");
-  await act("founder", ava, "appoint", {}, "rehearsal-grant-001");
+  await s.act("founder", ava, "create_plan", { plan: PLAN }, "rehearsal-plan-0001");
+  await s.act("founder", ava, "appoint", {}, "rehearsal-grant-001");
   const access = ok(
     await ava(`/api/businesses/${biz}/customer-access?project=${project}`),
     200,
     "access",
   );
-  const offerFor = async (c: Call, rel: string, key: string) => {
-    const ins = ok(
-      await c(`/api/businesses/${biz}/customer-offer-inspections`, "POST", {
-        release_id: rel,
-        plan_id: 1,
-        retention_days: 30,
-      }),
-      200,
-      "inspection",
-    );
-    return ok(
-      await c(`/api/businesses/${biz}/customer-offers`, "POST", {
-        idempotency_key: key,
-        release_id: rel,
-        plan_id: 1,
-        retention_days: 30,
-        reviewed_terms: ins.inspection.terms_digest,
-      }),
-      201,
-      "offer",
-    ).offer as Json;
-  };
-  const offer = await offerFor(ava, (access.release as Json).id, "rehearsal-offer-0001");
+  const offer = await s.offerFor(ava, (access.release as Json).id, "rehearsal-offer-0001");
   rec.app("offer_1", { offer: offer.id, plan: 1, unit_price: PRICE });
   await rec.checkpoint("offer_open", await env.views());
 
   // ---- 3. A fresh customer registers, buys 100 with this device's key, and uses USES.
-  const key = deviceKey();
+  const key = newDeviceKey();
+  o.keepDeviceKey?.(key);
   const setup = async (q: string) =>
     ok(await cara(`/api/customer/offers/${offer.id}/purchase-setup${q}`), 200, "purchase setup");
   const s0 = await setup("?units=100");
@@ -293,70 +385,64 @@ export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) 
     bought.resolution,
   );
   await rec.checkpoint("bought_100", await env.views());
-
-  const serve = async (offerId: string, n: number) => {
-    const prep = ok(
-      await cara(`/api/customer/offers/${offerId}/prepare`, "POST", {
-        idempotency_key: `rehearsal-use-${String(n).padStart(5, "0")}`,
-        input: invoice(n),
-        key_slot: 0,
-      }),
-      [200, 201],
-      `prepare ${n}`,
-    );
-    const env1 = prep.use.envelope as Json;
-    const id = prep.use.id as string;
-    const conf = ok(
-      await cara(`/api/customer/uses/${id}/confirm`, "POST", {
-        envelope_digest: env1.envelope_digest,
-        hold_signature: key.sign(env1.hold.message_hex),
-        use_signature: key.sign(env1.use.message_hex),
-      }),
-      200,
-      `confirm ${n}`,
-    );
-    const reserved = await until(
-      async () =>
-        conf.use?.state === "reserved"
-          ? conf
-          : (await cara(`/api/customer/uses/${id}/reconcile`, "POST")).body,
-      (v) => v.use?.state === "reserved",
-      `use ${n} reserved`,
-      settleMs,
-    );
-    void reserved;
-    const x = ok(await cara(`/api/customer/uses/${id}/execute`, "POST", {}), 200, `execute ${n}`);
-    expect(x.use?.execution?.fulfilled === true, `use ${n} delivered`, x.use?.execution);
-    await until(
-      async () => (await cara(`/api/customer/uses/${id}/units/reconcile`, "POST")).body,
-      (v) => v.use?.units?.unit === "charged",
-      `use ${n} charged`,
-      settleMs,
-    );
-    rec.app(`use_${n}`, { use: id, offer: offerId, delivered: true, unit: "charged" });
-    return id;
-  };
   const uses: string[] = [];
-  for (let n = 1; n <= USES; n++) uses.push(await serve(offer.id as string, n));
+  for (let n = 1; n <= USES; n++) uses.push(await s.serve(offer.id as string, n, key, 0));
   await rec.checkpoint(`used_${USES}`, await env.views());
-  const first = ok(await cara(`/api/customer/uses/${uses[0]}/result`), 200, "result 1");
+  return runDirectSale(
+    env,
+    rec,
+    {
+      offer: offer.id as string,
+      firstUse: uses[0] as string,
+      usesBefore: USES,
+      jobId,
+      evalRunId: run.id as string,
+      key,
+      slot: 0,
+    },
+    { settleWaitMs: settleMs, signedIn: true },
+  );
+}
+
+/**
+ * The sale phase: propose (if not yet live), the buyer's register/fund/accept, the close, the
+ * former owner denied and the buyer managing, the next use (79), the buyer's checked update and a
+ * use on it. Resumable: a step the chain already shows done is recorded as satisfied.
+ */
+export async function runDirectSale(
+  env: Env,
+  rec: Recorder,
+  ctx: SaleContext,
+  o: { settleWaitMs?: number; signedIn?: boolean; proposed?: boolean } = {},
+) {
+  const settleMs = o.settleWaitMs ?? 120_000;
+  const s = steps(env, rec, settleMs);
+  const { ava, cara, noah } = s;
+  if (!o.signedIn)
+    for (const w of ["founder", "customer", "buyer"] as const) await env.signIn(w, env.client(w));
+  const { id: biz, project } = env.business;
+  const first = ok(await cara(`/api/customer/uses/${ctx.firstUse}/result`), 200, "result 1");
 
   // ---- 4. The Direct sale.
-  const terms = {
-    buyer_account: env.accounts.buyer,
-    price: "250000000",
-    expires_in_days: 7,
-    available_floor: "0",
-    grants: [{ account: env.operator, caps: 1 }],
-    exclusions: ["The ledgerline.example domain and its DNS account"],
-    note: "Fictional terms for the business-v3 testnet rehearsal.",
-  };
-  await act("founder", ava, "propose", terms, "rehearsal-propose-01");
-  for (const k of ["register", "fund", "accept"])
-    await act("buyer", noah, k, {}, `rehearsal-${k}-0001`);
+  if (!o.proposed) {
+    const terms = {
+      buyer_account: env.accounts.buyer,
+      price: "250000000",
+      expires_in_days: 7,
+      available_floor: "0",
+      grants: [{ account: env.operator, caps: 1 }],
+      exclusions: ["The ledgerline.example domain and its DNS account"],
+      note: "Fictional terms for the business-v3 testnet rehearsal.",
+    };
+    await s.act("founder", ava, "propose", terms, "rehearsal-propose-01");
+  }
+  await s.act("buyer", noah, "register", {}, "rehearsal-register-0001", {
+    satisfiedBy: "registered",
+  });
+  for (const k of ["fund", "accept"]) await s.act("buyer", noah, k, {}, `rehearsal-${k}-0001`);
   await rec.checkpoint("before_close", await env.views());
-  const close = await act("founder", ava, "accept", {}, "rehearsal-close-001");
-  expect(close.resolution?.result === "closed", "the sale closed", close.resolution);
+  const close = await s.act("founder", ava, "accept", {}, "rehearsal-close-001");
+  expect(close?.resolution?.result === "closed", "the sale closed", close?.resolution);
   await rec.checkpoint("closed", await env.views());
 
   // The former owner's write is denied; the buyer's succeeds.
@@ -364,8 +450,8 @@ export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) 
   rec.app("old_owner_denied", { route: "GET customer-access (owner view)", status: denied.status });
   expect(denied.status !== 200, "the former owner's owner view refused", denied.status);
   const deniedWrite = await ava(`/api/product-projects/${project}/releases`, "POST", {
-    artifact_job: jobId,
-    eval_run: run.id,
+    artifact_job: ctx.jobId,
+    eval_run: ctx.evalRunId,
   });
   rec.app("old_owner_write_denied", { route: "POST releases", status: deniedWrite.status });
   expect(
@@ -376,10 +462,14 @@ export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) 
   const buyerSale = ok(await noah(`/api/sales/${biz}`), 200, "buyer sale");
   expect(buyerSale.local_owner === true, "the buyer manages the business", buyerSale.local_owner);
 
-  // ---- 5. The same customer's next use under the buyer: 79 left.
-  uses.push(await serve(offer.id as string, USES + 1));
+  // ---- 5. The same customer's next use under the buyer.
+  const nextUse = await s.serve(ctx.offer, ctx.usesBefore + 1, ctx.key, ctx.slot);
   await rec.checkpoint("next_use_under_buyer", await env.views());
-  const firstAfter = ok(await cara(`/api/customer/uses/${uses[0]}/result`), 200, "result 1 after");
+  const firstAfter = ok(
+    await cara(`/api/customer/uses/${ctx.firstUse}/result`),
+    200,
+    "result 1 after",
+  );
   expect(JSON.stringify(firstAfter) === JSON.stringify(first), "the earlier result unchanged");
 
   // ---- 6. The buyer's checked update, and a use that names the new release.
@@ -429,14 +519,14 @@ export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) 
     201,
     "buyer release",
   );
-  const offer2 = await offerFor(noah, rel2.active.id as string, "rehearsal-offer-0002");
+  const offer2 = await s.offerFor(noah, rel2.active.id as string, "rehearsal-offer-0002");
   rec.app("release_2", {
     release: rel2.active.id,
     artifact_job: job2,
     offer: offer2.id,
     by: "buyer",
   });
-  const updated = await serve(offer2.id as string, USES + 2);
+  const updated = await s.serve(offer2.id as string, ctx.usesBefore + 2, ctx.key, ctx.slot);
   const st = ok(await cara(`/api/customer/uses/${updated}`), 200, "updated use");
   expect(
     st.use.offer_id === offer2.id,
@@ -445,5 +535,5 @@ export async function runDirect(env: Env, rec: Recorder, o: DirectOptions = {}) 
   );
   rec.app("use_on_update", { use: updated, offer: offer2.id, release: rel2.active.id });
   await rec.checkpoint("after_update", await env.views());
-  return { offer: offer.id as string, offer2: offer2.id as string, uses: [...uses, updated] };
+  return { offer: ctx.offer, offer2: offer2.id as string, uses: [ctx.firstUse, nextUse, updated] };
 }
