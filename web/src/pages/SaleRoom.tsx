@@ -283,19 +283,25 @@ function OpenRequest({ flow, st, a }: { flow: SaleFlow; st: SaleFlowState; a: Sa
             </button>
           </div>
           <form
-            className="row"
             onSubmit={(e) => {
               e.preventDefault();
               void flow.checkWithTransaction(a.id, tx);
             }}
           >
-            <label htmlFor={`${id}-tx`}>Transaction ID from your wallet's activity</label>
-            <input
-              id={`${id}-tx`}
-              className="mono"
-              value={tx}
-              onChange={(e) => setTx(e.target.value)}
-            />
+            <label className="field">
+              <span>Transaction ID from your wallet's activity</span>
+              <input
+                className="input mono"
+                value={tx}
+                onChange={(e) => setTx(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <small>
+                43 or 44 letters and digits. Only this request's own transaction can settle it; any
+                other ID shows nothing about it.
+              </small>
+            </label>
             <button type="submit" className="btn btn-secondary" disabled={st.busy !== null}>
               Check with this ID
             </button>
@@ -377,46 +383,62 @@ function TermsForm({ flow, s, revise }: { flow: SaleFlow; s: SaleSetup; revise: 
       <h2 id={`${id}-t`} style={{ fontSize: 18 }}>
         {revise ? `Revise deal ${d?.seq} (a new version)` : "Prepare terms for one named buyer"}
       </h2>
-      <form className="stack" onSubmit={submit}>
-        <label htmlFor={`${id}-b`}>Buyer's NEAR account</label>
-        <input
-          id={`${id}-b`}
-          className="mono"
-          value={buyer}
-          onChange={(e) => setBuyer(e.target.value)}
-          autoComplete="off"
-        />
-        <label htmlFor={`${id}-p`}>Price in {m.symbol}</label>
-        <input
-          id={`${id}-p`}
-          inputMode="decimal"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-        />
-        {toBaseUnits(price, m.decimals) && (
-          <span className="muted mono">
-            = {toBaseUnits(price, m.decimals)} base units of {s.token.account}
-          </span>
-        )}
-        <label htmlFor={`${id}-d`}>Offer stays open (days, 1 to 30)</label>
-        <input
-          id={`${id}-d`}
-          type="number"
-          min={1}
-          max={30}
-          value={days}
-          onChange={(e) => setDays(Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
-        />
-        <label htmlFor={`${id}-f`}>
-          Available balance the business must keep ({m.symbol}, the floor)
+      {/* The established form system (.field/.input/.check/.grid-2; one column on phones). */}
+      <form onSubmit={submit} noValidate>
+        <label className="field">
+          <span>Buyer's NEAR account</span>
+          <input
+            className="input mono"
+            value={buyer}
+            onChange={(e) => setBuyer(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <small>
+            They must have signed in here with this account, so they can review the terms.
+          </small>
         </label>
-        <input
-          id={`${id}-f`}
-          inputMode="decimal"
-          value={floor}
-          onChange={(e) => setFloor(e.target.value)}
-        />
-        <label className="row">
+        <div className="grid-2">
+          <label className="field">
+            <span>Price in {m.symbol}</span>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+            />
+            <small className="mono">
+              {toBaseUnits(price, m.decimals)
+                ? `= ${toBaseUnits(price, m.decimals)} base units of ${s.token.account}`
+                : `Up to ${m.decimals} decimals.`}
+            </small>
+          </label>
+          <label className="field">
+            <span>Offer stays open (days)</span>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={30}
+              value={days}
+              onChange={(e) => setDays(Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
+            />
+            <small>1 to 30 days from the block the request is reviewed at.</small>
+          </label>
+        </div>
+        <label className="field">
+          <span>Available balance the business must keep ({m.symbol})</span>
+          <input
+            className="input"
+            inputMode="decimal"
+            value={floor}
+            onChange={(e) => setFloor(e.target.value)}
+          />
+          <small>
+            The floor: both acceptances wait until the business's available balance reaches it.
+          </small>
+        </label>
+        <label className="check">
           <input
             type="checkbox"
             checked={metering}
@@ -425,31 +447,38 @@ function TermsForm({ flow, s, revise }: { flow: SaleFlow; s: SaleSetup; revise: 
           />
           <span>
             Name the platform's metering account
-            {s.platform_operator ? ` (${s.platform_operator})` : ""} so customers' new uses continue
-            right after the close
+            {s.platform_operator ? ` (${s.platform_operator})` : ""} in the terms
+            <br />
+            <small className="muted">
+              {metering
+                ? "Customers' new uses continue right after the close."
+                : "Without it, customers keep their units after the close, but new uses pause until the new owner appoints metering. Both of you see this in the terms."}
+            </small>
           </span>
         </label>
-        {!metering && (
-          <p className="notice" role="note">
-            Without it, customers keep their units after the close, but new uses pause until the new
-            owner appoints metering. Both of you see this in the terms.
-          </p>
-        )}
-        <label htmlFor={`${id}-x`}>Not included (one per line, up to 8)</label>
-        <textarea
-          id={`${id}-x`}
-          rows={3}
-          value={exclusions}
-          onChange={(e) => setExclusions(e.target.value)}
-        />
-        <label htmlFor={`${id}-n`}>Note to the buyer (part of the terms)</label>
-        <textarea
-          id={`${id}-n`}
-          rows={2}
-          maxLength={1000}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
+        <label className="field">
+          <span>Not included</span>
+          <textarea
+            className="input"
+            rows={3}
+            value={exclusions}
+            onChange={(e) => setExclusions(e.target.value)}
+          />
+          <small>
+            One per line, up to 8 (each up to 160 characters). Part of the hashed terms.
+          </small>
+        </label>
+        <label className="field">
+          <span>Note to the buyer</span>
+          <textarea
+            className="input"
+            rows={3}
+            maxLength={1000}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <small>Part of the hashed terms; up to 1000 characters.</small>
+        </label>
         {problem && (
           <p className="error-text" role="alert">
             {problem}
@@ -536,20 +565,30 @@ function Continuity({ s }: { s: SaleSetup }) {
     <aside className="sale-continuity" aria-label="What changes and what stays">
       <section>
         <h2 className="sale-h3">Authority the buyer receives</h2>
-        <ul>
-          <li>The owner role on the business's contract, at the next generation.</li>
-          <li>
-            {d && d.grants.length > 0
-              ? d.grants.map((g) => `${g.account} (${caps(g.caps)})`).join("; ")
-              : "No operator is named; every earlier operator ends with the close."}
-          </li>
-          {granted === false && (
-            <li className="error-text">
-              The platform's metering account isn't named: customers' new uses pause after the close
-              until the new owner appoints it.
+        {d ? (
+          <ul>
+            <li>
+              From deal {d.seq}, version {d.version} as the contract shows it: the owner role on the
+              business's contract, at the next generation.
             </li>
-          )}
-        </ul>
+            <li>
+              {d.grants.length > 0
+                ? `Operators named in these terms: ${d.grants.map((g) => `${g.account} (${caps(g.caps)})`).join("; ")}. Every other operator ends with the close.`
+                : "These terms name no operator: every earlier operator ends with the close."}
+            </li>
+            {granted === false && (
+              <li className="error-text">
+                The platform's metering account isn't named: customers' new uses pause after the
+                close until the new owner appoints it.
+              </li>
+            )}
+          </ul>
+        ) : (
+          <p className="muted">
+            No sale is proposed at this reading. Once terms are proposed, this shows exactly what
+            they give the buyer; a draft you are editing isn't shown here until you review it.
+          </p>
+        )}
       </section>
       <section>
         <h2 className="sale-h3">Customer obligations that stay with the business</h2>
@@ -749,7 +788,7 @@ export function SaleRoom({ id }: { id: string }) {
             ? "Preparing the exact request…"
             : null;
   return (
-    <div className="page handover sale-workspace">
+    <div className="page handover sale-workspace sale-room">
       <div className="row" style={{ marginBottom: 4 }}>
         {s.local_owner ? (
           <Link to={`/desk/${id}`} className="muted">
