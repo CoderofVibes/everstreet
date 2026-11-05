@@ -212,6 +212,83 @@ describe("003wf2 sale actions in actual processes", () => {
     expect(proposals).toHaveLength(1);
   }, 120_000);
 
+  it("two processes check one request with contradictory exact answers: the row keeps ONE coherent result", async () => {
+    for (const first of ["ok", "refused"] as const) {
+      const b = await installation();
+      const two = await b.second();
+      const a = child(b.configFile, b.rpc, b.model);
+      await a.ready();
+      const c = child(two.file, b.rpc, b.model);
+      await c.ready();
+      const x = browser(b.port);
+      const y = browser(two.port);
+      await signInAs(x, FOUNDER, b.ava);
+      await signInAs(y, FOUNDER, b.ava);
+      const p = await x(`/api/sales/${b.biz}/prepare`, "POST", { kind: "register", input: {} });
+      const made = await x(`/api/sales/${b.biz}/actions`, "POST", {
+        kind: "register",
+        input: {},
+        action_digest: p.body.action_digest,
+        idempotency_key: `proc-race-${first}`,
+      });
+      const id = made.body.action.id as string;
+      expect((await x(`/api/sales/actions/${id}/requested`, "POST", {})).body.ask).toBe("granted");
+      const ok = b.w.chain.walletCall(FOUNDER, made.body.action.call);
+      // A contradictory, otherwise exact answer for the same request (synthetic: a refused one).
+      const A = "2".repeat(44);
+      const no = structuredClone(ok);
+      no.transaction.hash = A;
+      no.transaction_outcome.id = A;
+      const failure = {
+        Failure: {
+          ActionError: { kind: { FunctionCallError: { ExecutionError: "E_ARGS: synthetic" } } },
+        },
+      };
+      no.status = failure;
+      no.receipts_outcome[0].outcome.status = failure;
+      b.w.chain.txs.set(A, no);
+      // Hold both transaction lookups at the RPC until released, in a chosen order.
+      const held = new Map<string, () => void>();
+      const answer = b.rpc.answer.bind(b.rpc);
+      b.rpc.answer = async (raw: string) => {
+        const req = JSON.parse(raw) as { method: string; params: { tx_hash?: string } };
+        if (req.method === "tx" && req.params.tx_hash) {
+          const h = req.params.tx_hash;
+          await new Promise<void>((r) => held.set(h, r));
+        }
+        return answer(raw);
+      };
+      const one = x(`/api/sales/actions/${id}/check`, "POST", { tx_hash: ok.transaction.hash });
+      const other = y(`/api/sales/actions/${id}/check`, "POST", { tx_hash: A });
+      await until(() => held.size === 2, "both lookups at the RPC");
+      const order =
+        first === "ok" ? [ok.transaction.hash as string, A] : [A, ok.transaction.hash as string];
+      held.get(order[0] as string)?.();
+      await (first === "ok" ? one : other);
+      held.get(order[1] as string)?.();
+      await (first === "ok" ? other : one);
+      const db = openDb(b.db);
+      try {
+        const row = db
+          .prepare("SELECT state, tx_hash, evidence FROM sale_actions WHERE id = ?")
+          .get(id) as Json;
+        const ev = JSON.parse(row.evidence) as Json;
+        if (first === "ok")
+          expect([row.state, row.tx_hash, ev.kind]).toEqual([
+            "confirmed",
+            ok.transaction.hash,
+            "confirmed",
+          ]);
+        else expect([row.state, row.tx_hash, ev.kind]).toEqual(["refused", A, "refused"]);
+      } finally {
+        db.close();
+      }
+      a.proc.kill("SIGKILL");
+      c.proc.kill("SIGKILL");
+      await Promise.all([a.exited, c.exited]);
+    }
+  }, 180_000);
+
   it("two processes over one database: one request admitted, one wallet ask granted", async () => {
     const b = await installation();
     const two = await b.second();
