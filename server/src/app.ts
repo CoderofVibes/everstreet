@@ -261,6 +261,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
     if (identity.mode !== "verified") throw new HttpError(404, "Not available");
     const out = await identity.signIn.verify(await body(c), getCookie(c, SIGN_IN_COOKIE));
     deleteCookie(c, SIGN_IN_COOKIE, { path: "/api/session" });
+    // Job 003w-e1: signing in (perhaps as another account) replaces the session this browser
+    // presented; the old one ends on the server rather than lingering behind a replaced cookie.
+    const previous = getCookie(c, COOKIE);
+    if (previous) store.endSession(previous);
     startSession(c, out.token, Math.floor(identity.signIn.sessionTtlMs / 1000));
     return c.json({ person: out.person, expires_at: new Date(out.expiresMs).toISOString() }, 201);
   });

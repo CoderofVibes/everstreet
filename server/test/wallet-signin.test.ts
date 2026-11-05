@@ -442,6 +442,32 @@ describe("003w-e1 the sign-in controller over the real routes", () => {
     expect(b.calls.filter((x) => x.includes("verify"))).toEqual([]);
   });
 
+  it("signing in as another account ends the browser's previous session on the server", async () => {
+    const a = await app();
+    const keyA = accountKey();
+    const keyB = accountKey();
+    a.full.add(`${ACCOUNT}|${keyA.id}`);
+    a.full.add(`dana-synthetic.testnet|${keyB.id}`);
+    const b = a.browser();
+    await new SignInController(b.port, async () => wallet(keyA).w, ENV, b.storage).start("/");
+    const oldToken = b.jar.get("es_session") as string;
+    const walletB = wallet(keyB).w;
+    const asB: WalletBoundary = {
+      ...walletB,
+      signMessage: async (p) => ({
+        ...((await walletB.signMessage(p)) as { publicKey: string; signature: string }),
+        accountId: "dana-synthetic.testnet",
+        state: p.state,
+      }),
+    };
+    expect(
+      (await new SignInController(b.port, async () => asB, ENV, b.storage).start("/")).kind,
+    ).toBe("signed_in");
+    expect((await status(b)).account).toBe("dana-synthetic.testnet");
+    b.jar.set("es_session", oldToken); // the replaced cookie, presented again
+    expect((await status(b)).person).toBeNull();
+  });
+
   it("a destination is only ever a same-origin path, never the return page", () => {
     expect(safeDestination("/use/o-1?x=1")).toBe("/use/o-1?x=1");
     for (const bad of [
