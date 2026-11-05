@@ -4,7 +4,7 @@
 // and nothing converted, summed across currencies or turned into profit.
 
 import { useEffect, useId, useState } from "react";
-import { readable, TokenAmount, type TokenInfo } from "../TokenAmount.tsx";
+import { parseToken, readable, TokenAmount, type TokenInfo, usableScale } from "../TokenAmount.tsx";
 
 interface AssetMonth {
   earned: string;
@@ -63,8 +63,10 @@ const usd = (micro: string) => {
 
 function EarnedChart({ view, asset }: { view: EconomicsView; asset: string }) {
   const id = useId();
-  const token = view.tokens?.[asset] ?? null;
-  /** A cell: readable in the token when its details were read, else exact base units. */
+  // Amount provenance: a disputed scale is never applied (to this month or any earlier one).
+  const token = usableScale(view.tokens?.[asset]);
+  const disputed = parseToken(view.tokens?.[asset])?.disputed ?? null;
+  /** A cell: readable in the token when its details were read and agree, else exact base units. */
   const amt = (v: string) => (token ? (readable(v, token.decimals) ?? group(v)) : group(v));
   const rows = view.months.map((m) => ({ label: m.label, so_far: m.so_far, v: m.by_asset[asset] }));
   const max = rows.reduce((x, r) => {
@@ -86,8 +88,11 @@ function EarnedChart({ view, asset }: { view: EconomicsView; asset: string }) {
           </>
         ) : (
           <>
-            Earned and prepaid by month, exact base units of <span className="mono">{asset}</span>{" "}
-            (this token's details haven't been read yet)
+            Earned and prepaid by month, exact base units of <span className="mono">{asset}</span> (
+            {disputed
+              ? `${disputed.replace(/\.$/, "")}, so no scale is applied`
+              : "this token's details haven't been read yet"}
+            )
           </>
         )}
       </figcaption>

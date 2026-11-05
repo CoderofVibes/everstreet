@@ -7,19 +7,48 @@
 export interface TokenInfo {
   symbol: string;
   decimals: number;
+  /**
+   * Amount provenance (Astra, Nov 5): set when reads of the token disagreed, with the reason. Its
+   * scale is then not used anywhere: pages show exact base units, the asset and this reason.
+   */
+  disputed?: string;
 }
 
 const U = /^\d{1,40}$/;
 const SYMBOL = /^[A-Za-z0-9.$_-]{1,16}$/;
 
-/** A token's metadata from an answer, or null: only a well-formed symbol and 0-38 decimals. */
+/**
+ * A token's metadata from an answer, or null: only a well-formed symbol and 0-38 decimals. A
+ * disagreement the server recorded (`changed`, with its `reason`) is kept as `disputed`.
+ */
 export function parseToken(raw: unknown): TokenInfo | null {
-  const t = raw as { symbol?: unknown; decimals?: unknown } | null;
+  const t = raw as {
+    symbol?: unknown;
+    decimals?: unknown;
+    changed?: unknown;
+    reason?: unknown;
+    disputed?: unknown;
+  } | null;
   if (!t || typeof t !== "object") return null;
   if (typeof t.symbol !== "string" || !SYMBOL.test(t.symbol)) return null;
   if (!Number.isInteger(t.decimals) || (t.decimals as number) < 0 || (t.decimals as number) > 38)
     return null;
-  return { symbol: t.symbol, decimals: t.decimals as number };
+  const out: TokenInfo = { symbol: t.symbol, decimals: t.decimals as number };
+  if (t.changed === true || typeof t.disputed === "string")
+    out.disputed = (
+      typeof t.disputed === "string"
+        ? t.disputed
+        : typeof t.reason === "string" && t.reason
+          ? t.reason
+          : "This token's details changed between reads"
+    ).slice(0, 300);
+  return out;
+}
+
+/** The scale to show amounts in, or null when unknown or disputed (show exact base units). */
+export function usableScale(raw: unknown): TokenInfo | null {
+  const t = parseToken(raw);
+  return t && !t.disputed ? t : null;
 }
 
 /** Groups digits for reading (no rounding, no decimals added). */
@@ -45,17 +74,20 @@ export function TokenAmount({
   /** The amount in the asset's base units (a decimal integer string). */
   base: string | null;
   asset: string;
-  token: TokenInfo | null | undefined;
+  /** The token's metadata as given (parsed here, so a recorded dispute is never lost). */
+  token: unknown;
   /** Show the exact base units beside the readable amount (default yes). */
   exact?: boolean;
 }) {
   if (base === null) return <span className="muted">unknown</span>;
-  const r = token ? readable(base, token.decimals) : null;
-  if (token && r !== null)
+  const parsed = parseToken(token);
+  const scale = parsed && !parsed.disputed ? parsed : null;
+  const r = scale ? readable(base, scale.decimals) : null;
+  if (scale && r !== null)
     return (
       <span className="token-amount">
         <span className="token-readable">
-          {r} {token.symbol}
+          {r} {scale.symbol}
         </span>
         {exact && (
           <span className="token-exact small muted">
@@ -70,7 +102,11 @@ export function TokenAmount({
     <span className="token-amount">
       <span className="mono">{U.test(base) ? groupDigits(base) : base}</span> base units of{" "}
       <span className="mono token-asset">{asset}</span>
-      <span className="token-exact small muted"> (this token's details haven't been read yet)</span>
+      <span className="token-exact small muted">
+        {parsed?.disputed
+          ? ` (${parsed.disputed.replace(/\.$/, "")}, so the exact amount is shown)`
+          : " (this token's details haven't been read yet)"}
+      </span>
     </span>
   );
 }

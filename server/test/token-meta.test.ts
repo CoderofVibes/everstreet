@@ -31,6 +31,24 @@ describe("token metadata as read on the chain", () => {
     expect(tokenMetaOf(db, "testnet", "other.near")).toBeNull();
   });
 
+  it("a disagreement says what changed; two reads at the same block that disagree are a conflict, kept apart", () => {
+    const db = openDb(":memory:");
+    recordTokenMeta(db, "testnet", "tusd.near", TUSD, "100");
+    recordTokenMeta(db, "testnet", "tusd.near", { ...TUSD, decimals: 18 }, "200");
+    expect(tokenMetaOf(db, "testnet", "tusd.near")?.reason).toMatch(
+      /changed between reads: 6 decimals at block 100, 18 at block 200/,
+    );
+    const same = openDb(":memory:");
+    recordTokenMeta(same, "testnet", "tusd.near", TUSD, "300");
+    recordTokenMeta(same, "testnet", "tusd.near", { ...TUSD, decimals: 18 }, "300");
+    const m = tokenMetaOf(same, "testnet", "tusd.near");
+    expect(m).toMatchObject({ changed: true, decimals: 6 }); // the first read at that block stays
+    expect(m?.reason).toMatch(/Two reads at block 300 disagreed/);
+    // Agreeing again later doesn't clear a dispute: the scale of old records stays in doubt.
+    recordTokenMeta(same, "testnet", "tusd.near", TUSD, "400");
+    expect(tokenMetaOf(same, "testnet", "tusd.near")?.changed).toBe(true);
+  });
+
   it("readable amounts are exact: zero, fractions, large values, 0 and 38 decimals, refusal of non-integers", () => {
     expect(readableAmount("0", 6)).toBe("0");
     expect(readableAmount("150000", 6)).toBe("0.15");
