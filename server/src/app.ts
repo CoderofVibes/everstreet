@@ -13,6 +13,7 @@ import type { BuildProvider } from "./build.ts";
 import { Builds, proposalBudget } from "./builds.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
+import { customerAccess } from "./customerAccess.ts";
 import { CustomerPurchases } from "./customerPurchase.ts";
 import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
 import { HANDOVER_REFUSAL } from "./db.ts";
@@ -426,6 +427,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/businesses/:id/customer-offer-readiness", (c) =>
     c.json(
       customerUses.offerReadiness(me(c), c.req.param("id"), c.req.query("project") || undefined),
+    ),
+  );
+  // Job 003wf4 (OWNER_PLAN_SETUP.md §8): the three steps of "Set up customer access".
+  app.get("/api/businesses/:id/customer-access", async (c) =>
+    c.json(
+      await customerAccess(
+        sales,
+        customerUses,
+        me(c),
+        c.req.param("id"),
+        c.req.query("project") || undefined,
+      ),
     ),
   );
   app.post("/api/businesses/:id/customer-offer-inspections", async (c) =>

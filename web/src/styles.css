@@ -1172,6 +1172,12 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .offer-readiness { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .offer-readiness li { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 10px; align-items: start; font-size: 14px; overflow-wrap: anywhere; }
 .offer-readiness .pill { justify-self: start; }
+/* Job 003wf4: Set up customer access (three steps; the current one marked). */
+.access-steps { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 12px; }
+.access-steps > li { border: 1px solid var(--line, #ddd); border-radius: 10px; padding: 12px 14px; overflow-wrap: anywhere; }
+.access-steps > li[aria-current="step"] { border-color: var(--accent, #3b5bdb); }
+.access-steps .offer-form { gap: 10px; }
+@media (max-width: 480px) { .access-steps .offer-form { flex-direction: column; align-items: stretch; } }
 .offer-next { font-size: 13px; color: var(--text-2); margin-top: 2px; }
 .offer-form { gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .offer-form .field { flex: 1 1 200px; margin: 0; }

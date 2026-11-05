@@ -199,7 +199,10 @@ export function CustomerOffers({
   projectId,
   onAttention,
   onRecords,
+  suggestedPlan,
 }: {
+  /** Job 003wf4: a plan to review for the offer (its own inspection is never skipped). */
+  suggestedPlan?: { id: number; at: number } | null;
   personId: string;
   businessId: string;
   projectId: string;
@@ -222,6 +225,12 @@ export function CustomerOffers({
     void s.start();
     return () => s.retire();
   }, [s]);
+  // Job 003wf4: the confirmed plan pre-fills the plan field; the founder still inspects it.
+  useEffect(() => {
+    if (!suggestedPlan) return;
+    s.setDraft({ plan: String(suggestedPlan.id) });
+    document.getElementById("offer-plan-input")?.focus();
+  }, [s, suggestedPlan]);
   const needs = offerNeedsAttention(st);
   useEffect(() => onAttention?.(needs), [needs, onAttention]);
   const offersSig = st.status === "ready" ? offersSignature(st.offers) : null;
@@ -352,6 +361,7 @@ export function CustomerOffers({
                 <label className="field">
                   <span>Contract plan number</span>
                   <input
+                    id="offer-plan-input"
                     className="input"
                     inputMode="numeric"
                     value={st.draft.plan}

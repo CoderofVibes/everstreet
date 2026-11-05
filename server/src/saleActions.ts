@@ -1125,6 +1125,28 @@ export class SaleActions {
     };
   }
 
+  /**
+   * Job 003wf4 (OWNER_PLAN_SETUP.md §8): the owner's reading for "Set up customer access": one
+   * pinned final read with the plan terms, and the owner's own plan and appointment requests here.
+   * Only the business's owner here (404 otherwise); nothing is stored.
+   */
+  async ownerReading(viewer: Viewer, businessId: string) {
+    const g = this.gate(viewer, businessId);
+    if (g.business.owner_id !== viewer.id) bad(404, "No such sale");
+    const reading = await this.read(g.binding, g.account, g.account, true);
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM sale_actions WHERE business_id = ? AND person_id = ? AND kind IN ('create_plan','appoint') ORDER BY created_at DESC LIMIT 20",
+      )
+      .all(businessId, viewer.id) as unknown as SaleActionRow[];
+    return {
+      reading,
+      account: g.account,
+      platform: this.opts.platformOperator ?? null,
+      actions: rows.map(view),
+    };
+  }
+
   private docFor(businessId: string, hash: string, personId: string) {
     const r = this.db
       .prepare(

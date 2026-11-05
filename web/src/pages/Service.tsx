@@ -40,6 +40,7 @@ import {
 import { useSession } from "../session.tsx";
 import { releasesSignature } from "../studioRecords.ts";
 import { newKey } from "./Builds.tsx";
+import { CustomerAccess } from "./CustomerAccess.tsx";
 import { CustomerOffers } from "./CustomerOffers.tsx";
 
 const SCORE_CLASS = { pass: "mint", fail: "caution", error: "caution", not_applicable: "" };
@@ -215,6 +216,8 @@ export function ServiceView({
   const [budgetText, setBudgetText] = useState("");
   const [checking, setChecking] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Job 003wf4: the plan "Set up customer access" confirmed, handed to the offer review below.
+  const [offerPlan, setOfferPlan] = useState<{ id: number; at: number } | null>(null);
   const [polls, setPolls] = useState(0);
   const live = useRef(true);
   /** Loads can overlap; only the newest one's answer is used. */
@@ -796,7 +799,14 @@ export function ServiceView({
 
       {person && (
         <div hidden={task !== "customers"}>
+          <CustomerAccess
+            key={`access:${person.id}:${businessId}:${projectId}`}
+            businessId={businessId}
+            projectId={projectId}
+            onOffer={(id) => setOfferPlan({ id, at: Date.now() })}
+          />
           <CustomerOffers
+            suggestedPlan={offerPlan}
             key={`${person.id}:${businessId}:${projectId}:${rel.active?.id ?? "none"}`}
             personId={person.id}
             businessId={businessId}
