@@ -24,6 +24,7 @@ import {
 } from "./customerPurchase.ts";
 import type { CustomerViewTransport, PinnedBlock } from "./customerRead.ts";
 import type { Db } from "./db.ts";
+import { armHandover, latestHandover } from "./handover.ts";
 import {
   abortCall,
   acceptCall,
@@ -636,6 +637,11 @@ export interface SaleOptions {
    * Absent: never (a Gated acceptance that would enter Closing is refused).
    */
   handover?: (businessId: string) => Promise<{ ready: boolean; reason: string | null }>;
+  /** Job 003wf3 (D4): whether customers can actually be served now, from the real checks. */
+  serviceReadiness?: (
+    businessId: string,
+    control: ControlV3,
+  ) => { ready: boolean; reasons: string[] };
   readTimeoutMs?: number;
   now?: () => number;
 }
@@ -836,6 +842,17 @@ export class SaleActions {
   async setup(viewer: Viewer, businessId: string) {
     const g = this.gate(viewer, businessId);
     const s = await this.read(g.binding, g.account, g.account);
+    // Job 003wf3 (§16.3): this pinned read arms the business's handover gate if its Gated deal
+    // is closing (keyless; only accepted observations ever move or release it).
+    armHandover(this.db, {
+      businessId,
+      network: g.binding.network,
+      account: g.binding.account,
+      block: s.block,
+      control: s.control,
+      source: "sale_setup",
+      now: (this.opts.now ?? Date.now)(),
+    });
     const localOwner = g.business.owner_id === viewer.id;
     const roles = this.roles(s, g.account, localOwner);
     const d = s.control.live_deal;
@@ -895,6 +912,54 @@ export class SaleActions {
       intents,
       actions: rows.map(view),
       open: rows.filter((r) => OPEN.includes(r.state)).map(view),
+      handover: this.handoverView(businessId, s),
+    };
+  }
+
+  /**
+   * Job 003wf3: the business's newest handover for its participants (never on a storefront):
+   * the state, the coalesced reason it waits, its orders and their own transactions' states, and
+   * (once released to the buyer) whether customers can actually be served (D4).
+   */
+  private handoverView(businessId: string, s: SaleReading) {
+    const h = latestHandover(this.db, businessId);
+    if (!h) return null;
+    const orders = (
+      this.db
+        .prepare(
+          "SELECT n, order_json, created_ms FROM close_orders WHERE handover_id = ? ORDER BY n",
+        )
+        .all(h.id) as { n: number; order_json: string; created_ms: number }[]
+    ).map((o) => {
+      const a = this.db
+        .prepare(
+          "SELECT state, code, tx_hash FROM closer_tx_attempts WHERE operation = ? ORDER BY attempt DESC LIMIT 1",
+        )
+        .get(`close-${h.id}-${o.n}|close_sale`) as
+        | { state: string; code: string | null; tx_hash: string }
+        | undefined;
+      return {
+        n: o.n,
+        issued_at_ms: (JSON.parse(o.order_json) as { issued_at_ms: string }).issued_at_ms,
+        attempt: a ? { state: a.state, code: a.code, tx_hash: a.tx_hash } : null,
+      };
+    });
+    return {
+      id: h.id,
+      state: h.state,
+      deal_seq: h.deal_seq,
+      version: h.version,
+      closing_started_ms: h.closing_started_ms,
+      deadline_ms: h.deadline_ms,
+      waiting_for: h.check_reason,
+      checked_at_ms: h.check_ms,
+      attention_reason: h.attention_reason,
+      outcome: h.outcome ? (JSON.parse(h.outcome) as unknown) : null,
+      orders,
+      service:
+        h.state === "released_to_buyer" || h.state === "released_current"
+          ? (this.opts.serviceReadiness?.(businessId, s.control) ?? null)
+          : null,
     };
   }
 

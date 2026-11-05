@@ -41,7 +41,7 @@ import type { InvocationRow, ManagedRuntime } from "./invocations.ts";
 import { maintenanceHealth } from "./maintenance.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import type { V3Observations } from "./v3observe.ts";
-import { isAccountId, V3ReadError } from "./v3read.ts";
+import { type ControlV3, isAccountId, V3ReadError } from "./v3read.ts";
 
 /** What a writer's endpoint said. Recorded as an event; never evidence by itself (§5.2). */
 export type WriterAnswer =
@@ -3028,6 +3028,28 @@ export class CustomerUses {
   }
 
   // ---------- job 003wf3: the business handover (MANAGED_HANDOVER.md §3, §16.11) ----------
+
+  /**
+   * Whether this business's customers can actually be served now (MANAGED_HANDOVER.md §16.8 D4):
+   * each reason from the existing checks, never from a gate or a meter alone.
+   */
+  serviceReadiness(businessId: string, control: ControlV3) {
+    const reasons: string[] = [];
+    if (openHandover(this.db, businessId)) reasons.push("handover_in_progress");
+    const offers = this.db
+      .prepare("SELECT * FROM customer_offers WHERE business_id = ? AND state = 'active'")
+      .all(businessId) as unknown as OfferRow[];
+    if (offers.length === 0) reasons.push("no_active_offer");
+    if (offers.some((o) => !this.releaseActive(o))) reasons.push("release_not_active");
+    const availability = this.runtime?.availability();
+    if (!availability?.available)
+      reasons.push(`runtime_unavailable${availability?.reason ? `: ${availability.reason}` : ""}`);
+    if (!this.writer) reasons.push("writer_unavailable");
+    if (!this.protection?.load) reasons.push("protection_unavailable");
+    if (!this.operator || !platformMeters(control, this.operator))
+      reasons.push("metering_not_appointed");
+    return { ready: reasons.length === 0, reasons };
+  }
 
   /** What this request's own records show about its unit, for a pause answer (D6). */
   pauseUnitOf(id: string): "none" | "returning" | "returned" | "unknown" {

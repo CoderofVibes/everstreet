@@ -39,6 +39,22 @@ export interface AppConfig {
   model?: { ai_config_file: string; api_key_env: string };
   /** Job 003wf1 (§12.1): background customer maintenance, explicit and bounded. */
   maintenance?: MaintenanceConfig;
+  /** Job 003wf3 (MANAGED_HANDOVER.md §7, §16.3): managed Gated handovers, off unless enabled. */
+  handover?: HandoverConfig;
+}
+
+export interface HandoverConfig {
+  /** The closer account the Gated contracts name, and one function-call key per binding (Q3). */
+  closer: { account: string; keys: { business_id: string; key_file: string }[] };
+  interval_ms: number;
+  batch: number;
+  pass_budget_ms: number;
+  op_deadline_ms: number;
+  dispatch_margin_ms: number;
+  max_orders: number;
+  stop_timeout_ms: number;
+  /** A function-call key's allowance must be unlimited or at least this many yoctoNEAR. */
+  min_allowance_yocto: string;
 }
 
 export interface MaintenanceConfig {
@@ -99,6 +115,7 @@ export function validateConfig(raw: unknown): AppConfig {
     "protected_storage",
     "model",
     "maintenance",
+    "handover",
   ]);
   for (const k of Object.keys(c)) if (!known.has(k)) bad(`unknown field ${k}`);
 
@@ -273,6 +290,70 @@ export function validateConfig(raw: unknown): AppConfig {
     }
   }
 
+  // Job 003wf3: every field explicit and bounded; off unless enabled. It signs (close_sale with
+  // a function-call key), so configured mode only.
+  let handover: HandoverConfig | undefined;
+  if (c.handover !== undefined) {
+    const h = c.handover as Record<string, unknown> | null;
+    if (!h || typeof h !== "object" || Array.isArray(h)) bad("handover must be an object");
+    const hk = h as Record<string, unknown>;
+    const fields = [
+      "enabled",
+      "closer",
+      "interval_ms",
+      "batch",
+      "pass_budget_ms",
+      "op_deadline_ms",
+      "dispatch_margin_ms",
+      "max_orders",
+      "stop_timeout_ms",
+      "min_allowance_yocto",
+    ];
+    for (const k of Object.keys(hk)) if (!fields.includes(k)) bad(`unknown field handover.${k}`);
+    if (typeof hk.enabled !== "boolean") bad("handover.enabled must be true or false");
+    const int = (k: string, min: number, max: number) => {
+      const v = hk[k];
+      if (!Number.isSafeInteger(v) || (v as number) < min || (v as number) > max)
+        bad(`handover.${k} must be a whole number from ${min} to ${max}`);
+      return v as number;
+    };
+    if (hk.enabled) {
+      if (mode !== "configured") bad("the closer signs, so handover needs configured mode");
+      if (!rpc || !v3 || !customer)
+        bad("handover needs rpc, v3 bindings and customer use (customer, protected_storage)");
+      const cl = hk.closer as { account?: unknown; keys?: unknown } | null;
+      const account = testnetAccount(cl?.account, "handover.closer.account");
+      if (!Array.isArray(cl?.keys) || cl.keys.length < 1 || cl.keys.length > 32)
+        bad("handover.closer.keys lists 1 to 32 bindings");
+      const bound = new Set((v3?.bindings ?? []).map((b) => b.business_id));
+      const keys = (cl?.keys as { business_id?: unknown; key_file?: unknown }[]).map((k) => {
+        if (typeof k?.business_id !== "string" || !bound.has(k.business_id))
+          bad("each handover.closer.keys entry names a bound business_id");
+        if (typeof k.key_file !== "string" || !isAbsolute(k.key_file))
+          bad("each handover.closer.keys entry has an absolute key_file");
+        return { business_id: k.business_id as string, key_file: k.key_file as string };
+      });
+      if (new Set(keys.map((k) => k.business_id)).size !== keys.length)
+        bad("each business has at most one closer key");
+      const min = hk.min_allowance_yocto;
+      if (typeof min !== "string" || !/^(0|[1-9][0-9]{0,38})$/.test(min))
+        bad("handover.min_allowance_yocto is a decimal string of yoctoNEAR");
+      handover = {
+        closer: { account, keys },
+        interval_ms: int("interval_ms", 1_000, 3_600_000),
+        batch: int("batch", 1, 25),
+        pass_budget_ms: int("pass_budget_ms", 100, 120_000),
+        op_deadline_ms: int("op_deadline_ms", 100, 120_000),
+        dispatch_margin_ms: int("dispatch_margin_ms", 60_000, 1_200_000),
+        max_orders: int("max_orders", 1, 8),
+        stop_timeout_ms: int("stop_timeout_ms", 100, 120_000),
+        min_allowance_yocto: min as string,
+      };
+      if (handover.op_deadline_ms > handover.pass_budget_ms)
+        bad("handover.op_deadline_ms can't exceed handover.pass_budget_ms");
+    }
+  }
+
   return {
     config_version: 1,
     mode,
@@ -288,5 +369,6 @@ export function validateConfig(raw: unknown): AppConfig {
     ...(protected_storage ? { protected_storage } : {}),
     ...(model ? { model } : {}),
     ...(maintenance ? { maintenance } : {}),
+    ...(handover ? { handover } : {}),
   };
 }

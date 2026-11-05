@@ -67,6 +67,11 @@ export interface AppOptions {
    * the platform's METERING account. Unset: customer use answers unavailable and does nothing.
    */
   customer?: CustomerUseOptions;
+  /**
+   * Job 003wf3: whether a managed Gated close is possible for a business now (the coordinator's
+   * capability). Unset: never, so a Gated acceptance that would start closing is refused.
+   */
+  handover?: (businessId: string) => Promise<{ ready: boolean; reason: string | null }>;
   /** Job 002e: web app logic checks; tests and previews pass their own to share with a worker. */
   appChecks?: AppChecks;
   /**
@@ -122,6 +127,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
   // Job 003wf2: a Direct sale through each participant's own wallet (read and verify only).
   const sales = new SaleActions(store.db, store, v3, v3Intents, options.customer?.reader ?? null, {
     platformOperator: options.customer?.operatorAccount ?? null,
+    handover: options.handover,
+    serviceReadiness: (id, control) => customerUses.serviceReadiness(id, control),
   });
   const publications = new Publications(store.db, store);
   const evaluations = new Evaluations(store.db, store, runtime);

@@ -18,16 +18,23 @@ import type { BuildProvider } from "./build.ts";
 import { Builds, startBuildWorker } from "./builds.ts";
 import type { CustomerViewTransport } from "./customerRead.ts";
 import { type CustomerChainWriter, type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
-import { OperatorKey, TestnetCustomerWriter, TestnetTxTransport } from "./customerWriter.ts";
+import {
+  OperatorKey,
+  TestnetCloserWriter,
+  TestnetCustomerWriter,
+  TestnetTxTransport,
+} from "./customerWriter.ts";
 import { openDb } from "./db.ts";
 import { Evaluations } from "./evaluations.ts";
 import { Fence, gateDb } from "./fence.ts";
+import { type CloserKey, HandoverCoordinator } from "./handoverCoordinator.ts";
 import { AccountSignIn } from "./identity.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { guardAdapters, MaintenanceSupervisor, maintenanceWorker } from "./maintenance.ts";
 import { type ProtectedStore, protectedStoreFromConfig } from "./protectedStore.ts";
 import { AnthropicRuntime, type RuntimeProvider } from "./runtime.ts";
 import { Store } from "./store.ts";
+import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
 import type { ViewTransport } from "./v3read.ts";
 import {
@@ -86,6 +93,9 @@ export interface ComposeDeps {
     runtimeProvider?: RuntimeProvider;
   };
 }
+
+/** Job 003wf3 (D3): what this code declares in its presence: it enforces the handover gate. */
+export const PRESENCE_CAPABILITIES = JSON.stringify({ handover_gate: 1 });
 
 export interface Composed {
   readonly config: AppConfig;
@@ -450,6 +460,80 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       g.guards,
     );
   }
+  // Job 003wf3 (MANAGED_HANDOVER.md §7, §16): managed Gated handovers, only when configured: one
+  // function-call key per binding, each key file for the configured closer account, each key
+  // matching its public key; validated here, before any effect. Nothing about a key reaches status.
+  let coordinator: HandoverCoordinator | null = null;
+  const h = config.handover;
+  if (h && customer?.reader && fetchImpl && config.rpc && v3) {
+    const reader = customer.reader;
+    const keys = new Map<string, CloserKey>();
+    for (const k of h.closer.keys) {
+      const file = JSON.parse(readFile(k.key_file)) as {
+        account_id?: unknown;
+        public_key?: unknown;
+        private_key?: unknown;
+      };
+      if (file.account_id !== h.closer.account)
+        throw new Error("compose: a closer key file is for another account than the closer");
+      if (typeof file.public_key !== "string" || typeof file.private_key !== "string")
+        throw new Error("compose: a closer key file is incomplete");
+      const rpc = new TestnetTxTransport(
+        { network: "testnet", endpoint: config.rpc.endpoint },
+        fetchImpl,
+      );
+      keys.set(k.business_id, {
+        account: h.closer.account,
+        publicKey: file.public_key,
+        rpc,
+        writer: new TestnetCloserWriter(store.db, {
+          network: "testnet",
+          signer: h.closer.account,
+          key: new OperatorKey(file.private_key, file.public_key),
+          rpc,
+          now: deps.now,
+        }),
+      });
+    }
+    const obs = new V3Observations(store.db, store, v3);
+    coordinator = new HandoverCoordinator(
+      store.db,
+      obs,
+      new V3Intents(store.db, store, obs),
+      new CustomerUses(store.db, store, obs, customer, runtime),
+      reader,
+      keys,
+      {
+        holder,
+        intervalMs: h.interval_ms,
+        batch: h.batch,
+        passBudgetMs: h.pass_budget_ms,
+        opDeadlineMs: h.op_deadline_ms,
+        dispatchMarginMs: h.dispatch_margin_ms,
+        maxOrders: h.max_orders,
+        minAllowanceYocto: BigInt(h.min_allowance_yocto),
+        now: deps.now,
+      },
+    );
+  }
+  cap(
+    coordinator && h
+      ? {
+          key: "managed_handover",
+          label: "Managed handovers (Gated sales)",
+          state: "on",
+          detail: `Configured: the closer ${h.closer.account} with a function-call key for ${h.closer.keys.length} business${h.closer.keys.length === 1 ? "" : "es"}; a bounded pass every ${Math.round(h.interval_ms / 1000)} s. Whether a business can be closed is checked per sale (its contract's guard and the key's permission). Every process sharing this database must run this version: quiesce older ones before enabling.`,
+          provenance: rpcLabel,
+        }
+      : {
+          key: "managed_handover",
+          label: "Managed handovers (Gated sales)",
+          state: "unavailable",
+          detail:
+            "Not configured: a Gated sale can't start closing here. Customer uses still pause for a business whose sale is closing until the contract decides.",
+          provenance: null,
+        },
+  );
   cap(
     supervisor && m
       ? {
@@ -524,6 +608,9 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     appChecks,
     v3,
     customer,
+    handover: coordinator
+      ? (businessId: string) => (coordinator as HandoverCoordinator).capability(businessId)
+      : undefined,
     ...(config.origins
       ? { previewOrigin: config.origins.preview, platformOrigin: config.origins.platform }
       : {}),
@@ -595,10 +682,10 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   const present = () =>
     store.db
       .prepare(
-        `INSERT INTO process_presence (holder, until_ms) VALUES (?, ?)
-         ON CONFLICT(holder) DO UPDATE SET until_ms = excluded.until_ms`,
+        `INSERT INTO process_presence (holder, until_ms, capabilities) VALUES (?, ?, ?)
+         ON CONFLICT(holder) DO UPDATE SET until_ms = excluded.until_ms, capabilities = excluded.capabilities`,
       )
-      .run(holder, nowMs() + PRESENCE_MS);
+      .run(holder, nowMs() + PRESENCE_MS, PRESENCE_CAPABILITIES);
   const isLive = (runner: string) =>
     runner === holder ||
     Boolean(
@@ -670,6 +757,11 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         const sv = supervisor;
         sv.start();
         stoppers.unshift(() => sv.stop());
+      }
+      if (coordinator) {
+        const hc = coordinator;
+        hc.start();
+        stoppers.unshift(() => hc.stop());
       }
     },
     stop() {
