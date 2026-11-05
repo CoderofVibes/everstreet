@@ -24,10 +24,16 @@ no external provider, no spending, no push.
 | `dba88aa` | Repeat sales: proceeds claims bound to the sale they collect |
 | `ec6c23e` | This report; JOBS review |
 | `1ae7fd0` | DirectSaleBrowserReview: the terms form in the established form system; no draft shown as terms; jsdom page test |
+| `4376f3f` | Astra's 23:20/23:26 findings; JOBS taken for correction 2 |
+| (next two) | Correction 2 code and tests; Astra's 23:32 notes, this report and JOBS |
 
 ## Verification (final tree)
 
-- `npm run check` at `1ae7fd0`: lint and types clean; main suite **1461 passed, 1 skipped**;
+- **Correction 2**, `npm run check` once at 23:38–23:41: lint (2 warnings that were already
+  there, no errors) and types clean; main suite **1467 passed, 1 skipped**; protected-store
+  **12/12**; process phase **24/24**; exit 0. `npm run web:build` at 23:38 passed. Focused runs:
+  page 4/4, controller 11/11, new server case 1/1.
+- Earlier, `npm run check` at `1ae7fd0`: lint and types clean; main suite **1461 passed, 1 skipped**;
   protected-store phase **12/12**; process phase (lifecycle + sale) **24/24**; exit 0.
 - `npm run web:build`: passes (main chunk ≈983 kB).
 - Page test (jsdom): the actual App, router, session, SaleRoom and the real `selectorWallet`
@@ -58,7 +64,7 @@ no external provider, no spending, no push.
 | 6 Claims and close through existing authority code | Confirmed proposal/revision → `V3Intents.record`; closing acceptance → `V3Intents.reconcile`; no ownership SQL | journey: ownership row with `v3_intent_id`; failed read then retry applies once |
 | 6 Pending, failed, restored, paid; closed sale shown while proceeds pending | Claims resolve paid/restored/pending; collection step bound to the sale it collects; buyer isn't shown the seller's collection | journey and controller (repeat-sale counterexample) |
 | 7 One synthetic state model; actual encoded calls; anchored to contract tests; no fixture toggles; refuse unexpected calls; no real fetch | `SaleChain` + `FixtureChain` share ledger, transaction log and treasury buckets; strict envelope validation | 49-step replay byte for byte; customer settlements move `available` past the floor; 15 malformed envelopes change nothing |
-| 8 Finite normal-composition browser harness, seller and buyer, labelled wallet actions, lost replies, reload, stale review | `scripts/sale-harness.ts` + controls | harness test (both parties close through real controllers; lost answer recovered from wallet history); boot check |
+| 8 Finite normal-composition browser harness, seller and buyer, labelled wallet actions, lost replies, reload, stale review | **Partly.** `scripts/sale-harness.ts` + controls: the real app, routes, verified sign-in and wallet module, but built by `saleWorld` → `customerWorld.make`/`createApp` with injected fixtures, NOT `composeApplication`/`serve.ts` with the configured adapters and maintenance lifecycle. The actual-process tests cover that composition for selected sale cases only. | harness test; page tests (jsdom); process tests. **Open (Astra 23:32):** a finite configured-composition variant of the harness. These two narrower proofs are not one claim. |
 | Customer continuity across the close | Same entitlement before/after; next use served under the buyer's grants | journey: entitlement equal, use charged after close |
 
 ## Astra's findings during the job, and their resolution
@@ -72,6 +78,73 @@ boundary; repeat-sale proceeds); browser review (terms form layout in the establ
 system; no empty terms described as a draft's consequences). The check scheduling correction is
 in `npm test`. The form fix still needs Astra's visual recheck after a rebuild (`npm run
 web:build`, then restart the harness).
+
+## Browser correction 2 (DirectSaleBrowserReview 23:20 / 23:26 / 23:32)
+
+Fixes for each finding from Astra's actual-browser pass (her preview wasn't stopped, restarted,
+driven or altered; only `web/dist` was rebuilt at 23:38 so a reload picks it up):
+
+- **Not now keeps the terms and the focus.** The draft (buyer, price, days, floor, metering,
+  exclusions, note) lives in the `SaleFlow` controller per kind (`propose`, `revise`) and only for
+  this business and account. It survives Not now, a stale review (`review_changed`: "Your terms
+  are kept") and any other refused create. Only a confirmed proposal or revision clears its own
+  draft. Every review records the control it came from (`data-focus`); Not now, a refused review
+  and a refused create return focus there. No wallet call, no stored row.
+- **A readable review summary** sits before the wallet button: deal and version, buyer, price
+  (token and base units), amount, "Offer open until" in local time with its zone **and** the exact
+  UTC instant, "Available balance kept (floor)", the operators named (or the no-metering warning),
+  the operator appointed, and the attached NEAR with its basis. For funding and acceptance the
+  live deal's terms fill fields the call itself doesn't carry. The server's proposal effect now
+  states the UTC expiry instead of "the time shown". That change reaches the browser only on a
+  new server, not in Astra's running preview.
+- **Read-only original-ID recovery in History.** Each row whose request "Can no longer take
+  effect" shows its message, a labelled "Its transaction ID from your wallet's activity" field,
+  "Check with this ID" and "Check again". It sends nothing: the existing check route resolves that
+  one transaction by the exact-request rules, and a wrong or malformed ID changes nothing. Such a
+  row is not open, so the next action (for example "Accept version 1" or "Apply the close here")
+  stays available. These controls use routes the running preview already has.
+- **Late follow-up reports the authoritative stored result.** After any attempt,
+  `SaleActions.effects` re-reads the stored effects. If a terminal answer is stored (this
+  attempt's, an earlier one's or a concurrent one's), that answer is returned with
+  `finished: true`. Otherwise the attempt's own retryable answer is returned with `finished: false`.
+  In the browser, a stored terminal answer that isn't "applied" (conflict, ended, superseded) is
+  reported as final, without "check again". Only an unfinished one offers "Apply the close here".
+- **Six-step layout:** 3 × 2 at desktop and tablet widths, a single row of six only from 1600 px,
+  stacked on phones. No 5 + 1 split, and text isn't shrunk.
+
+New coverage:
+
+- **Page (jsdom, actual App/SaleRoom/SaleFlow/selectorWallet with the harness module):**
+  - The summary shows its zone and UTC, the floor and the operators, and comes before the wallet
+    button.
+  - Not now keeps buyer, price and exclusions, and focus returns to the review button. A changed
+    review shows the new price. Nothing is sent.
+  - **Lost funding answer:** the History row has the recovery field and "Accept version 1" stays
+    available. The registration transaction's ID gets "isn't this request", and a malformed ID is
+    refused. After a remount (reload) the row is still there. The original `ft_transfer_call` ID
+    confirms it, and the form goes away. The wallet's send count doesn't change.
+  - **Lost closing acceptance:** "Apply the close here" applies it first. Then the original
+    `accept_sale` ID confirms the request and reports the stored "already applied", not "isn't
+    finished". Nothing is sent.
+- **Controller:**
+  - The draft survives Not now and a refused stale create, and focus returns to its origin.
+  - A confirmed revision clears only its own draft.
+  - `noticeFor` gives different notices for unfinished, final-but-not-applied and applied results.
+- **Server:** while one reconciliation read is outstanding, another check applies the close. When
+  the slow read then fails, its answer is the stored applied result with `finished: true`, not
+  "unavailable".
+
+Not done in this pass (Astra 23:32, sequenced after her History test):
+
+- **The configured-composition variant of the browser harness** (`composeApplication`/`serve.ts`
+  with the configured adapters, disposable persisted state, explicit disabled worker, bounded
+  cleanup). Brief item 8 stays **partly** met until it exists; see the matrix.
+- **The untracked `docs/astra/claude-2026-11-04-003wf2-browser-corrections.stderr.txt`** (empty)
+  isn't staged. Excluding it locally through `.git/info/exclude` needed a permission that wasn't
+  granted, so it remains untracked.
+
+The dba88aa repeat-sale payout correction: Astra's 23:30 targeted run passed 25/25, which she
+records as confirming it narrowly. **The job is not accepted.**
 
 ## Limitations and open gates (none hidden)
 
@@ -115,7 +188,9 @@ Site `http://127.0.0.1:8814/`, controls `http://127.0.0.1:8815/` (loopback only;
    page shows the close, the apply result, the former seller's proceeds as owed, then register and
    collect (`POST /fail-next-payout` first to see "restored", then collect again for "paid").
 4. **Recovery cases.** `POST /lose-next` before an action: the request stays unknown; copy its ID
-   from `GET /history?account=<id>` into "Transaction ID from your wallet's activity". `POST
+   from `GET /history?account=<id>` into "Transaction ID from your wallet's activity" (an open
+   request), or, for a request listed in History as "Can no longer take effect", into that row's
+   "Its transaction ID from your wallet's activity" → "Check with this ID" (read-only). `POST
    /cancel-next`: wallet closed. Reload during any step. Switch the wallet's account mid-flow
    (`POST /account/...`) to see nothing sent and the resume action. `POST /older-contract` for the
    refusal. `POST /observations/down`, close a sale, then `/observations/up` and check again.

@@ -100,3 +100,33 @@ Operational hygiene: the new empty stderr redirect
 claude-2026-11-04-003wf2-browser-corrections.stderr.txt is local-only and currently untracked;
 Claude should exclude it locally or move it to the existing ignored *.last-message.txt pattern
 once its writer exits. Do not stage this diagnostic file. Standard stdout stream already ignored.
+
+## Coverage boundary to preserve before acceptance — 23:32 Pacific
+
+The present browser harness is useful real-page/route evidence, but its source calls
+saleWorld -> customerWorld.make/createApp and injects fixture dependencies directly. It does not
+start composeApplication/serve.ts with the configured adapters and maintenance lifecycle. The
+actual-process tests separately exercise that production composition for selected sale cases.
+Do not combine those two narrower proofs into a claim that this browser journey ran through the
+configured composition. Brief item8 explicitly asks for a normal-composition browser harness.
+
+After the current UI corrections, supply a finite configured-composition variant (reuse the
+existing lifecycle bootstrap/entry boundary and synthetic RPC/wallet adapters where possible),
+with disposable persisted state, explicit disabled worker and bounded cleanup. No new service,
+real credentials or external transactions. Preserve the current preview while Astra completes
+its pending History test. We can then exercise the same buyer/close/continuity browser flow
+through that supported composition. Keep the wider100/20/80/79 and other parent003wf matrix
+requirements open; this request closes the harness provenance gap, not the parent by inference.
+
+Independent keyless targeted run at23:30: sale-controller, sale-journey and sale-harness tests
+25/25 pass, exit0, including the authored repeated-sale payout case. This confirms the dba88aa
+correction narrowly; it does not substitute for the outstanding actual UI cases above.
+
+At1280 the six sale progress steps use a five-column layout, leaving collection alone on a second
+row. During the same page polish, use a balanced six-step composition at the supported desktop
+breakpoints (and a deliberate stacked/wrapped phone layout), rather than inheriting the older
+five-step grid. Preserve readable status words and avoid shrinking text merely to fit.
+
+The live pending funding transaction from the synthetic wallet's read-only history is
+Ch4vUgvniKhAaSYoEXQFSzKSUmN1pXcpsgYuU9cvo9zv (buyer.near -> tusd.near, ft_transfer_call).
+Astra will enter it through corrected visible History controls; no API reconciliation has run.
