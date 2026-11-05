@@ -173,7 +173,10 @@ describe("003web PurchaseFlow for a fresh customer", () => {
     await f.review("purchase");
     const reviewed = f.getState().review;
     // Another device buys first: sequence 1 is used.
-    w.chain.walletCall(FRESH, (f.getState().review as unknown as { preview: { call: never } }).preview.call);
+    w.chain.walletCall(
+      FRESH,
+      (f.getState().review as unknown as { preview: { call: never } }).preview.call,
+    );
     const sent = wal.st.sent.length;
     await f.confirmPurchase();
     expect(wal.st.sent.length).toBe(sent);
@@ -186,7 +189,7 @@ describe("003web PurchaseFlow for a fresh customer", () => {
     const { w, offer } = await world();
     const wal = wallet(w);
     const evil = (b: Json) =>
-      b.preview && b.preview.call
+      b.preview?.call
         ? {
             ...b,
             preview: {

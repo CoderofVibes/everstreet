@@ -24,7 +24,7 @@ const row = (id: string, state: string, seq: number) =>
    VALUES ('${id}', 'p', 'c.testnet', 'o', 'b', 'testnet', 'b.testnet', 't.testnet', 1, '1', ${seq}, 1, '1', '{}', 'd', 'k-${id}', '${state}', 'x', 'x');`;
 
 describe("003web upgrading the earlier purchase table", () => {
-  it("keeps every row; old asks are uncounted; an old set-aside stays checkable and doesn't block", () => {
+  it("keeps every row; old asks are uncounted; an old set-aside stays checkable", () => {
     const db = new DatabaseSync(":memory:");
     try {
       db.exec(
@@ -42,7 +42,8 @@ describe("003web upgrading the earlier purchase table", () => {
         { id: "c", state: "unknown", asks: 2 },
         { id: "d", state: "confirmed", asks: 0 },
       ]);
-      // The one-open rule still holds for the open row, and the old set-asides don't count.
+      // The index's one-open rule still holds for the open row (the old set-asides are kept out of
+      // the index; the service refuses a fresh payment while one may still execute).
       expect(() => db.exec(row("e", "prepared", 2))).toThrow(/UNIQUE/);
       // Reopening runs nothing again.
       migratePurchases(db as never);

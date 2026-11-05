@@ -81,6 +81,8 @@ describe("003w-e3 fresh-customer transactions", () => {
       reg_id: "4",
     });
     expect(() => buyCall({ ...base, units: 1, regId: "x" })).toThrow(/registration/);
-    expect(() => buyCall({ ...base, units: 1, unitPrice: (1n << 128n).toString() })).toThrow(/price/);
+    expect(() => buyCall({ ...base, units: 1, unitPrice: (1n << 128n).toString() })).toThrow(
+      /price/,
+    );
   });
 });

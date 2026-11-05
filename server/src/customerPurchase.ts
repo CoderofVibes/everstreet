@@ -230,7 +230,8 @@ type State =
   | "returned"
   | "not_accepted"
   | "set_aside"
-  /** Set aside by an earlier version (which allowed it after the wallet was asked): checkable. */
+  /** Set aside by an earlier version (which allowed it after the wallet was asked): checkable,
+   * and blocking a fresh payment until resolved. */
   | "legacy_abandoned";
 export interface PurchaseRow {
   id: string;
@@ -285,7 +286,9 @@ const ONE_OPEN = `CREATE UNIQUE INDEX IF NOT EXISTS customer_purchases_one_open
  *   return seen for it is never taken as definitive;
  * - an 'abandoned' row may have been set aside after its wallet was asked (that version allowed
  *   it), so it may still execute: it becomes 'legacy_abandoned', still checkable by its own
- *   transaction, and (as before) not blocking new purchases.
+ *   transaction, and, like any open purchase, it blocks a fresh payment until resolved (Astra's
+ *   migration probe). That rule is the service's, not the unique index's, so several old rows
+ *   for one account never collide when the index is built.
  */
 export function migratePurchases(db: Db) {
   const cols = (
@@ -368,7 +371,9 @@ export function resolveFromTx(
     transaction_outcome?: { id?: unknown; outcome?: Receipt };
     receipts_outcome?: { id?: unknown; outcome?: Receipt }[];
   } | null;
-  if (!o || o.final_execution_status !== "FINAL") return null;
+  if (o?.final_execution_status !== "FINAL") return null;
+  // The whole transaction must not have failed, whatever its receipts say.
+  if (!o.status || typeof o.status !== "object" || "Failure" in o.status) return null;
   const t = o.transaction;
   if (
     !t ||
@@ -380,17 +385,25 @@ export function resolveFromTx(
     return null;
   if (!Array.isArray(t.actions) || t.actions.length !== 1) return null;
   const fc = (t.actions[0] as { FunctionCall?: Record<string, unknown> })?.FunctionCall;
-  if (!fc || fc.method_name !== "ft_transfer_call" || String(fc.deposit) !== "1") return null;
+  const reviewed = JSON.parse(p.call) as WalletCall;
+  if (
+    fc?.method_name !== reviewed.methodName ||
+    String(fc.deposit) !== reviewed.deposit ||
+    String(fc.gas) !== reviewed.gas
+  )
+    return null;
   let args: unknown;
   try {
     args = JSON.parse(Buffer.from(String(fc.args), "base64").toString("utf8"));
   } catch {
     return null;
   }
-  if (JSON.stringify(args) !== JSON.stringify((JSON.parse(p.call) as WalletCall).args)) return null;
+  if (JSON.stringify(args) !== JSON.stringify(reviewed.args)) return null;
   const byId = new Map<string, Receipt>();
   for (const x of o.receipts_outcome ?? [])
     if (typeof x.id === "string" && x.outcome) byId.set(x.id, x.outcome);
+  // The receipt graph must be THIS transaction's own.
+  if (o.transaction_outcome?.id !== hash) return null;
   const first = o.transaction_outcome?.outcome?.receipt_ids;
   if (!Array.isArray(first) || first.length !== 1) return null;
   const transfer = byId.get(String(first[0]));
@@ -430,7 +443,7 @@ export function resolveFromTx(
   )
     return used === p.amount ? { kind: "confirmed", units: p.units, amount: p.amount } : null;
   if (event.event === "purchase_returned" && d.amount === p.amount && unused === p.amount) {
-    if (used !== "0" || (o.status && "Failure" in o.status)) return null; // refund not confirmed
+    if (used !== "0") return null; // the token's refund isn't confirmed
     const reason = String(d.reason ?? "returned");
     if ((p.asks ?? 1) > 1)
       return {
@@ -483,7 +496,7 @@ export class CustomerPurchases {
     return (
       (this.db
         .prepare(
-          "SELECT * FROM customer_purchases WHERE customer_account = ? AND contract = ? AND plan_id = ? AND state IN ('prepared','requested','unknown')",
+          "SELECT * FROM customer_purchases WHERE customer_account = ? AND contract = ? AND plan_id = ? AND state IN ('prepared','requested','unknown','legacy_abandoned') ORDER BY CASE WHEN state = 'legacy_abandoned' THEN 1 ELSE 0 END, created_at LIMIT 1",
         )
         .get(account, contract, planId) as unknown as PurchaseRow | undefined) ?? null
     );
