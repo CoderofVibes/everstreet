@@ -617,3 +617,12 @@ offer route correctly requires that, and public access is unchanged.
 - Disposing it closes a connection whose open resolves late, and refuses further opens.
 - An offer, account or unmount change clears any request under review, busy and error state,
   and withdraws the authorizer.
+
+**Follow-up at `16ec3d4` (Astra's WalletBrowserRepeat and DeviceKeyReview):**
+- **A revocation review is an immutable object.** The call and the observed key travel together.
+  `revoke` checks that review's own observation; a bare call never sends, because two reviews of
+  one slot have identical bytes.
+- **The customer page's workspace is owned per effect.** It is keyed by the person's id, the offer
+  or use, and the identity mode, so a same-person session refresh never retires it.
+- **The phone layout** lets grid tracks shrink and long exact values wrap. Nothing is hidden or
+  truncated.
