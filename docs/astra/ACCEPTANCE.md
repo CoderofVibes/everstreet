@@ -12,9 +12,9 @@ their unresolved wording is not a substitute for the later bounded reviews linke
   configured process concurrency, full customer journey and live-chain evidence remain003wf.
 - [Worker conformance](2026-11-04_WorkerConformanceReview.md): actual13/15, engine disabled;
   boot, memory/orphan and host VMM evidence remain002f1. Setup approval is already exercised.
-- [Wallet browser repeat](2026-11-04_WalletBrowserRepeat.md): actual synthetic enroll/use/settle
-  reaches99free/1used after reload; lost-answer revocation readback passes. First-sign-in Loading,
-  phone clipping and two immutable-review controller regressions keep003wea unaccepted.
+- [Wallet corrections accepted](2026-11-04_WalletCorrectionsAccepted.md):003wea accepted16ec3d4
+  within actual first-sign-in,phone/desktop,cancel/retry,single-use settlement/lost-revoke/sign-out
+  evidence. Independent1339+1skip. Guarded on-chain identity and full configured journey remain.
 - Fresh purchase003web, guarded revocation003wec and configured100/20/80 acquisition003wf remain
   implementation/verification work, not completed features. Import, network, portfolios and M6
   remain in the roadmap. No local fixture result establishes live NEAR or provider execution.

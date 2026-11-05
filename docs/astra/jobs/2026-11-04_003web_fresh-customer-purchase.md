@@ -1,7 +1,7 @@
 # A new customer buys and uses the product
 
-Queued only; not dispatched or yet registered in JOBS while 003wea is active. Next child of
-003we after its browser/lifetime correction, before 003wf. P0/L; subdivide if needed, retaining
+Selected for dispatch after003wea browser/lifetime acceptance at16ec3d4. Next child of
+003we, then003wec guarded revocation, before003wf. P0/L; subdivide if needed, retaining
 every acceptance item. Tony's platform must work for someone arriving without pre-seeded units.
 
 ## Grounding at 6773920 / 7f6fc0b

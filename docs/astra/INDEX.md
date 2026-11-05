@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Wallet corrections accepted](2026-11-04_WalletCorrectionsAccepted.md) | First sign-in,390px exact review,cancel/retry,single-use settlement,lost revoke and1440/sign-out pass | Narrow003wea acceptance16ec3d4; independent1339+1skip;003web next,guarded003wec/integration003wf remain |
 | 2026-11-04 | [Wallet browser repeat](2026-11-04_WalletBrowserRepeat.md) | Actual synthetic enroll/use/settle99free1used and lost-answer revocation pass after reload | First sign-in Loading and390px clipping block003wea; bounded correction next; all six milestones open |
 | 2026-11-04 | [Device-key review](2026-11-04_DeviceKeyReview.md) | Original controller races corrected; two-handle storage checks pass; actual browser sign-in then unavailable product | Independent1315+1skip snapshot;003wea corrects unpublished harness, revoke review and UI lifetime; full browser acceptance pending |
 | 2026-11-04 | [Wallet sign-in review](2026-11-04_WalletSignInReview.md) | Delayed verification/server and old-controller cleanup failures corrected | Four independent regressions pass; e1 full1284+1skip; actual synthetic sign-in succeeds, SessionProvider lifetime review retained003wea |
