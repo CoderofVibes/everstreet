@@ -34,6 +34,7 @@ import { SignInReturn } from "./pages/SignInReturn.tsx";
 import { Start } from "./pages/Start.tsx";
 import { Studio } from "./pages/Studio.tsx";
 import { Value } from "./pages/Value.tsx";
+import { WriterHistoryPage } from "./pages/WriterHistory.tsx";
 import { previewLabel } from "./previewLabel.ts";
 import { Link, match, useRouter } from "./router.tsx";
 import { useSession } from "./session.tsx";
@@ -314,6 +315,8 @@ function Routes() {
   const room = match("/acquire/room/:id", path);
   if (room) return <AcquireRoom id={room.id as string} />;
   if (path === "/profile") return <Profile />;
+  // Job 003wf slice 3: configured operators only (the API answers 404 to anyone else).
+  if (path === "/operator/writer-history") return <WriterHistoryPage />;
   return (
     <div className="page empty">
       <h2>That page does not exist</h2>

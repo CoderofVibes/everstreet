@@ -41,6 +41,11 @@ export interface AppConfig {
   maintenance?: MaintenanceConfig;
   /** Job 003wf3 (MANAGED_HANDOVER.md §7, §16.3): managed Gated handovers, off unless enabled. */
   handover?: HandoverConfig;
+  /**
+   * Job 003wf slice 3 (WRITER_HISTORY.md): the verified accounts of this installation's operators,
+   * who may see unresolved writer history and read an attempt's own final status. Configured only.
+   */
+  operators?: { accounts: string[] };
 }
 
 export interface HandoverConfig {
@@ -116,6 +121,7 @@ export function validateConfig(raw: unknown): AppConfig {
     "model",
     "maintenance",
     "handover",
+    "operators",
   ]);
   for (const k of Object.keys(c)) if (!known.has(k)) bad(`unknown field ${k}`);
 
@@ -355,6 +361,25 @@ export function validateConfig(raw: unknown): AppConfig {
     }
   }
 
+  let operators: AppConfig["operators"];
+  if (c.operators !== undefined) {
+    const o = c.operators as { accounts?: unknown } | null;
+    if (!o || typeof o !== "object" || Array.isArray(o)) bad("operators must be an object");
+    for (const k of Object.keys(o as object))
+      if (k !== "accounts") bad(`unknown field operators.${k}`);
+    const list = (o as { accounts?: unknown }).accounts;
+    if (!Array.isArray(list) || list.length < 1 || list.length > 16)
+      bad("operators.accounts lists 1 to 16 accounts");
+    for (const a of list as unknown[])
+      if (typeof a !== "string" || !isAccountId(a))
+        bad("operators.accounts has an invalid account id");
+    if (new Set(list as string[]).size !== (list as string[]).length)
+      bad("operators.accounts lists an account twice");
+    if (mode !== "configured") bad("operators need configured mode (verified sign-in)");
+    if (!c.sign_in) bad("operators need sign_in (verified identity)");
+    operators = { accounts: [...(list as string[])] };
+  }
+
   return {
     config_version: 1,
     mode,
@@ -371,5 +396,6 @@ export function validateConfig(raw: unknown): AppConfig {
     ...(model ? { model } : {}),
     ...(maintenance ? { maintenance } : {}),
     ...(handover ? { handover } : {}),
+    ...(operators ? { operators } : {}),
   };
 }

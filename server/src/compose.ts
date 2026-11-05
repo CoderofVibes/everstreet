@@ -44,6 +44,7 @@ import {
   TestnetCustomerRpcTransport,
   TestnetRpcTransport,
 } from "./v3rpc.ts";
+import { WriterHistory } from "./writerHistory.ts";
 
 export interface Capability {
   key: string;
@@ -370,6 +371,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   // operator key file whose account IS the configured metering account and whose key matches its
   // public key; validated here, before any effect. Nothing about the key reaches status.
   let writer: CustomerChainWriter | null = deps.preview?.writer ?? null;
+  let writerIdentity: { signer: string; public_key: string } | null = null;
   if (config.customer?.writer && fetchImpl && config.rpc) {
     const k = JSON.parse(readFile(config.customer.writer.key_file)) as {
       account_id?: unknown;
@@ -382,6 +384,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       );
     if (typeof k.public_key !== "string" || typeof k.private_key !== "string")
       throw new Error("compose: the writer key file is incomplete");
+    writerIdentity = { signer: config.customer.operator_account, public_key: k.public_key };
     writer = new TestnetCustomerWriter(store.db, {
       network: "testnet",
       signer: config.customer.operator_account,
@@ -621,6 +624,23 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     handover: coordinator
       ? (businessId: string) => (coordinator as HandoverCoordinator).capability(businessId)
       : undefined,
+    // Job 003wf slice 3: unresolved writer history for the configured operators (status reads
+    // only, over the same bounded transport the writer uses; nothing is ever sent from here).
+    writerHistory:
+      config.operators && signIn
+        ? new WriterHistory(store.db, {
+            operators: config.operators.accounts,
+            rpc:
+              config.rpc && fetchImpl
+                ? new TestnetTxTransport(
+                    { network: "testnet", endpoint: config.rpc.endpoint },
+                    fetchImpl,
+                  )
+                : null,
+            currentSigners: writerIdentity ? { chain_tx_attempts: writerIdentity } : {},
+            now: deps.now,
+          })
+        : undefined,
     ...(config.origins
       ? { previewOrigin: config.origins.preview, platformOrigin: config.origins.platform }
       : {}),

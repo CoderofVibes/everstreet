@@ -35,6 +35,7 @@ import { HttpError, type Person, type Store } from "./store.ts";
 import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
 import { type Overrides, Valuation } from "./value.ts";
+import type { WriterHistory } from "./writerHistory.ts";
 
 const COOKIE = "es_session";
 /** Job 003w-b: binds a sign-in challenge to the browser that asked for it. */
@@ -73,6 +74,11 @@ export interface AppOptions {
    * capability). Unset: never, so a Gated acceptance that would start closing is refused.
    */
   handover?: (businessId: string) => Promise<{ ready: boolean; reason: string | null }>;
+  /**
+   * Job 003wf slice 3 (WRITER_HISTORY.md): the operators' view of unresolved writer attempts.
+   * Verified identity only; unset (or not an operator): the routes answer 404.
+   */
+  writerHistory?: WriterHistory;
   /** Job 002e: web app logic checks; tests and previews pass their own to share with a worker. */
   appChecks?: AppChecks;
   /**
@@ -254,6 +260,22 @@ export function everstreetApi(store: Store, options: AppOptions) {
           : null,
     }),
   );
+
+  // ---------- job 003wf slice 3: unresolved writer history (configured operators only) ----------
+  const operatorAccount = (c: Parameters<typeof getCookie>[0]) =>
+    identity.mode === "verified" && options.writerHistory
+      ? store.sessionAccount(getCookie(c, COOKIE))
+      : null;
+  app.get("/api/operator/writer-history", (c) => {
+    if (!options.writerHistory) throw new HttpError(404, "Not found");
+    me(c);
+    return c.json(options.writerHistory.list(operatorAccount(c)));
+  });
+  app.post("/api/operator/writer-history/check", async (c) => {
+    if (!options.writerHistory) throw new HttpError(404, "Not found");
+    const person = me(c);
+    return c.json(await options.writerHistory.check(operatorAccount(c), person.id, await body(c)));
+  });
 
   app.post("/api/session", async (c) => {
     // 003w-b: a name alone is never an identity outside preview.

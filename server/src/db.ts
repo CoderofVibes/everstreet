@@ -655,6 +655,23 @@ CREATE TRIGGER IF NOT EXISTS build_usage_no_update BEFORE UPDATE ON build_usage
 BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS build_usage_no_delete BEFORE DELETE ON build_usage
 BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
+-- Job 003wf slice 3 (docs/design/WRITER_HISTORY.md): every operator check of an unresolved writer
+-- attempt, append-only. What was asked, who asked, what the network's FINAL status showed (or
+-- that nothing final was shown) and whether the attempt's recorded state changed. Never bytes.
+CREATE TABLE IF NOT EXISTS writer_history_checks (
+  id TEXT PRIMARY KEY, attempts_table TEXT NOT NULL CHECK (attempts_table IN ('chain_tx_attempts','closer_tx_attempts')),
+  operation TEXT NOT NULL, attempt INTEGER NOT NULL, tx_hash TEXT NOT NULL,
+  checked_by_account TEXT NOT NULL, checked_by_person TEXT NOT NULL REFERENCES people(id),
+  state_before TEXT NOT NULL, reconcile_before TEXT,
+  observed TEXT NOT NULL CHECK (observed IN ('success','failure','not_found','pending','read_failed','unsupported')),
+  observed_code TEXT, recorded INTEGER NOT NULL CHECK (recorded IN (0, 1)), state_after TEXT NOT NULL,
+  checked_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS writer_history_checks_attempt ON writer_history_checks(attempts_table, operation, attempt);
+CREATE TRIGGER IF NOT EXISTS writer_history_checks_no_update BEFORE UPDATE ON writer_history_checks
+BEGIN SELECT RAISE(ABORT, 'writer history checks are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS writer_history_checks_no_delete BEFORE DELETE ON writer_history_checks
+BEGIN SELECT RAISE(ABORT, 'writer history checks are append-only'); END;
 `;
 
 export function openDb(path: string) {
