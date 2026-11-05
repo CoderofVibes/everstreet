@@ -256,6 +256,11 @@ const spki = (raw: Buffer) =>
 export class SyntheticRpc {
   /** Full-access keys this endpoint vouches for: "account|ed25519:…" → nonce. */
   readonly keys = new Map<string, bigint>();
+  /**
+   * Job 003wf3: a key's permission when it isn't full access, e.g. the closer's
+   * { FunctionCall: { receiver_id, method_names: ["close_sale"], allowance } }.
+   */
+  readonly permissions = new Map<string, Json>();
   readonly outcomes = new Map<string, Json>();
   /** Every distinct signed transaction applied (method, args). */
   readonly applied: { method: string; args: Json }[] = [];
@@ -330,7 +335,7 @@ export class SyntheticRpc {
       if (nonce === undefined) return fail("UNKNOWN_ACCESS_KEY");
       return ok({
         nonce: Number(nonce),
-        permission: "FullAccess",
+        permission: this.permissions.get(`${p.account_id}|${p.public_key}`) ?? "FullAccess",
         block_height: this.chain.height,
         block_hash: this.hashFor(this.chain.height),
       });
@@ -399,7 +404,8 @@ export class SyntheticRpc {
       !this.hashes.has(base58Encode(t.blockHash))
     )
       return fail("INVALID_TRANSACTION", { InvalidTxError: "UnsupportedByThisDouble" });
-    if (t.receiver !== this.chain.business || !METHODS.has(t.method))
+    const closing = t.method === "close_sale" && this.chain.sale !== null;
+    if (t.receiver !== this.chain.business || (!METHODS.has(t.method) && !closing))
       return fail("INVALID_TRANSACTION", { InvalidTxError: "UnknownReceiverOrMethod" });
     const hash = base58Encode(createHash("sha256").update(t.txBytes).digest());
     const seen = this.outcomes.get(hash);
@@ -411,12 +417,32 @@ export class SyntheticRpc {
       return fail("INVALID_TRANSACTION", { InvalidTxError: "InvalidSignature" });
     if (t.nonce <= last)
       return fail("INVALID_TRANSACTION", { InvalidTxError: { InvalidNonce: {} } });
+    // Job 003wf3: a function-call key may call only its receiver and listed methods.
+    const perm = this.permissions.get(key) as
+      | { FunctionCall?: { receiver_id?: string; method_names?: string[] } }
+      | undefined;
+    if (
+      perm?.FunctionCall &&
+      (perm.FunctionCall.receiver_id !== t.receiver ||
+        ((perm.FunctionCall.method_names ?? []).length > 0 &&
+          !(perm.FunctionCall.method_names ?? []).includes(t.method)))
+    )
+      return fail("INVALID_TRANSACTION", { InvalidTxError: { InvalidAccessKeyError: {} } });
     this.keys.set(key, t.nonce);
     this.sync();
     let status: Json;
     try {
       const a = t.args;
-      if (t.method === "open_hold")
+      if (t.method === "close_sale") {
+        // Job 003wf3: the closer's signed order, by the sale double's own rules (lib.rs order).
+        const sale = this.chain.sale as NonNullable<typeof this.chain.sale>;
+        sale.now = this.chain.ts;
+        const r = sale.applySigned(t.signer, "close_sale", a);
+        if (!r.ok) throw Object.assign(new Error(r.error), { code: r.error.split(":")[0] });
+        // A change lands in a new block (as every chain write here): never the same block hash
+        // with other state.
+        this.chain.tick(1_000n);
+      } else if (t.method === "open_hold")
         this.chain.openHold(t.signer, a.customer, a.auth, a.sig, verifiesEd25519);
       else if (t.method === "settle_hold")
         this.chain.settleHold(t.signer, a.customer, a.hold_seq, a.uses, a.close, verifiesEd25519);

@@ -3030,8 +3030,12 @@ export class CustomerUses {
   // ---------- job 003wf3: the business handover (MANAGED_HANDOVER.md §3, §16.11) ----------
 
   /**
-   * Whether this business's customers can actually be served now (MANAGED_HANDOVER.md §16.8 D4):
-   * each reason from the existing checks, never from a gate or a meter alone.
+   * Whether this business's customers are ELIGIBLE to be served now (MANAGED_HANDOVER.md §16.8 D4,
+   * Astra 01:12): each reason from the existing checks, never from a gate or a meter alone. Each
+   * active offer's release must still resolve exactly (releaseFor: its artifact, provider
+   * configuration and policy), the runtime must be available, its budget must cover one request's
+   * worst case, and the platform must meter at the current generation. Eligibility is configured
+   * state; only a next use actually served proves service.
    */
   serviceReadiness(businessId: string, control: ControlV3) {
     const reasons: string[] = [];
@@ -3040,15 +3044,35 @@ export class CustomerUses {
       .prepare("SELECT * FROM customer_offers WHERE business_id = ? AND state = 'active'")
       .all(businessId) as unknown as OfferRow[];
     if (offers.length === 0) reasons.push("no_active_offer");
-    if (offers.some((o) => !this.releaseActive(o))) reasons.push("release_not_active");
-    const availability = this.runtime?.availability();
+    const runtime = this.runtime;
+    for (const o of offers) {
+      if (!this.releaseActive(o)) {
+        reasons.push("release_not_active");
+        continue;
+      }
+      const rel = runtime?.releaseFor(o.project_id, o.release_id, o.artifact_digest);
+      if (rel && !rel.ok) reasons.push(`release_${rel.code}`);
+    }
+    const availability = runtime?.availability();
     if (!availability?.available)
       reasons.push(`runtime_unavailable${availability?.reason ? `: ${availability.reason}` : ""}`);
+    const budget = runtime?.budgetFor(businessId);
+    if (budget && budget.available_cents === null) reasons.push("runtime_budget_unset");
+    else if (
+      budget &&
+      budget.available_cents !== null &&
+      budget.available_cents < budget.per_request_cents
+    )
+      reasons.push("runtime_budget_exhausted");
     if (!this.writer) reasons.push("writer_unavailable");
     if (!this.protection?.load) reasons.push("protection_unavailable");
     if (!this.operator || !platformMeters(control, this.operator))
       reasons.push("metering_not_appointed");
-    return { ready: reasons.length === 0, reasons };
+    return {
+      eligible: reasons.length === 0,
+      reasons: [...new Set(reasons)],
+      note: "Configured eligibility, from the current checks; a customer's next use is what proves service.",
+    };
   }
 
   /** What this request's own records show about its unit, for a pause answer (D6). */

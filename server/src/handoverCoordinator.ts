@@ -89,6 +89,13 @@ export class HandoverCoordinator {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private passing: Promise<unknown> | null = null;
   private stopped = false;
+  /**
+   * Astra 01:41: each business's step in flight and its operation token. A timed-out or stopped
+   * step keeps running (a cancelled Promise isn't a stopped call) but its token is dead, so every
+   * later write it reaches is refused (requireLease); a business with a step still running is
+   * skipped, never stepped twice at once.
+   */
+  private readonly ops = new Map<string, { gen: number; dead: boolean; done: Promise<unknown> }>();
   private readonly now: () => number;
   private readonly leaseMs: number;
   private readonly caps: JournalCaps;
@@ -127,12 +134,26 @@ export class HandoverCoordinator {
     (this.timer as { unref?: () => void }).unref?.();
   }
 
-  /** Ends scheduling, then waits for a pass in flight (its own budget bounds it). */
-  async stop() {
+  /**
+   * Ends scheduling and invalidates every step in flight (their later writes are refused), then
+   * waits a bounded time for them. Returns whether they had all finished: a step blocked in a
+   * read or a send may still be running, and is reported, not presented as quiescent.
+   */
+  async stop(): Promise<{ quiescent: boolean; running: number }> {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    await this.passing?.catch(() => {});
+    for (const op of this.ops.values()) op.dead = true;
+    const all = Promise.allSettled([this.passing, ...[...this.ops.values()].map((o) => o.done)]);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finished = await Promise.race([
+      all.then(() => true),
+      new Promise<boolean>((done) => {
+        timer = setTimeout(() => done(false), this.opts.opDeadlineMs);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    return { quiescent: finished, running: finished ? 0 : this.ops.size };
   }
 
   // ---------- capability (§16.3) ----------
@@ -155,7 +176,7 @@ export class HandoverCoordinator {
     if (c.close_mode !== "gated") return { ready: false, reason: "not_gated" };
     if (c.closer !== key.account) return { ready: false, reason: "closer_mismatch" };
     const t = r.terms as { version?: unknown; closing_hold_guard?: unknown } | null;
-    if (!t || t.closing_hold_guard !== true || !(Number(t.version) >= 1))
+    if (t?.closing_hold_guard !== true || !(Number(t.version) >= 1))
       return { ready: false, reason: "contract_upgrade" };
     let k: Awaited<ReturnType<TxRpc["accessKey"]>>;
     try {
@@ -213,11 +234,23 @@ export class HandoverCoordinator {
         report[id] = "budget";
         continue;
       }
-      report[id] = await this.withDeadline(() => this.step(id)).catch((e) =>
+      if (this.ops.has(id)) {
+        report[id] = "busy"; // its earlier step is still running (dead or alive)
+        continue;
+      }
+      const op = { gen: 0, dead: false, done: Promise.resolve() as Promise<unknown> };
+      const running = this.step(id, op).finally(() => {
+        if (this.ops.get(id) === op) this.ops.delete(id);
+      });
+      op.done = running.catch(() => {});
+      this.ops.set(id, op);
+      const out = await this.withDeadline(() => running).catch((e) =>
         e instanceof LeaseLost
           ? "lease_lost"
           : `error:${String((e as Error)?.message).slice(0, 60)}`,
       );
+      if (out === "deadline") op.dead = true;
+      report[id] = out;
     }
     return report;
   }
@@ -287,6 +320,8 @@ export class HandoverCoordinator {
 
   /** In the caller's transaction: this holder's lease, at this generation, unexpired (D7). */
   private requireLease(businessId: string, gen: number) {
+    const op = this.ops.get(businessId);
+    if (this.stopped || !op || op.dead || op.gen !== gen) throw new LeaseLost();
     const ok = this.db
       .prepare(
         "SELECT 1 FROM handover_lease WHERE business_id = ? AND holder = ? AND gen = ? AND until_ms > ?",
@@ -334,9 +369,15 @@ export class HandoverCoordinator {
 
   // ---------- one business ----------
 
-  async step(businessId: string): Promise<string> {
+  async step(businessId: string, op?: { gen: number; dead: boolean }): Promise<string> {
     const gen = this.claim(businessId);
     if (gen === null) return "standby";
+    if (op) op.gen = gen;
+    else this.ops.set(businessId, { gen, dead: false, done: Promise.resolve() });
+    const alive = () => {
+      const o = this.ops.get(businessId);
+      return !this.stopped && o !== undefined && !o.dead && o.gen === gen;
+    };
     const binding = this.obs.bindingFor(businessId);
     if (!binding) return "unbound";
     let r: Awaited<ReturnType<HandoverCoordinator["read"]>>;
@@ -362,6 +403,7 @@ export class HandoverCoordinator {
         this.attention(h, gen, "intent_missing", r.block);
         return "attention";
       }
+      if (!alive()) return "stopped";
       const rec = await this.intents.reconcile(null, businessId, h.intent_id, {
         handoverId: h.id,
       });
@@ -369,8 +411,11 @@ export class HandoverCoordinator {
       return `reconcile_${rec.state}`;
     }
     // gated / ready / ordering / outcome_unknown
+    if (!alive()) return "stopped";
     if (this.uses) await this.uses.drainForHandover(businessId);
-    await this.resolveAttempts(h, binding.account);
+    if (!alive()) return "stopped";
+    await this.resolveAttempts(h, binding.account, gen);
+    if (!alive()) return "stopped";
     h = openHandover(this.db, businessId) as HandoverRow | null;
     if (!h || !OPEN_STATES.includes(h.state)) return "moved";
     const cap = await this.capability(businessId, { snapshot: r.snapshot, terms: r.terms });
@@ -401,7 +446,7 @@ export class HandoverCoordinator {
     }
     const made = this.createOrder(h, gen, r.snapshot, r.block);
     if (!made) return "order_refused";
-    return this.dispatch(h, made.n, made.order, binding.account);
+    return this.dispatch(h, made.n, made.order, binding.account, gen);
   }
 
   /** The first reason this handover isn't ready at this read, or null (§4.2, §16). */
@@ -409,7 +454,7 @@ export class HandoverCoordinator {
     if (!cap.ready) return `capability_${cap.reason}`;
     const c = s.control;
     const d = c.live_deal;
-    if (!d || d.state !== "closing" || d.seq !== h.deal_seq || d.version !== h.version)
+    if (d?.state !== "closing" || d.seq !== h.deal_seq || d.version !== h.version)
       return "deal_changed";
     if (d.digest !== h.digest) return "digest_changed";
     if (c.control_seq !== h.closing_control_seq) return "control_moved";
@@ -574,6 +619,7 @@ export class HandoverCoordinator {
     n: number,
     order: Record<string, unknown>,
     account: string,
+    gen: number,
   ): Promise<string> {
     const key = this.keys.get(h.business_id);
     if (!key) return "no_closer_key";
@@ -592,7 +638,19 @@ export class HandoverCoordinator {
     } finally {
       clearTimeout(timer);
     }
+    // The writer already persisted the signed attempt (it is resolved by its own hash later,
+    // whoever coordinates). Only a step still holding its lease and token records its journal and
+    // moves the handover (D7, Astra 01:41).
+    let current = true;
+    try {
+      this.tx(() => this.requireLease(h.business_id, gen));
+    } catch (e) {
+      if (!(e instanceof LeaseLost)) throw e;
+      current = false;
+    }
+    if (!current) return `dispatched_without_lease:${answer.status}`;
     this.tx(() => {
+      this.requireLease(h.business_id, gen);
       const now = openHandover(this.db, h.business_id);
       if (!now || now.id !== h.id) return;
       const code =
@@ -620,7 +678,7 @@ export class HandoverCoordinator {
    * writer reads its hash and rebroadcasts only the same bytes while valid). Its answer is
    * journaled; the contract's outcome ring decides the handover.
    */
-  private async resolveAttempts(h: HandoverRow, account: string) {
+  private async resolveAttempts(h: HandoverRow, account: string, gen: number) {
     const key = this.keys.get(h.business_id);
     if (!key) return;
     const orders = this.db
@@ -638,7 +696,8 @@ export class HandoverCoordinator {
           signal: ctl.signal,
         });
         if (a.status !== "unknown")
-          this.tx(() =>
+          this.tx(() => {
+            this.requireLease(h.business_id, gen);
             journal(
               this.db,
               h,
@@ -648,10 +707,11 @@ export class HandoverCoordinator {
                 caps: this.caps,
                 now: this.now(),
               },
-            ),
-          );
+            );
+          });
       } catch {
-        // an unanswered status read is unknown: it stays so
+        // an unanswered status read is unknown, or this step lost its lease: either way the
+        // attempt stays as recorded and is resolved by its own hash later
       } finally {
         clearTimeout(timer);
       }

@@ -183,7 +183,7 @@ export class FixtureChain {
   sale: SaleChain | null = null;
 
   /** Attaches a coherent sale double derived from this double's own state (no live deal). */
-  attachSale(opts: { minReserve?: bigint; owner?: string } = {}) {
+  attachSale(opts: { minReserve?: bigint; owner?: string; closer?: string } = {}) {
     const price = BigInt(this.plan.unit_price);
     let free = 0n;
     let held = 0n;
@@ -209,8 +209,9 @@ export class FixtureChain {
           generation: 1,
           // A plan created and the metering operator appointed: two control steps.
           control_seq: "2",
-          close_mode: "direct",
-          closer: null,
+          // Job 003wf3: a Gated business names its closer at construction.
+          close_mode: opts.closer ? "gated" : "direct",
+          closer: opts.closer ?? null,
           service_manifest: "0".repeat(64),
           manifest_seq: "0",
           // The double's current metering operators (e.g. the configured platform account).

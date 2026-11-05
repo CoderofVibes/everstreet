@@ -326,7 +326,8 @@ export function validateConfig(raw: unknown): AppConfig {
       if (!Array.isArray(cl?.keys) || cl.keys.length < 1 || cl.keys.length > 32)
         bad("handover.closer.keys lists 1 to 32 bindings");
       const bound = new Set((v3?.bindings ?? []).map((b) => b.business_id));
-      const keys = (cl?.keys as { business_id?: unknown; key_file?: unknown }[]).map((k) => {
+      const listed = (cl as { keys: { business_id?: unknown; key_file?: unknown }[] }).keys;
+      const keys = listed.map((k) => {
         if (typeof k?.business_id !== "string" || !bound.has(k.business_id))
           bad("each handover.closer.keys entry names a bound business_id");
         if (typeof k.key_file !== "string" || !isAbsolute(k.key_file))

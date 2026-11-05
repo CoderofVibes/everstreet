@@ -641,7 +641,7 @@ export interface SaleOptions {
   serviceReadiness?: (
     businessId: string,
     control: ControlV3,
-  ) => { ready: boolean; reasons: string[] };
+  ) => { eligible: boolean; reasons: string[]; note: string };
   readTimeoutMs?: number;
   now?: () => number;
 }
@@ -1254,11 +1254,13 @@ export class SaleActions {
                 ]
               : []),
             meteringGranted
-              ? "The platform's metering account is named in the terms, so customers' new uses continue right after the close."
+              ? gated
+                ? "The platform's metering account is named in the terms, so it keeps its metering authority after the close. Whether customers can actually be served is shown separately after the handover (the runtime, release and budget checks)."
+                : "The platform's metering account is named in the terms, so customers' new uses continue right after the close."
               : "No metering account is named: after the close, customers keep their units but new uses pause until the new owner appoints metering.",
             ...(gated
               ? [
-                  `This business closes through its named closer: once both parties accept, Everstreet checks the handover (new customer uses pause for this business; uses already running finish and settle), then the closer closes it within ${Number(closeWindow) / 60_000} minutes, or anyone may end the closing after that.`,
+                  `This business closes through its named closer. Once both parties accept, Everstreet checks the handover (new customer uses pause for this business; uses already running finish and settle) and the closer must close the sale before a deadline ${Number(closeWindow) / 60_000} minutes after the second acceptance. That is a deadline, not a promise: if it isn't closed by then, either party can end the closing.`,
                 ]
               : []),
           ],
@@ -1335,7 +1337,7 @@ export class SaleActions {
             ? gated
               ? [
                   "The other party has accepted these exact terms: your acceptance starts the closing.",
-                  `Everstreet then checks the handover: new customer uses pause for this business while uses already running finish and settle; then the closer closes the sale within ${Number(live.close_window_ms) / 60_000} minutes. Nothing about the deal can change meanwhile.`,
+                  `Everstreet then checks the handover: new customer uses pause for this business while uses already running finish and settle; the closer must close the sale before a deadline ${Number(live.close_window_ms) / 60_000} minutes after your acceptance. Ownership changes only when the contract shows the close; management here moves only after that close is applied here. Nothing about the deal can change meanwhile.`,
                   "If it isn't closed by then, either party can end the closing: the buyer's escrow becomes their claim and the seller keeps the business.",
                 ]
               : [
@@ -1344,10 +1346,14 @@ export class SaleActions {
                 ]
             : [
                 "Records your acceptance of this exact version.",
-                `If the ${asSeller ? "buyer" : "seller"} accepts these same terms afterwards, that acceptance closes the sale.`,
+                gated
+                  ? `If the ${asSeller ? "buyer" : "seller"} accepts these same terms afterwards, that acceptance starts the closing: Everstreet checks the handover, ownership changes only when the closer's close is confirmed on the contract, and management here moves only after it is applied here.`
+                  : `If the ${asSeller ? "buyer" : "seller"} accepts these same terms afterwards, that acceptance closes the sale.`,
               ],
           conditions: [
-            `If the ${asSeller ? "buyer" : "seller"} accepts first, your acceptance closes the sale instead of waiting.`,
+            gated
+              ? `If the ${asSeller ? "buyer" : "seller"} accepts first, your acceptance starts the closing instead of waiting.`
+              : `If the ${asSeller ? "buyer" : "seller"} accepts first, your acceptance closes the sale instead of waiting.`,
             "Refused if the terms are revised (a new version), the offer expires, or the floor isn't met when it lands.",
           ],
         };
@@ -1553,6 +1559,10 @@ export class SaleActions {
               grants: review.grants,
               exclusions: (input.exclusions as string[] | undefined) ?? [],
               note: (input.note as string | undefined) ?? "",
+              // Job 003wf3: a Gated close window, as reviewed (Direct: none).
+              ...(review.close_window_ms && review.close_window_ms !== "0"
+                ? { close_window_minutes: Number(review.close_window_ms) / 60_000 }
+                : {}),
             }
           : kind === "claim"
             ? { category: review.category }

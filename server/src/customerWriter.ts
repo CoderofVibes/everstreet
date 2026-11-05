@@ -491,8 +491,13 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
       return { status: "unknown", detail: "read_failed" }; // nothing was signed
     }
     if (!key || !permits(key.permission, input.account, method)) return refused("E_SIGNER_KEY");
-    if (this.opts.functionCallKeyOnly && key.permission === "FullAccess")
-      return refused("E_FULL_ACCESS_KEY");
+    // Job 003wf3 (Astra 01:27): the closer signs only with a well-formed function-call key for
+    // exactly this receiver and only this method; full access, a wildcard (empty) or wider list,
+    // a malformed list or another receiver are refused before anything is signed.
+    if (this.opts.functionCallKeyOnly) {
+      if (key.permission === "FullAccess") return refused("E_FULL_ACCESS_KEY");
+      if (!exactlyPermits(key.permission, input.account, method)) return refused("E_SIGNER_KEY");
+    }
     const blockHash = base58Decode(block.hash);
     if (blockHash.length !== 32) return { status: "unknown", detail: "read_failed" };
     const created = this.persistAttempt(
@@ -764,6 +769,20 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
     const r = await this.send(a, signal);
     return r === "success" ? ({ status: success, tx: a.tx_hash } as WriterAnswer) : r;
   }
+}
+
+/** Job 003wf3: a function-call key for exactly `receiver` and only `method`. */
+export function exactlyPermits(permission: unknown, receiver: string, method: string): boolean {
+  const fc = (
+    permission as { FunctionCall?: { receiver_id?: unknown; method_names?: unknown } } | null
+  )?.FunctionCall;
+  return (
+    !!fc &&
+    fc.receiver_id === receiver &&
+    Array.isArray(fc.method_names) &&
+    fc.method_names.length === 1 &&
+    fc.method_names[0] === method
+  );
 }
 
 /** Whether an access key may call `method` on `receiver` with no deposit. */

@@ -1061,6 +1061,52 @@ function migrateHandover(db: DatabaseSync, columns: (t: string) => Set<string>) 
       `CREATE TRIGGER IF NOT EXISTS handover_gate_${table} BEFORE INSERT ON ${table} WHEN ${gated(biz)}
        BEGIN SELECT RAISE(ABORT, '${HANDOVER_REFUSAL}'); END;`,
     );
+  // Astra 01:32: owner administration whose services write without a transaction of their own is
+  // refused at commit too, for any caller (HTTP or not). Each trigger leaves exactly the writes
+  // the existing reconciliation makes (owner_id/updated_at, the listing closed, the value settings
+  // reset), so applying a proven close is never blocked.
+  const has = (table: string, col: string) => columns(table).has(col);
+  const admin: [string, string, string][] = [
+    // [table, event, WHEN condition beyond the gate]
+    ["build_budgets", "INSERT", "1"],
+    ["build_budgets", "UPDATE", "1"],
+    ["runtime_budgets", "INSERT", "1"],
+    ["runtime_budgets", "UPDATE", "1"],
+    ["costs", "INSERT", "1"],
+    ["costs", "UPDATE", "1"],
+    ["value_scenarios", "INSERT", "1"],
+    ["team", "INSERT", "1"],
+    ["updates", "INSERT", "1"],
+    ["offers", "UPDATE", "1"],
+    ["ideas", "UPDATE", "1"],
+    ["listings", "INSERT", "1"],
+    ["listings", "UPDATE", "NEW.mode IS NOT 'closed'"],
+    [
+      "value_settings",
+      "INSERT",
+      "NOT (NEW.founder_hours_week IS NULL AND NEW.hourly_rate_cents IS NULL AND NEW.share_numbers = 0)",
+    ],
+    [
+      "value_settings",
+      "UPDATE",
+      "NOT (NEW.founder_hours_week IS NULL AND NEW.hourly_rate_cents IS NULL AND NEW.share_numbers = 0)",
+    ],
+  ];
+  for (const [table, op, when] of admin) {
+    if (!has(table, "business_id")) continue;
+    db.exec(
+      `CREATE TRIGGER IF NOT EXISTS handover_gate_${table}_${op.toLowerCase()} BEFORE ${op} ON ${table}
+       WHEN (${when}) AND ${gated("NEW.business_id")}
+       BEGIN SELECT RAISE(ABORT, '${HANDOVER_REFUSAL}'); END;`,
+    );
+  }
+  if (has("businesses", "published_at"))
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS handover_gate_businesses_profile
+      BEFORE UPDATE OF slug, name, tagline, about, family, stage, published_at ON businesses
+      WHEN ${gated("NEW.id")}
+      BEGIN SELECT RAISE(ABORT, '${HANDOVER_REFUSAL}'); END;
+    `);
   // Retiring an offer, and confirming a prepared customer request (its reservation admission).
   db.exec(`
     CREATE TRIGGER IF NOT EXISTS handover_gate_customer_offers_retire BEFORE UPDATE OF state ON customer_offers

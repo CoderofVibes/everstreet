@@ -449,6 +449,11 @@ export class TestnetCustomerRpcTransport extends TestnetRpcTransport {
         fingerprint: args.fingerprint,
       };
     }
+    // Job 003wf3: the business contract's managed-handover capabilities (no arguments).
+    if (method === "get_handover_terms") {
+      if (keys.length !== 0) refuse("unsupported", "get_handover_terms takes no arguments");
+      return {};
+    }
     // Job 003wec: the business contract's device-key capabilities (no arguments).
     if (method === "get_key_terms") {
       if (keys.length !== 0) refuse("unsupported", "get_key_terms takes no arguments");

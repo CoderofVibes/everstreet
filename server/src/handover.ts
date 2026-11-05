@@ -340,15 +340,41 @@ const TERMINAL: HandoverState[] = [
 ];
 
 /** Whether the local authority is the buyer's, through exactly this handover's intent. */
-export function buyerApplied(db: Db, h: HandoverRow) {
+/**
+ * The generation local authority has applied: the newest ownership row's, or the contract's first
+ * (1) when no sale was ever applied here.
+ */
+export function localGeneration(db: Db, businessId: string): number {
+  const r = db
+    .prepare("SELECT MAX(generation) AS g FROM ownership WHERE business_id = ?")
+    .get(businessId) as { g: number | null };
+  return r.g ?? 1;
+}
+
+/**
+ * Whether the CURRENT authority is this handover's buyer through exactly this close (D1, Astra
+ * 01:12/01:28): the local owner is the buyer by an ownership row of this intent at the close's
+ * generation, that generation is the newest applied here, and the contract still shows the buyer
+ * owning at that same generation. A historical row plus the same person is not enough once the
+ * contract's generation moved on.
+ */
+export function buyerApplied(db: Db, h: HandoverRow, o: OutcomeV3, e: Evidence) {
   if (!h.intent_id || !h.buyer_person_id) return false;
   const b = db.prepare("SELECT owner_id FROM businesses WHERE id = ?").get(h.business_id) as
     | { owner_id: string }
     | undefined;
   const row = db
-    .prepare("SELECT 1 FROM ownership WHERE business_id = ? AND v3_intent_id = ? LIMIT 1")
-    .get(h.business_id, h.intent_id);
-  return b?.owner_id === h.buyer_person_id && Boolean(row);
+    .prepare(
+      "SELECT 1 FROM ownership WHERE business_id = ? AND v3_intent_id = ? AND generation = ? LIMIT 1",
+    )
+    .get(h.business_id, h.intent_id, o.generation_after);
+  return (
+    b?.owner_id === h.buyer_person_id &&
+    Boolean(row) &&
+    localGeneration(db, h.business_id) === o.generation_after &&
+    e.control.owner === h.buyer_account &&
+    e.control.generation === o.generation_after
+  );
 }
 
 /** The outcome of this handover's deal: in the read, or its immutable observed copy. */
@@ -428,7 +454,22 @@ export function resolveFromEvidence(
         j("outcome", "closed");
       }
       const now = openHandover(db, a.businessId) as HandoverRow;
-      if (buyerApplied(db, now)) {
+      // D1: after the close the contract moved on (another sale, a new generation) before it was
+      // applied here: the buyer's historical authority is not current authority.
+      if (e.control.generation !== o.generation_after || e.control.owner !== h.buyer_account) {
+        if (now.state !== "attention") {
+          setState(
+            db,
+            now,
+            "attention",
+            { attention: "authority_advanced", outcome: o, height },
+            a.now,
+          );
+          j("attention", "authority_advanced");
+        }
+        return resolveCurrent(db, a, openHandover(db, a.businessId) as HandoverRow, j);
+      }
+      if (buyerApplied(db, now, o, e)) {
         setState(db, now, "released_to_buyer", { outcome: o, height }, a.now);
         journal(db, now, "reconciled", "applied", { block: e.block, caps: a.caps, now: a.now });
         journal(db, now, "terminal", "released_to_buyer", {
@@ -464,7 +505,8 @@ export function resolveFromEvidence(
       const localSeller =
         b?.owner_id === h.seller_person_id &&
         h.seller_person_id !== null &&
-        (h.local_epoch === null || epoch === h.local_epoch);
+        (h.local_epoch === null || epoch === h.local_epoch) &&
+        localGeneration(db, h.business_id) === h.expected_generation;
       if (chainSeller && localSeller) {
         setState(db, h, "released_to_seller", { outcome: o, height }, a.now);
         journal(db, h, "outcome", "aborted", { block: e.block, caps: a.caps, now: a.now });
@@ -534,6 +576,17 @@ function resolveCurrent(
     | { owner_id: string }
     | undefined;
   if (!owner || owner.owner_id !== b?.owner_id) return h;
+  // D1 (Astra 01:28): the same account is not current authority unless the contract's CURRENT
+  // generation is exactly what was applied here, by an ownership row naming this owner. A chain
+  // generation ahead of the local history stays in attention until it is reconciled.
+  const applied = db
+    .prepare(
+      "SELECT to_id FROM ownership WHERE business_id = ? ORDER BY generation DESC, rowid DESC LIMIT 1",
+    )
+    .get(h.business_id) as { to_id: string } | undefined;
+  const localGen = localGeneration(db, h.business_id);
+  if (localGen !== e.control.generation) return h;
+  if (applied && applied.to_id !== b?.owner_id) return h;
   setState(
     db,
     h,

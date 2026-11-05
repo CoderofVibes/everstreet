@@ -329,6 +329,8 @@ export class SaleChain {
   registered: Set<string>;
   /** Synthetic faults: the next payout transfers fail (a harness control). */
   failPayouts = 0;
+  /** Job 003wf3: false answers like contract code without get_handover_terms (no guard). */
+  handoverTerms = true;
   /** False: answers like an older contract without the sale capability (no get_sale_terms). */
   saleTerms = true;
   calls = 0;
@@ -584,6 +586,11 @@ export class SaleChain {
   /** A business view by method name (the sale's part), or undefined if it isn't one. */
   view(method: string, args: Json): string | undefined {
     this.bump();
+    // Job 003wf3: the managed-handover capability (lib.rs get_handover_terms); false: older code.
+    if (method === "get_handover_terms")
+      return this.handoverTerms
+        ? JSON.stringify({ version: 1, closing_hold_guard: true })
+        : undefined;
     if (method === "get_control") return JSON.stringify(this.controlView());
     if (method === "get_treasury") return JSON.stringify(this.treasuryView());
     if (method === "get_outcomes") return JSON.stringify(this.outcomesView());
@@ -1452,6 +1459,26 @@ export class SaleChain {
       },
       receipts_outcome: receipts,
     };
+  }
+
+  /**
+   * Job 003wf3: one SIGNED business call the RPC double applies (close_sale from the closer's key):
+   * the same rules as a wallet call, with nothing changed when the contract refuses.
+   */
+  applySigned(
+    signer: string,
+    method: string,
+    args: Json,
+  ): { ok: true; logs: string[] } | { ok: false; error: string } {
+    const before = this.snapshot();
+    try {
+      const r = this.businessCall(signer, method, args, 0n);
+      return { ok: true, logs: r.logs };
+    } catch (e) {
+      this.restore(before);
+      if (e instanceof Refusal) return { ok: false, error: e.message };
+      throw e;
+    }
   }
 
   /** A deep copy of the mutable state (a refused receipt restores it). */

@@ -107,6 +107,8 @@ export interface Composed {
   stop(): Promise<void>;
   /** Job 003wf1: the shutdown fence (tests observe late answers withheld). */
   readonly fence: Fence;
+  /** Job 003wf3: the managed-handover coordinator, when configured (tests drive its passes). */
+  readonly handover: HandoverCoordinator | null;
   /**
    * Job 003wf1: how the last stop went, stated plainly: whether the shared drain budget ran out
    * before every owner finished (forced), how many admitted requests were still running then,
@@ -726,6 +728,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     store,
     app,
     fence,
+    handover: coordinator,
     capabilities: () => caps.map((c) => ({ ...c })),
     start() {
       if (started || stopped) return;
