@@ -97,6 +97,8 @@ export class HandoverCoordinator {
    * skipped, never stepped twice at once.
    */
   private readonly ops = new Map<string, { gen: number; dead: boolean; done: Promise<unknown> }>();
+  /** The last business a pass visited (the next pass starts after it). */
+  private cursor: string | null = null;
   private readonly now: () => number;
   private readonly leaseMs: number;
   private readonly caps: JournalCaps;
@@ -234,10 +236,14 @@ export class HandoverCoordinator {
         "SELECT business_id FROM business_handovers WHERE state IN ('gated','ready','ordering','outcome_unknown','closed_observed','reconciled','attention') ORDER BY updated_ms",
       )
       .all() as { business_id: string }[];
-    const ids = [...new Set([...open.map((o) => o.business_id), ...this.keys.keys()])].slice(
-      0,
-      this.opts.batch,
-    );
+    // Astra 03:18: every open handover and every configured business is visited in turn, in a
+    // stable order starting after the last one this coordinator visited. A business whose step
+    // is busy counts as visited (it can't hold the front); one skipped for the pass budget comes
+    // first next time. The batch and the pass budget stay finite.
+    const all = [...new Set([...open.map((o) => o.business_id), ...this.keys.keys()])].sort();
+    const from = this.cursor === null ? 0 : all.findIndex((id) => id > (this.cursor as string));
+    const start = from < 0 ? 0 : from;
+    const ids = [...all.slice(start), ...all.slice(0, start)].slice(0, this.opts.batch);
     const report: Record<string, string> = {};
     for (const id of ids) {
       if (this.stopped) break;
@@ -245,6 +251,7 @@ export class HandoverCoordinator {
         report[id] = "budget";
         continue;
       }
+      this.cursor = id;
       if (this.ops.has(id)) {
         report[id] = "busy"; // its earlier step is still running (dead or alive)
         continue;
