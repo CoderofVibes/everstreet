@@ -150,9 +150,26 @@ export class ManagedRuntime {
   readonly timeoutMs: number;
   /** Abort functions of requests running in this process. */
   private readonly active = new Map<string, (why: "cancelled" | "timeout") => void>();
-  /** Job 003wf1: provider requests this process is running now (a stop reports any left). */
+  /** Job 003wf1: provider requests this process is running now. */
   activeCount() {
     return this.active.size;
+  }
+  /** Job 003wf1: this process's owned work (runs and evaluation loops) still unsettled. */
+  private readonly ownedWork = new Set<Promise<unknown>>();
+  track<T>(p: Promise<T>): Promise<T> {
+    this.ownedWork.add(p);
+    const done = () => {
+      this.ownedWork.delete(p);
+    };
+    p.then(done, done);
+    return p;
+  }
+  ownedCount() {
+    return this.ownedWork.size;
+  }
+  /** Resolves when every owned piece of work has settled. */
+  settledAll() {
+    return Promise.allSettled([...this.ownedWork]).then(() => undefined);
   }
 
   constructor(
@@ -492,7 +509,7 @@ export class ManagedRuntime {
     }
     const made = existing() as InvocationRow;
     if (made.id !== id) return same(made);
-    const done = this.run(made, artifact.spec, text);
+    const done = this.track(this.run(made, artifact.spec, text));
     return { invocation: made, created: true, done };
   }
 
@@ -708,7 +725,7 @@ export class ManagedRuntime {
     }
     const made = existing() as InvocationRow;
     if (made.id !== id) return { invocation: made, created: false, done: this.settled(made.id) };
-    const done = this.run(made, ctx.spec, ctx.text, ctx.sink);
+    const done = this.track(this.run(made, ctx.spec, ctx.text, ctx.sink));
     return { invocation: made, created: true, done };
   }
 

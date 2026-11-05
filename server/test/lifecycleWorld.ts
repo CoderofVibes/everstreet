@@ -108,7 +108,7 @@ export class SyntheticModel {
     }
     // A build (its structured output asks for a spec with examples): the fixture invoice spec,
     // examples as key/value pairs, as the production provider reshapes them.
-    if (JSON.stringify(body.output_config ?? {}).includes("\"examples\"")) {
+    if (JSON.stringify(body.output_config ?? {}).includes('"examples"')) {
       this.calls.builds++;
       const spec = {
         ...INVOICE_SPEC,

@@ -7,7 +7,7 @@
 
 import { type ChildProcess, fork } from "node:child_process";
 import { sign } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,10 +58,15 @@ const MAINT = {
 };
 
 /** One child process of the normal entry; this process answers its network over IPC. */
-function child(configFile: string, rpc: SyntheticRpc, model: SyntheticModel) {
+function child(
+  configFile: string,
+  rpc: SyntheticRpc,
+  model: SyntheticModel,
+  env: Record<string, string> = {},
+) {
   const proc: ChildProcess = fork(join("server", "test", "entryChild.ts"), [configFile], {
     execArgv: ["--import", "tsx", "--max-old-space-size=256"],
-    env: { ...process.env, [API_KEY_ENV]: FICTIONAL_KEY },
+    env: { ...process.env, [API_KEY_ENV]: FICTIONAL_KEY, ...env },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   let out = "";
@@ -438,4 +443,114 @@ describe("003wf1 two processes on one database, and a listen failure", () => {
     expect(t.dbRead<Json>("SELECT * FROM maintenance_lease")).toEqual([]);
     expect(t.dbRead<Json>("SELECT * FROM maintenance_status")).toEqual([]);
   }, 60_000);
+});
+
+describe("003wf1 stop around a reservation, and retention cleanup interrupted", () => {
+  it("a graceful stop while the reservation (open_hold) is at the node: after restart it is reserved once", async () => {
+    const t = await installation();
+    const a = child(t.configFile, t.rpc, t.model);
+    await a.ready();
+    const call = browser(t.port);
+    await signIn(call, t.cara as never);
+    const p = await call(`/api/customer/offers/${t.offer}/prepare`, "POST", {
+      idempotency_key: "lifecycle-use-0601",
+      input: INVOICE,
+    });
+    const u = p.body.use as Json;
+    const held = t.rpc.holdNextSend(); // the confirm's open_hold waits at the node
+    const confirming = call(`/api/customer/uses/${u.id}/confirm`, "POST", t.w.signed(u.envelope));
+    await held.entered;
+    expect(await a.shutdown()).toBe(0);
+    expect((await confirming).status).toBe(503); // answered within the stop
+    held.open(); // the node applies it; its answer goes nowhere
+    await until(() => t.rpc.applied.some((x) => x.method === "open_hold"), "the node applying it");
+    const b = child(t.configFile, t.rpc, t.model);
+    await b.ready();
+    // The reserve phase resolves the recorded attempt by its exact transaction (after the
+    // stopped holder's 30 s per-request lease).
+    await until(
+      () =>
+        t.dbRead<Json>("SELECT state FROM customer_requests WHERE id = ?", u.id)[0]?.state ===
+        "reserved",
+      "reserved after restart",
+      75_000,
+    );
+    expect(t.rpc.applied.filter((x) => x.method === "open_hold")).toHaveLength(1);
+    expect(t.rpc.chain.opened).toBe(1);
+    expect(await b.shutdown()).toBe(0);
+  }, 180_000);
+
+  it("retention cleanup killed mid-way: no retained record loses its object for good, and a restart finishes it", async () => {
+    // Batch 1: one deletion per phase per pass, a pass a second, so the kill lands with eligible
+    // deletions genuinely still pending (asserted below), not after the whole batch finished.
+    const t = await installation({ ...MAINT, batch: 1 });
+    const a = child(t.configFile, t.rpc, t.model);
+    await a.ready();
+    const call = browser(t.port);
+    await signIn(call, t.cara as never);
+    const N = 4;
+    for (let i = 1; i <= N; i++) {
+      const id = await t.use(call, `lifecycle-ret-${String(i).padStart(4, "0")}`);
+      expect(
+        (await call(`/api/customer/uses/${id}/execute`, "POST", {})).body.use.execution.fulfilled,
+      ).toBe(true);
+      // The next use waits until this one is settled in the records (one use at a time).
+      await until(
+        () =>
+          t.dbRead<Json>("SELECT state FROM customer_settlements WHERE request_id = ?", id)[0]
+            ?.state === "charged",
+        `settlement ${i}`,
+      );
+    }
+    expect(await a.shutdown()).toBe(0);
+    const stored = () =>
+      t
+        .dbRead<Json>("SELECT result_ref FROM customer_executions WHERE result_state = 'stored'")
+        .map((r) => r.result_ref as string);
+    expect(stored()).toHaveLength(N);
+    // The protected objects as they really are on disk (read with the installation's own keys).
+    const objects = async () => {
+      const { protectedStoreFromConfig } = await import("../src/protectedStore.ts");
+      const ps = t.config.protected_storage;
+      const keys = JSON.parse(readFileSync(ps.keys_file, "utf8"));
+      const s = protectedStoreFromConfig({ root: ps.root, active_key_id: ps.active_key_id, keys });
+      try {
+        return new Set((await s.list(null, 200)).map((o: Json) => o.ref as string));
+      } finally {
+        s.close();
+      }
+    };
+    const DAYS_31 = String(31 * 86_400_000);
+    // B's clock is 31 days ahead: every result is past its retention. Killed at the first deletion.
+    const b = child(t.configFile, t.rpc, t.model, { LIFECYCLE_CLOCK_OFFSET_MS: DAYS_31 });
+    await b.ready();
+    await until(() => stored().length < N, "the first deletion recorded", 30_000);
+    b.proc.kill("SIGKILL");
+    await b.exited;
+    // At the kill: every object still on disk belongs to a record that still holds it, and at
+    // most the one item in flight (object removed, record not yet marked) lacks its object.
+    const after = stored();
+    // Interrupted for real: some results deleted, some still due and not yet deleted.
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.length).toBeLessThan(N);
+    const onDisk = await objects();
+    expect(after.filter((r) => !onDisk.has(r)).length).toBeLessThanOrEqual(1);
+    const c = child(t.configFile, t.rpc, t.model, { LIFECYCLE_CLOCK_OFFSET_MS: DAYS_31 });
+    await c.ready();
+    await until(() => stored().length === 0, "every result deleted after restart", 60_000);
+    expect(
+      t.dbRead<Json>(
+        "SELECT COUNT(*) AS n FROM customer_executions WHERE result_state = 'deleted'",
+      )[0],
+    ).toEqual({ n: N });
+    await until(
+      () =>
+        t.dbRead<Json>("SELECT COUNT(*) AS n FROM customer_requests WHERE input_ref IS NOT NULL")[0]
+          ?.n === 0,
+      "every protected input deleted",
+      60_000,
+    );
+    expect(await c.shutdown()).toBe(0);
+    expect((await objects()).size).toBe(0); // nothing retained: no record, no orphan object
+  }, 240_000);
 });

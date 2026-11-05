@@ -480,7 +480,10 @@ export class Evaluations {
         this.runtime.runner,
       );
     const declared = new Map(artifact.spec.fields.map((f) => [f.key, f.type as string]));
-    const done = this.execute(viewer, id, p.id, artifact.job_id, cases, declared);
+    // Job 003wf1: owned by this process's runtime, so a stop can await it.
+    const done = this.runtime.track(
+      this.execute(viewer, id, p.id, artifact.job_id, cases, declared),
+    );
     return { run: this.view(this.runRow(id) as RunRow), done };
   }
 
@@ -496,6 +499,9 @@ export class Evaluations {
     const results: CaseResult[] = [];
     let stopped: string | null = null;
     for (const c of cases) {
+      // Job 003wf1 (Astra's evaluation-recovery probe): a run another process recovered (or one
+      // no longer this process's) is never continued: no further paid case is dispatched.
+      if (!this.owns(runId)) return this.view(this.runRow(runId) as RunRow);
       let raw: CaseResult["raw"];
       let result: Extraction | null = null;
       const wanted = Object.keys(c.expect.fields ?? {});
@@ -541,10 +547,21 @@ export class Evaluations {
           ? { score: "error" as const, fields: [], explanation: `Not run: ${raw.failure ?? ""}` }
           : score(c, declared, raw, result);
       results.push({ id: c.id, name: c.name, required: c.required, raw, ...scored });
-      this.save(runId, results, cases.length, null);
+      // Only while still this process's running run; otherwise nothing is written and it ends.
+      if (!this.save(runId, results, cases.length, null))
+        return this.view(this.runRow(runId) as RunRow);
     }
     this.save(runId, results, cases.length, stopped ? "stopped" : "complete");
     return this.view(this.runRow(runId) as RunRow);
+  }
+
+  /** Whether this run is still running under this process (its runner, null-safe). */
+  private owns(runId: string) {
+    return Boolean(
+      this.db
+        .prepare("SELECT 1 FROM eval_runs WHERE id = ? AND state = 'running' AND runner IS ?")
+        .get(runId, this.runtime.runner),
+    );
   }
 
   private save(
@@ -552,11 +569,13 @@ export class Evaluations {
     results: CaseResult[],
     total: number,
     end: "complete" | "stopped" | null,
-  ) {
+  ): boolean {
     const n = (s: Score) => results.filter((r) => r.score === s).length;
-    this.db
+    // Conditional on the run still being this process's running run (a recovered run's stopped
+    // row and results stay as recovery left them).
+    const changed = this.db
       .prepare(
-        "UPDATE eval_runs SET results = ?, passed = ?, failed = ?, errors = ?, not_applicable = ?, state = COALESCE(?, state), finished_at = CASE WHEN ? IS NULL THEN finished_at ELSE ? END WHERE id = ?",
+        "UPDATE eval_runs SET results = ?, passed = ?, failed = ?, errors = ?, not_applicable = ?, state = COALESCE(?, state), finished_at = CASE WHEN ? IS NULL THEN finished_at ELSE ? END WHERE id = ? AND state = 'running' AND runner IS ?",
       )
       .run(
         JSON.stringify(results),
@@ -568,8 +587,10 @@ export class Evaluations {
         end,
         this.runtime.iso(),
         id,
+        this.runtime.runner,
       );
     void total;
+    return Number(changed.changes) === 1;
   }
 
   /** Whether a run still checks this version under today's model, validator and cases. */

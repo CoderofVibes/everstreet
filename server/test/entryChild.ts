@@ -42,9 +42,14 @@ const forward = (channel: "rpc" | "model", allowed: (url: string) => boolean) =>
     return new Response(r.body, { status: r.status });
   }) as unknown;
 
+// A labelled test clock (the composition's own `now` dependency): this process's time runs
+// LIFECYCLE_CLOCK_OFFSET_MS ahead, e.g. so retained results are past their retention. Off unless set.
+const offset = Number(process.env.LIFECYCLE_CLOCK_OFFSET_MS ?? 0);
+if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("bad LIFECYCLE_CLOCK_OFFSET_MS");
 const running = runServer(
   config,
   {
+    ...(offset ? { now: () => Date.now() + offset } : {}),
     fetch: forward("rpc", (u) => u === RPC) as FetchLike,
     fetchLabel: "synthetic RPC (lifecycle test)",
     modelFetch: forward("model", (u) => MODEL_PATHS.has(u)) as typeof fetch,

@@ -712,10 +712,10 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         fence.close();
         gate.closed = true;
         for (const cut of [...cutoffs]) cut();
-        // Owned continuations refused at the gates settle within a turn; what is still running
-        // after that is reported, not hidden.
-        await new Promise((r) => setTimeout(r, 20));
-        last.work_running = runtime.activeCount();
+        // Owned work (runtime runs, evaluation loops) refused at the gates is awaited, under what
+        // is left of the shared deadline; whatever is still unsettled then is reported, not hidden.
+        await within(runtime.settledAll(), Math.max(250, deadline - Date.now()));
+        last.work_running = runtime.ownedCount();
         closeAll(opened);
       })();
       return stopping;

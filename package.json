@@ -16,7 +16,7 @@
     "inspect": "tsx scripts/inspect.ts",
     "probe:signer": "tsx scripts/probe-signer.ts",
     "setup:testnet": "tsx scripts/setup-testnet.ts",
-    "test": "vitest run --exclude server/test/lifecycle-process.test.ts && vitest run server/test/lifecycle-process.test.ts",
+    "test": "vitest run --exclude server/test/lifecycle-process.test.ts --exclude server/test/lifecycle-peers.test.ts --exclude server/test/lifecycle-builds.test.ts --exclude server/test/lifecycle-body.test.ts && vitest run server/test/lifecycle-process.test.ts server/test/lifecycle-peers.test.ts server/test/lifecycle-builds.test.ts server/test/lifecycle-body.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome format --write .",
