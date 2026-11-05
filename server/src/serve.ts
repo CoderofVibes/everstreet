@@ -33,6 +33,11 @@ export function runServer(config: AppConfig, deps: ComposeDeps, io: ServeIo) {
   const finish = (code: number) =>
     (ending ??= (async () => {
       await composed.stop();
+      const ls = composed.lastStop();
+      if (ls?.forced || ls?.stop_failures)
+        io.error(
+          `stop: ${ls.forced ? "the drain budget ran out" : "drained"}; ${ls.requests_running} request(s) still running; ${ls.stop_failures} stop failure(s)`,
+        );
       await new Promise<void>((resolve) => {
         const t = setTimeout(resolve, 2_000);
         server.close(() => {

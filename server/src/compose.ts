@@ -21,7 +21,7 @@ import { type CustomerChainWriter, type CustomerUseOptions, CustomerUses } from 
 import { OperatorKey, TestnetCustomerWriter, TestnetTxTransport } from "./customerWriter.ts";
 import { openDb } from "./db.ts";
 import { Evaluations } from "./evaluations.ts";
-import { Fence } from "./fence.ts";
+import { Fence, gateDb } from "./fence.ts";
 import { AccountSignIn } from "./identity.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { guardAdapters, MaintenanceSupervisor, maintenanceWorker } from "./maintenance.ts";
@@ -95,8 +95,14 @@ export interface Composed {
   start(): void;
   /** Ends admission, drains or fences in-flight work, then closes every resource. */
   stop(): Promise<void>;
-  /** Job 003wf1: the shutdown fence (tests observe late answers held back). */
+  /** Job 003wf1: the shutdown fence (tests observe late answers withheld). */
   readonly fence: Fence;
+  /**
+   * Job 003wf1: how the last stop went, stated plainly: whether the shared drain budget ran out
+   * before every owner finished (forced), how many admitted requests were still running then,
+   * and how many owners' stops failed. Null until a stop finished.
+   */
+  lastStop(): { forced: boolean; requests_running: number; stop_failures: number } | null;
 }
 
 const TYPES: Record<string, string> = {
@@ -139,10 +145,12 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   const caps: Capability[] = [];
   const cap = (c: Capability) => caps.push(c);
 
-  // Job 003wf1 (§12.3): every injected network and protected-storage call passes this fence.
+  // Job 003wf1 (§12.3): every injected network and protected-storage call passes this fence,
+  // and every records access passes the database gate; both close together at stop.
   const fence = new Fence();
+  const gate = { closed: false };
   // Records first: everything else is built over them.
-  const store = new Store(openDb(config.database));
+  const store = new Store(gateDb(openDb(config.database), gate));
   opened.push({ close: () => store.db.close() });
   cap({
     key: "records",
@@ -450,13 +458,31 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
           provenance: null,
         },
   );
-  cap({
-    key: "customer_authorization",
-    label: "Customer authorization",
-    state: "unavailable",
-    detail: "No wallet or device use-key connection is built yet (sub-job 003w-e).",
-    provenance: null,
-  });
+  // Job 003wf1 (Astra's ConfiguredLifecycleDesignReview): from the actual prerequisites, not a
+  // stale sentence. Each business's own contract capability (guarded revocation) and each
+  // device's readiness are observed per offer, never claimed here.
+  cap(
+    signIn && signIn.callbackUrl && customer
+      ? {
+          key: "customer_authorization",
+          label: "Customer authorization",
+          state: "on",
+          detail:
+            "Customers sign in with their own wallet and enroll a key made on their device; each use is authorized in their browser. Whether a device is ready, and whether a business's contract supports guarded revocation, is read per offer.",
+          provenance: rpcLabel,
+        }
+      : {
+          key: "customer_authorization",
+          label: "Customer authorization",
+          state: "unavailable",
+          detail: !customer
+            ? "Customer use isn't configured, so there is nothing to authorize."
+            : !signIn
+              ? "Verified wallet sign-in isn't configured, so customers can't authorize uses here."
+              : "Wallet sign-in in the browser needs sign_in.return_origin, which isn't configured.",
+          provenance: null,
+        },
+  );
   cap({
     key: "legacy_payments",
     label: "Bookings and v2 payments",
@@ -492,13 +518,37 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
 
   const app = new Hono();
   // Job 003wf1 (§12.3): admission ends first when stopping; nothing new reaches the services.
+  // Admitted requests are tracked so the stop can drain them (briefly; the gates are the proof).
   let admitting = true;
-  app.use("*", async (c, next) => {
-    if (!admitting) {
-      c.header("Connection", "close");
-      return c.json({ error: "The server is stopping", code: "stopping" }, 503);
+  const stoppingResponse = () =>
+    new Response(JSON.stringify({ error: "The server is stopping", code: "stopping" }), {
+      status: 503,
+      headers: { "content-type": "application/json", connection: "close" },
+    });
+  const inflight = new Set<Promise<unknown>>();
+  /** Answers every admitted request still running when the stop's grace ends. */
+  const cutoffs = new Set<() => void>();
+  app.use("*", async (_c, next) => {
+    if (!admitting) return stoppingResponse();
+    const p = next();
+    inflight.add(p);
+    let cut: () => void = () => {};
+    const cutoff = new Promise<"cut">((r) => {
+      cut = () => r("cut");
+    });
+    cutoffs.add(cut);
+    try {
+      const outcome = await Promise.race([p.then(() => "done" as const), cutoff]);
+      // Still running at the stop's cutoff (e.g. waiting on its upload): answered now, bounded.
+      // Its handler can't reach storage any more (the gates), and its late result is discarded.
+      if (outcome === "cut") {
+        p.catch(() => {});
+        return stoppingResponse();
+      }
+    } finally {
+      inflight.delete(p);
+      cutoffs.delete(cut);
     }
-    await next();
   });
   app.get("/api/system/capabilities", (c) => {
     c.header("Cache-Control", "no-store");
@@ -531,13 +581,19 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   let started = false;
   let stopped = false;
   const stopTimeout = config.maintenance?.stop_timeout_ms ?? 30_000;
-  /** Waits for `p`, at most the stop timeout (a non-cooperating adapter can't hold stop open). */
-  const bounded = (p: Promise<unknown>) => {
+  /** Admitted requests get this long to finish; after it the gates answer them 503. */
+  const requestGrace = Math.min(stopTimeout, 2_000);
+  let last: { forced: boolean; requests_running: number; stop_failures: number } | null = null;
+  /** Resolves true when `p` settles within `ms`, false at the deadline (the timer is cleared). */
+  const within = (p: Promise<unknown>, ms: number) => {
     let t: ReturnType<typeof setTimeout> | undefined;
     return Promise.race([
-      p.catch(() => {}),
-      new Promise<void>((r) => {
-        t = setTimeout(r, stopTimeout);
+      p.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((r) => {
+        t = setTimeout(() => r(false), ms);
       }),
     ]).finally(() => clearTimeout(t));
   };
@@ -565,15 +621,36 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     stop() {
       if (stopping) return stopping;
       stopped = true;
-      // §12.3: admission ends; scheduling ends and in-flight work drains (bounded); the fence
-      // closes (late answers resume nothing); resources close last.
+      // §12.3: admission ends at once. Every owner's stop starts together (scheduling ends for
+      // all of them first), then they and the admitted requests drain under ONE shared budget.
+      // The gates close (late answers and accesses get StoppedError), then resources close.
+      // Cleanup always runs; a forced or failed drain is recorded, not hidden.
       admitting = false;
       stopping = (async () => {
-        for (const s of stoppers.splice(0)) await bounded(s());
+        let failures = 0;
+        const owners = stoppers.splice(0).map((s) =>
+          Promise.resolve()
+            .then(s)
+            .catch(() => {
+              failures++;
+            }),
+        );
+        const ownersDone = await within(Promise.all(owners), stopTimeout);
+        const requestsDone = await within(Promise.allSettled([...inflight]), requestGrace);
+        last = {
+          forced: !ownersDone || !requestsDone,
+          requests_running: inflight.size,
+          stop_failures: failures,
+        };
+        // The gates close first, so a cut request's handler can never reach storage; then every
+        // admitted request still running is answered 503 now, and resources close.
         fence.close();
+        gate.closed = true;
+        for (const cut of [...cutoffs]) cut();
         closeAll(opened);
       })();
       return stopping;
     },
+    lastStop: () => (last ? { ...last } : null),
   };
 }

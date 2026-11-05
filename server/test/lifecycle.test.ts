@@ -209,7 +209,7 @@ describe("003wf1 start and stop", () => {
     await c.stop();
   });
 
-  it("a late network answer after stop resumes nothing: the closed database is never touched and no session appears", async () => {
+  it("a late network answer after stop: the admitted request ends 503 stopping, the closed database is never touched, no session appears", async () => {
     const dir = tempDir();
     const cfg = validateConfig(base(dir, { maintenance: MAINT }));
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -255,13 +255,17 @@ describe("003wf1 start and stop", () => {
     await c.stop(); // admission, drain (bounded), fence, close
     expect(Date.now() - t0).toBeLessThan(MAINT.stop_timeout_ms + 1_000);
     rpc.release(); // the answer arrives only now
-    await new Promise((r) => setTimeout(r, 150));
-    expect(settled).toBe(false); // it never resumed into the closed database
+    // The admitted request ends within the bound, answered 503 "stopping": its continuation was
+    // refused at the fence and the database gate, never reaching the closed database.
+    const res = await verifying;
+    expect(settled).toBe(true);
+    expect(res.status).toBe(503);
+    // Sign-in reports the refused read as its own unavailability (503); nothing was recorded.
+    expect(["stopping", "sign_in_unavailable"]).toContain(((await res.json()) as Json).code);
     expect(c.fence.held).toBeGreaterThanOrEqual(1);
     const db = openDb(cfg.database);
     const sessions = db.prepare("SELECT COUNT(*) AS n FROM sessions").get() as Json;
     db.close();
     expect(sessions.n).toBe(0);
-    void verifying;
   });
 });
