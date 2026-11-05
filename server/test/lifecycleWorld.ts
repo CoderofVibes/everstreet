@@ -31,7 +31,7 @@ import { verifiesEd25519 } from "../src/customerSigning.ts";
 import { base58Encode } from "../src/customerWriter.ts";
 import { nep413Digest } from "../src/identity.ts";
 import { AnthropicRuntime } from "../src/runtime.ts";
-import { CUSTOMER, customerWorld, type FixtureChain, type Json } from "./customer-world.ts";
+import { CUSTOMER, customerWorld, type FixtureChain, type Json, TOKEN } from "./customer-world.ts";
 import { correct, INVOICE_SPEC } from "./runtime-world.ts";
 
 export const RPC = "https://synthetic-testnet-rpc.example";
@@ -278,6 +278,10 @@ export class SyntheticRpc {
       treasury: structuredClone(c.treasury),
       plan: structuredClone(c.plan),
       ents: new Map([...c.ents].map(([k, v]) => [k, structuredClone(v)])),
+      // Job 003wf2: the sale half of the same state and the token ledger, as they were then.
+      sale: c.sale ? c.sale.fork() : null,
+      balances: new Map(c.balances),
+      tokenRegistered: new Set(c.tokenRegistered),
     });
     for (const h of [...this.snapshots.keys()]) if (h < height - 64) this.snapshots.delete(h);
   }
@@ -332,8 +336,10 @@ export class SyntheticRpc {
       });
     }
     if (req.method === "query" && p.request_type === "call_function") {
-      // Only the one contract this double models; any other account doesn't exist here.
-      if (p.account_id !== this.chain.business) return fail("UNKNOWN_ACCOUNT");
+      // Only the one contract this double models and (job 003wf2) its token; any other account
+      // doesn't exist here.
+      if (p.account_id !== this.chain.business && p.account_id !== TOKEN)
+        return fail("UNKNOWN_ACCOUNT");
       const height = this.hashes.get(String(p.block_id));
       const snap = height === undefined ? undefined : this.snapshots.get(height);
       if (height === undefined || !snap) return fail("UNKNOWN_BLOCK");
@@ -364,7 +370,9 @@ export class SyntheticRpc {
       return this.apply(String(p.signed_tx_base64), ok, fail);
     }
     if (req.method === "tx") {
-      const o = this.outcomes.get(String(p.tx_hash));
+      // Job 003wf2: a wallet's own transactions (applied to the double by the synthetic wallet)
+      // are found by their hash too.
+      const o = this.outcomes.get(String(p.tx_hash)) ?? this.chain.txs.get(String(p.tx_hash));
       return o ? ok(o) : fail("UNKNOWN_TRANSACTION");
     }
     return fail("METHOD_NOT_FOUND");

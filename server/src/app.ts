@@ -28,6 +28,7 @@ import { Payments } from "./payments.ts";
 import { Products } from "./products.ts";
 import { Publications } from "./publication.ts";
 import { Releases } from "./releases.ts";
+import { SaleActions } from "./saleActions.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
@@ -117,6 +118,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const customerUses = new CustomerUses(store.db, store, v3, options.customer, runtime);
   const purchases = new CustomerPurchases(store.db, options.customer?.reader ?? null);
+  // Job 003wf2: a Direct sale through each participant's own wallet (read and verify only).
+  const sales = new SaleActions(store.db, store, v3, v3Intents, options.customer?.reader ?? null, {
+    platformOperator: options.customer?.operatorAccount ?? null,
+  });
   const publications = new Publications(store.db, store);
   const evaluations = new Evaluations(store.db, store, runtime);
   const releases = new Releases(store.db, store, runtime, evaluations);
@@ -427,6 +432,37 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.post("/api/customer/purchases/:id/abandon", async (c) =>
     c.json(purchases.abandon(me(c), c.req.param("id"))),
+  );
+  // Job 003wf2 (docs/design/DIRECT_SALE.md): the participant's picture at one final block, an
+  // exact preview, the durable reviewed request, the wallet-asked mark, the bounded check by the
+  // request's own transaction, and an explicit set-aside of a request never asked for.
+  app.get("/api/me/sales", (c) => c.json(sales.mine(me(c))));
+  app.get("/api/sales/:business", async (c) =>
+    c.json(await sales.setup(me(c), c.req.param("business"))),
+  );
+  app.post("/api/sales/:business/prepare", async (c) => {
+    const b = (await body(c)) as Record<string, unknown>;
+    return c.json(
+      await sales.prepare(
+        me(c),
+        c.req.param("business"),
+        b.kind,
+        (b.input as Record<string, unknown>) ?? {},
+      ),
+    );
+  });
+  app.post("/api/sales/:business/actions", async (c) => {
+    const r = await sales.create(me(c), c.req.param("business"), await body(c));
+    return c.json(r, r.created ? 201 : 200);
+  });
+  app.post("/api/sales/actions/:id/requested", async (c) =>
+    c.json(sales.requested(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/sales/actions/:id/check", async (c) =>
+    c.json(await sales.check(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/sales/actions/:id/abandon", async (c) =>
+    c.json(sales.abandon(me(c), c.req.param("id"))),
   );
   // Job 003w-e2: a fresh readback of the caller's own key slots for an offer (device readiness).
   app.get("/api/customer/offers/:offer/keys", async (c) =>

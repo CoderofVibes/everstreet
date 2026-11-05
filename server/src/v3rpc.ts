@@ -390,9 +390,26 @@ export class TestnetCustomerRpcTransport extends TestnetRpcTransport {
     if (!keys) return refuse("unsupported", "arguments must be an object");
     const exactly = (...k: string[]) =>
       keys.length === k.length && [...k].sort().every((x, i) => keys[i] === x);
-    if (method === "get_control" || method === "get_treasury") {
+    // Job 003wf2: the sale's views (outcomes and pending payouts take no arguments).
+    if (
+      method === "get_control" ||
+      method === "get_treasury" ||
+      method === "get_outcomes" ||
+      method === "get_pending"
+    ) {
       if (keys.length !== 0) refuse("unsupported", "this view takes no arguments");
       return {};
+    }
+    // Job 003wf2: one party's record, and the declared sale terms for one buyer.
+    if (method === "get_party") {
+      if (!exactly("account") || typeof args.account !== "string" || !isAccountId(args.account))
+        refuse("unsupported", "get_party takes one account");
+      return { account: args.account };
+    }
+    if (method === "get_sale_terms") {
+      if (!exactly("buyer") || typeof args.buyer !== "string" || !isAccountId(args.buyer))
+        refuse("unsupported", "get_sale_terms takes one buyer account");
+      return { buyer: args.buyer };
     }
     if (method === "get_plan") {
       if (!exactly("plan_id") || !whole(args.plan_id, U32_MAX))

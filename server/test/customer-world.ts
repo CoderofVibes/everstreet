@@ -37,6 +37,7 @@ import type { Store } from "../src/store.ts";
 import { V3Observations } from "../src/v3observe.ts";
 import type { BlockRef, ViewTransport } from "../src/v3read.ts";
 import { type Answer, correct, runtimeWorld, ScriptedRuntime } from "./runtime-world.ts";
+import { SaleChain } from "./sale-chain.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: fixture JSON is read field by field
 export type Json = Record<string, any>;
@@ -172,8 +173,108 @@ export class FixtureChain {
     return this.ents.get(customer) ?? null;
   }
 
+  /**
+   * Job 003wf2: the sale half of the same state model (DIRECT_SALE.md §6). When attached, it
+   * answers control, treasury, outcomes, pending, party and sale-terms views and applies sale
+   * calls; this double's purchases, holds, settlements and releases move its treasury buckets,
+   * and metering is checked against its operators. Unattached, the fixed fixture views stay.
+   */
+  sale: SaleChain | null = null;
+
+  /** Attaches a coherent sale double derived from this double's own state (no live deal). */
+  attachSale(opts: { minReserve?: bigint; owner?: string } = {}) {
+    const price = BigInt(this.plan.unit_price);
+    let free = 0n;
+    let held = 0n;
+    let earned = 0n;
+    for (const e of this.ents.values()) {
+      free += BigInt(e.free) * price;
+      held += BigInt(e.hold_active ? e.hold_units - e.hold_charged : 0) * price;
+      earned += BigInt(e.consumed) * price;
+    }
+    const owner = opts.owner ?? (this.control.owner as string);
+    this.sale = new SaleChain(
+      {
+        business: this.business,
+        asset: TOKEN,
+        now_ms: this.ts,
+        storage_byte_cost: this.byteCost,
+        min_reserve: opts.minReserve ?? 5n * price,
+        plan_count: 1,
+        payout_seq: 0n,
+        deal_seq: 0n,
+        control: {
+          owner,
+          generation: 1,
+          // A plan created and the metering operator appointed: two control steps.
+          control_seq: "2",
+          close_mode: "direct",
+          closer: null,
+          service_manifest: "0".repeat(64),
+          manifest_seq: "0",
+          // The double's current metering operators (e.g. the configured platform account).
+          operators: (this.control.operators as [string, number, number][]).map(([a, c]) => [
+            a,
+            c,
+            1,
+          ]),
+          live_deal: null,
+        },
+        treasury: {
+          held: String(free + held + earned),
+          ent_free_value: String(free),
+          ent_held_value: String(held),
+          available: String(earned),
+          pending_total: "0",
+          claims_total: "0",
+          escrow_total: "0",
+        },
+        pending: [],
+        outcomes: [],
+        parties: {
+          [owner]: {
+            profit_claim: "0",
+            escrow_return_claim: "0",
+            sale_proceeds_claim: "0",
+            pending_refs: 0,
+            payer: owner,
+            deposit: "0",
+          },
+        },
+      },
+      { balances: this.balances, registered: this.tokenRegistered },
+    );
+    // The business holds the tokens its treasury accounts for.
+    this.balances.set(this.business, free + held + earned);
+    this.tokenRegistered.add(this.business);
+    return this.sale;
+  }
+
+  /** A sale call: one of the business's sale methods, or a funding transfer to it. */
+  private isSaleCall(call: { receiverId: string; methodName: string; args: Json }) {
+    if (call.receiverId === this.business)
+      return (
+        /_guarded$|^accept_sale$/.test(call.methodName) && call.methodName !== "revoke_key_guarded"
+      );
+    if (call.receiverId !== TOKEN || call.methodName !== "ft_transfer_call") return false;
+    try {
+      return "fund_deal" in (JSON.parse(String(call.args.msg)) as Json);
+    } catch {
+      return false;
+    }
+  }
+
+  private saleUnits(units: number | bigint) {
+    return BigInt(units) * BigInt(this.plan.unit_price);
+  }
+
   answer(method: string, args: Record<string, unknown>): string {
     this.bump();
+    if (this.sale) {
+      this.sale.now = this.ts;
+      const v = this.sale.view(method, args as Json);
+      if (v !== undefined) return v;
+    }
     if (method === "get_control") return JSON.stringify(this.control);
     if (method === "get_treasury") return JSON.stringify(this.treasury);
     if (method === "get_plan") return JSON.stringify(args.plan_id === 1 ? this.plan : null);
@@ -320,6 +421,7 @@ export class FixtureChain {
       purchase_seq: e.purchase_seq + 1,
       active: true,
     });
+    this.sale?.customerBought(amount);
     this.nextBlock();
     return {
       unused: 0n,
@@ -339,6 +441,14 @@ export class FixtureChain {
     call: { receiverId: string; methodName: string; args: Json; deposit: string; gas: string },
   ): Json {
     this.bump();
+    // Job 003wf2: the sale's calls go to the sale half of the same state (same ledger and log).
+    if (this.sale && this.isSaleCall(call)) {
+      this.sale.now = this.ts;
+      const out = this.sale.walletCall(signer, call);
+      this.txs.set(out.transaction.hash, out);
+      this.nextBlock();
+      return out;
+    }
     const hash = base58(
       createHash("sha256")
         .update(`fixture-tx-${++this.txCount}`)
@@ -552,6 +662,7 @@ export class FixtureChain {
       hold_charged: e.hold_charged + newly,
       consumed: String(BigInt(e.consumed) + BigInt(newly)),
     });
+    if (newly > 0) this.sale?.customerCharged(this.saleUnits(newly));
     if (close) this.release(customer);
     else this.nextBlock();
     if (newly > 0) this.charged += newly;
@@ -578,6 +689,7 @@ export class FixtureChain {
   }
 
   private meters(signer: string) {
+    if (this.sale) return this.sale.meters(signer);
     if (signer === this.control.owner) return true;
     return (this.control.operators as [string, number, number][]).some(
       ([a, caps, g]) => a === signer && (caps & 1) !== 0 && g === this.control.generation,
@@ -653,6 +765,7 @@ export class FixtureChain {
       settle_until_ms: String(serve + BigInt(this.plan.settle_grace_ms)),
       free: String(BigInt(e.free) - BigInt(auth.units)),
     });
+    this.sale?.customerHeld(this.saleUnits(auth.units));
     this.holdPk.set(customer, k.public_key);
     this.opened++;
     this.nextBlock();
@@ -665,6 +778,7 @@ export class FixtureChain {
     const used = (e.hold_slots as (string | null)[])
       .map((f, i) => [i, f] as const)
       .filter((x): x is readonly [number, string] => x[1] !== null);
+    this.sale?.customerReleased(this.saleUnits(e.hold_units - e.hold_charged));
     Object.assign(e, {
       free: String(BigInt(e.free) + BigInt(e.hold_units - e.hold_charged)),
       last_hold_seq: e.hold_seq,
