@@ -464,7 +464,7 @@ async function runDirectLive() {
     model: { ai_config_file: join(dir, "ai.json"), api_key_env: "EVERSTREET_REHEARSAL_MODEL_KEY" },
     maintenance: {
       enabled: true,
-      interval_ms: 3_000,
+      interval_ms: 20_000,
       batch: 5,
       pass_budget_ms: 10_000,
       op_deadline_ms: 8_000,

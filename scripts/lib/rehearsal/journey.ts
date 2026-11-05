@@ -133,13 +133,15 @@ export interface DirectOptions {
 }
 
 /**
- * A READ-ONLY route (prepare, check) answered "NEAR couldn't be read just now" (503 read_failed):
- * asked again, up to three times. Never used for a write: those stop the run instead.
+ * A route answered "NEAR couldn't be read just now" (503 read_failed, e.g. the public RPC's rate
+ * limit): asked again, up to four times with growing waits. Only for read-only routes (prepare,
+ * check) and for creating an action under the SAME idempotency key (the app returns the same
+ * action, never a second one). Never for a wallet transaction.
  */
 async function readAgain(ask: () => Promise<{ status: number; body: Json }>) {
   let r = await ask();
-  for (let i = 1; i <= 3 && r.status === 503 && r.body?.code === "read_failed"; i++) {
-    await new Promise((x) => setTimeout(x, 3000 * i));
+  for (let i = 1; i <= 4 && r.status === 503 && r.body?.code === "read_failed"; i++) {
+    await new Promise((x) => setTimeout(x, 8000 * i));
     r = await ask();
   }
   return r;
@@ -168,13 +170,15 @@ function steps(env: Env, rec: Recorder, settleMs: number) {
     }
     const p = ok(pr, 200, `prepare ${kind}`);
     const made = ok(
-      await c(`/api/sales/${biz}/actions`, "POST", {
-        kind,
-        input: p.input,
-        action_digest: p.action_digest,
-        idempotency_key: key,
-      }),
-      201,
+      await readAgain(() =>
+        c(`/api/sales/${biz}/actions`, "POST", {
+          kind,
+          input: p.input,
+          action_digest: p.action_digest,
+          idempotency_key: key,
+        }),
+      ),
+      [200, 201],
       `create ${kind}`,
     );
     const id = made.action.id as string;
@@ -456,7 +460,11 @@ export async function runDirectSale(
   await s.act("buyer", noah, "register", {}, "rehearsal-register-0001", {
     satisfiedBy: "registered",
   });
-  for (const k of ["fund", "accept"]) await s.act("buyer", noah, k, {}, `rehearsal-${k}-0001`);
+  // On a resume, a step the contract already shows done is recorded as satisfied, never repeated.
+  await s.act("buyer", noah, "fund", {}, "rehearsal-fund-0001", { satisfiedBy: "funded" });
+  await s.act("buyer", noah, "accept", {}, "rehearsal-accept-0001", {
+    satisfiedBy: "already_accepted",
+  });
   await rec.checkpoint("before_close", await env.views());
   const close = await s.act("founder", ava, "accept", {}, "rehearsal-close-001");
   expect(close?.resolution?.result === "closed", "the sale closed", close?.resolution);
