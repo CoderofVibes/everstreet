@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-05 | [Managed handover review notes](2026-11-05_ManagedHandoverReviewNotes.md) | Service-boundary review, route cross-check, Phase-A decisions (Q1-Q9) and mandatory corrections D1-D7 | Phase B authorized within the bounded child; no external execution |
 | 2026-11-05 | [Direct sale accepted](2026-11-05_DirectSaleAccepted.md) | Narrow local Direct acceptance and managed handover design dispatch | Actual configured recovery, payout, continuity, stale review, role and keyboard verified; wider gates retained |
 | 2026-11-04 | [Direct sale browser review](2026-11-04_DirectSaleBrowserReview.md) | Actual desktop/phone seller form and upcoming exact wallet journey | In progress; correct unstyled form and distinguish draft authority before acceptance |
 | 2026-11-04 | [Gated close planning](2026-11-04_GatedClosePlanning.md) | Grounded next acquisition slice: per-business handover, exact close order, customer continuity and process recovery | Planning only;003wf2 remains sole active job; no dispatch or external authorization |
