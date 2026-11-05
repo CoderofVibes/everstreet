@@ -160,7 +160,7 @@ describe("003wf4 Set up customer access (actual component, synthetic wallet)", {
     for (const i of step(0).querySelectorAll("input"))
       expect(i.closest("label.field")?.querySelector("span")?.textContent).toBeTruthy();
     expect(field("Hold length")?.value).toBe("10");
-    expect(field("Settlement time")?.value).toBe("6");
+    expect(field("Settlement window")?.value).toBe("6");
     // Astra 05:45: price first; limits in their own section; timing explained, its controls under
     // Advanced; storage in readable NEAR with the exact amount under details; exact minimums.
     const plan = step(0);
@@ -176,7 +176,7 @@ describe("003wf4 Set up customer access (actual component, synthetic wallet)", {
     expect([...advanced.querySelectorAll("label.field span")].map((x) => x.textContent)).toEqual([
       "Uses per hold",
       "Hold length (minutes)",
-      "Settlement time (minutes)",
+      "Settlement window (minutes)",
     ]);
     expect(advanced.open).toBe(false);
     expect(plan.textContent).toContain("each use holds one unit for 10 min");
@@ -188,9 +188,7 @@ describe("003wf4 Set up customer access (actual component, synthetic wallet)", {
     expect(step(0).textContent).toContain("Enter a price per use above 0.");
     await typeInto(field("Price per use") as HTMLInputElement, "0.15");
     // The exact example purchase and the full plan summary, from the typed price (a preview).
-    expect(step(0).textContent).toContain(
-      "A customer buying 20 uses pays 3 TUSD (3000000 base units).",
-    );
+    expect(step(0).textContent).toContain("For example, a customer buying 20 uses pays 3 TUSD.");
     expect(step(0).textContent).toContain("0.15 TUSD per use (150000 base units)");
     await click("Review this plan");
     await wait(() => text().includes("Review the plan"), "the review");

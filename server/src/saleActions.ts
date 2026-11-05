@@ -2163,6 +2163,10 @@ export class SaleActions {
                 `UPDATE sale_actions SET tx_hash = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ? AND tx_hash IS NULL AND ${CHECKABLE_SQL}`,
               )
               .run(which, this.stamp(), p.id, p.rev);
+          // Astra 05:52: another check settled it meanwhile: answer with ITS stored outcome, never
+          // a stale "unknown" beside a confirmed row.
+          const now = this.own(viewer, id);
+          if (!CHECKABLE.includes(now.state)) return this.stored(viewer, id, transaction);
           return {
             action: view(this.own(viewer, id)),
             resolution: { kind: "unknown", message: verified.message } as SaleResolution,

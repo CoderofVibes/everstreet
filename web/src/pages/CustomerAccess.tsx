@@ -239,7 +239,7 @@ function PlanForm({
       ? (() => {
           const units = BigInt(plan.max_units_per_purchase as number);
           const base = (BigInt(plan.unit_price as string) * units).toString();
-          return `A customer buying ${units} uses pays ${tokenAmount(base, decimals)} ${symbol} (${base} base units).`;
+          return `For example, a customer buying ${units} uses pays ${tokenAmount(base, decimals)} ${symbol}.`;
         })()
       : null;
   return (
@@ -269,8 +269,8 @@ function PlanForm({
       </fieldset>
       <p style={{ fontSize: 14 }}>
         Timing is set for you: each use holds one unit for {exact(Number(d.holdMinutes) * 60_000)}{" "}
-        so the customer can approve and run it, and a delivered result is settled within{" "}
-        {exact(Number(d.graceMinutes) * 60_000)} after that.
+        so the customer can approve and run it. The settlement window after that is{" "}
+        {exact(Number(d.graceMinutes) * 60_000)}: a delivered result can be charged until then.
       </p>
       <details className="advanced">
         <summary>Advanced: uses per hold and timing</summary>
@@ -283,14 +283,14 @@ function PlanForm({
           )}
           {field(
             "graceMinutes",
-            "Settlement time (minutes)",
-            `At least ${exact(v.timing.min_grace_ms)}, so a result delivered at the last moment is still paid.`,
+            "Settlement window (minutes)",
+            `At least ${exact(v.timing.min_grace_ms)}, so a result delivered at the last moment can still be charged.`,
           )}
         </div>
       </details>
       {plan && decimals !== null && (
-        <div className="plan-summary">
-          <h4 style={{ fontSize: 14 }}>The plan, as it will be on the contract (permanent)</h4>
+        <details className="advanced plan-summary">
+          <summary>The exact plan, as it will be on the contract (permanent)</summary>
           <ul style={{ fontSize: 13.5 }}>
             <li>
               {tokenAmount(String(plan.unit_price), decimals)} {symbol} per use (
@@ -302,11 +302,20 @@ function PlanForm({
             </li>
             <li>{String(plan.max_hold_units)} use per hold</li>
             <li>
-              Holds of {exact(Number(plan.hold_ttl_ms))}; settlement within{" "}
+              Holds of {exact(Number(plan.hold_ttl_ms))}; settlement window{" "}
               {exact(Number(plan.settle_grace_ms))}
             </li>
+            {example && (
+              <li>
+                Example purchase:{" "}
+                {(
+                  BigInt(plan.unit_price as string) * BigInt(plan.max_units_per_purchase as number)
+                ).toString()}{" "}
+                base units for {String(plan.max_units_per_purchase)} uses
+              </li>
+            )}
           </ul>
-        </div>
+        </details>
       )}
       {g.quote && (
         <div className="muted" style={{ fontSize: 13 }}>

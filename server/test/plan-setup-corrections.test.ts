@@ -121,6 +121,7 @@ describe("003wf4 (Astra 05:42) the setup summary and the guided default", () => 
     // the 3 600 000 ms contract maximum both allow 720 000 (rounded up to a whole minute).
     const ok = await wider(300_000, 900_000);
     expect(ok.timing.min_hold_ms).toBe(690_000);
+    expect(ok.timing.guided_hold_ms).toBe(720_000);
     expect(ok.guided).toMatchObject({
       available: true,
       defaults: { hold_ttl_ms: "720000", settle_grace_ms: "360000" },
@@ -172,5 +173,30 @@ describe("003wf4 S-3 no plan is reviewed or stored while the business is changin
     expect(s.w.state.store.db.prepare("SELECT COUNT(*) AS n FROM sale_actions").get()).toEqual({
       n: 0,
     });
+  });
+});
+
+describe("003wf4 (Astra 05:52) a check in flight when another confirms answers with the stored outcome", () => {
+  it("the late check's failed readback reports the confirmed result, never unknown beside it", async () => {
+    const s = await saleWorld();
+    const r = await s.act(s.ava, SELLER, "create_plan", { plan: PLAN }, { lose: true });
+    const id = r.action?.id as string;
+    const hash = r.outcome?.transaction.hash as string;
+    // The first check reaches its readback and waits there.
+    const gate = s.w.reader.holdNextRead();
+    const first = check(s, id, { tx_hash: hash });
+    await gate.entered;
+    // A second check confirms it meanwhile.
+    const second = await check(s, id, { tx_hash: hash });
+    expect(second.body.action.state).toBe("confirmed");
+    // The first one's readback then fails: its answer is the stored, coherent result.
+    s.w.reader.failNext = 1;
+    gate.open();
+    const late = await first;
+    expect(late.body.action.state).toBe("confirmed");
+    expect(late.body.resolution).toMatchObject({ kind: "confirmed", result: "created" });
+    expect(late.body.effects).toMatchObject({ plan: { plan_id: 2 } });
+    expect(row(s, id)).toMatchObject({ state: "confirmed", tx_hash: hash });
+    expect(s.sale.planCount).toBe(2);
   });
 });

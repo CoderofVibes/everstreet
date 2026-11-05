@@ -301,7 +301,8 @@ export async function customerAccess(
       min_grace_ms: probe.min_grace_ms,
       min_sign_ms: MIN_SIGN_MS,
       serve_window_ms: timing.serveWindowMs,
-      guided_hold_ms: GUIDED_HOLD_MS,
+      // The hold guided creation recommends here (600 000 ms, or more when the margins need it).
+      guided_hold_ms: Number(guided.defaults?.hold_ttl_ms ?? GUIDED_HOLD_MS),
     },
     guided,
     plans: created,
