@@ -792,3 +792,53 @@ in 9.8.
 
 **Not covered here** (003w-f): configured composition, process concurrency and the 100/20/80
 acquisition. **Live:** the real token, real wallet answers and a rehearsal.
+
+### 10.7 Corrections during the job (Astra's PurchaseDesignReview and its probes)
+
+The first design (10.1–10.6, `0ed7557`) was corrected before acceptance as follows. It is kept above
+for the record; where they differ, this section is the behaviour.
+
+**The contract** (business-v3, not deployed; a contract change ships as a new business account):
+- `Buy.reg_id` (optional) binds a purchase to its registration. A buy for a replaced registration
+  (unregister, then a new shell whose sequence restarts at 0) is returned whole. The client always
+  sends it. A message without it keeps the old behaviour, which the Rust test records.
+- `get_purchase_terms(customer)` states the capability version (1), the exact shell bytes
+  (`SHELL_BASE_BYTES` 811 + len, which the test proves equal the measured growth), the byte cost
+  and that buys bind the registration. **The quote comes from the running contract.** A contract
+  without the view is unavailable for purchase (an upgrade); the fixture constant is never applied
+  to unidentified code.
+
+**Resolution:** only this purchase's own transaction can resolve it, and that transaction must:
+- be FINAL and not failed at the top level;
+- have `transaction_outcome.id` equal to its hash;
+- carry exactly one action, the complete reviewed call (method, deposit, gas, arguments);
+- have a receipt graph of the token's transfer (succeeded), with the business's receiver outcome
+  and the token's resolution as its children.
+
+What follows from the graph:
+- **Confirmed:** the receiver succeeded, used the whole amount (0 unused) and logged
+  `units_bought` for exactly this purchase, and the resolution succeeded using the whole amount.
+- **Returned:** the receiver logged `purchase_returned` with the whole amount unused, and the
+  resolution succeeded using none. A resolution that failed is **not** a confirmed refund.
+- **Unknown:** a return seen when the wallet was asked more than once, since an earlier attempt
+  may have been accepted. A named transaction (say from the wallet's history) is verified the
+  same way.
+
+**Recovery:**
+- **Nothing cancels a requested purchase.** Once the wallet has been asked, it is never set
+  aside or replaced. The ask is recorded durably before each wallet request.
+- **No time window closes it:** the wallet chooses its reference block when it signs, which can
+  be long after it was asked.
+- **The only closure without its transaction** is `not_accepted` when its registration was
+  replaced, because the contract refuses it then.
+- **The recovery path** is the reviewed, identical resend, with its own consent: the same
+  sequence and registration, so at most one is ever accepted. A duplicate is returned whole by the
+  contract, but its gas is spent.
+- **Only a preparation the wallet never saw** can be set aside.
+- **Consent survives the create response:** the stored request must equal the reviewed one
+  before anything is sent.
+
+**Upgrade of an earlier records file** (e6375d2's table): one transaction, every row kept.
+- Open rows' asks were uncounted, so they become 2 (a return seen is never definitive).
+- An `abandoned` row may still execute, so it becomes `legacy_abandoned`: checkable, and blocking
+  a fresh payment like any open purchase.
