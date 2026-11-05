@@ -340,7 +340,16 @@ effect, and what can't be guaranteed ("if the buyer accepts first, this closes t
 from the owner's Sale and handover page, from each participant's handover receipts and from the
 v3 notice on Selling.
 
-## 8. Not in this job
+## 8. Review harness
+
+`npm run web:build`, then `npx tsx scripts/sale-harness.ts [--minutes 30]`: the normal app
+composition over the one synthetic state, verified NEP-413 sign-in with an ephemeral synthetic
+key, the official-shape synthetic wallet module (only the sale's own requests), CSP `connect-src
+'self'`, loopback 8814 with controls on 8815, self-stopping. The controls and a walk-through for
+both parties are in the [003wf2 report](../astra/reports/2026-11-04_003wf2_direct-sale-wallet-journey.md).
+`server/test/sale-harness.test.ts` drives it without a listener.
+
+## 9. Not in this job
 
 Gated close (closer, drain, continuity), live testnet or a real wallet, deployment of the new
 contract code, the parent 003wf matrix (owner plan setup, unresolved-writer recovery, the complete
