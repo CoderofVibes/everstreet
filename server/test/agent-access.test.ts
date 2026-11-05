@@ -19,6 +19,13 @@ async function world(maxUses = 2) {
   w.state.store.db
     .prepare("UPDATE businesses SET published_at = ? WHERE id = ?")
     .run(new Date().toISOString(), w.f.business);
+  // The owner turns agent use of this offer on (off until then).
+  const on = await w.caller(w.f.ava.id)(
+    `/api/businesses/${w.f.business}/customer-offers/${offer}/agent-access`,
+    "PUT",
+    { enabled: true },
+  );
+  expect(on.status, JSON.stringify(on.body)).toBe(200);
   const cara = w.caller(w.cara.id);
   const grant = await cara("/api/customer/agent-grants", "POST", {
     offer_id: offer,
@@ -174,6 +181,56 @@ describe("006b agent access", () => {
       body: "{}",
     });
     expect(res.status).toBe(401);
+  });
+
+  it("the owner's switch: off by default refuses a grant; turned off later refuses new agent preparations before dispatch; only the owner can flip it; history is append-only", async () => {
+    const w = await customerWorld({ customer: { protection: new SyntheticProtection() } });
+    const offer = await w.offer();
+    const cara = w.caller(w.cara.id);
+    const owner = w.caller(w.f.ava.id);
+    const path = `/api/businesses/${w.f.business}/customer-offers/${offer}/agent-access`;
+    const grantBody = {
+      offer_id: offer,
+      key_slot: 0,
+      label: "Fictional agent",
+      max_uses: 3,
+      expires_in_days: 7,
+    };
+    const off = await cara("/api/customer/agent-grants", "POST", grantBody);
+    expect([off.status, off.body.code]).toEqual([403, "agent_access_off"]);
+    // A customer (not the owner) can't turn it on.
+    expect((await cara(path, "PUT", { enabled: true })).status).toBeGreaterThanOrEqual(400);
+    expect((await owner(path, "PUT", { enabled: "yes" })).status).toBe(400);
+    expect((await owner(path, "PUT", { enabled: true })).body).toEqual({
+      offer_id: offer,
+      agents: "on",
+    });
+    const g = await cara("/api/customer/agent-grants", "POST", grantBody);
+    expect(g.status).toBe(201);
+    const listed = await owner(`/api/businesses/${w.f.business}/agent-access`);
+    expect(listed.body.offers).toEqual([
+      expect.objectContaining({ offer_id: offer, agents: "on", active_grants: 1 }),
+    ]);
+    await owner(path, "PUT", { enabled: false });
+    const r = await w.state.app.request("/api/agent/v1/uses", {
+      method: "POST",
+      headers: { authorization: `Bearer ${g.body.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ idempotency_key: "agent-off-0001", input: INVOICE }),
+    });
+    expect(r.status).toBe(403);
+    expect(((await r.json()) as Json).code).toBe("agent_access_off");
+    expect(
+      w.state.store.db.prepare("SELECT COUNT(*) AS n FROM customer_requests").get() as Json,
+    ).toEqual({ n: 0 });
+    // The grant survives (the customer's), and the history records both changes, append-only.
+    expect((await cara("/api/customer/agent-grants")).body.grants[0].state).toBe("active");
+    const h = w.state.store.db
+      .prepare("SELECT enabled FROM agent_offer_switch_history ORDER BY n")
+      .all() as Json[];
+    expect(h.map((x) => x.enabled)).toEqual([1, 0]);
+    expect(() => w.state.store.db.exec("DELETE FROM agent_offer_switch_history")).toThrow(
+      /append-only/,
+    );
   });
 
   it("MCP conformance: version rejection, header mismatch, missing _meta, initialize, notifications, GET/DELETE, unknown method/tool", async () => {

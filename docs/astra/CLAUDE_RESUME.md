@@ -3,6 +3,36 @@
 Sole current execution note for Tony's direct build (handoffs/2026-11-05). Updated in place.
 Builder: Claude Code, claude-opus-5-5, high, subscription. Astra's automatic goal stays paused.
 
+## Agreed plan (Tony, Nov 5 afternoon; build in this order)
+
+1. Hardening: restart/kill matrix around the whole flagship journey; Gated close inside the
+   journey; 006b agent access in the configured child across a sale + owner on/off per offer.
+2. Homepage: Ledgerline featured example (try a sample invoice with the LABELLED stand-in model,
+   follow it into Operate and Acquire); Example businesses section, visually apart from real
+   listings, sample/simulated labels; readiness in a small disclosure; import tile lead "Bring an
+   existing product and see what it needs to launch or transfer."; desktop + phone check.
+3. Product-type framework on trusted Everstreet-owned engines (no generated code), then
+   Relaydesk (SaaS workflow: intake, assignment, resolution; 1 unit per submitted request) end
+   to end, added to the homepage.
+4. Signalwatch (agent service on the AI runtime: changelog -> flags, why, proposed action; charge
+   only delivered analyses) end to end, added to the homepage. Client portal later.
+5. 006a web apps: immutable releases with roll back/retire, separate sandboxed customer origin,
+   pricing = free access or a time-based access pass (charged when access starts). Real releases
+   stay disabled until the worker host passes (stand-in labelled).
+6. Team/co-op ownership, then 006c successor rehearsal.
+7. Demo login: a FICTIONAL founder (not Tony) with Ledgerline, Relaydesk, Signalwatch (one
+   mid-sale); history produced by running the real flows on the simulated chain over 30 days,
+   labelled "Simulated history"; the script can later run on testnet if Tony approves the
+   rehearsal. Credentials in the seed file, never in chat. Rich portfolio dashboard from Tony's
+   mockup (handoffs/2026-11-05/everstreet-portfolio-mockup.png) with more charts; never sum
+   across currencies.
+8. Readable token amounts everywhere; full screen passes (1440/1280/phone, keyboard, zoom,
+   reduced motion); then Astra's review; then Tony's walkthrough.
+
+Models: Opus 5.5 builds. Fable 5.1 does ONE design session for the homepage example businesses
+and the dashboard (docs/design/SHOWCASE_DESIGN_PROPOSAL.md); it goes to Astra to shape (Astra owns
+visual direction), then Opus builds.
+
 ## Now
 
 - Phases done this session: A (flagship journey, writer history, rehearsal packet), B (Checks

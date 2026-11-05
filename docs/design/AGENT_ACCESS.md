@@ -21,6 +21,18 @@ identity.
 - **Through a sale:** the grant belongs to the customer's entitlement and survives it, like the
   customer's own access; it carries no administrative authority to lose.
 
+## The owner's switch (hardening, Nov 5)
+
+Agent use is **off for every offer until its owner turns it on**
+(`PUT /api/businesses/:id/customer-offers/:offer/agent-access {enabled}`, listed at
+`GET /api/businesses/:id/agent-access`; shown under "Agent use" on the owner's offers panel).
+- Off: customers can't create a grant for the offer, and every new agent preparation is refused
+  (`agent_access_off`) before anything is prepared. A use already reserved still finishes (its
+  unit is held for it). Customers' grants are kept and work again if it's turned back on.
+- The switch belongs to the offer, so it carries through a sale; only the current owner can flip
+  it (owner-fenced, refused during a managed handover; classified `gated_owner`).
+- Every change is kept in an append-only history (`agent_offer_switch_history`).
+
 ## Plain API (`/api/agent/v1`)
 
 | Route | Notes |
@@ -69,10 +81,14 @@ the real routes of the customer world (fixture chain, synthetic protection, scri
 - conformance: version rejection, header mismatches, missing `_meta`, `initialize`,
   notifications, GET/DELETE, unknown method or tool, a parse error.
 
+- The owner's switch: off by default, a non-owner refused, refusal before dispatch, history
+  append-only (`agent-access.test.ts`).
+- In the actual configured child across a Direct sale (`flagship-agent-sale.test.ts`): the agent
+  with its own key installed by a purchase uses MCP over real HTTP, the grant survives the
+  sale, the buyer serves its next use, the seller can't flip the switch, the buyer turns it off
+  and only the agent is refused.
+
 **Not done:**
-- The same journey inside the configured child process across a sale.
-- A founder enablement switch per offer (currently any active offer of a published business can
-  be granted by its customers).
 - SSE responses (JSON only, which the transport permits).
 - The agent-key installation step in the agent access page (it uses the existing purchase
   install).

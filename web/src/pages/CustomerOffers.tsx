@@ -15,6 +15,7 @@ import {
 } from "../offerSetup.ts";
 import { Link } from "../router.tsx";
 import { offersSignature } from "../studioRecords.ts";
+import { AgentUseSwitches } from "./AgentUseSwitch.tsx";
 
 const EVIDENCE: Record<Evidence, { label: string; tone: string }> = {
   observed: { label: "Observed", tone: "mint" },
@@ -433,6 +434,10 @@ export function CustomerOffers({
             Retiring stops new uses. Customers keep their requests, results and units, and the offer
             stays with the business if it's sold.
           </p>
+          <AgentUseSwitches
+            businessId={businessId}
+            names={Object.fromEntries(mine.map((o) => [o.id, o.product.name]))}
+          />
         </>
       )}
       <div role="status" aria-live="polite">

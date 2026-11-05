@@ -171,12 +171,17 @@ export class FixtureChain {
    * which the product correctly refuses as `clock_uncertain`.
    */
   followWallClock = false;
+  /**
+   * Hardening matrix: a labelled test clock for the double, matching a child started with
+   * LIFECYCLE_CLOCK_OFFSET_MS (both "computers" agree the time moved on). 0 unless a test sets it.
+   */
+  wallClockOffsetMs = 0;
 
   /** A change lands in a new block one second later (block time rises: assumption A1). */
   private nextBlock() {
     this.height += 1;
     if (this.followWallClock) {
-      const wall = BigInt(Date.now());
+      const wall = BigInt(Date.now() + this.wallClockOffsetMs);
       this.ts = wall > this.ts ? wall : this.ts + 1n;
     } else this.ts += 1_000n;
   }

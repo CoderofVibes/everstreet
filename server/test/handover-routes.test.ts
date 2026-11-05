@@ -33,6 +33,7 @@ const CLASS: Record<string, Class> = {
   "POST /api/businesses/:id/customer-offer-inspections": "gated_owner",
   "POST /api/businesses/:id/customer-offers": "gated_owner",
   "POST /api/businesses/:id/customer-offers/:offer/retire": "gated_owner",
+  "PUT /api/businesses/:id/customer-offers/:offer/agent-access": "gated_owner",
   "POST /api/businesses/:id/public-profile/publish": "gated_owner",
   "PUT /api/businesses/:id/public-profile/draft": "gated_owner",
   "POST /api/businesses/:id/publish": "gated_owner",
@@ -273,6 +274,12 @@ function gatedCalls(ids: {
       "POST",
       `${b}/customer-offers/${ids.offer}/retire`,
       {},
+    ],
+    [
+      "PUT /api/businesses/:id/customer-offers/:offer/agent-access",
+      "PUT",
+      `${b}/customer-offers/${ids.offer}/agent-access`,
+      { enabled: true },
     ],
     [
       "POST /api/businesses/:id/public-profile/publish",

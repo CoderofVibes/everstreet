@@ -1024,6 +1024,12 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/customer/agent-grants/:id/revoke", (c) =>
     c.json(agentAccess.revoke(me(c), c.req.param("id"))),
   );
+  app.get("/api/businesses/:id/agent-access", (c) =>
+    c.json(agentAccess.ownerSwitches(me(c), c.req.param("id"))),
+  );
+  app.put("/api/businesses/:id/customer-offers/:offer/agent-access", async (c) =>
+    c.json(agentAccess.setSwitch(me(c), c.req.param("id"), c.req.param("offer"), await body(c))),
+  );
   app.get("/api/agent/v1/offers/:offer", (c) => c.json(agentAccess.describe(c.req.param("offer"))));
   const agent = (c: { req: { header: (n: string) => string | undefined } }) =>
     agentAccess.authorize(c.req.header("authorization"));

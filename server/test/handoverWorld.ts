@@ -36,6 +36,8 @@ export interface HandoverWorldOptions {
   terms?: boolean;
   /** Overrides for the `handover` config section. */
   handover?: Json;
+  /** Plans already on the contract (default 1; the flagship's bare business starts with 0). */
+  plans?: number;
 }
 
 /**
@@ -48,7 +50,7 @@ export function prepareHandover(
   dir: string,
   o: HandoverWorldOptions = {},
 ) {
-  const sale = b.w.chain.attachSale({ owner: FOUNDER, closer: CLOSER });
+  const sale = b.w.chain.attachSale({ owner: FOUNDER, closer: CLOSER, plans: o.plans });
   sale.handoverTerms = o.terms ?? true;
   b.w.chain.balances.set(BUYER, 1_000_000_000n);
   const db = openDb(b.db);

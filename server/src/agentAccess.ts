@@ -35,6 +35,18 @@ CREATE TABLE IF NOT EXISTS agent_grant_uses (
   grant_id TEXT NOT NULL REFERENCES agent_grants(id), use_id TEXT NOT NULL UNIQUE,
   idempotency_key TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (grant_id, idempotency_key)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS agent_offer_switch (
+  offer_id TEXT PRIMARY KEY REFERENCES customer_offers(id),
+  enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)), changed_by TEXT NOT NULL, changed_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS agent_offer_switch_history (
+  n INTEGER PRIMARY KEY AUTOINCREMENT, offer_id TEXT NOT NULL REFERENCES customer_offers(id),
+  enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)), changed_by TEXT NOT NULL, changed_at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS agent_offer_switch_history_no_update
+  BEFORE UPDATE ON agent_offer_switch_history BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS agent_offer_switch_history_no_delete
+  BEFORE DELETE ON agent_offer_switch_history BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 `;
 
 interface GrantRow {
@@ -59,6 +71,92 @@ export class AgentAccess {
     db.exec(AGENT_SCHEMA);
   }
 
+  // ---------- the owner's switch (hardening, Nov 5): off until the business turns it on ----------
+
+  /** Whether the business lets agents use this offer. Off unless its owner turned it on. */
+  agentsAllowed(offerId: string) {
+    const r = this.db
+      .prepare("SELECT enabled FROM agent_offer_switch WHERE offer_id = ?")
+      .get(offerId) as { enabled: number } | undefined;
+    return r?.enabled === 1;
+  }
+
+  /** The owner's per-offer switches (the business's offers only). */
+  ownerSwitches(viewer: Person, businessId: string) {
+    this.store.ownedBusiness(viewer, businessId);
+    const rows = this.db
+      .prepare(
+        `SELECT o.id, o.state, COALESCE(s.enabled, 0) AS enabled, s.changed_at,
+                (SELECT COUNT(*) FROM agent_grants g WHERE g.offer_id = o.id AND g.revoked_at IS NULL) AS grants
+           FROM customer_offers o LEFT JOIN agent_offer_switch s ON s.offer_id = o.id
+          WHERE o.business_id = ? ORDER BY o.created_at, o.id LIMIT 200`,
+      )
+      .all(businessId) as {
+      id: string;
+      state: string;
+      enabled: number;
+      changed_at: string | null;
+      grants: number;
+    }[];
+    return {
+      offers: rows.map((r) => ({
+        offer_id: r.id,
+        offer_state: r.state,
+        agents: r.enabled === 1 ? "on" : "off",
+        changed_at: r.changed_at,
+        active_grants: r.grants,
+      })),
+    };
+  }
+
+  /**
+   * The owner turns agent use of one offer on or off. Off refuses new agent grants and every new
+   * agent preparation before anything is prepared; a use already reserved still finishes (its
+   * unit is held for it). Fenced like the owner's other writes; refused during a handover.
+   */
+  setSwitch(viewer: Person, businessId: string, offerId: string, input: Record<string, unknown>) {
+    if (typeof input.enabled !== "boolean")
+      throw new HttpError(400, "Say whether agents may use this offer (enabled: true or false)");
+    const enabled = input.enabled ? 1 : 0;
+    const epoch = this.store.controlEpoch(viewer, businessId);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.store.stillControls(viewer, epoch);
+      this.store.requireNoHandover(businessId);
+      const o = this.db
+        .prepare("SELECT business_id FROM customer_offers WHERE id = ?")
+        .get(offerId) as { business_id: string } | undefined;
+      if (o?.business_id !== businessId) throw new HttpError(404, "No such offer");
+      const now = new Date().toISOString();
+      if (this.agentsAllowed(offerId) !== (enabled === 1)) {
+        this.db
+          .prepare(
+            "INSERT INTO agent_offer_switch (offer_id, enabled, changed_by, changed_at) VALUES (?, ?, ?, ?) ON CONFLICT (offer_id) DO UPDATE SET enabled = excluded.enabled, changed_by = excluded.changed_by, changed_at = excluded.changed_at",
+          )
+          .run(offerId, enabled, viewer.id, now);
+        this.db
+          .prepare(
+            "INSERT INTO agent_offer_switch_history (offer_id, enabled, changed_by, changed_at) VALUES (?, ?, ?, ?)",
+          )
+          .run(offerId, enabled, viewer.id, now);
+      }
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+    return { offer_id: offerId, agents: enabled ? "on" : "off" };
+  }
+
+  private requireAgentsAllowed(offerId: string) {
+    if (!this.agentsAllowed(offerId))
+      throw new HttpError(
+        403,
+        "The business hasn't turned on agent use for this offer",
+        "agent_access_off",
+      );
+  }
+
   // ---------- the customer's grants ----------
 
   createGrant(viewer: Person, input: Record<string, unknown>) {
@@ -67,6 +165,7 @@ export class AgentAccess {
       .prepare("SELECT id, state FROM customer_offers WHERE id = ?")
       .get(offerId) as { id: string; state: string } | undefined;
     if (offer?.state !== "active") throw new HttpError(404, "No such active offer");
+    this.requireAgentsAllowed(offerId);
     const slot = Number(input.key_slot);
     if (!Number.isInteger(slot) || slot < 0 || slot > 3)
       throw new HttpError(400, "Choose the key slot installed for the agent (0 to 3)");
@@ -189,6 +288,7 @@ export class AgentAccess {
     const o = this.uses().publicOffer(offerId) as Record<string, unknown>;
     return {
       offer: o,
+      agent_use: this.agentsAllowed(offerId) ? "on" : "off",
       purpose:
         "Extract the fields this product declares from one pasted document, as structured data.",
       input: {
@@ -214,6 +314,7 @@ export class AgentAccess {
     const prior = this.db
       .prepare("SELECT use_id FROM agent_grant_uses WHERE grant_id = ? AND idempotency_key = ?")
       .get(auth.grant.id, key) as { use_id: string } | undefined;
+    if (!prior) this.requireAgentsAllowed(auth.grant.offer_id);
     if (!prior && this.used(auth.grant.id) >= auth.grant.max_uses)
       throw new HttpError(403, "This agent access has used all its allowed uses", "agent_used_up");
     // The same customer path, scoped to the grant's offer and key slot; the key is namespaced
