@@ -459,12 +459,53 @@ const isProviderCall = (r: { channel: string; url?: string; body: string }) =>
 const isBuild = (r: { channel: string; url?: string; body: string }) =>
   isProviderCall(r) && r.body.includes('"examples"');
 
-describe("003wf3 P-2: a provider call running in one process while the other coordinates", () => {
-  it("A's customer use is at the provider; B coordinates and waits; when it answers, the same use is delivered and charged before the close", async () => {
+describe("003wf3 P-5: stopped with its close send in flight", () => {
+  it("A stops (exit 0) while its close transaction is still on its way; it lands afterwards, to nobody; B resolves the original by its own hash: one order, one close, one application", async () => {
     const i = await installation();
     const ctlA: Control = {};
     const a = child(i.fileA, i.rpc, i.model, ctlA);
     await a.ready();
+    const { seller } = await upToTheSellersAcceptance(i, i.portA);
+    ctlA.cut = (r) =>
+      r.channel === "rpc" && sendMethodOf(r.body) === "close_sale" ? "defer" : "answer";
+    const x = await act(i, seller, FOUNDER, "accept");
+    await seller(`/api/sales/actions/${x.id}/requested`, "POST", { tx_hash: x.hash });
+    await until(() => (ctlA.deferred?.length ?? 0) > 0, "A's close send in flight", 60_000);
+    expect(await a.shutdown()).toBe(0);
+    await expect(fetch(`http://127.0.0.1:${i.portA}/api/me`)).rejects.toThrow();
+    expect(i.rpc.applied.filter((y) => y.method === "close_sale")).toHaveLength(0);
+    for (const go of ctlA.deferred ?? []) go(); // the transaction reaches the chain now
+    await until(
+      () => i.rpc.applied.filter((y) => y.method === "close_sale").length === 1,
+      "the late landing",
+    );
+    const b = child(i.fileB, i.rpc, i.model);
+    await b.ready();
+    await until(
+      () => i.read("SELECT state FROM business_handovers")[0]?.state === "released_to_buyer",
+      "B completing the handover",
+      60_000,
+    );
+    expect(i.read("SELECT n FROM close_orders")).toEqual([{ n: 1 }]);
+    expect(i.read("SELECT state FROM closer_tx_attempts")).toEqual([{ state: "success" }]);
+    expect(i.rpc.applied.filter((y) => y.method === "close_sale")).toHaveLength(1);
+    expect(i.read("SELECT 1 FROM ownership WHERE business_id = ?", i.biz)).toHaveLength(1);
+    expect(await b.shutdown()).toBe(0);
+  }, 180_000);
+});
+
+describe("003wf3 P-2: a provider call running in one process while the other coordinates", () => {
+  it("A (configured without the handover, so it can't coordinate) serves the customer use at the provider; B is the coordinator holding the lease; when the call answers, the same use is delivered and charged before B's close", async () => {
+    const i = await installation();
+    const serveOnly = JSON.parse(readFileSync(i.fileA, "utf8")) as Json;
+    delete serveOnly.handover;
+    const fileServe = join(i.dir, "config-a-serve.json");
+    writeFileSync(fileServe, JSON.stringify(serveOnly));
+    const ctlA: Control = {};
+    const a = child(fileServe, i.rpc, i.model, ctlA);
+    await a.ready();
+    const holderA = i.read("SELECT holder FROM process_presence").map((r) => String(r.holder));
+    expect(holderA).toHaveLength(1);
     const { seller, cara, use } = await upToTheSellersAcceptance(i, i.portA);
     ctlA.cut = (r) => (isProviderCall(r) && !r.body.includes('"examples"') ? "defer" : "answer");
     const running = cara(`/api/customer/uses/${use}/execute`, "POST", {});
@@ -472,9 +513,25 @@ describe("003wf3 P-2: a provider call running in one process while the other coo
     ctlA.cut = undefined;
     const b = child(i.fileB, i.rpc, i.model);
     await b.ready();
-    const x = await act(i, seller, FOUNDER, "accept");
-    await seller(`/api/sales/actions/${x.id}/requested`, "POST", { tx_hash: x.hash });
+    const holderB = i
+      .read("SELECT holder FROM process_presence")
+      .map((r) => String(r.holder))
+      .filter((h) => !holderA.includes(h));
+    expect(holderB).toHaveLength(1);
+    // A process without the handover refuses an acceptance that would start a Gated closing
+    // (Q2: handover_unavailable, not_configured); the seller accepts through B.
+    void seller;
+    const sellerB = browser(i.portB);
+    await signInAs(sellerB, FOUNDER, i.ava);
+    const x = await act(i, sellerB, FOUNDER, "accept");
+    await sellerB(`/api/sales/actions/${x.id}/requested`, "POST", { tx_hash: x.hash });
+    await sellerB(`/api/sales/actions/${x.id}/check`, "POST", {});
     await until(() => i.read("SELECT 1 FROM business_handovers").length > 0, "gated");
+    // B, the only coordinator, holds the business's lease while A serves.
+    await until(() => i.read("SELECT 1 FROM handover_lease").length > 0, "B's lease");
+    expect(i.read("SELECT holder FROM handover_lease").map((r) => String(r.holder))).toEqual(
+      holderB,
+    );
     // While A's call is out: readiness waits; no order is made by either process.
     await new Promise((r) => setTimeout(r, 4_000));
     expect(i.read("SELECT 1 FROM close_orders")).toHaveLength(0);
@@ -491,6 +548,11 @@ describe("003wf3 P-2: a provider call running in one process while the other coo
     expect(methods.filter((m) => m === "release_hold_for")).toHaveLength(0);
     expect(methods.indexOf("settle_hold")).toBeLessThan(methods.indexOf("close_sale"));
     expect(methods.filter((m) => m === "close_sale")).toHaveLength(1);
+    // The close was ordered and sent by B: the lease, the order and the attempt are B's.
+    expect(i.read("SELECT holder FROM handover_lease").map((r) => String(r.holder))).toEqual(
+      holderB,
+    );
+    expect(i.read("SELECT state FROM closer_tx_attempts")).toEqual([{ state: "success" }]);
     const caraB = browser(i.portB);
     await signInAs(caraB, CUSTOMER, i.cara);
     expect((await caraB(`/api/customer/uses/${use}/result`)).status).toBe(200);
@@ -509,6 +571,17 @@ describe("003wf3 P-3: a late provider answer after its process stopped", () => {
     ctlA.cut = (r) => (isProviderCall(r) ? "defer" : "answer");
     const running = cara(`/api/customer/uses/${use}/execute`, "POST", {}).catch(() => null);
     await until(() => (ctlA.deferred?.length ?? 0) > 0, "A's provider call held");
+    // The run's worst case is reserved on the business's running budget before it is sent.
+    const ledger = () =>
+      i.read(
+        "SELECT u.kind, u.cents, u.microcents FROM runtime_usage u JOIN runtime_invocations x ON x.id = u.invocation_id WHERE x.purpose = 'customer_use' ORDER BY u.rowid",
+      );
+    const reserved = Number(
+      i.read("SELECT reserved_cents FROM runtime_invocations WHERE purpose = 'customer_use'")[0]
+        ?.reserved_cents,
+    );
+    expect(reserved).toBeGreaterThan(0);
+    expect(ledger()).toEqual([expect.objectContaining({ kind: "reservation", cents: reserved })]);
     expect(await a.shutdown()).toBe(0);
     await running;
     const before = i.read(
@@ -568,6 +641,21 @@ describe("003wf3 P-3: a late provider answer after its process stopped", () => {
     expect(after.state).toBe("unknown");
     expect(after.usage_state).not.toBe("final");
     expect(i.model.calls.messages).toBe(calls);
+    // Across the stop, the restart, the unit's return and the close: the reservation is still
+    // the run's whole positive worst case, nothing was counted as an actual (zero) charge, and
+    // the business's budget keeps it as unresolved, not spent and not released.
+    const kept = i.read(
+      "SELECT reserved_cents, charged_cents, charged_microcents FROM runtime_invocations WHERE purpose = 'customer_use'",
+    )[0] as Json;
+    expect(kept).toMatchObject({
+      reserved_cents: reserved,
+      charged_cents: 0,
+      charged_microcents: 0,
+    });
+    const kinds = ledger().map((l) => l.kind);
+    expect(kinds).toContain("reservation");
+    expect(kinds).not.toContain("actual");
+    expect(kinds).not.toContain("release");
     expect(await b.shutdown()).toBe(0);
   }, 180_000);
 });
