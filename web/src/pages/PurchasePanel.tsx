@@ -86,15 +86,20 @@ export function PurchaseRequest({
 export function PurchasePanel({
   offerId,
   onChanged,
+  onToken,
 }: {
   offerId: string;
   /** Called when the contract shows something new (a registration or confirmed units). */
   onChanged: () => void;
+  /** The token's validated symbol and decimals, once read (for the page's own price line). */
+  onToken?: (t: { symbol: string; decimals: number } | null) => void;
 }) {
   const { account, walletBoundary, wallet } = useSession();
   const [flow, setFlow] = useState<PurchaseFlow | null>(null);
   const changed = useRef(onChanged);
   changed.current = onChanged;
+  const tokenOut = useRef(onToken);
+  tokenOut.current = onToken;
   // biome-ignore lint/correctness/useExhaustiveDependencies: one controller per offer and account
   useEffect(() => {
     if (!account) return;
@@ -111,6 +116,13 @@ export function PurchasePanel({
     () => (flow ? flow.getState() : EMPTY),
     () => EMPTY,
   );
+  const symbol = s.setup?.token.symbol;
+  const decimals = s.setup?.token.decimals;
+  useEffect(() => {
+    tokenOut.current?.(
+      symbol !== undefined && decimals !== undefined ? { symbol, decimals } : null,
+    );
+  }, [symbol, decimals]);
   const lastConfirmed = useRef<string | null>(null);
   const shellNeeded = s.setup?.shell.needed;
   const prevShell = useRef(shellNeeded);

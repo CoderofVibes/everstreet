@@ -155,7 +155,10 @@ describe("003w-e the wallet review harness", () => {
     const { h, call } = await harness();
     h.controls.delayNextMs = 120;
     const t0 = Date.now();
-    await call("/__harness/tx", "POST", { receiverId: "studio.biz.near", actions: [] });
+    // An empty request is refused, but only after the delay: the delay is what this measures.
+    await call("/__harness/tx", "POST", { receiverId: "studio.biz.near", actions: [] }).catch(
+      () => {},
+    );
     expect(Date.now() - t0).toBeGreaterThanOrEqual(100);
     expect(h.controls.delayNextMs).toBe(0);
     expect(HARNESS_CSP).toContain("connect-src 'self'");

@@ -22,6 +22,7 @@ import {
   FRESH,
   type Json,
   SyntheticProtection,
+  TOKEN,
 } from "../../server/test/customer-world.ts";
 import { labelScript } from "./customerPreview.ts";
 
@@ -235,9 +236,10 @@ export async function walletHarness(opts: { origin: string; customer?: "seeded" 
       return c.json({ error: "User closed the window" }, 400);
     }
     const p = (await c.req.json()) as Json;
-    if (p.receiverId !== BUSINESS)
+    // Only the fictional business contract and its token are callable (each branch checks).
+    if (p.receiverId !== BUSINESS && p.receiverId !== TOKEN)
       return c.json(
-        { error: "The synthetic wallet only calls the fictional business contract." },
+        { error: "The synthetic wallet only calls the fictional business and its token." },
         400,
       );
     const signer = String(controls.account);

@@ -18,6 +18,7 @@ import {
   nextStep,
   type WorkspaceState,
 } from "../customerWorkspace.ts";
+import { tokenAmount } from "../purchase.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { DeviceKeyPanel } from "./DeviceKeyPanel.tsx";
@@ -411,6 +412,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   // fine too), and a real identity change retires the old one (the page is also keyed by person).
   const personId = person?.id ?? null;
   const [readKey, setReadKey] = useState(0);
+  const [token, setToken] = useState<{ symbol: string; decimals: number } | null>(null);
   const [w, setW] = useState<CustomerWorkspace | null>(null);
   useEffect(() => {
     if (!personId) return;
@@ -524,8 +526,24 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
             <div>
               <dt>Each use</dt>
               <dd>
-                One unit: <span className="mono">{offer.terms.unit_price}</span> base units of{" "}
-                <span className="mono">{offer.terms.asset}</span>
+                {/* Job 003web: in token terms once the token's VALIDATED metadata is read (the
+                    purchase panel); until then the exact base units, never a guessed scale. */}
+                {token ? (
+                  <>
+                    One unit:{" "}
+                    <strong>
+                      {tokenAmount(offer.terms.unit_price, token.decimals)} {token.symbol}
+                    </strong>{" "}
+                    <span className="muted mono">
+                      ({offer.terms.unit_price} base units of {offer.terms.asset})
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    One unit: <span className="mono">{offer.terms.unit_price}</span> base units of{" "}
+                    <span className="mono">{offer.terms.asset}</span>
+                  </>
+                )}
               </dd>
             </div>
             <div>
@@ -575,7 +593,11 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
           {identity === "verified" && offer && (
             <>
               {/* Job 003web: a fresh customer buys uses first; the device panel then re-reads. */}
-              <PurchasePanel offerId={offer.offer_id} onChanged={() => setReadKey((k) => k + 1)} />
+              <PurchasePanel
+                offerId={offer.offer_id}
+                onChanged={() => setReadKey((k) => k + 1)}
+                onToken={setToken}
+              />
               <DeviceKeyPanel
                 key={`device-${readKey}`}
                 offerId={offer.offer_id}
