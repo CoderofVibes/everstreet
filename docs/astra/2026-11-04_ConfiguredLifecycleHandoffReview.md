@@ -135,3 +135,8 @@ the documented single deadline; either keep the original bound or explicitly doc
 small cleanup allowance. This is source review, not a reproduced late-write defect. Avoid
 claiming zero total owned work solely from the runtime count. New full check is pending final
 correction; do not repeat unchanged suites solely for documentation.
+
+At21:34 Astra independently reran both evaluation regressions against the new admission guard:
+2/2pass. The running/runner check is now inside the same Store transaction as reservation and
+invocation insertion. Original8/8 focused lifecycle evidence remains valid for the unchanged
+body/build paths. Final full-check/process evidence and owned-stop follow-up remain pending.
