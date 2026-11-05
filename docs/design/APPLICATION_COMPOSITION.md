@@ -860,3 +860,28 @@ What follows from the graph:
   a fresh payment like any open purchase.
 - The table with asks but without `registration_replaced` (9138fe1–6aa4979) is rebuilt the same
   way to admit the new state; every row, state, count and evidence is kept as it is.
+
+**The browser, after Astra's PurchaseBrowserReview and PurchaseRefreshReview:**
+- **Dependent views follow fresh readings.** When a fresh reading of this flow (this offer and
+  account) shows the registration or its units changed, the device panel re-reads the contract
+  itself; it never takes the other panel's reading. That includes an unknown purchase whose
+  units the contract now shows: the units are the current entitlement, not proof of which
+  payment produced them. A flow's first reading only sets the baseline, so nothing loops. The
+  device panel no longer remounts (a review in progress stays), and only its newest reading
+  applies.
+- **Only the newest setup reading applies.** An older one answering late never replaces it; the
+  quantity is the customer's and never comes from a reading; a review whose reading was
+  superseded by a newer read or an edit reads once more; a retired flow reads nothing.
+- **Recovery by the original transaction's ID.** When the wallet's answer carried no hash, the
+  customer can enter the ID from the wallet's activity. The wallet is never asked. The server's
+  check refuses a malformed ID (400 `bad_tx_hash`), runs the same strict resolver, records a
+  named ID only once it is shown to be this purchase's (before, an unverified named ID was
+  stored first), and answers `transaction: { hash, matched }`. An unrelated or another
+  account's transaction changes nothing.
+- **Copy:** token amounts lead; base units, bytes, the terms version and the exact request are in
+  one "Exact details" disclosure. A returned payment is announced only from the token's own
+  resolution; the open purchase says a new one isn't offered while it might still go through.
+- **Composition:** getting ready (buy uses, enroll this device) is a full-width section before
+  the workspace, with the two panels side by side when there is room and no card inside a card.
+  The document draft stays editable meanwhile. Once this device is ready the section folds to
+  its heading (Show reopens it), unless it was needed earlier in the same view.

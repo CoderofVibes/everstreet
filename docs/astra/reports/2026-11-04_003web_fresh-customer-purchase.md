@@ -27,7 +27,11 @@ children.
 | `4786023` | Astra's handoff review, browser review and INDEX |
 | `627946d` | **Contract test:** accepted, validly emptied and removed, then the same request returned |
 | `d858a3c` | Affirmative transaction success; a replaced registration never closes a purchase as not accepted |
-| Final | Design §10.7, this report and JOBS |
+| `841ef1c` | Design §10.7, this report and JOBS (handoff corrections) |
+| `1762843` | JOBS: the browser-review continuation taken |
+| `0d10687` | Astra's purchase refresh review and its probe |
+| `fa321c0` | Browser-review corrections: units refresh, original-transaction recovery, plainer copy, setup first; stale setup readings fenced |
+| Final | Design §10.7, this report, JOBS and INDEX |
 
 ## The brief, item by item
 
@@ -158,6 +162,51 @@ Also covered:
 - **The UI leads with token amounts.** The product header shows "One unit: 0.05 TUSD (50000 base
   units of tusd.near)" once the validated metadata is read. No fiat appears anywhere.
 
+## The browser-review continuation (Astra's PurchaseBrowserReview and PurchaseRefreshReview)
+
+**1. The device panel follows the contract's units.** Reproduced first on the actual page: after
+a lost reply that landed, the purchase panel showed 100 uses, but the device panel still said
+there were none to enroll for. The purchase panel only notified the page on a confirmed purchase
+or a new registration. Now any fresh reading that shows the registration or units changed
+notifies it, and the device panel re-reads the contract itself, without a remount and with only
+its newest reading applied. The open purchase still says its outcome is unknown, and that the
+uses shown don't say whether it is among them.
+
+**2. Recovery by the original transaction ID.** The open purchase, and each earlier unresolved
+one, takes a transaction ID from the wallet's activity. The wallet is never asked. The server
+refuses a malformed ID, verifies with the same strict resolver, and records the ID only when it
+matches (it used to store a named ID before verifying it). It answers whether it matched. Tested
+on the actual page after a lost reply and a reload: a malformed ID, the customer's own
+registration transaction and another account's transaction each change nothing and record
+nothing, then the original confirms it, with no wallet request at any point. Controller tests
+cover one check at a time, and a late answer after the flow is retired (an account switch)
+applying nothing. A route test covers the server's side.
+
+**3. Copy.** Prices lead with token amounts (the header now reads "One unit: 0.05 TUSD").
+Base units, bytes, the terms version and the request are in one "Exact details" disclosure. The
+registration review says the deposit comes back if the record is later removed once it holds no
+uses (`unregister` refunds the storage payer). The purchase review no longer promises a refund
+from the contract's refusal alone. A returned payment is announced as shown by the token's own
+records. The open purchase says a new one isn't offered while it might still go through, instead
+of "so you can't pay twice". The stated quote basis is plain words.
+
+**4. Placement.** "Before your first use" is a full-width section between the steps and the
+workspace, holding the purchase and device panels side by side when there is room (one column
+on a phone) and no card inside a card. The document draft stays editable. Once this device is
+ready, it folds to "Your uses and this device" with a Show button, unless it was needed earlier
+in the same view. The panels stay mounted when folded.
+
+**Refresh review (Astra's new probe, both cases failing at first):** only the newest setup
+reading applies, the quantity is never taken from a reading, a review whose reading was
+superseded reads once more, and a retired flow reads nothing. Positive cases cover an edit made
+during a review's read being the quantity reviewed.
+
+**Not covered here:** device enrollment through the page was not exercised by any new test (the
+pending approval for that browser action is respected). The fold once a device is ready is
+therefore not covered by an automated test; it is for Astra's browser repeat. Layout at
+1440/1280/390 and keyboard order were not measured in a browser here (jsdom has no layout); the
+page test checks only that getting ready precedes the document in document order.
+
 ## Astra's probes, all passing now
 
 | Probe | Coverage |
@@ -166,18 +215,21 @@ Also covered:
 | `astra-purchase-recovery-review` | 4 cases: set-aside then late inclusion; no replacement; no expiry before the wallet signs; recovery after a later missing registration |
 | `astra-purchase-consent-review` | 4 cases: the create answer changing recipient, deposit or customer sends nothing |
 | `astra-purchase-migration-review` | 2 cases: an old unknown row recovers; an old abandoned row blocks a fresh payment |
+| `astra-purchase-refresh-review` | 2 cases: a delayed setup answer can't replace a newer entitlement or an edited quantity |
 
 ## Checks
 
 - **Contract** (WSL Ubuntu, `CARGO_TARGET_DIR=~/everstreet-target`, local tests only): 74
   passed (the fixture test now records the history case), and the wasm build exits 0. Nothing
   was deployed.
-- **`npm run check`:** one run with nothing concurrent, on the final code (`d858a3c`'s tree).
-  Exit 0, lint (402 files) and types clean. **1396 passed and 1 skipped (1397)**, across 153
-  passed and 1 skipped files. The two failures in Astra's independent run (1388 passed, 2
-  failed) were reproduced first, then corrected; both probes pass.
-- **`npm run web:build`:** exit 0. The main chunk is 936.83 kB, CSS 73.02 kB. The direct-eval
+- **`npm run check`:** one run with nothing concurrent, on the final code (`fa321c0`'s tree).
+  Exit 0, lint (403 files) and types clean. **1405 passed and 1 skipped (1406)**, across 154
+  passed and 1 skipped files. An earlier run during the work had 2 failures, both in Astra's
+  new refresh probe; they were fixed, not skipped. (The handoff corrections before this had
+  1396 passed and 1 skipped at `d858a3c`.)
+- **`npm run web:build`:** exit 0. The main chunk is 940.95 kB, CSS 73.40 kB. The direct-eval
   warning is from a dependency and isn't new.
+- **Contract:** unchanged in this continuation (74 passed at `627946d`).
 - **Bounded harness smoke:** the ports were free, and the fresh account `dana.near` was served.
   The published offer answered and the page carried the CSP `connect-src 'self'`. It stopped
   itself after one minute, and the ports were free afterwards.
@@ -192,10 +244,8 @@ The worker stays disabled.
 
 ## Remaining gates (stated)
 
-- **Astra's browser review** (`2026-11-04_PurchaseBrowserReview.md`) lists four corrections as a
-  separate, later 003web continuation, not started here: refreshing the device panel after a
-  check, entering an original transaction id, simpler setup copy, and the setup's place in the
-  workflow. That run predates these corrections, which aren't browser-verified yet.
+- **Astra's browser repeat** of the four corrections and the refresh fix, at 1440/1280/390 with
+  the keyboard, including the fold once a device is ready. None of it is browser-verified yet.
 
 - **Astra's actual browser pass on the harness:**
   - the fresh customer at 390 and 1440, keyboard and focus;

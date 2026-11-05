@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Purchase refresh review](2026-11-04_PurchaseRefreshReview.md) | Delayed setup answers must not replace newer entitlement or edited quantity | Probe committed 0d10687; fixed in fa321c0 (newest reading only, edits kept); check 1405+1 skipped |
+| 2026-11-04 | [Purchase browser review](2026-11-04_PurchaseBrowserReview.md) | Fresh-customer purchase UI: stale device panel after a lost reply, original-tx recovery, copy, setup placement | Four corrections in fa321c0; awaiting Astra browser repeat at 1440/1280/390 |
 | 2026-11-04 | [Purchase handoff review](2026-11-04_PurchaseHandoffReview.md) | Affirmative transaction success and historical purchase recovery after registration changes | 6aa4979 not accepted; independent1388pass/1skip/2fail; bounded003web correction before browser review |
 | 2026-11-04 | [Purchase design review](2026-11-04_PurchaseDesignReview.md) | Registration-bound purchase, exact quote, receipt evidence, durable uncertainty, consent and migration | Independent reproductions and correction checkpoints; latest two failures carried to handoff review |
 | 2026-11-04 | [Approved capability extensions](2026-11-04_ApprovedCapabilityExtensions.md) | Tony approved buyer control/handover record, economics/recovery, agent products and successor rehearsal | Four briefs committed4aa5963 and queued in JOBS; preserve all six milestones |
