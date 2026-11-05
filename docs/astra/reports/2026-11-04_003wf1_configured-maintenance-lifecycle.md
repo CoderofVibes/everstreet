@@ -29,7 +29,11 @@ open, and no browser, wallet, provider or network action was taken.
 | `52f22ea` | Item 1: process barriers for reservation and retention; evaluation continuations fenced; owned work awaited |
 | `8ae81fc` | Astra's evaluation-admission probe |
 | `db68fdb` | Evaluation case admission checked in the reservation's transaction |
-| Final | Design §12.9, this report, JOBS |
+| `9b8fbbe` | Design §12.9, this report, JOBS (second handoff) |
+| `008a23a` | Design §12.10, before the cleanup correction's code |
+| `3a0ca46` | Astra's 12.10 review |
+| `cdc51c0` | Owned cleanup exactly bounded; owner stoppers awaited and reported; build-worker wait timers cleared |
+| Final | Design §12.10 evidence line, this report, JOBS |
 
 ## Evidence matrix (each requirement of the brief)
 
@@ -54,7 +58,7 @@ open, and no browser, wallet, provider or network action was taken.
 | 5. Two holders, lease takeover | presence plus the existing lease | process test (above) |
 | 5. Late adapter completion after stop | gate and fence | `lifecycle.test.ts` (in process); process tests (held provider; held settlement) |
 | 5. Process shutdown and listen failure through the entry | `serve.ts`: listen, then start; listen failure stops and exits 1 | process test: EADDRINUSE exits 1 with no lease or status row (nothing started) |
-| Astra: startup with a peer holding live work | `process_presence` and `runtime_invocations.runner`; `recover({ isLive })`; evaluation runs stopped only with no live peer; build worker recovers only lapsed leases | process test: B starts while A's provider request is held; it stays `running`, then completes |
+| Astra: startup with a peer holding live work | `process_presence` and `runtime_invocations.runner`; `recover({ isLive })`; evaluation runs recovered by their runner (§12.8/12.9); build worker recovers only lapsed leases | process test: B starts while A's provider request is held; it stays `running`, then completes |
 | Astra: two recoverers settle once | `finish`: the conditional update is the claim; ledger and admission follow only if it moved the row | Astra's runtime-recovery probe 1/1 |
 | Astra: synthetic RPC evidence quality | Only the modelled business; bounded per-block snapshots; envelope validation (tags, one FunctionCall, receiver, known block, gas, no deposit, nothing trailing), signature and nonce; one transaction per signed bytes | Astra's RPC probe 2/2; `lifecycle-rpc.test.ts` 3 (negative cases, pinned views, eviction) |
 | Astra: stale `customer_authorization` | Derived from sign-in, its browser callback and customer use | composition inventory |
@@ -72,7 +76,23 @@ code.
 | **2. The configured build adapter** | Production `AnthropicProvider` through the composition's worker; the worker recovers lapsed leases each poll with peers | `lifecycle-builds.test.ts`: accounting (1500/800 tokens, 55,000 microcents); budget refusal (409, no provider call); cancellation (cancelled, never resent); its configured 10 s limit (failed/timeout); a peer starting leaves a live build running with its lease and it completes; when its process stops, the survivor recovers it after the 30 s lease as `needs_reconciliation`/`outcome_unknown`, never resent. **Reproduced first:** the survivor never recovered it. `lifecycle.test.ts`: the runtime's timeout through `httpsTransport`'s own limit | Peers are two compositions in one process. The runtime timeout is adapter-level evidence, because the composition's provider timeout is a fixed 120 s |
 | **1. Reservation and retention barriers** | A labelled test clock in the child (`LIFECYCLE_CLOCK_OFFSET_MS` via the composition's own `now`) | `lifecycle-process.test.ts`: a graceful stop while the confirm's `open_hold` is held at the node (the confirm gets 503); after restart it is reserved once, with one `open_hold`. Retention: with batch 1, the kill lands with some results deleted and some still due (asserted); at most the one item in flight lacks its object; a restart deletes every result and input and nothing is left on disk | The reservation case is a graceful stop only (kill is covered for settlement). Retention can't hold a barrier inside a synchronous SQLite delete; its interruption is between items, made deterministic by batch 1 |
 
-## Checks (final code, `db68fdb`)
+## The final cleanup correction (Astra's final handoff review, 21:40)
+
+| Finding | Built | Executed evidence |
+|---|---|---|
+| Stop awaited only the runtime's work after the gates, not owner stoppers still pending | Owner stoppers (build worker, maintenance) and the runtime's owned work are awaited together after the gates close; `lastStop().owners_running` and `work_running`; `forced` if either is above 0 | `lifecycle-cleanup.test.ts` (in process, real composition), a build held by a transport that never answers or honours abort: `owners_running` 0, `work_running` 0, nothing fabricated. **Reproduced first:** the stop record had no owner count |
+| The cleanup wait could run past the stated deadline | One exact deadline D with a cleanup reserve R = min(250, stop timeout / 4) inside it: drains until D − R, cleanup until D | The same held-build stop takes at most `stop_timeout_ms` + 100 ms (scheduling tolerance) |
+| `startBuildWorker`'s losing wait timers were never cleared | Its drain and fence waits clear their timer whichever side wins | A build finishing during the drain: not forced, succeeded, and every timer the stop created has fired or been cleared. This is observed by scoped instrumentation, because Node's active-resource count doesn't show unref'd timers. **Reproduced first:** with the old wait, one timer stayed open |
+
+## Checks (final code, `cdc51c0`)
+
+- **`npm run check`:** exit 0, lint (425 files) with no warnings, types clean.
+  - **Main phase:** 1440 passed and 1 skipped.
+  - **Lifecycle phase:** 21 passed across 5 files (10 child-process, 2 peer, 6 build, 1 body,
+    2 cleanup).
+- **`npm run web:build`:** exit 0 (943.06 kB; `web/` unchanged).
+
+## Checks at the second handoff (`db68fdb`)
 
 - **`npm run check`:** exit 0, lint (424 files) with no warnings, types clean.
   - **Main phase:** 1440 passed and 1 skipped (166 files plus 1 skipped).
@@ -112,9 +132,10 @@ code.
   there.
 - **Stated limits:**
   - restart recovery of a settlement waits out its 30 s per-item lease;
-  - an evaluation run left by a dead peer stays `running` until a process starts with no live
-    peer;
-  - admitted requests get at most 2 s within the shared stop deadline before being answered 503.
+  - admitted requests get at most 2 s within the shared stop deadline before being answered 503;
+  - the stop's cleanup reserve is min(250 ms, a quarter of `stop_timeout_ms`), inside the deadline;
+  - a dead peer's evaluation is stopped by a live survivor within one presence tick (10 s) after
+    its presence ends; a crashed peer's presence first has to lapse (30 s).
 - **For later 003wf children:**
   - Direct/Gated commerce;
   - unresolved writer history;

@@ -1237,5 +1237,7 @@ ran out or either count is above 0.
   The stop finishes within `stop_timeout_ms` (with a small scheduling tolerance), the build
   worker's stop has settled (`owners_running` 0), runtime work is 0, and nothing is written after
   close.
-- An idle and a held `startBuildWorker` stop leave no timers of their own behind (Node's active
-  resources return to their count before it started).
+- No timer of its own is left behind: each timer created during the stop must have fired or been
+  cleared. This is observed directly, by scoped instrumentation of setTimeout/clearTimeout restored
+  after each test; Node's active-resource count doesn't show unref'd timers (Astra's 12.10
+  review). It is shown failing on the old build-worker wait.
