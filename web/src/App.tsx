@@ -29,6 +29,7 @@ import { ProductStudio } from "./pages/ProductStudio.tsx";
 import { Profile } from "./pages/Profile.tsx";
 import { PublicPage } from "./pages/PublicPage.tsx";
 import { PublicProfileEditor } from "./pages/PublicProfile.tsx";
+import { SignInReturn } from "./pages/SignInReturn.tsx";
 import { Start } from "./pages/Start.tsx";
 import { Studio } from "./pages/Studio.tsx";
 import { Value } from "./pages/Value.tsx";
@@ -59,7 +60,17 @@ function NavLink({
 const UTILITY_ICON: Record<string, IconName> = { activity: "activity", inbox: "inbox" };
 
 function ActingContext() {
-  const { person, setPerson, requireSignIn, localPreview } = useSession();
+  const {
+    person,
+    setPerson,
+    requireSignIn,
+    localPreview,
+    identity,
+    account,
+    signOut,
+    wallet,
+    disconnectWallet,
+  } = useSession();
   const { go } = useRouter();
   const [open, setOpen] = useState(false);
   const [people, setPeople] = useState<{ id: string; display_name: string }[]>([]);
@@ -134,29 +145,60 @@ function ActingContext() {
             </>
           )}
           <hr />
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              requireSignIn(
-                "Join as a new person. You can switch back any time from this menu.",
-                true,
-              );
-            }}
-          >
-            Join as someone new
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              await api.signOut();
-              setPerson(null);
-              setOpen(false);
-              go("/");
-            }}
-          >
-            Sign out
-          </button>
+          {identity === "verified" ? (
+            <>
+              {account && <div className="menu-label">Signed in as {account}</div>}
+              {/* Job 003w-e1: two different actions, each saying what it does. */}
+              <button
+                type="button"
+                onClick={async () => {
+                  setOpen(false);
+                  await signOut();
+                  go("/");
+                }}
+              >
+                Sign out of Everstreet
+              </button>
+              {wallet && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setOpen(false);
+                    await disconnectWallet().catch(() => {});
+                  }}
+                >
+                  Disconnect {wallet.harness ?? "MyNearWallet"} from this browser (you stay signed
+                  in here)
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  requireSignIn(
+                    "Join as a new person. You can switch back any time from this menu.",
+                    true,
+                  );
+                }}
+              >
+                Join as someone new
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await api.signOut();
+                  setPerson(null);
+                  setOpen(false);
+                  go("/");
+                }}
+              >
+                Sign out
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -167,6 +209,7 @@ function Routes() {
   const { path } = useRouter();
   const { person } = useSession();
   if (path === "/") return <Home />;
+  if (path === "/signin/return") return <SignInReturn />;
   if (path === "/start") return <Start />;
   if (path === "/build") return <BuildHome />;
   if (path === "/import") return <ImportHome key={person?.id ?? "anon"} />;

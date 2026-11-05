@@ -383,12 +383,30 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
 
 export const api = {
   env: () =>
-    call<{ environment: string; localPreview: boolean; identity?: "preview" | "verified" }>(
-      "/api/env",
-    ),
-  me: () => call<{ person: Person | null }>("/api/me"),
+    call<{
+      environment: string;
+      localPreview: boolean;
+      identity?: "preview" | "verified";
+      /** Job 003w-e1: the wallet controller's configuration (verified identity only). */
+      wallet?: { network: "testnet"; available: boolean; harness: string | null } | null;
+    }>("/api/env"),
+  /** Job 003w-e1: a verified session also names its proven account. */
+  me: () => call<{ person: Person | null; account?: string | null }>("/api/me"),
   join: (name: string) => call<{ person: Person }>("/api/session", "POST", { name }),
   signOut: () => call<{ person: null }>("/api/session", "DELETE"),
+  signInChallenge: () =>
+    call<{
+      challenge: {
+        message: string;
+        nonce: string;
+        recipient: string;
+        callback_url: string | null;
+        expires_at: string;
+      };
+    }>("/api/session/challenge", "POST"),
+  cancelSignIn: () => call<{ cancelled: true }>("/api/session/challenge", "DELETE"),
+  signInVerify: (b: { account_id: string; public_key: string; signature: string; nonce: string }) =>
+    call<{ person: Person }>("/api/session/verify", "POST", b),
   people: () => call<{ people: { id: string; display_name: string }[] }>("/api/people"),
   actAs: (id: string) => call<{ person: Person }>(`/api/session/as/${id}`, "POST"),
   updateMe: (fields: Partial<Person>) => call<{ person: Person }>("/api/me", "PATCH", fields),

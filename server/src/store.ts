@@ -134,6 +134,8 @@ export class Store {
 
   /** Runs fn in one write transaction; anything thrown rolls the whole thing back. */
   tx<T>(fn: () => T): T {
+    // Already inside one (job 003w-e1: finishSignIn wraps personForAccount): part of it.
+    if (this.db.isTransaction) return fn();
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const out = fn();
@@ -220,16 +222,63 @@ export class Store {
     bindingHash: string,
     ttlMs: number,
     nowMs: number,
+    callbackUrl: string | null = null,
   ): string {
     const nonce = randomBytes(32).toString("base64");
     // Expired challenges are pruned as new ones are made (bounded table).
     this.db.prepare("DELETE FROM sign_in_challenges WHERE expires_ms <= ?").run(nowMs);
     this.db
       .prepare(
-        "INSERT INTO sign_in_challenges (nonce, message, recipient, binding_hash, expires_ms, created_ms) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sign_in_challenges (nonce, message, recipient, binding_hash, expires_ms, created_ms, callback_url) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(nonce, message, recipient, bindingHash, nowMs + ttlMs, nowMs);
+      .run(nonce, message, recipient, bindingHash, nowMs + ttlMs, nowMs, callbackUrl);
     return nonce;
+  }
+
+  /**
+   * Job 003w-e1 (Astra's logout review): ends a browser's sign-in attempt by its binding. Its
+   * challenges are cancelled (a verification in flight issues nothing) and any session it already
+   * minted is deleted (its cookie may never have reached the browser). One transaction.
+   */
+  endBinding(bindingHash: string, nowMs: number) {
+    this.tx(() => {
+      this.db
+        .prepare(
+          "UPDATE sign_in_challenges SET cancelled_ms = ? WHERE binding_hash = ? AND cancelled_ms IS NULL",
+        )
+        .run(nowMs, bindingHash);
+      this.db.prepare("DELETE FROM sessions WHERE binding_hash = ?").run(bindingHash);
+    });
+  }
+
+  /**
+   * Job 003w-e1: the person and a verified session, in ONE transaction that first re-checks that
+   * the challenge wasn't cancelled meanwhile (a logout during the key read); null if it was.
+   */
+  finishSignIn(
+    nonce: string,
+    accountId: string,
+    network: string,
+    expiresMs: number,
+  ): { person: Person; token: string } | null {
+    return this.tx(() => {
+      const c = this.db
+        .prepare("SELECT cancelled_ms, binding_hash FROM sign_in_challenges WHERE nonce = ?")
+        .get(nonce) as { cancelled_ms: number | null; binding_hash: string } | undefined;
+      if (!c || c.cancelled_ms !== null) return null;
+      const person = this.personForAccount(accountId, network);
+      return {
+        person,
+        token: this.verifiedSession(person.id, accountId, expiresMs, c.binding_hash),
+      };
+    });
+  }
+
+  /** Job 003w-e1: records which exact NEP-413 payload a spent challenge verified with. */
+  recordChallengeVariant(nonce: string, variant: "none" | "issued") {
+    this.db
+      .prepare("UPDATE sign_in_challenges SET verified_variant = ? WHERE nonce = ?")
+      .run(variant, nonce);
   }
 
   /**
@@ -240,13 +289,15 @@ export class Store {
     nonce: string,
     bindingHash: string,
     nowMs: number,
-  ): { message: string; recipient: string } | null {
+  ): { message: string; recipient: string; callback_url: string | null } | null {
     return this.tx(() => {
       const row = this.db
         .prepare(
-          "SELECT message, recipient FROM sign_in_challenges WHERE nonce = ? AND binding_hash = ? AND used_ms IS NULL AND expires_ms > ?",
+          "SELECT message, recipient, callback_url FROM sign_in_challenges WHERE nonce = ? AND binding_hash = ? AND used_ms IS NULL AND cancelled_ms IS NULL AND expires_ms > ?",
         )
-        .get(nonce, bindingHash, nowMs) as { message: string; recipient: string } | undefined;
+        .get(nonce, bindingHash, nowMs) as
+        | { message: string; recipient: string; callback_url: string | null }
+        | undefined;
       if (!row) return null;
       const c = this.db
         .prepare("UPDATE sign_in_challenges SET used_ms = ? WHERE nonce = ? AND used_ms IS NULL")
@@ -298,14 +349,28 @@ export class Store {
   }
 
   /** A verified session with a server-side expiry. */
-  verifiedSession(personId: string, accountId: string, expiresMs: number): string {
+  verifiedSession(
+    personId: string,
+    accountId: string,
+    expiresMs: number,
+    bindingHash: string | null = null,
+  ): string {
     const token = randomBytes(24).toString("base64url");
     this.db
       .prepare(
-        "INSERT INTO sessions (token, person_id, created_at, mode, expires_ms, account_id) VALUES (?, ?, ?, 'verified', ?, ?)",
+        "INSERT INTO sessions (token, person_id, created_at, mode, expires_ms, account_id, binding_hash) VALUES (?, ?, ?, 'verified', ?, ?, ?)",
       )
-      .run(token, personId, now(), expiresMs, accountId);
+      .run(token, personId, now(), expiresMs, accountId, bindingHash);
     return token;
+  }
+
+  /** Job 003w-e1: the account a verified session proved (null for preview sessions). */
+  sessionAccount(token: string | undefined): string | null {
+    if (!token) return null;
+    const r = this.db
+      .prepare("SELECT account_id FROM sessions WHERE token = ? AND mode = 'verified'")
+      .get(token) as { account_id: string | null } | undefined;
+    return r?.account_id ?? null;
   }
 
   endSession(token: string) {

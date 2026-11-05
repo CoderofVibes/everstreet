@@ -78,6 +78,11 @@ export interface AppOptions {
    * account signs in; sessions expire on the server and preview sessions never authenticate.
    */
   identity?: { mode: "preview" } | { mode: "verified"; signIn: AccountSignIn };
+  /**
+   * Job 003w-e1: what the browser's wallet controller may use (verified identity only). `harness`
+   * names the review harness's synthetic wallet module; null in every real composition.
+   */
+  wallet?: { network: "testnet"; available: boolean; harness: string | null } | null;
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
@@ -189,12 +194,23 @@ export function everstreetApi(store: Store, options: AppOptions) {
       environment: options.environment,
       localPreview: options.localPreview,
       identity: identity.mode,
+      wallet: identity.mode === "verified" ? (options.wallet ?? null) : null,
     }),
   );
 
   // ---------- account ----------
 
-  app.get("/api/me", (c) => c.json({ person: c.get("person") }));
+  // Job 003w-e1: a verified session also names the account it proved, so the browser can tell a
+  // wallet's account from the session's and fence the other one's state.
+  app.get("/api/me", (c) =>
+    c.json({
+      person: c.get("person"),
+      account:
+        identity.mode === "verified" && c.get("person")
+          ? store.sessionAccount(getCookie(c, COOKIE))
+          : null,
+    }),
+  );
 
   app.post("/api/session", async (c) => {
     // 003w-b: a name alone is never an identity outside preview.
@@ -210,12 +226,20 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const token = getCookie(c, COOKIE);
     if (token) store.endSession(token);
     deleteCookie(c, COOKIE, { path: "/" });
+    // Job 003w-e1 (Astra's logout review): a sign-in this browser still has in progress is
+    // cancelled too, so its verification, even one already awaiting the key read, starts nothing.
+    if (identity.mode === "verified") {
+      identity.signIn.cancel(getCookie(c, SIGN_IN_COOKIE));
+      deleteCookie(c, SIGN_IN_COOKIE, { path: "/api/session" });
+    }
     return c.json({ person: null });
   });
 
   // 003w-b: verified sign-in (NEP-413 challenge, then a signed answer). Absent in preview.
   app.post("/api/session/challenge", (c) => {
     if (identity.mode !== "verified") throw new HttpError(404, "Not available");
+    // Job 003w-e1: a newer attempt from this browser replaces its earlier one (Astra's review).
+    identity.signIn.cancel(getCookie(c, SIGN_IN_COOKIE));
     const { binding, challenge } = identity.signIn.challenge();
     setCookie(c, SIGN_IN_COOKIE, binding, {
       httpOnly: true,
@@ -224,6 +248,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
       maxAge: Math.ceil(identity.signIn.challengeTtl / 1000),
     });
     return c.json({ challenge });
+  });
+  // Job 003w-e1: cancels this browser's sign-in still in progress (a wallet-side change), keeping
+  // the current session. Only the attempt the binding cookie names; never another session.
+  app.delete("/api/session/challenge", (c) => {
+    if (identity.mode !== "verified") throw new HttpError(404, "Not available");
+    identity.signIn.cancel(getCookie(c, SIGN_IN_COOKIE));
+    deleteCookie(c, SIGN_IN_COOKIE, { path: "/api/session" });
+    return c.json({ cancelled: true });
   });
   app.post("/api/session/verify", async (c) => {
     if (identity.mode !== "verified") throw new HttpError(404, "Not available");

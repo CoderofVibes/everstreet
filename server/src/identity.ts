@@ -48,8 +48,16 @@ const borshString = (s: string) => {
   return Buffer.concat([len, b]);
 };
 
-/** The exact bytes NEP-413 signs (their SHA-256), for a payload without callbackUrl. */
-export function nep413Digest(p: { message: string; nonce: Buffer; recipient: string }): Buffer {
+/**
+ * The exact bytes NEP-413 signs (their SHA-256). `callbackUrl` absent or null: `None`; a string:
+ * `Some(that exact string)` (job 003w-e1: the pinned MyNearWallet module always sends one).
+ */
+export function nep413Digest(p: {
+  message: string;
+  nonce: Buffer;
+  recipient: string;
+  callbackUrl?: string | null;
+}): Buffer {
   if (p.nonce.length !== 32) throw new Error("the nonce must be 32 bytes");
   const tag = Buffer.alloc(4);
   tag.writeUInt32LE(NEP413_TAG);
@@ -57,7 +65,9 @@ export function nep413Digest(p: { message: string; nonce: Buffer; recipient: str
     borshString(p.message),
     p.nonce,
     borshString(p.recipient),
-    Buffer.from([0]), // callbackUrl: None
+    typeof p.callbackUrl === "string"
+      ? Buffer.concat([Buffer.from([1]), borshString(p.callbackUrl)])
+      : Buffer.from([0]),
   ]);
   return createHash("sha256")
     .update(Buffer.concat([tag, payload]))
@@ -72,6 +82,7 @@ export function verifyNep413(input: {
   message: string;
   nonce: Buffer;
   recipient: string;
+  callbackUrl?: string | null;
   publicKey: string;
   signature: string;
 }): boolean {
@@ -99,6 +110,11 @@ export interface SignInOptions {
   /** Only "testnet" in this slice. */
   network: string;
   reader: AccessKeyReader;
+  /**
+   * Job 003w-e1: the exact callback URL issued with every challenge (`<return origin>/signin/return`)
+   * so a wallet that signs it can be verified. Never taken from a client.
+   */
+  callbackUrl?: string | null;
   challengeTtlMs?: number;
   /** Absolute session lifetime; 15 min to 7 days; default 12 h. */
   sessionTtlMs?: number;
@@ -130,6 +146,17 @@ export class AccountSignIn {
       this.sessionTtlMs > 7 * 86_400_000
     )
       throw new Error("sign-in: the session lifetime must be 15 minutes to 7 days");
+    if (opts.callbackUrl != null) {
+      const u = new URL(opts.callbackUrl);
+      if (
+        u.href !== opts.callbackUrl ||
+        u.pathname !== "/signin/return" ||
+        u.search ||
+        u.hash ||
+        !/^https?:$/.test(u.protocol)
+      )
+        throw new Error("sign-in: the callback must be <origin>/signin/return");
+    }
     this.challengeTtlMs = opts.challengeTtlMs ?? 300_000;
     this.readTimeoutMs = opts.readTimeoutMs ?? 10_000;
     this.now = opts.now ?? Date.now;
@@ -141,6 +168,11 @@ export class AccountSignIn {
 
   get challengeTtl() {
     return this.challengeTtlMs;
+  }
+
+  /** The exact callback URL challenges are issued with, or null (wallet sign-in can't verify it). */
+  get callbackUrl() {
+    return this.opts.callbackUrl ?? null;
   }
 
   /**
@@ -159,6 +191,7 @@ export class AccountSignIn {
       bindingHash(binding),
       this.challengeTtlMs,
       now,
+      this.callbackUrl,
     );
     return {
       binding,
@@ -166,6 +199,7 @@ export class AccountSignIn {
         message,
         nonce,
         recipient: this.opts.recipient,
+        callback_url: this.callbackUrl,
         expires_at: new Date(now + this.challengeTtlMs).toISOString(),
       },
     };
@@ -204,14 +238,22 @@ export class AccountSignIn {
     if (!challenge) return deny("sign_in_challenge");
     // A challenge issued under another configured application identity is never honoured.
     if (challenge.recipient !== this.opts.recipient) return deny("sign_in_recipient");
-    const ok = verifyNep413({
-      message: challenge.message,
-      nonce: Buffer.from(nonce, "base64"),
-      recipient: challenge.recipient,
-      publicKey: public_key,
-      signature,
-    });
-    if (!ok) return deny("sign_in_signature");
+    // Exactly two payloads (§9.2): without a callback, or with the one THIS challenge was issued
+    // with. Never a URL from the client.
+    const variants: ["none" | "issued", string | null][] = [["none", null]];
+    if (challenge.callback_url) variants.push(["issued", challenge.callback_url]);
+    const verified = variants.find(([, callbackUrl]) =>
+      verifyNep413({
+        message: challenge.message,
+        nonce: Buffer.from(nonce, "base64"),
+        recipient: challenge.recipient,
+        callbackUrl,
+        publicKey: public_key,
+        signature,
+      }),
+    );
+    if (!verified) return deny("sign_in_signature");
+    this.store.recordChallengeVariant(nonce, verified[0]);
     let full = false;
     try {
       full = await this.opts.reader.isFullAccessKey(
@@ -227,12 +269,19 @@ export class AccountSignIn {
       );
     }
     if (!full) return deny("sign_in_key");
-    const person = this.store.personForAccount(account_id, this.opts.network);
     const expiresMs = this.now() + this.sessionTtlMs;
-    return {
-      person,
-      token: this.store.verifiedSession(person.id, account_id, expiresMs),
-      expiresMs,
-    };
+    // A logout in this browser while the key was being read cancelled the challenge: no session.
+    const done = this.store.finishSignIn(nonce, account_id, this.opts.network, expiresMs);
+    if (!done) return deny("sign_in_cancelled");
+    return { ...done, expiresMs };
+  }
+
+  /**
+   * Job 003w-e1: a logout, or a newer challenge, from the browser holding this binding ends its
+   * earlier attempt: challenges cancelled, and a session it minted but never delivered deleted.
+   */
+  cancel(binding: string | undefined) {
+    if (typeof binding === "string" && BINDING.test(binding))
+      this.store.endBinding(bindingHash(binding), this.now());
   }
 }

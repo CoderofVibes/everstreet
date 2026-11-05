@@ -161,7 +161,30 @@ export function Modal({
   );
 }
 
-export function VerifiedSignInNotice({ reason, onClose }: { reason: string; onClose: () => void }) {
+/**
+ * Job 003w-e1: verified sign-in. Plain words for what signing in is (proving an account, nothing
+ * more), the wallet step, and an honest answer for every outcome. `status` is what the last
+ * attempt came to; `available` false means the server can't verify a wallet here.
+ */
+export function VerifiedSignInNotice({
+  reason,
+  onClose,
+  available = false,
+  walletLabel = "MyNearWallet",
+  synthetic = false,
+  busy = false,
+  status = null,
+  onSignIn,
+}: {
+  reason: string;
+  onClose: () => void;
+  available?: boolean;
+  walletLabel?: string;
+  synthetic?: boolean;
+  busy?: boolean;
+  status?: { tone: "info" | "warn"; text: string } | null;
+  onSignIn?: () => void;
+}) {
   return (
     <Modal labelledBy="signin-title" onClose={onClose}>
       <div className="dialog">
@@ -169,16 +192,84 @@ export function VerifiedSignInNotice({ reason, onClose }: { reason: string; onCl
         <p className="muted">{reason}</p>
         <p>
           Here, signing in means proving you control a NEAR testnet account with your wallet. A name
-          alone isn't an account. This version doesn't connect a wallet yet, so signing in isn't
-          available here.
+          alone isn't an account.
+        </p>
+        {available ? (
+          <>
+            <p>
+              Your wallet shows a short message from Everstreet to sign. Signing it proves the
+              account is yours. It sends no transaction, spends nothing, and doesn't let Everstreet
+              act for you; using a service on this device is a separate step you approve later.
+            </p>
+            {synthetic && (
+              <p className="pill caution">
+                Review harness: {walletLabel} is synthetic. It is not a real wallet or account.
+              </p>
+            )}
+          </>
+        ) : (
+          <p>
+            Signing in with a wallet isn't set up on this server, so it isn't available here.
+            Nothing is sent to a wallet.
+          </p>
+        )}
+        <p aria-live="polite" className={status?.tone === "warn" ? "error-text" : "muted"}>
+          {busy ? `Waiting for ${walletLabel}… approve or close it there.` : (status?.text ?? "")}
         </p>
         <div className="row">
-          <button className="btn btn-quiet" type="button" data-autofocus onClick={onClose}>
+          {available && onSignIn && (
+            <button
+              className="btn btn-primary"
+              type="button"
+              data-autofocus
+              disabled={busy}
+              onClick={onSignIn}
+            >
+              Continue with {walletLabel}
+            </button>
+          )}
+          <button
+            className="btn btn-quiet"
+            type="button"
+            data-autofocus={available && onSignIn ? undefined : true}
+            onClick={onClose}
+          >
             Not now
           </button>
         </div>
       </div>
     </Modal>
+  );
+}
+
+function WalletSignInDialog({ reason }: { reason: string }) {
+  const { finishSignIn, wallet, walletSignIn } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ tone: "info" | "warn"; text: string } | null>(null);
+  const label = wallet?.harness ?? "MyNearWallet";
+  const go = async () => {
+    setBusy(true);
+    setStatus(null);
+    const here = `${window.location.pathname}${window.location.search}`;
+    const out = await walletSignIn(here);
+    setBusy(false);
+    if (out.kind === "signed_in") return finishSignIn(out.person);
+    if (out.kind === "redirecting")
+      return setStatus({ tone: "info", text: `Finishing in ${label}…` });
+    if (out.kind === "stale") return;
+    setStatus({ tone: out.kind === "cancelled" ? "info" : "warn", text: out.message });
+  };
+  return (
+    <VerifiedSignInNotice
+      reason={reason}
+      onClose={() => finishSignIn(null)}
+      available={Boolean(wallet?.available)}
+      walletLabel={label}
+      synthetic={Boolean(wallet?.harness)}
+      busy={busy}
+      status={status}
+      onSignIn={go}
+    />
   );
 }
 
@@ -195,8 +286,7 @@ export function SignInDialog() {
         .catch(() => {});
   }, [signInReason, localPreview]);
   if (!signInReason) return null;
-  if (identity === "verified")
-    return <VerifiedSignInNotice reason={signInReason} onClose={() => finishSignIn(null)} />;
+  if (identity === "verified") return <WalletSignInDialog reason={signInReason} />;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {

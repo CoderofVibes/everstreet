@@ -60,6 +60,11 @@ export interface ComposeDeps {
   /** Reads ONE named variable (default: process.env), only for model.api_key_env. */
   envVar?: (name: string) => string | undefined;
   now?: () => number;
+  /**
+   * Job 003w-e: the review harness only (scripts/wallet-harness.ts), never a config field. The
+   * browser then accepts the harness's synthetic Wallet Selector module and shows that it is one.
+   */
+  walletHarness?: { label: string };
   /** Preview only: labelled synthetic adapters. */
   preview?: {
     label: string;
@@ -160,6 +165,9 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       network: "testnet",
       reader: keyReader,
       sessionTtlMs: (config.sign_in.session_hours ?? 12) * 3_600_000,
+      callbackUrl: config.sign_in.return_origin
+        ? `${config.sign_in.return_origin}/signin/return`
+        : null,
       now: deps.now,
     });
   cap(
@@ -168,8 +176,9 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
           key: "sign_in",
           label: "Account sign-in",
           state: "on",
-          detail:
-            "Verified accounts only (a NEP-413 signed challenge and a full-access key read on NEAR). The browser wallet connection is not built yet.",
+          detail: signIn.callbackUrl
+            ? "Verified accounts only: a NEP-413 signed challenge (MyNearWallet in the browser) and a full-access key read on NEAR."
+            : "Verified accounts only (a NEP-413 signed challenge and a full-access key read on NEAR). Wallet sign-in in the browser needs sign_in.return_origin, which isn't configured.",
           provenance: rpcLabel,
         }
       : {
@@ -386,6 +395,13 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       ? "Configured (testnet)"
       : `Local preview${previewLabel ? ` (${previewLabel})` : ""}`,
     identity: signIn ? { mode: "verified", signIn } : { mode: "preview" },
+    wallet: signIn
+      ? {
+          network: "testnet",
+          available: signIn.callbackUrl !== null,
+          harness: deps.walletHarness?.label ?? null,
+        }
+      : null,
     builds,
     buildProvider,
     operatorCeilingCents,

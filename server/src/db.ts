@@ -731,6 +731,23 @@ export function openDb(path: string) {
       network TEXT NOT NULL, created_at TEXT NOT NULL
     ) STRICT;
   `);
+  // Job 003w-e1: the exact callback URL a challenge was issued with (null: none), and which NEP-413
+  // payload verified ('none' or 'issued'; §9.2). Rows from before have neither.
+  const challengeCols = columns("sign_in_challenges");
+  if (!challengeCols.has("callback_url"))
+    db.exec("ALTER TABLE sign_in_challenges ADD COLUMN callback_url TEXT");
+  // A logout in the initiating browser cancels its outstanding challenges, even one already
+  // being verified (Astra's 003we logout review): its verification then issues no session.
+  if (!challengeCols.has("cancelled_ms"))
+    db.exec("ALTER TABLE sign_in_challenges ADD COLUMN cancelled_ms INTEGER");
+  // ...and a session remembers the browser binding that minted it, so ending or replacing that
+  // attempt also ends a session whose cookie never reached the browser.
+  if (!columns("sessions").has("binding_hash"))
+    db.exec("ALTER TABLE sessions ADD COLUMN binding_hash TEXT");
+  if (!challengeCols.has("verified_variant"))
+    db.exec(
+      "ALTER TABLE sign_in_challenges ADD COLUMN verified_variant TEXT CHECK (verified_variant IN ('none', 'issued'))",
+    );
   // Job 003w-d: the customer writer's durable submissions: one row per transaction attempt of an
   // operation (written before broadcast, with its exact signed bytes), and each signer key's next
   // nonce, both changed only under the write lock.

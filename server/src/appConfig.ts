@@ -22,7 +22,7 @@ export interface AppConfig {
   /** Where previews are served from and the platform's own origin (both, or neither). */
   origins?: { platform: string; preview: string };
   /** Verified sign-in (configured mode: required). */
-  sign_in?: { recipient: string; session_hours?: number };
+  sign_in?: { recipient: string; session_hours?: number; return_origin?: string };
   /** A testnet JSON-RPC endpoint (required by sign-in, v3 and customer reads). */
   rpc?: { endpoint: string };
   /** Business-v3 bindings the operator vouches for. */
@@ -133,7 +133,11 @@ export function validateConfig(raw: unknown): AppConfig {
 
   let sign_in: AppConfig["sign_in"];
   if (c.sign_in !== undefined) {
-    const s = c.sign_in as { recipient?: unknown; session_hours?: unknown };
+    const s = c.sign_in as {
+      recipient?: unknown;
+      session_hours?: unknown;
+      return_origin?: unknown;
+    };
     if (typeof s?.recipient !== "string" || !/^[a-z0-9][a-z0-9.-]{0,63}$/.test(s.recipient))
       bad("sign_in.recipient must be a short lowercase application name");
     if (
@@ -147,6 +151,10 @@ export function validateConfig(raw: unknown): AppConfig {
     sign_in = {
       recipient: s.recipient as string,
       session_hours: s.session_hours as number | undefined,
+      // Job 003w-e1: where a wallet returns; the callback is <origin>/signin/return exactly.
+      ...(s.return_origin !== undefined
+        ? { return_origin: origin(s.return_origin, "sign_in.return_origin") }
+        : {}),
     };
   }
   if (mode === "configured" && !sign_in)
