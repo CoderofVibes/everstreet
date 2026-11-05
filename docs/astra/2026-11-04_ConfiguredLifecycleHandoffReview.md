@@ -140,3 +140,39 @@ At21:34 Astra independently reran both evaluation regressions against the new ad
 2/2pass. The running/runner check is now inside the same Store transaction as reservation and
 invocation insertion. Original8/8 focused lifecycle evidence remains valid for the unchanged
 body/build paths. Final full-check/process evidence and owned-stop follow-up remain pending.
+
+## Final handoff review at9b8fbbe — 21:40 Pacific
+
+Sole correction exec65377 exited0 and exact-session CIM is absent. Independent focused checks
+passed8/8 and the two evaluation probes2/2. Required independent full check64904 is running:
+lint/types clean, main1440pass/1skip; lifecycle phase pending. Builder reports19 lifecycle pass
+and web build success. Code/tree inspected; no second writer started.
+
+Reservation/retention and evaluation/admission corrections satisfy their reviewed narrow
+requirements. One existing item3 follow-up remains before003wf1 acceptance (it was already
+recorded above at21:31 and is not a new milestone):
+
+- compose.stop awaits runtime.settledAll after fence close, but not still-pending build-worker
+  and maintenance stopper promises. last.work_running therefore excludes these owner tasks.
+  Await/observe those owner promises too, and report unfinished owned work truthfully. Do not
+  imply total cleanup from a zero runtime-only count.
+- The stated shared deadline is not exact: Math.max(250, deadline - Date.now()) adds up to250ms
+  once it has elapsed. Either reserve cleanup inside the shared deadline or explicitly define
+  a small bounded cleanup allowance in the design/report/tests. Do not just claim the current
+  code obeys a deadline it extends. Preserve prompt cancellation and the DB gate.
+- startBuildWorker's wait() creates an unref'ed timeout whose losing Promise.race timer is never
+  cleared. Its5s drain/2s cleanup timers can remain after early work completion. Clear those
+  owned deadline timers when the wait settles; bounded stop tests should observe actual owner
+  completion/timer cleanup, including a held build whose transport never cooperates.
+
+These are grounded source findings, not a newly reproduced data-loss or late-write claim.
+Keep the correction small, write the design amendment first, add meaningful targeted evidence,
+run required checks after code changes and update the report. Remove the report's now-stale
+limit saying a dead evaluation requires startup with no live peer; that was fixed. Keep precise
+in-process versus actual-child and synthetic versus live labels. Stop for Astra review;003wf2
+remains queued until this narrow cleanup follow-up is accepted. Same model/auth/boundaries.
+
+Independent full check64904 completed0 at21:41: lint/types clean, main1440pass/1skip and all19
+lifecycle tests pass (136.69s lifecycle phase). This verifies the implemented reservation,
+retention, model/build and peer recovery cases. The narrow owned-cleanup/source-reporting
+follow-up above remains; no milestone or003wf parent acceptance is implied.
