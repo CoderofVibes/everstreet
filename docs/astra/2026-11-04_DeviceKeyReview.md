@@ -135,3 +135,32 @@ publicOffer correctly requires it. Also verify the harness clock against real br
 Opened 003wea for this reproducible blocker, exact revocation review and SessionProvider/late UI
 lifetime review. The earlier source risks remain distinct from this actual browser reproduction.
 All six milestones, remaining fresh-customer work and 003wf stay open. No live action occurred.
+
+## 003wea in-progress: replacement key under an old revoke review
+
+New independent astra-revoke-review.test.ts exercises actual DeviceKeys with fictional injected
+wallet/store/read boundaries. Prepare a revocation for slot0/keyA/epoch1; another device revokes
+and installs keyB/epoch3; then submit the earlier review. Current comparison checks only the
+revoke_key call fields (contract/plan/slot/deposit/gas), which remain identical, so it sends one
+wallet request. Expected no send until the changed key is reviewed. Targeted run: one failure,
+194 ms total. No signature, transaction, real storage or network.
+
+Bind the review to the observed key/epoch and entitlement registration as well as its exact call
+and account/network. On an observed identity change, clear/re-present the review rather than
+silently revoking a replacement. If the interface changes, adapt this test to pass the complete
+review object without weakening the no-send assertion. The contract's existing revoke_key is
+slot-based; a client read is not an atomic on-chain identity guarantee. Document that limit and
+assess whether a guarded method is necessary; do not claim a frontend comparison proves it.
+This is a concrete controller failure, separate from pending actual browser verification.
+
+Full check after the new probe stopped at in-progress DeviceKeyPanel ARIA validation. Astra
+removed its own unnecessary non-null assertion; its targeted Biome check and full typecheck pass.
+Claude owns the panel and revocation implementation; leave them to the sole active58217 writer.
+The behavioral regression remains failing until its correction; no final acceptance is claimed.
+
+The subsequent independent targeted repeat passes the replacement-key case, alongside both
+SessionModel callback cases (3/3). The implementation remembers an observed key/epoch/registration
+and compares it at the next read. Its current map is keyed by serialized call fields, so a later
+review for the same slot replaces that observation; keep review lifetime/caller binding in the
+final audit rather than assuming byte-identical revoke calls identify a particular key. The
+slot-based contract race remains explicitly open; a guarded on-chain method is follow-up work.

@@ -103,3 +103,26 @@ one platform-specific test skipped**, after e1 follow-up f48b19b. This clears th
 for this checkpoint; no timeout setting was changed. The synthetic wallet harness and React/browser
 state review remain pending, as do e2/e3. Astra's fixture type corrections are included in this
 passing check; there is no need to filter those files out of typechecking.
+
+## 003wea independent model-to-dialog completion failure
+
+The extracted SessionModel now fences stale refresh state. Its settle() still returns the original
+signed_in outcome after awaiting that refresh. WalletSignInDialog then calls finishSignIn(out.person)
+without a lifetime check, including after the old dialog has unmounted. That restores the old person.
+
+New astra-session-model-review.test.ts exercises the actual model and that exact production callback
+sequence: settle A, hold its /me answer, either sign out or complete B, then release A's answer and
+run the dialog's signed_in -> finishSignIn branch. Both cases fail: person becomes fictional-a
+instead of null or fictional-b. The newer-account case can also leave person A paired with account B.
+Two failures, 197 ms run, fictional deferred API boundaries only; no DOM/wallet/network/crypto.
+
+Fence the complete returned outcome and prompt/dialog completion, not only the refresh write.
+Review the return page's late navigation and closing/replacing a pending dialog as related lifetime
+boundaries. Keep server cancellation intact. If the public model API changes, adapt the test to
+the production caller contract while preserving the expected identity after logout/newer account.
+These are reproduced model/caller failures; actual delayed-response browser proof remains pending.
+
+After Claude added the completion-generation check, the independent two-case repeat passes.
+Full check56168 passed lint/types and1330 tests plus1skip, with only the then-unfixed revoke
+regression failing. A subsequent targeted repeat of both new review files now passes all3cases
+(603 ms total), after the revoke correction too. Final full/browser checks still pending.
