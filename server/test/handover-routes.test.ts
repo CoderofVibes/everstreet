@@ -196,6 +196,7 @@ function gatedCalls(ids: {
   build: string;
   importId: string | null;
   cancelled?: string;
+  importVersion?: number;
   reviewed?: string;
   draftRev?: number;
   review?: string;
@@ -365,13 +366,27 @@ function gatedCalls(ids: {
   ];
   if (ids.importId)
     calls.push(
-      ["PATCH /api/imports/:id", "PATCH", `/api/imports/${ids.importId}`, { name: "x" }],
-      ["POST /api/imports/:id/inspections", "POST", `/api/imports/${ids.importId}/inspections`, {}],
+      [
+        "PATCH /api/imports/:id",
+        "PATCH",
+        `/api/imports/${ids.importId}`,
+        { version: ids.importVersion ?? 1, name: "Renamed import" },
+      ],
+      [
+        "POST /api/imports/:id/inspections",
+        "POST",
+        `/api/imports/${ids.importId}/inspections`,
+        {
+          idempotency_key: "route-inspect-0001",
+          file_name: "package.json",
+          content: JSON.stringify({ name: "imported-product", dependencies: { hono: "4.6.0" } }),
+        },
+      ],
       [
         "PUT /api/imports/:id/dependencies/:category",
         "PUT",
         `/api/imports/${ids.importId}/dependencies/hosting`,
-        { state: "none" },
+        { version: ids.importVersion ?? 1, uses: false },
       ],
     );
   return calls;
@@ -430,6 +445,15 @@ describe("003wf3 S-6/S-21: gated owner routes during an actual managed closing",
       },
     });
     const cancelled = built.body.job.id as string;
+    // An import for this business (Astra 03:05: its routes are exercised, not only classified).
+    const imported = await w.seller("/api/imports", "POST", {
+      idempotency_key: "route-import-pre-0001",
+      business_id: w.biz,
+      name: "Imported product",
+    });
+    expect([200, 201], JSON.stringify(imported.body).slice(0, 300)).toContain(imported.status);
+    const importId = String(find(imported.body, "id"));
+    const importVersion = Number(find(imported.body.workspace ?? imported.body, "version"));
     expect((await w.seller(`/api/builds/${cancelled}/cancel`, "POST", {})).status).toBe(200);
     await w.toBuyerAccepted();
     const c = await w.act(w.seller, FOUNDER, "accept");
@@ -445,7 +469,8 @@ describe("003wf3 S-6/S-21: gated owner routes during an actual managed closing",
       offer: w.b.offer,
       release: String(release.id),
       build: String(release.artifact_job),
-      importId: null,
+      importId,
+      importVersion,
       cancelled,
       reviewed,
       draftRev,
@@ -496,12 +521,31 @@ describe("003wf3 S-6/S-21: gated owner routes during an actual managed closing",
       `/api/businesses/${w.biz}/value`,
       `/api/businesses/${w.biz}/public-profile`,
     ];
-    const refusedReads: string[] = [];
-    for (const path of reads) {
-      const r = await w.seller(path);
-      if (r.body?.code === "handover_in_progress") refusedReads.push(path);
-    }
-    expect(refusedReads, "reads refused during the handover").toEqual([]);
+    const answers = new Map<string, { status: number; body: Json }>();
+    for (const path of reads) answers.set(path, await w.seller(path));
+    const failed = [...answers]
+      .filter(([, r]) => r.status !== 200)
+      .map(([p, r]) => `${p} → ${r.status} ${r.body?.code ?? ""}`);
+    expect(failed, "owner reads during the handover").toEqual([]);
+    const got = (suffix: string) =>
+      (answers.get(`/api/businesses/${w.biz}${suffix}`) as { body: Json }).body;
+    expect(got("").business?.id ?? got("").id).toBe(w.biz);
+    expect(got("/books")).toHaveProperty("basis");
+    expect(got("/books")).toHaveProperty("period_months", 12);
+    expect(got("/value")).toHaveProperty("estimate");
+    expect(typeof find(got("/public-profile"), "draft_rev")).toBe("number");
+    expect(got("/digital-desk")).toBeTruthy();
+    // A real edit of the second business takes effect while the first is changing hands.
+    const renamed = await w.seller(`/api/businesses/${other.biz}`, "PATCH", {
+      name: "Second business, renamed",
+    });
+    expect(renamed.status, JSON.stringify(renamed.body)).toBe(200);
+    expect(w.rows("SELECT name FROM businesses WHERE id = ?", other.biz)[0]?.name).toBe(
+      "Second business, renamed",
+    );
+    expect(w.rows("SELECT name FROM businesses WHERE id = ?", w.biz)[0]?.name).not.toBe(
+      "Renamed during the closing",
+    );
     expect(refusedHere.length + UNAVAILABLE_HERE.length).toBe(
       gatedCalls({
         biz: "",
@@ -510,7 +554,7 @@ describe("003wf3 S-6/S-21: gated owner routes during an actual managed closing",
         offer: "",
         release: "",
         build: "",
-        importId: null,
+        importId: "counted",
       }).length,
     );
   }, 120_000);

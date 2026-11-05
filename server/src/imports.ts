@@ -1186,6 +1186,9 @@ export class Imports {
     const kind =
       input.product_kind === undefined ? w.product_kind : this.parseKind(input.product_kind);
     this.store.tx(() => {
+      // Job 003wf3 (S-21, found by the route inventory): an owner edit, refused in its own
+      // transaction while this business is changing hands.
+      this.store.requireNoHandover(w.business_id);
       const r = this.db
         .prepare(
           "UPDATE import_workspaces SET name = ?, description = ?, product_kind = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?",
@@ -1230,6 +1233,7 @@ export class Imports {
     if (urlHasCredential(note))
       bad("That note has a URL with credentials in it. Remove them; nothing was saved.");
     this.store.tx(() => {
+      this.store.requireNoHandover(w.business_id); // job 003wf3 (S-21): as update
       const r = this.db
         .prepare(
           "UPDATE import_dependencies SET uses = ?, note = ?, asserted_by = ?, asserted_at = ?, version = version + 1 WHERE workspace_id = ? AND category = ? AND version = ?",
