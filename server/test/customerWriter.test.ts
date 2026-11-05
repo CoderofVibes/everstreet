@@ -125,6 +125,11 @@ function syntheticChain(op: { account: string; key: ReturnType<typeof newKey> })
     methods: [] as string[],
     /** How a reply looks: final for this hash (true), or an optimistic/mismatched one. */
     replyShape: "final" as "final" | "optimistic" | "wrong_hash",
+    /**
+     * Holds the FIRST send_tx until released, then answers it InvalidNonce: a node that validated
+     * it after another copy of the same bytes landed (Astra's overlapping counterexample).
+     */
+    holdFirstSend: null as { gate: Promise<void>; reached: () => void } | null,
   };
   const spki = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), op.key.pub]);
   const pubKey = createPublicKey({ key: spki, format: "der", type: "spki" });
@@ -195,6 +200,12 @@ function syntheticChain(op: { account: string; key: ReturnType<typeof newKey> })
     chain.sends.push({ b64, tx });
     if (!verify(null, hash, pubKey, tx.signature))
       return err("INVALID_TRANSACTION", { InvalidSignature: {} });
+    if (chain.holdFirstSend && chain.sends.length === 1) {
+      const hold = chain.holdFirstSend;
+      hold.reached();
+      await hold.gate;
+      return err("INVALID_TRANSACTION", { InvalidTxError: { InvalidNonce: {} } });
+    }
     if (chain.included.has(h)) return outcome(chain.included.get(h) as { ok: boolean }, h);
     if (chain.mode === "steal_nonce") chain.keyNonce = tx.nonce; // another use of the key got there first
     if (tx.nonce <= chain.keyNonce)
@@ -536,6 +547,65 @@ describe("003w-d crash and unknown boundaries (a new process's connection each t
       code: "E_SIGNER_CHANGED",
     });
     expect(b.chain.methods).toEqual([]);
+  });
+});
+
+describe("003w-d overlapping senders (Astra's first-broadcast counterexample, reproduced first)", () => {
+  /** A first send held at the synthetic node; resolves `reached` once it is in flight. */
+  const holdFirst = (chain: ReturnType<typeof syntheticChain>["chain"]) => {
+    let release = () => {};
+    let reached = () => {};
+    const inFlight = new Promise<void>((r) => {
+      reached = r;
+    });
+    chain.holdFirstSend = {
+      gate: new Promise<void>((r) => {
+        release = r;
+      }),
+      reached,
+    };
+    return { inFlight, release };
+  };
+
+  it("a concurrent retry's rebroadcast makes the first send's later InvalidNonce no proof: no second transaction", async () => {
+    const { chain, conn, writer } = setup();
+    const hold = holdFirst(chain);
+    const w1 = writer(conn()); // two independent connections, as two processes would have
+    const w2 = writer(conn());
+    const first = w1.openHold(open("req-1"));
+    await hold.inFlight; // the first copy is with the node, unanswered
+    chain.mode = "land_no_answer"; // the retry's copy of the SAME bytes lands; its answer is lost
+    expect((await w2.openHold(open("req-1"))).status).toBe("unknown");
+    expect(chain.sends).toHaveLength(2);
+    expect(chain.sends[1]?.b64).toBe(chain.sends[0]?.b64);
+    hold.release(); // the first copy's late answer: InvalidNonce (its nonce was used by the retry)
+    expect((await first).status).toBe("unknown");
+    chain.holdFirstSend = null;
+    chain.mode = "land";
+    // The next call must find the transaction that landed, not sign a fresh one.
+    expect((await writer(conn()).openHold(open("req-1"))).status).toBe("opened");
+    expect(chain.sends).toHaveLength(2);
+    expect(new Set(chain.sends.map((s) => s.tx.nonce)).size).toBe(1);
+    expect(conn().prepare("SELECT attempt, state FROM chain_tx_attempts").all()).toEqual([
+      { attempt: 1, state: "success" },
+    ]);
+  });
+
+  it("a late first-send answer can't undo a terminal status recorded meanwhile", async () => {
+    const { chain, conn, writer } = setup();
+    const hold = holdFirst(chain);
+    const first = writer(conn()).openHold(open("req-1"));
+    await hold.inFlight;
+    chain.mode = "land"; // the retry's copy lands and is answered: success is recorded
+    expect((await writer(conn()).openHold(open("req-1"))).status).toBe("opened");
+    hold.release(); // the first copy's late InvalidNonce
+    await first;
+    expect(conn().prepare("SELECT state FROM chain_tx_attempts").all()).toEqual([
+      { state: "success" },
+    ]);
+    chain.holdFirstSend = null;
+    expect((await writer(conn()).openHold(open("req-1"))).status).toBe("already");
+    expect(chain.sends).toHaveLength(2);
   });
 });
 

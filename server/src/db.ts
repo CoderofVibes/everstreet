@@ -744,13 +744,15 @@ export function openDb(path: string) {
       method TEXT NOT NULL CHECK (method IN ('open_hold', 'settle_hold', 'release_hold_for')),
       receiver TEXT NOT NULL, signer TEXT NOT NULL, public_key TEXT NOT NULL, nonce TEXT NOT NULL,
       block_hash TEXT NOT NULL, block_height TEXT NOT NULL, tx_hash TEXT NOT NULL UNIQUE,
-      signed_tx TEXT NOT NULL,
+      signed_tx TEXT NOT NULL, broadcasts INTEGER NOT NULL DEFAULT 0,
       state TEXT NOT NULL CHECK (state IN ('signed', 'success', 'failure', 'invalid')),
       code TEXT, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
       PRIMARY KEY (operation, attempt)
     ) STRICT;
     CREATE UNIQUE INDEX IF NOT EXISTS chain_tx_one_nonce ON chain_tx_attempts (signer, public_key, nonce);
   `);
+  if (!columns("chain_tx_attempts").has("broadcasts"))
+    db.exec("ALTER TABLE chain_tx_attempts ADD COLUMN broadcasts INTEGER NOT NULL DEFAULT 0");
   const requestCols003m = columns("customer_requests");
   if (!requestCols003m.has("evidence_mark"))
     db.exec("ALTER TABLE customer_requests ADD COLUMN evidence_mark TEXT");

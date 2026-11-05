@@ -209,7 +209,9 @@ gate are unchanged and must keep passing.
 
 ## 8. The customer chain writer (sub-job 003w-d)
 
-**Design (written before the code).** The callers are `CustomerUses.submit` (reservation) and the
+**Design.** (Honest order: this section was appended after the first version of
+`customerWriter.ts`, then corrected twice after Astra's CustomerWriterReview counterexamples; it
+describes the final behaviour.) The callers are `CustomerUses.submit` (reservation) and the
 unit step (settle or release). They already mark intent ("unknown") under their lease before
 calling, treat the answer as an event only, and resend the **identical payload**, bounded by
 `maxSubmissions`, whenever readback shows the hold still not open. So the writer, not the
@@ -228,7 +230,7 @@ callers, must make "the same operation again" safe:
 |---|---|
 | None | Read the key's nonce and permission and a final block. Then, in ONE `BEGIN IMMEDIATE` transaction: re-check the operation, allocate the nonce, sign and persist. Then broadcast. |
 | `signed` | Read its own **FINAL** status by hash. Final: record it. Not found and still valid: rebroadcast the **same bytes** (the same hash, so the chain includes it at most once). Otherwise it **stays unknown**: past the validity window it answers `unknown: needs_reconciliation`. **No fresh transaction is ever made after an attempt whose outcome may be unknown** (Astra's CustomerWriterReview): a missing status, an expiry or a used nonce on a rebroadcast doesn't prove it didn't execute. |
-| `invalid` | Only one thing makes an attempt `invalid`: its exact bytes, on their **first** broadcast (nothing else ever had them), refused at admission for a used nonce or an expired block hash. Then a fresh attempt (a new nonce) is allowed. Any other refusal leaves it `signed`. |
+| `invalid` | Only one thing makes an attempt `invalid`: a used-nonce or expired-hash admission refusal received by the **sole** sender of its bytes. Every send, first or repeated, by any connection or process, first durably claims it by incrementing `broadcasts` while the attempt is `signed` (a crash after the claim counts as a send). The refusal turns into `invalid` only by a compare-and-set requiring `broadcasts = 1`, made by the sender whose claim was that one. With another send claimed (Astra's overlapping retry), the refusal proves nothing about the other copy, and the attempt stays `signed`. A sender whose claim finds the attempt no longer `signed` doesn't send. Only after `invalid` is a fresh attempt (a new nonce) allowed. |
 | Another signer or key | `E_SIGNER_CHANGED`: never queried or rebroadcast under the new identity, so it needs explicit reconciliation. |
 | `success` | Answer `already` with no transaction. |
 | `failure` | Answer `refused` with the recorded `E_` code, and no new transaction. |
@@ -247,6 +249,7 @@ callers, must make "the same operation again" safe:
 - **Fail closed.** Identity checks fail closed: testnet and `.testnet` accounts only, and the key
   must permit the receiver and method (FullAccess, or a FunctionCall key for that contract and
   method). Otherwise `E_SIGNER_KEY`, and nothing is signed.
+- **Terminal states are final.** `success`, `failure` and `invalid` are only written over a `signed` row (a compare-and-set). A late reply to an interrupted or overlapping sender that finds a terminal state answers from that durable state, and never undoes it.
 - **What counts as an outcome.** Only a reply with `final_execution_status: FINAL` and this exact transaction's hash. `SuccessValue` means success, and `Failure` or a failed receipt means failure (its `E_` code kept). An optimistic, mismatched or partial reply is unknown, and the writer asks with `wait_until: FINAL`.
 - **Answers are events.** The customer-use state machine's exact contract readback stays the only
   proof of a reservation or a charge.
@@ -284,7 +287,12 @@ disposable SQLite file over separate connections):
 - dropped then expired (the same hash while valid, then it **stays unknown** with no fresh
   transaction);
 - Astra's counterexample: a used nonce on a rebroadcast stays unknown;
-- the only fresh-attempt proof, a used nonce on the first broadcast, giving a new nonce;
+- the only fresh-attempt proof, a used nonce received by the sole sender, giving a new nonce;
+- **overlapping senders on independent connections:** a held first send, then a retry whose
+  identical copy lands with its answer lost, then the first send's late InvalidNonce. Reproduced
+  first (the old code signed a third, fresh transaction). Now it stays unknown, and the next call
+  finds the landed transaction (one nonce, two sends of the same bytes);
+- a late first-send answer can't undo a success recorded meanwhile;
 - optimistic and wrong-hash replies are never recorded;
 - a signer change is refused with no reads;
 - SDK byte compatibility;

@@ -501,30 +501,88 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
       }
       if (height > BigInt(a.block_height) + VALIDITY_BLOCKS)
         return { status: "unknown", detail: "needs_reconciliation", tx: a.tx_hash } as WriterAnswer;
-      const again = await this.opts.rpc.sendTx(a.signed_tx, a.tx_hash, signal);
-      if (again.kind === "success" || again.kind === "failure") return this.record(a, again);
+      return this.send(a, signal);
     }
     return { status: "unknown", detail: "pending", tx: a.tx_hash } as WriterAnswer;
   }
 
+  /**
+   * Records a FINAL outcome, only over a still-'signed' attempt. If something else already
+   * recorded a terminal state (another sender, a late callback), that durable state is the answer;
+   * a late reply never undoes it.
+   */
   private record(
     a: Attempt,
     o: { kind: "success" } | { kind: "failure"; code: string },
   ): "success" | WriterAnswer {
-    if (o.kind === "success") {
-      this.mark(a, "success", null);
-      return "success";
-    }
-    this.mark(a, "failure", o.code);
-    return { status: "refused", code: o.code, tx: a.tx_hash };
+    if (!this.mark(a, o.kind, o.kind === "failure" ? o.code : null)) return this.fromRow(a);
+    return o.kind === "success" ? "success" : { status: "refused", code: o.code, tx: a.tx_hash };
   }
 
-  private mark(a: Attempt, state: Attempt["state"], code: string | null) {
-    this.db
+  /** Moves a 'signed' attempt to a terminal state; false if it was no longer 'signed'. */
+  private mark(a: Attempt, state: Attempt["state"], code: string | null): boolean {
+    return (
+      this.db
+        .prepare(
+          "UPDATE chain_tx_attempts SET state = ?, code = ?, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed'",
+        )
+        .run(state, code, this.now(), a.operation, a.attempt).changes === 1
+    );
+  }
+
+  /** The attempt's durable state as an answer. */
+  private fromRow(a: Attempt): "success" | WriterAnswer {
+    const r = this.db
+      .prepare("SELECT state, code FROM chain_tx_attempts WHERE operation = ? AND attempt = ?")
+      .get(a.operation, a.attempt) as { state: Attempt["state"]; code: string | null } | undefined;
+    if (r?.state === "success") return "success";
+    if (r?.state === "failure")
+      return { status: "refused", code: r.code ?? "E_UNRECOGNIZED", tx: a.tx_hash };
+    return {
+      status: "unknown",
+      detail: r?.state === "invalid" ? "invalid" : "pending",
+      tx: a.tx_hash,
+    } as WriterAnswer;
+  }
+
+  /**
+   * Job 003w-d (Astra's overlapping first-broadcast counterexample): every send of an attempt's
+   * bytes, first or repeated, by any connection or process, is CLAIMED durably before it
+   * happens, by incrementing its `broadcasts` count while it is still 'signed'. A crash after
+   * the claim counts as a send. So `broadcasts = 1` at the moment of a compare-and-set proves
+   * that exactly one send of these bytes ever started: this one.
+   * - A final status is recorded (`record`).
+   * - A used-nonce or expired-hash admission refusal makes the attempt 'invalid' (and so allows
+   *   a fresh transaction later) ONLY by a CAS requiring `broadcasts = 1` and this sender to be
+   *   that one send. With any other send claimed, the refusal proves nothing about the other
+   *   copy, and the attempt stays 'signed' (unknown).
+   * - A sender whose claim finds the attempt no longer 'signed' doesn't send at all.
+   */
+  private async send(a: Attempt, signal: AbortSignal): Promise<"success" | WriterAnswer> {
+    const claimed = this.db
       .prepare(
-        "UPDATE chain_tx_attempts SET state = ?, code = ?, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed'",
+        "UPDATE chain_tx_attempts SET broadcasts = broadcasts + 1, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' RETURNING broadcasts",
       )
-      .run(state, code, this.now(), a.operation, a.attempt);
+      .get(this.now(), a.operation, a.attempt) as { broadcasts: number } | undefined;
+    if (!claimed) return this.fromRow(a);
+    const o = await this.opts.rpc.sendTx(a.signed_tx, a.tx_hash, signal);
+    if (o.kind === "success" || o.kind === "failure") return this.record(a, o);
+    if (
+      o.kind === "invalid" &&
+      (o.reason === "nonce" || o.reason === "expired") &&
+      claimed.broadcasts === 1 &&
+      this.db
+        .prepare(
+          "UPDATE chain_tx_attempts SET state = 'invalid', code = ?, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' AND broadcasts = 1",
+        )
+        .run(o.reason, this.now(), a.operation, a.attempt).changes === 1
+    )
+      return { status: "unknown", detail: `invalid_${o.reason}`, tx: a.tx_hash } as WriterAnswer;
+    return {
+      status: "unknown",
+      detail: o.kind === "invalid" ? "invalid_unproven" : "no_answer",
+      tx: a.tx_hash,
+    } as WriterAnswer;
   }
 
   private persistAttempt(
@@ -615,21 +673,8 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
     signal: AbortSignal,
     success: WriterAnswer["status"],
   ): Promise<WriterAnswer> {
-    const o = await this.opts.rpc.sendTx(a.signed_tx, a.tx_hash, signal);
-    if (o.kind === "success" || o.kind === "failure") {
-      const r = this.record(a, o);
-      return r === "success" ? ({ status: success, tx: a.tx_hash } as WriterAnswer) : r;
-    }
-    // The ONLY proof that lets a later call sign a fresh transaction: these exact bytes, on their
-    // first broadcast (nothing else ever had them), were refused at admission for a used nonce or
-    // an expired block hash. Any other refusal, or any answer after an earlier unknown, isn't.
-    if (o.kind === "invalid" && (o.reason === "nonce" || o.reason === "expired"))
-      this.mark(a, "invalid", o.reason);
-    return {
-      status: "unknown",
-      detail: o.kind === "invalid" ? `invalid_${o.reason}` : "no_answer",
-      tx: a.tx_hash,
-    } as WriterAnswer;
+    const r = await this.send(a, signal);
+    return r === "success" ? ({ status: success, tx: a.tx_hash } as WriterAnswer) : r;
   }
 }
 
