@@ -231,4 +231,136 @@ describe("003wf2 the configured-composition sale review harness (actual child pr
     await expect(fetch(`${h.origin}/api/env`)).rejects.toThrow();
     await expect(fetch(`${h.app}/api/env`)).rejects.toThrow();
   }, 180_000);
+
+  it("a cumulative recovery and aftercare scenario stays inside its explicit budget: lost proposal, funding and close, wrong IDs, repeated reads, apply, registration, restored then paid", async () => {
+    const h = await startConfiguredSaleHarness({
+      sitePort: await freePort(),
+      controlPort: await freePort(),
+      heapMb: 256,
+    });
+    running = h;
+    const seller = browserOn(h.origin, CONFIGURED_SELLER);
+    const buyer = browserOn(h.origin, CONFIGURED_BUYER);
+    await signIn(h, seller, CONFIGURED_SELLER);
+    await signIn(h, buyer, CONFIGURED_BUYER);
+    /** What a page reload reads (the session, the environment, the sale), a few times over. */
+    const reloads = async (call: Browser, n = 5) => {
+      for (let i = 0; i < n; i++) {
+        expect((await call("/api/me")).status).toBe(200);
+        expect((await call(`/api/sales/${h.business}`)).status).toBe(200);
+      }
+    };
+    const recover = async (call: Browser, id: string, method: string, wrong: string) => {
+      const w = await call(`/api/sales/actions/${id}/check`, "POST", { tx_hash: wrong });
+      expect(w.body.transaction).toMatchObject({ matched: false });
+      await reloads(call);
+      const tx = (await history(h, call.account)).filter((x) => x.method === method).at(-1)
+        ?.id as string;
+      const r = await call(`/api/sales/actions/${id}/check`, "POST", { tx_hash: tx });
+      expect(r.body.resolution, JSON.stringify(r.body)).toMatchObject({ kind: "confirmed" });
+      return r;
+    };
+    const FAKE = "4".repeat(43);
+
+    // Lost proposal: the control moved, so it can no longer take effect; recovered by its ID only.
+    const p = await act(
+      h,
+      seller,
+      "propose",
+      {
+        buyer_account: CONFIGURED_BUYER,
+        price: "250000000",
+        expires_in_days: 7,
+        available_floor: "0",
+        grants: [{ account: OP, caps: 1 }],
+        exclusions: [],
+        note: "",
+      },
+      { lose: true },
+    );
+    expect(p.check.body.resolution.kind).toBe("no_longer_possible");
+    expect((await recover(seller, p.id, "propose_sale_guarded", FAKE)).body.effects).toMatchObject({
+      recorded: { deal_seq: "1", version: 1 },
+    });
+    // Buyer: registration, lost funding (wrong ID: the registration), acceptance.
+    const reg = await act(h, buyer, "register");
+    const f = await act(h, buyer, "fund", {}, { lose: true });
+    expect(f.check.body.resolution.kind).toBe("no_longer_possible");
+    await recover(buyer, f.id, "ft_transfer_call", reg.hash as string);
+    expect((await act(h, buyer, "accept")).check.body.resolution.kind).toBe("confirmed");
+    // Lost close: the page offers Apply; applying first, then the original ID reports "already".
+    const close = await act(h, seller, "accept", {}, { lose: true });
+    expect(close.check.body.resolution.kind).toBe("no_longer_possible");
+    const s1 = (await seller(`/api/sales/${h.business}`)).body;
+    const intent = (s1.intents as Json[]).find((i) => i.status === "recorded");
+    expect(intent).toBeTruthy();
+    const applied = await seller(
+      `/api/businesses/${h.business}/v3/intents/${intent?.id}/reconcile`,
+      "POST",
+    );
+    expect(applied.body, JSON.stringify(applied.body)).toMatchObject({ state: "applied" });
+    const rc = await recover(seller, close.id, "accept_sale", FAKE);
+    expect(rc.body.effects).toMatchObject({ reconcile: { state: "already" }, finished: true });
+    await reloads(buyer);
+    // The former seller registers to collect; the first payout fails (restored), then it's paid.
+    expect((await act(h, seller, "register")).check.body.resolution.kind).toBe("confirmed");
+    await fetch(`${h.control}/fail-next-payout`, { method: "POST" });
+    const first = await act(h, seller, "claim", { category: 2 });
+    expect(first.check.body.resolution).toMatchObject({ kind: "confirmed", result: "restored" });
+    expect((await seller(`/api/sales/${h.business}`)).body.party.sale_proceeds_claim).toBe(
+      "250000000",
+    );
+    const paid = await act(h, seller, "claim", { category: 2 });
+    expect(paid.check.body.resolution).toMatchObject({ kind: "confirmed", result: "paid" });
+    const end = (await seller(`/api/sales/${h.business}`)).body;
+    expect(end.party.sale_proceeds_claim).toBe("0");
+    await reloads(seller);
+
+    // The whole session stayed inside its explicit budget; the counters say what it used.
+    const u = (await (await fetch(`${h.control}/usage`)).json()) as Json;
+    expect(u.counters.exhausted).toBeNull();
+    expect(u.counters.transport_failed).toBe(0);
+    expect(u.counters.rpc_total).toBeGreaterThan(100);
+    expect(u.counters.rpc_total).toBeLessThan(u.budget.rpc_requests);
+    expect(u.counters.chain_calls).toBeLessThan(u.budget.chain_calls);
+    expect(u.counters.sale_calls).toBeLessThan(u.budget.sale_calls);
+    console.log(`configured scenario usage: ${JSON.stringify(u)}`);
+  }, 240_000);
+
+  it("a budget reached is REPORTED (the composition sees a failed read, the reason is named), never a success", async () => {
+    const h = await startConfiguredSaleHarness({
+      sitePort: await freePort(),
+      controlPort: await freePort(),
+      heapMb: 256,
+      budget: { rpcRequests: 40 },
+    });
+    running = h;
+    const seller = browserOn(h.origin, CONFIGURED_SELLER);
+    await signIn(h, seller, CONFIGURED_SELLER);
+    let last = 200;
+    for (let i = 0; i < 30 && last === 200; i++)
+      last = (await seller(`/api/sales/${h.business}`)).status;
+    expect(last).not.toBe(200);
+    const u = (await (await fetch(`${h.control}/usage`)).json()) as Json;
+    expect(u.counters.exhausted.reason).toBe("harness RPC budget reached (40 requests)");
+  }, 120_000);
+
+  it("a start that fails after the child and listeners are up leaves no child, listener or directory", async () => {
+    const [sitePort, controlPort] = [await freePort(), await freePort()];
+    const e = (await startConfiguredSaleHarness({
+      sitePort,
+      controlPort,
+      heapMb: 256,
+      injectStartupFailure: true,
+    }).catch((x) => x)) as Error & {
+      harness?: { dir: string; pid: number | null; removed: boolean };
+    };
+    expect(e.message).toBe("injected startup failure (cleanup test)");
+    expect(e.harness?.removed).toBe(true);
+    expect(existsSync(e.harness?.dir as string)).toBe(false);
+    expect(e.harness?.pid).toBeTypeOf("number");
+    expect(() => process.kill(e.harness?.pid as number, 0)).toThrow(); // the child is gone
+    await expect(fetch(`http://127.0.0.1:${sitePort}/`)).rejects.toThrow();
+    await expect(fetch(`http://127.0.0.1:${controlPort}/`)).rejects.toThrow();
+  }, 120_000);
 });

@@ -34,7 +34,7 @@
 
 import { type ChildProcess, fork } from "node:child_process";
 import { sign } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -93,7 +93,28 @@ export interface ConfiguredSaleOptions {
   heapMb?: number;
   /** Background maintenance pass interval (default 15 s). */
   maintenanceIntervalMs?: number;
+  /**
+   * The synthetic producers' explicit finite budget for one review session (Astra's 00:01
+   * review): RPC requests the harness answers (default 25 000) and the customer chain double's
+   * own call ceiling (default 4 000; the fixture default is 400). The sale double keeps its
+   * 2 000. Exhaustion is reported in the control status, never turned into a success.
+   */
+  budget?: { rpcRequests?: number; chainCalls?: number };
+  /** Tests only: fail the start after the child and both listeners are up (cleanup check). */
+  injectStartupFailure?: boolean;
 }
+
+/** Closes a listener: no new connections, existing ones cut; bounded to 2 s. */
+const closeListener = (s: { close: (cb?: () => void) => unknown }) =>
+  new Promise<void>((r) => {
+    const t = setTimeout(r, 2_000);
+    s.close(() => {
+      clearTimeout(t);
+      r();
+    });
+    (s as { closeAllConnections?: () => void }).closeAllConnections?.();
+  });
+const TAIL = 16_384;
 
 export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
   const HOST = "127.0.0.1";
@@ -102,6 +123,8 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
   const removeDir = () =>
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   let proc: ChildProcess | null = null;
+  let procExited: Promise<unknown> | null = null;
+  const bound: { close: (cb?: () => void) => unknown }[] = [];
   try {
     const appPort = await freePort();
     // ---- Bootstrap prerequisites (the accepted 003wf1 bootstrap, then the sale half) ----
@@ -113,6 +136,25 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       stop_timeout_ms: 5_000,
     });
     const sale = b.w.chain.attachSale({ owner: FOUNDER });
+    const budget = {
+      rpc_requests: o.budget?.rpcRequests ?? 25_000,
+      chain_calls: o.budget?.chainCalls ?? 4_000,
+      sale_calls: sale.ceiling,
+    };
+    b.w.chain.ceiling = budget.chain_calls;
+    /** Non-secret counters (control status only): what the synthetic producers answered. */
+    const counters = {
+      rpc: {} as Record<string, number>,
+      rpc_total: 0,
+      transport_failed: 0,
+      model: 0,
+      wallet_tx: 0,
+      exhausted: null as null | { reason: string; at: string },
+      last_error: null as string | null,
+    };
+    const exhaust = (reason: string) => {
+      counters.exhausted ??= { reason, at: new Date().toISOString() };
+    };
     b.w.chain.balances.set(CONFIGURED_BUYER, 1_000_000_000n); // Noah's fictional test tokens
     const db = openDb(b.db);
     try {
@@ -178,24 +220,6 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
     proc = child;
-    let out = "";
-    child.stdout?.on("data", (d) => (out += d));
-    child.stderr?.on("data", (d) => (out += d));
-    child.on(
-      "message",
-      (m: { type?: string; channel?: string; id?: number; url?: string; body?: string }) => {
-        if (m?.type !== "fetch") return;
-        void (async () => {
-          const r =
-            m.channel === "rpc"
-              ? controls.rpcDown
-                ? { status: 503, body: "synthetic: the RPC endpoint is down (harness control)" }
-                : { status: 200, body: await b.rpc.answer(String(m.body)) }
-              : await b.model.answer(String(m.url), JSON.parse(String(m.body || "{}")));
-          if (child.connected) child.send({ type: "reply", id: m.id, ...r });
-        })().catch(() => {});
-      },
-    );
     let exitCode: number | null | undefined;
     const exited = new Promise<number | null>((r) =>
       child.once("exit", (code) => {
@@ -203,12 +227,62 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
         r(code);
       }),
     );
-    for (let i = 0; i < 600 && !out.includes("listening on"); i++) {
+    procExited = exited;
+    // Only a bounded diagnostic tail of the child's output is kept.
+    let out = "";
+    let listening = false;
+    const take = (d: unknown) => {
+      out = (out + String(d)).slice(-TAIL);
+      if (out.includes("listening on")) listening = true;
+    };
+    child.stdout?.on("data", take);
+    child.stderr?.on("data", take);
+    const methodOf = (body: string) => {
+      try {
+        const j = JSON.parse(body) as { method?: string; params?: { request_type?: string } };
+        return j.method === "query" ? `query:${j.params?.request_type}` : String(j.method);
+      } catch {
+        return "malformed";
+      }
+    };
+    child.on(
+      "message",
+      (m: { type?: string; channel?: string; id?: number; url?: string; body?: string }) => {
+        if (m?.type !== "fetch") return;
+        void (async () => {
+          let r: { status: number; body: string };
+          try {
+            if (m.channel === "rpc") {
+              const k = methodOf(String(m.body));
+              counters.rpc[k] = (counters.rpc[k] ?? 0) + 1;
+              if (++counters.rpc_total > budget.rpc_requests) {
+                exhaust(`harness RPC budget reached (${budget.rpc_requests} requests)`);
+                r = { status: 503, body: "synthetic: the harness RPC budget is exhausted" };
+              } else if (controls.rpcDown)
+                r = { status: 503, body: "synthetic: the RPC endpoint is down (harness control)" };
+              else r = { status: 200, body: await b.rpc.answer(String(m.body)) };
+            } else {
+              counters.model++;
+              r = await b.model.answer(String(m.url), JSON.parse(String(m.body || "{}")));
+            }
+          } catch (e) {
+            // A producer failure is ANSWERED (the composition sees a failed read), never left
+            // waiting; a ceiling is recorded as the exhaustion reason.
+            const msg = String((e as Error)?.message ?? e).slice(0, 200);
+            counters.transport_failed++;
+            counters.last_error = msg;
+            if (/ceiling reached/.test(msg)) exhaust(msg);
+            r = { status: 500, body: `synthetic: ${msg}` };
+          }
+          if (child.connected) child.send({ type: "reply", id: m.id, ...r });
+        })();
+      },
+    );
+    for (let i = 0; i < 600 && !listening; i++) {
       if (exitCode !== undefined) break;
       await new Promise((r) => setTimeout(r, 50));
     }
-    if (!out.includes("listening on"))
-      throw new Error(`the configured application didn't start: ${out.slice(-800)}`);
+    if (!listening) throw new Error(`the configured application didn't start: ${out.slice(-800)}`);
     const app = `http://${HOST}:${appPort}`;
 
     // ---- The synthetic wallet module's calls (same origin as the page) ----
@@ -298,11 +372,14 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       if (!supported)
         return c.json({ error: "The synthetic wallet only sends the sale's own requests." }, 400);
       controls.sent.push({ signer: controls.account, ...call });
+      counters.wallet_tx++;
       let outcome: Json;
       try {
         outcome = b.w.chain.walletCall(controls.account, call as never);
       } catch (e) {
-        return c.json({ error: `The synthetic chain refused it: ${(e as Error).message}` }, 400);
+        const msg = String((e as Error).message);
+        if (/ceiling reached/.test(msg)) exhaust(msg);
+        return c.json({ error: `The synthetic chain refused it: ${msg}` }, 400);
       }
       if (controls.loseNext) {
         controls.loseNext = false;
@@ -384,32 +461,34 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
     };
 
     // ---- Listeners and the bounded stop ----
-    const siteServer = serve({ fetch: site.fetch, port: o.sitePort, hostname: HOST });
-    const controlServer = serve({
-      fetch: configuredSaleControl({
+    /** Listens, or fails the start (e.g. the port is taken); a bound listener is tracked. */
+    const listen = (fetch: (r: Request) => Response | Promise<Response>, port: number) =>
+      new Promise<ReturnType<typeof serve>>((ok, fail) => {
+        const s = serve({ fetch, port, hostname: HOST }, () => {
+          bound.push(s);
+          ok(s);
+        });
+        s.once("error", fail);
+      });
+    const siteServer = await listen(site.fetch, o.sitePort);
+    const controlServer = await listen(
+      configuredSaleControl({
         b,
         sale,
         controls,
         app,
         customerUse,
         accounts: ACCOUNTS,
+        budget,
+        counters,
       }).fetch,
-      port: o.controlPort,
-      hostname: HOST,
-    });
+      o.controlPort,
+    );
+    if (o.injectStartupFailure) throw new Error("injected startup failure (cleanup test)");
     let stopping: Promise<{ childExit: number | null; forcedKill: boolean }> | null = null;
-    const close = (s: { close: (cb?: () => void) => unknown }) =>
-      new Promise<void>((r) => {
-        const t = setTimeout(r, 2_000);
-        s.close(() => {
-          clearTimeout(t);
-          r();
-        });
-        (s as { closeAllConnections?: () => void }).closeAllConnections?.();
-      });
     const stop = () =>
       (stopping ??= (async () => {
-        await Promise.all([close(siteServer), close(controlServer)]);
+        await Promise.all([closeListener(siteServer), closeListener(controlServer)]);
         let forcedKill = false;
         if (exitCode === undefined) {
           if (child.connected) child.send({ type: "shutdown" });
@@ -433,13 +512,22 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       controls,
       keys,
       business: b.w.f.business as string,
+      budget,
+      counters,
       out: () => out,
       stop,
     };
   } catch (e) {
-    if (proc && proc.exitCode === null) proc.kill("SIGKILL");
+    // A failed start, at any point: close what is bound, end the child and WAIT (bounded) for it
+    // to exit, so its SQLite files are closed before the directory is removed (Windows).
+    await Promise.all(bound.map(closeListener));
+    const p = proc as ChildProcess | null;
+    if (p && p.exitCode === null && p.signalCode === null) p.kill("SIGKILL");
+    if (procExited) await Promise.race([procExited, new Promise((r) => setTimeout(r, 10_000))]);
     removeDir();
-    throw e;
+    throw Object.assign(e instanceof Error ? e : new Error(String(e)), {
+      harness: { dir, pid: p?.pid ?? null, removed: !existsSync(dir) },
+    });
   }
 }
 
@@ -460,9 +548,22 @@ function configuredSaleControl(h: {
   app: string;
   customerUse: () => Promise<unknown>;
   accounts: readonly string[];
+  budget: Record<string, number>;
+  counters: Record<string, unknown>;
 }) {
   const { b, sale, controls } = h;
   const control = new Hono();
+  /** The session's finite budget and what was used; `exhausted` names the first limit reached. */
+  const usage = () => ({
+    budget: h.budget,
+    counters: {
+      ...h.counters,
+      chain_calls: b.w.chain.calls,
+      sale_calls: sale.calls,
+      wallet_transactions_recorded: b.w.chain.txs.size,
+    },
+  });
+  control.get("/usage", (c) => c.json(usage()));
   control.get("/", async (c) => {
     const caps = await loopback(`${h.app}/api/system/capabilities`)
       .then((r) => r.json())
@@ -470,7 +571,8 @@ function configuredSaleControl(h: {
     return c.json({
       composition:
         "normal entry (serve.ts runServer → composeApplication), configured mode, in a child process",
-      controls,
+      usage: usage(),
+      controls: { ...controls, sent: controls.sent.length },
       business: b.w.f.business,
       sale_page: `/sales/${b.w.f.business}`,
       contract: sale.controlView(),

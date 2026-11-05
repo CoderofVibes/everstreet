@@ -9,7 +9,10 @@
 //
 // Site: http://127.0.0.1:<port>/ (default 8814). Sign in with the synthetic wallet (it starts as the
 // seller, ava-founder.near). Controls on http://127.0.0.1:<port+1>/ (a separate listener):
-//   GET  /                      composition, controls, contract, treasury, capabilities
+//   GET  /                      composition, usage, controls, contract, treasury, capabilities
+//   GET  /usage                 the session's explicit budget (RPC requests 25 000, customer chain
+//                               calls 4 000, sale double 2 000) and its non-secret counters; the
+//                               first limit reached is named in `exhausted` (never a success)
 //   GET  /history[?account=<id>]  the synthetic wallet's activity (each transaction's ID and status)
 //   POST /account/<id>          ava-founder.near (seller), noah-buyer.near (buyer) or
 //                               cara.near (Cara); sign out and in again to act as that person
