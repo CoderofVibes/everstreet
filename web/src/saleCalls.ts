@@ -197,14 +197,48 @@ export function expectedCall(p: SalePreview): WalletFunctionCall | null {
         gas: GAS.claim,
         deposit: "1",
       };
-    case "appoint":
+    case "appoint": {
+      // Job 003wf4 (OWNER_PLAN_SETUP.md §6): the call REPLACES the slot's mask. The resulting mask
+      // is re-derived here from the reviewed current slot and the support choice, never taken
+      // from the server's call: metering, plus support only if the slot has it and it is kept.
+      const cur = v.current as { caps: number; generation: number } | null | undefined;
+      const keep = v.keep_support !== false;
+      const caps = 1 | (keep && cur && (cur.caps & 2) !== 0 ? 2 : 0);
+      if (v.caps !== undefined && v.caps !== caps) return null;
       return {
         receiverId: p.contract,
         methodName: "appoint_operator_guarded",
-        args: { account: s(v.operator), caps: 1, expected_control_seq: cs },
+        args: { account: s(v.operator), caps, expected_control_seq: cs },
         gas: GAS.call,
         deposit: "1",
       };
+    }
+    case "create_plan": {
+      // Job 003wf4 (§4): the reviewed immutable plan, the reviewed next id and exactly the
+      // measured quote (plan bytes times the byte cost), re-derived here.
+      const plan = v.plan as Record<string, unknown> | undefined;
+      if (!plan || !DEC.test(s(v.plan_bytes)) || !DEC.test(s(v.storage_byte_cost))) return null;
+      const quote = (BigInt(s(v.plan_bytes)) * BigInt(s(v.storage_byte_cost))).toString();
+      if (s(v.deposit) !== quote) return null;
+      return {
+        receiverId: p.contract,
+        methodName: "create_plan_guarded",
+        args: {
+          input: {
+            unit_price: s(plan.unit_price),
+            max_units_per_purchase: plan.max_units_per_purchase,
+            max_units_outstanding: plan.max_units_outstanding,
+            max_hold_units: plan.max_hold_units,
+            hold_ttl_ms: s(plan.hold_ttl_ms),
+            settle_grace_ms: s(plan.settle_grace_ms),
+          },
+          expected_control_seq: cs,
+          expected_plan_id: v.plan_id,
+        },
+        gas: GAS.call,
+        deposit: quote,
+      };
+    }
     case "register":
       return {
         receiverId: p.asset,
@@ -350,6 +384,7 @@ export const KIND_LABEL: Record<SaleKind, string> = {
   expire: "End the expired offer",
   claim: "Collect",
   appoint: "Appoint metering",
+  create_plan: "Create this plan",
   abort: "End the closing",
   register: "Register with the token",
 };
@@ -375,4 +410,5 @@ export const EXCLUSIVE: SaleKind[] = [
   "appoint",
   "claim",
   "abort",
+  "create_plan",
 ];

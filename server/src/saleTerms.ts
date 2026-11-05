@@ -406,6 +406,146 @@ export const appointCall = (
   deposit: "1",
 });
 
+/** Job 003wf4: a plan's immutable terms, exactly as create_plan_guarded takes them (lib.rs PlanInput). */
+export interface PlanInputV3 {
+  unit_price: string;
+  max_units_per_purchase: number;
+  max_units_outstanding: number;
+  max_hold_units: number;
+  hold_ttl_ms: string;
+  settle_grace_ms: string;
+}
+
+/** Job 003wf4: the guarded plan creation, attaching exactly the measured quote. */
+export const createPlanCall = (
+  contract: string,
+  input: PlanInputV3,
+  expectedControlSeq: string,
+  expectedPlanId: number,
+  deposit: string,
+): WalletCall => ({
+  receiverId: contract,
+  methodName: "create_plan_guarded",
+  args: { input, expected_control_seq: expectedControlSeq, expected_plan_id: expectedPlanId },
+  gas: GAS.call,
+  deposit,
+});
+
+/** lib.rs PlanTermsView: the guarded plan-creation terms and the measured quote (job 003wf4). */
+export interface PlanTermsV3 {
+  version: number;
+  guarded: boolean;
+  next_plan_id: number;
+  plan_count: number;
+  max_plans: number;
+  plan_bytes: string;
+  storage_byte_cost: string;
+  control_seq: string;
+  generation: number;
+  live_deal: boolean;
+  rules: {
+    rules: {
+      min_reserve: string;
+      max_hold_units: number;
+      max_hold_ttl_ms: string;
+      max_settle_grace_ms: string;
+    };
+    min_hold_ttl_ms: string;
+    max_hold_ttl_ms: string;
+    max_settle_grace_ms: string;
+    payout_slots: number;
+    max_party_pending_total: number;
+    max_party_pending_each: number;
+    max_customer_pending: number;
+  };
+}
+
+const DECIMAL = /^(0|[1-9][0-9]{0,38})$/;
+const keysExactly = (o: unknown, keys: string[]): o is Record<string, unknown> =>
+  typeof o === "object" &&
+  o !== null &&
+  !Array.isArray(o) &&
+  Object.keys(o).length === keys.length &&
+  keys.every((k) => k in o);
+const int = (v: unknown, max: number) =>
+  typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max;
+const dec = (v: unknown, bits: 64 | 128) =>
+  typeof v === "string" && DECIMAL.test(v) && BigInt(v) < 1n << BigInt(bits);
+
+/** The plan terms view, strictly (every field, its type and range); null if it isn't one. */
+export function decodePlanTerms(v: unknown): PlanTermsV3 | null {
+  if (
+    !keysExactly(v, [
+      "version",
+      "guarded",
+      "next_plan_id",
+      "plan_count",
+      "max_plans",
+      "plan_bytes",
+      "storage_byte_cost",
+      "control_seq",
+      "generation",
+      "live_deal",
+      "rules",
+    ])
+  )
+    return null;
+  const r = v.rules;
+  if (
+    !keysExactly(r, [
+      "rules",
+      "min_hold_ttl_ms",
+      "max_hold_ttl_ms",
+      "max_settle_grace_ms",
+      "payout_slots",
+      "max_party_pending_total",
+      "max_party_pending_each",
+      "max_customer_pending",
+    ]) ||
+    !keysExactly(r.rules, [
+      "min_reserve",
+      "max_hold_units",
+      "max_hold_ttl_ms",
+      "max_settle_grace_ms",
+    ])
+  )
+    return null;
+  const rr = r.rules as Record<string, unknown>;
+  const ok =
+    v.version === 1 &&
+    v.guarded === true &&
+    int(v.next_plan_id, 0xffff_ffff) &&
+    int(v.plan_count, 0xffff_ffff) &&
+    int(v.max_plans, 0xffff_ffff) &&
+    v.next_plan_id === (v.plan_count as number) + 1 &&
+    dec(v.plan_bytes, 64) &&
+    dec(v.storage_byte_cost, 128) &&
+    dec(v.control_seq, 64) &&
+    int(v.generation, 0xffff_ffff) &&
+    typeof v.live_deal === "boolean" &&
+    dec(rr.min_reserve, 128) &&
+    int(rr.max_hold_units, 0xff) &&
+    dec(rr.max_hold_ttl_ms, 64) &&
+    dec(rr.max_settle_grace_ms, 64) &&
+    dec(r.min_hold_ttl_ms, 64) &&
+    dec(r.max_hold_ttl_ms, 64) &&
+    dec(r.max_settle_grace_ms, 64) &&
+    int(r.payout_slots, 0xff) &&
+    int(r.max_party_pending_total, 0xff) &&
+    int(r.max_party_pending_each, 0xffff) &&
+    int(r.max_customer_pending, 0xff);
+  return ok ? (v as unknown as PlanTermsV3) : null;
+}
+
+/** A token amount from base units and validated decimals, e.g. ("250000000", 6) → "250". */
+export function readableAmount(base: string, decimals: number): string {
+  const v = BigInt(base);
+  if (decimals === 0) return v.toString();
+  const scale = 10n ** BigInt(decimals);
+  const frac = (v % scale).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return frac ? `${v / scale}.${frac}` : (v / scale).toString();
+}
+
 export const registerCall = (asset: string, account: string, deposit: string): WalletCall => ({
   receiverId: asset,
   methodName: "storage_deposit",
@@ -427,7 +567,8 @@ export type SaleKind =
   | "claim"
   | "appoint"
   | "register"
-  | "abort";
+  | "abort"
+  | "create_plan";
 /** Job 003wf3: a party ends a Gated closing whose deadline passed (anyone may, on chain). */
 export const abortCall = (contract: string, dealSeq: string): WalletCall => ({
   receiverId: contract,
@@ -449,6 +590,7 @@ export const SALE_KINDS: SaleKind[] = [
   "appoint",
   "register",
   "abort",
+  "create_plan",
 ];
 
 /**
@@ -465,6 +607,7 @@ export function exclusivity(kind: SaleKind, call: WalletCall, actor: string): st
     case "cancel":
     case "expire":
     case "appoint":
+    case "create_plan":
       return `control:${String(a.expected_control_seq)}`;
     case "fund": {
       const m = JSON.parse(String(a.msg)) as { fund_deal: { expected_control_seq: string } };

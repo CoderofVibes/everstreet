@@ -35,9 +35,11 @@ import {
   canonicalTerms,
   claimCall,
   claimOf,
+  createPlanCall,
   dealDigest,
   dealStepCall,
   decodeParty,
+  decodePlanTerms,
   decodeSaleTerms,
   exclusivity,
   fundCall,
@@ -46,7 +48,10 @@ import {
   NOT_INCLUDED,
   offerWindow,
   type PartyV3,
+  type PlanInputV3,
+  type PlanTermsV3,
   proposeCall,
+  readableAmount,
   registerCall,
   reviseCall,
   SALE_KINDS,
@@ -112,6 +117,7 @@ const EXCLUSIVE = new Set<SaleKind>([
   "appoint",
   "claim",
   "abort",
+  "create_plan",
 ]);
 /** States a check may still resolve by the action's own transaction. */
 const CHECKABLE: State[] = ["prepared", "requested", "unknown", "no_longer_possible"];
@@ -152,15 +158,16 @@ export function migrateSaleActions(db: Db) {
   const existing = db
     .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sale_actions'")
     .get() as { sql: string } | undefined;
-  if (existing && !existing.sql.includes("'abort'")) {
-    // Job 003wf3: a new kind. SQLite can't alter a CHECK, so the table is copied once.
+  if (existing && SALE_KINDS.some((k) => !existing.sql.includes(`'${k}'`))) {
+    // Jobs 003wf3 (abort) and 003wf4 (create_plan): a new kind. SQLite can't alter a CHECK, so
+    // the table is copied once, every row kept as it was.
     db.exec("BEGIN IMMEDIATE");
     try {
-      db.exec("ALTER TABLE sale_actions RENAME TO sale_actions_before_abort");
+      db.exec("ALTER TABLE sale_actions RENAME TO sale_actions_before_kinds");
       db.exec("DROP INDEX IF EXISTS sale_actions_by_business");
       db.exec(saleActionsTable());
-      db.exec("INSERT INTO sale_actions SELECT * FROM sale_actions_before_abort");
-      db.exec("DROP TABLE sale_actions_before_abort");
+      db.exec("INSERT INTO sale_actions SELECT * FROM sale_actions_before_kinds");
+      db.exec("DROP TABLE sale_actions_before_kinds");
       db.exec("COMMIT");
     } catch (e) {
       if (db.isTransaction) db.exec("ROLLBACK");
@@ -213,6 +220,11 @@ export interface SaleReading {
   party: PartyV3 | null;
   /** The contract's declared sale terms (for `termsFor`); null on code without them. */
   terms: SaleTermsV3 | null;
+  /**
+   * Job 003wf4: the guarded plan-creation terms, when asked for; null on code without them
+   * (guided plans are then unavailable), undefined when not read.
+   */
+  plan_terms?: PlanTermsV3 | null;
   token: {
     meta: TokenMeta | null;
     balance: string | null;
@@ -526,17 +538,34 @@ export function resolveSaleTx(
             message: `Deal ${seq}'s closing ended (aborted). The seller keeps the business; the buyer's escrow is their claim to collect.`,
           }
         : null;
-    case "appoint":
+    case "appoint": {
+      // Job 003wf4: exactly the reviewed mask (older rows reviewed METERING alone).
+      const caps = typeof review.caps === "number" ? review.caps : METERING;
       return eventsOf(first, "operator_appointed").some(
-        (d) => d.account === review.operator && d.caps === METERING,
+        (d) => d.account === review.operator && d.caps === caps,
       )
         ? {
             kind: "confirmed",
             result: "appointed",
-            message:
-              "Metering is appointed for this generation: customers' new uses can be served.",
+            message: `The platform's account holds ${capsName(caps)} for this owner. Whether customers can be served now is shown separately.`,
           }
         : null;
+    }
+    case "create_plan": {
+      // Its own receipt returns the reviewed plan id and names it with the reviewed price. The
+      // check then reads the plan back before this counts (SaleActions.check).
+      const plan = review.plan as PlanInputV3;
+      return receiptValue(first) === review.plan_id &&
+        eventsOf(first, "plan_created").some(
+          (d) => d.plan_id === review.plan_id && d.unit_price === plan.unit_price,
+        )
+        ? {
+            kind: "confirmed",
+            result: "created",
+            message: `Plan ${String(review.plan_id)} was created by this request's own transaction.`,
+          }
+        : null;
+    }
   }
   return null;
 }
@@ -642,9 +671,114 @@ export interface SaleOptions {
     businessId: string,
     control: ControlV3,
   ) => { eligible: boolean; reasons: string[]; note: string };
+  /**
+   * Job 003wf4 (OWNER_PLAN_SETUP.md §5): whether THIS server can serve a plan's holds under its
+   * current configuration (CustomerUses.planUsability). Absent: guided plans are unavailable.
+   */
+  planUsability?: (plan: { hold_ttl_ms: string; settle_grace_ms: string }) => {
+    usable: boolean;
+    reason: string | null;
+    min_hold_ms: number;
+    min_grace_ms: number;
+    grace_ok: boolean;
+  };
   readTimeoutMs?: number;
   now?: () => number;
 }
+
+/** Job 003wf4: the platform account's current operator slot and what an appointment makes of it. */
+export function appointmentFor(
+  control: ControlV3,
+  platform: string,
+  keepSupport: boolean,
+): {
+  current: { caps: number; generation: number } | null;
+  caps: number;
+  already: boolean;
+  change: string;
+  support: "added" | "kept" | "renewed" | "removed" | "not_renewed" | "none";
+} {
+  const slot = control.operators.find((o) => o.account === platform) ?? null;
+  const current = slot ? { caps: slot.caps, generation: slot.generation } : null;
+  const thisGen = slot !== null && slot.generation === control.generation;
+  const meters = slot !== null && (slot.caps & METERING) !== 0;
+  const supports = slot !== null && (slot.caps & SUPPORT) !== 0;
+  if (thisGen && meters)
+    return {
+      current,
+      caps: slot.caps,
+      already: true,
+      change: "Already appointed.",
+      support: "none",
+    };
+  if (!slot)
+    return { current, caps: METERING, already: false, change: "Adds metering.", support: "none" };
+  if (!supports)
+    return {
+      current,
+      caps: METERING,
+      already: false,
+      change: "Renews metering for this owner.",
+      support: "none",
+    };
+  const caps = keepSupport ? METERING | SUPPORT : METERING;
+  if (thisGen)
+    return keepSupport
+      ? {
+          current,
+          caps,
+          already: false,
+          change: "Adds metering and keeps support.",
+          support: "kept",
+        }
+      : {
+          current,
+          caps,
+          already: false,
+          change: "Replaces support with metering: support is removed.",
+          support: "removed",
+        };
+  if (!meters)
+    return keepSupport
+      ? {
+          current,
+          caps,
+          already: false,
+          change: "Renews support for this owner and adds metering.",
+          support: "renewed",
+        }
+      : {
+          current,
+          caps,
+          already: false,
+          change: "Adds metering; support isn't renewed.",
+          support: "not_renewed",
+        };
+  return keepSupport
+    ? {
+        current,
+        caps,
+        already: false,
+        change: "Renews metering and support for this owner.",
+        support: "renewed",
+      }
+    : {
+        current,
+        caps,
+        already: false,
+        change: "Renews metering; support is removed.",
+        support: "not_renewed",
+      };
+}
+
+const capsName = (caps: number) =>
+  caps === (METERING | SUPPORT)
+    ? "metering and support"
+    : caps === METERING
+      ? "metering"
+      : caps === SUPPORT
+        ? "support"
+        : `capabilities ${caps}`;
 
 export class SaleActions {
   constructor(
@@ -727,6 +861,7 @@ export class SaleActions {
     binding: { network: string; account: string },
     viewerAccount: string,
     termsFor: string,
+    withPlanTerms = false,
   ): Promise<SaleReading> {
     const reader = this.reader as CustomerViewTransport;
     const controller = new AbortController();
@@ -786,6 +921,30 @@ export class SaleActions {
         pending: decodePending(pending),
       };
       coherent(r);
+      // Job 003wf4: the guarded plan terms, at the same block; older code has none (no fallback).
+      let planTerms: PlanTermsV3 | null | undefined;
+      if (withPlanTerms) {
+        const raw = await at(c, "get_plan_terms", {}).catch((e) => {
+          if (
+            (e instanceof V3ReadError && e.code === "execution_failed") ||
+            (!(e instanceof V3ReadError) && /MethodNotFound/.test(String((e as Error)?.message)))
+          )
+            return null;
+          throw e;
+        });
+        if (raw === null) planTerms = null;
+        else {
+          planTerms = decodePlanTerms(raw);
+          // Malformed, or not the state the control view shows at this block: no evidence.
+          if (
+            !planTerms ||
+            planTerms.control_seq !== r.control.control_seq ||
+            planTerms.generation !== r.control.generation ||
+            planTerms.live_deal !== (r.control.live_deal !== null)
+          )
+            throw new V3ReadError("malformed", "get_plan_terms disagrees with get_control");
+        }
+      }
       const asset = r.treasury.asset;
       const [meta, balance, mine, biz, bounds] = await Promise.all([
         at(asset, "ft_metadata", {}),
@@ -797,6 +956,7 @@ export class SaleActions {
       return {
         block,
         ...r,
+        ...(withPlanTerms ? { plan_terms: planTerms } : {}),
         party: decodeParty(party),
         terms: termsRaw === null ? null : decodeSaleTerms(termsRaw),
         token: {
@@ -1004,7 +1164,9 @@ export class SaleActions {
       isAccountId(input.buyer_account)
         ? input.buyer_account
         : g.account;
-    const s = await this.read(g.binding, g.account, termsFor);
+    // Job 003wf4: no plan is reviewed while this business is changing hands.
+    if (kind === "create_plan") this.store.requireNoHandover(businessId);
+    const s = await this.read(g.binding, g.account, termsFor, kind === "create_plan");
     // Job 003wf3: the managed-handover capability, read once for this preview.
     const managed =
       s.control.close_mode === "gated" && kind === "accept"
@@ -1484,27 +1646,136 @@ export class SaleActions {
         if (!roles.chain_owner)
           no("not_owner", "Only the contract's current owner appoints operators.");
         if (d) no("deal_live", "Operators can't change while a sale is in progress.");
-        if (
-          s.control.operators.some(
-            (o) =>
-              o.account === platform &&
-              (o.caps & METERING) !== 0 &&
-              o.generation === s.control.generation,
-          )
-        )
+        // Job 003wf4 (OWNER_PLAN_SETUP.md §6): the call REPLACES the slot's mask, so the review
+        // names the current slot and the exact resulting mask. Support is kept unless removed.
+        if (input.keep_support !== undefined && typeof input.keep_support !== "boolean")
+          no("bad_keep_support", "keep_support is true or false.");
+        const keep = input.keep_support !== false;
+        const a = appointmentFor(s.control, platform as string, keep);
+        if (a.already)
           no(
             "already_appointed",
             "The platform's metering account is already appointed for this generation.",
           );
-        call = appointCall(contract, platform as string, METERING, cs);
+        call = appointCall(contract, platform as string, a.caps, cs);
         review = {
           operator: platform,
-          caps: METERING,
+          current: a.current,
+          caps: a.caps,
+          keep_support: keep,
+          support: a.support,
+          change: a.change,
           generation: s.control.generation,
           effects: [
-            `Appoints ${platform} with metering for generation ${s.control.generation}, so customers' new uses can be reserved and charged again.`,
+            `${a.change} ${platform} will hold ${capsName(a.caps)} for owner generation ${s.control.generation}; its slot's mask is replaced by exactly this one.`,
+            "This is a permission only: whether customers can actually be served is shown separately (release, runtime, budget, protection, writer and plan timing).",
           ],
           conditions: ["Refused without any change if control changed since this review."],
+        };
+        break;
+      }
+      case "create_plan": {
+        if (!roles.seller)
+          no(
+            "not_owner",
+            "Only the business's owner, with the account the contract names as owner, creates a plan.",
+          );
+        if (d) no("deal_live", "A plan can't be created while a sale is in progress.");
+        const pt = s.plan_terms;
+        if (!pt)
+          no(
+            "guided_plans_unavailable",
+            "This business's contract predates guided plans (it has no plan terms view). Existing plans can still be inspected and offered.",
+          );
+        const t = pt as PlanTermsV3;
+        if (t.plan_count >= t.max_plans)
+          no("plan_limit", `This contract already has the most plans allowed (${t.max_plans}).`);
+        const usable = this.opts.planUsability;
+        if (!usable)
+          no(
+            "service_unavailable",
+            "This server can't check plan timing, so guided plans are unavailable.",
+          );
+        const raw = input.plan as Record<string, unknown> | undefined;
+        const bad = (m: string): never => no("bad_plan", m);
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) bad("Describe the plan.");
+        const pr = raw as Record<string, unknown>;
+        const price = validU128(pr.unit_price);
+        if (!price || price === "0")
+          bad("The price per use is a whole number of the token's base units, above 0.");
+        const u32 = (v: unknown) =>
+          Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 0xffff_ffff;
+        const ms = (v: unknown) => typeof v === "string" && /^(0|[1-9][0-9]{0,15})$/.test(v);
+        if (!u32(pr.max_units_per_purchase) || (pr.max_units_per_purchase as number) < 1)
+          bad("Allow at least 1 unit per purchase.");
+        if (
+          !u32(pr.max_units_outstanding) ||
+          (pr.max_units_outstanding as number) < (pr.max_units_per_purchase as number)
+        )
+          bad("A customer may hold at least as many units as one purchase buys.");
+        if (
+          !Number.isInteger(pr.max_hold_units) ||
+          (pr.max_hold_units as number) < 1 ||
+          (pr.max_hold_units as number) > t.rules.rules.max_hold_units
+        )
+          bad(
+            `Uses per hold are 1 to ${t.rules.rules.max_hold_units} under this business's rules.`,
+          );
+        if (
+          !ms(pr.hold_ttl_ms) ||
+          BigInt(pr.hold_ttl_ms as string) < BigInt(t.rules.min_hold_ttl_ms) ||
+          BigInt(pr.hold_ttl_ms as string) > BigInt(t.rules.max_hold_ttl_ms)
+        )
+          bad(
+            `A hold lasts ${Number(t.rules.min_hold_ttl_ms) / 1000} s to ${Number(t.rules.max_hold_ttl_ms) / 1000} s under this business's rules.`,
+          );
+        if (
+          !ms(pr.settle_grace_ms) ||
+          BigInt(pr.settle_grace_ms as string) > BigInt(t.rules.max_settle_grace_ms)
+        )
+          bad(
+            `The settlement grace is at most ${Number(t.rules.max_settle_grace_ms) / 1000} s under this business's rules.`,
+          );
+        const plan: PlanInputV3 = {
+          unit_price: price as string,
+          max_units_per_purchase: pr.max_units_per_purchase as number,
+          max_units_outstanding: pr.max_units_outstanding as number,
+          max_hold_units: pr.max_hold_units as number,
+          hold_ttl_ms: pr.hold_ttl_ms as string,
+          settle_grace_ms: pr.settle_grace_ms as string,
+        };
+        // §5: only a plan this server can actually serve, with a grace that pays a late result.
+        const timing = (usable as NonNullable<typeof usable>)(plan);
+        if (!timing.usable)
+          no("plan_unusable", timing.reason ?? "This server can't serve holds that short.");
+        if (!timing.grace_ok)
+          no(
+            "grace_too_short",
+            `A result delivered at the latest moment needs a settlement grace of at least ${Math.ceil(timing.min_grace_ms / 1000)} s here, or it could go unpaid.`,
+          );
+        const deposit = (BigInt(t.plan_bytes) * BigInt(t.storage_byte_cost)).toString();
+        call = createPlanCall(contract, plan, cs, t.next_plan_id, deposit);
+        const mins = (v: string) => `${Number(v) / 60_000} min`;
+        review = {
+          plan,
+          plan_id: t.next_plan_id,
+          generation: s.control.generation,
+          deposit,
+          plan_bytes: t.plan_bytes,
+          storage_byte_cost: t.storage_byte_cost,
+          price: {
+            base: plan.unit_price,
+            amount: readableAmount(plan.unit_price, meta.decimals),
+            symbol: meta.symbol,
+          },
+          timing: { min_hold_ms: timing.min_hold_ms, min_grace_ms: timing.min_grace_ms },
+          effects: [
+            `Creates plan ${t.next_plan_id} on the contract: ${readableAmount(plan.unit_price, meta.decimals)} ${meta.symbol} per use (${plan.unit_price} base units), at most ${plan.max_units_per_purchase} units per purchase and ${plan.max_units_outstanding} held, ${plan.max_hold_units} per hold; each hold lasts ${mins(plan.hold_ttl_ms)}, with ${mins(plan.settle_grace_ms)} to settle.`,
+            `Attaches ${deposit} yoctoNEAR for ${t.plan_bytes} bytes of contract storage; any excess is refunded. The plan is permanent and its storage isn't released: a new price is a new plan.`,
+          ],
+          conditions: [
+            "Refused without any change if control changed since this review, another plan was created meanwhile, a sale started, or the storage cost rose.",
+          ],
         };
         break;
       }
@@ -1570,7 +1841,11 @@ export class SaleActions {
             }
           : kind === "claim"
             ? { category: review.category }
-            : {},
+            : kind === "create_plan"
+              ? { plan: review.plan }
+              : kind === "appoint"
+                ? { keep_support: review.keep_support }
+                : {},
       _doc: doc,
       _reading: s,
     };
@@ -1609,6 +1884,8 @@ export class SaleActions {
     const id = randomUUID();
     const t = this.stamp();
     const outcome = this.store.tx(() => {
+      // Job 003wf4: no plan is stored while this business is changing hands.
+      if (p.kind === "create_plan") this.store.requireNoHandover(businessId);
       const again = this.db
         .prepare("SELECT * FROM sale_actions WHERE person_id = ? AND idempotency_key = ?")
         .get(viewer.id, key as string) as unknown as SaleActionRow | undefined;
@@ -1624,6 +1901,22 @@ export class SaleActions {
           "SELECT * FROM sale_actions WHERE business_id = ? AND account = ? AND state IN ('prepared','requested','unknown') ORDER BY created_at",
         )
         .all(businessId, p.account) as unknown as SaleActionRow[];
+      // Job 003wf4 (§5a): different plan inputs under the same control identity are a conflict,
+      // never silently adopted (and the old row is never returned as if it were the new one).
+      const conflicting = open.find(
+        (r) =>
+          r.kind === "create_plan" &&
+          p.kind === "create_plan" &&
+          r.identity === p.identity &&
+          r.action_digest !== p.action_digest,
+      );
+      if (conflicting)
+        bad(
+          409,
+          "Another plan request for this same review is still open, with different terms. Recover it, set it aside if your wallet was never asked, or check it first.",
+          "request_conflict",
+          { action: view(conflicting) },
+        );
       const prepared = open.find((r) => r.state === "prepared");
       if (prepared)
         bad(
@@ -1834,6 +2127,19 @@ export class SaleActions {
       const r = await reader.txOutcome(which, p.account).catch(() => null);
       const res = r ? resolveSaleTx(p, r, which) : null;
       if (named) transaction = { hash: named, matched: res !== null };
+      if (res?.kind === "confirmed" && p.kind === "create_plan") {
+        // Job 003wf4 (§4): confirmed only once the plan reads back exactly as reviewed, at the
+        // reviewed generation. Until then nothing is committed and the check can be repeated.
+        const verified = await this.planReadback(p);
+        if (verified.ok === false)
+          return {
+            action: view(p),
+            resolution: { kind: "unknown", message: verified.message } as SaleResolution,
+            transaction,
+            effects: null,
+          };
+        Object.assign(res, { verified: verified.evidence });
+      }
       if (res) {
         // This transaction is exactly this request. A definitive result is committed with this
         // hash; a pending one (a claim without its callback yet) keeps the row checkable.
@@ -1864,6 +2170,56 @@ export class SaleActions {
   }
 
   /**
+   * Job 003wf4: the created plan, read back at one final block: every reviewed field and the
+   * reviewed generation. A failed read or any difference is no confirmation.
+   */
+  private async planReadback(
+    p: SaleActionRow,
+  ): Promise<{ ok: true; evidence: unknown } | { ok: false; message: string }> {
+    const review = JSON.parse(p.review) as Record<string, unknown>;
+    const want = review.plan as PlanInputV3;
+    const id = Number(review.plan_id);
+    const reader = this.reader as CustomerViewTransport;
+    const signal = AbortSignal.timeout(this.opts.readTimeoutMs ?? 10_000);
+    try {
+      const final = await reader.finalBlock(p.network, signal);
+      const pinned = checkBlock(final, "final block");
+      const a = await reader.view({
+        network: p.network,
+        account: p.contract,
+        method: "get_plan",
+        args: { plan_id: id },
+        block: pinned,
+        signal,
+      });
+      const b = checkBlock(a?.block, "get_plan");
+      if (b.height !== pinned.height || b.hash !== pinned.hash || typeof a.result !== "string")
+        throw new Error("mixed");
+      const got = JSON.parse(a.result) as Record<string, unknown> | null;
+      const same =
+        got !== null &&
+        got.unit_price === want.unit_price &&
+        got.max_units_per_purchase === want.max_units_per_purchase &&
+        got.max_units_outstanding === want.max_units_outstanding &&
+        got.max_hold_units === want.max_hold_units &&
+        got.hold_ttl_ms === want.hold_ttl_ms &&
+        got.settle_grace_ms === want.settle_grace_ms &&
+        got.created_generation === review.generation;
+      if (!same)
+        return {
+          ok: false,
+          message: `Its own transaction created plan ${id}, but that plan doesn't read back as reviewed at this owner generation, so it isn't treated as confirmed. Check again; nothing is created twice.`,
+        };
+      return { ok: true, evidence: { plan_id: id, plan: got, block: pinned } };
+    } catch {
+      return {
+        ok: false,
+        message: `Its own transaction created plan ${id}; the plan couldn't be read back just now, so it isn't confirmed yet. Check again.`,
+      };
+    }
+  }
+
+  /**
    * From one fresh final read: whether this request could still take effect (§5). Only
    * irreversible evidence marks it inapplicable: control_seq and payout_seq only rise; deal
    * numbers never repeat and versions only rise. Never an acceptance flag (unfund clears it) and
@@ -1883,7 +2239,9 @@ export class SaleActions {
       return {
         kind: "no_longer_possible",
         message:
-          "The sale has moved on since this request was reviewed, so the contract can never accept it from now on. Whether it took effect before is shown only by its own transaction: if your wallet's activity lists it, enter its ID.",
+          p.kind === "create_plan" || p.kind === "appoint"
+            ? "This business's control changed since this request was reviewed, so the contract can never accept it from now on. Whether it took effect before is shown only by its own transaction: if your wallet's activity lists it, enter its ID."
+            : "The sale has moved on since this request was reviewed, so the contract can never accept it from now on. Whether it took effect before is shown only by its own transaction: if your wallet's activity lists it, enter its ID.",
       };
     if (p.kind === "register" || p.kind === "accept")
       return {
@@ -1907,6 +2265,9 @@ export class SaleActions {
       if (p.kind === "propose" || p.kind === "revise") {
         await this.ensureRecorded(viewer, p.business_id, review);
         out = { recorded: { deal_seq: review.deal_seq, version: review.version } };
+      } else if (p.kind === "create_plan") {
+        const verified = (res as { verified?: unknown }).verified;
+        if (verified) out = { plan: verified };
       } else if (p.kind === "accept" && res.result === "closing") {
         // Job 003wf3 (S-2): the gate starts as soon as this closing is confirmed here, from one
         // fresh pinned read (keyless; idempotent). Not stored as a finished follow-up: a later
@@ -1968,6 +2329,7 @@ export class SaleActions {
       out !== null &&
       !("error" in out) &&
       ("recorded" in out ||
+        "plan" in out ||
         ["applied", "already", "conflict", "ended", "superseded"].includes(String(state)));
     if (terminal)
       this.db

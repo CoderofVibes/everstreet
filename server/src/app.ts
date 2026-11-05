@@ -129,6 +129,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
     platformOperator: options.customer?.operatorAccount ?? null,
     handover: options.handover,
     serviceReadiness: (id, control) => customerUses.serviceReadiness(id, control),
+    // Job 003wf4: the same serve policy as offers and customers, at every read.
+    planUsability: (plan) => customerUses.planUsability(plan),
   });
   const publications = new Publications(store.db, store);
   const evaluations = new Evaluations(store.db, store, runtime);
