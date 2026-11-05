@@ -43,6 +43,7 @@ import { Hono } from "hono";
 import { openDb } from "../../server/src/db.ts";
 import { nep413Digest } from "../../server/src/identity.ts";
 import { CUSTOMER, type Json, TOKEN } from "../../server/test/customer-world.ts";
+import { CLOSER, prepareHandover } from "../../server/test/handoverWorld.ts";
 import {
   API_KEY_ENV,
   BIZ,
@@ -100,6 +101,12 @@ export interface ConfiguredSaleOptions {
    * 2 000. Exhaustion is reported in the control status, never turned into a success.
    */
   budget?: { rpcRequests?: number; chainCalls?: number };
+  /**
+   * Job 003wf3: a Gated sale with the managed handover configured: the sale double names a
+   * fictional closer, the closer's ephemeral function-call key (close_sale on the business only)
+   * is in the config, and the composition's coordinator runs every second.
+   */
+  gated?: boolean;
   /** Tests only: fail the start after the child and both listeners are up (cleanup check). */
   injectStartupFailure?: boolean;
 }
@@ -135,7 +142,14 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       op_deadline_ms: 2_000,
       stop_timeout_ms: 5_000,
     });
-    const sale = b.w.chain.attachSale({ owner: FOUNDER });
+    // Gated (job 003wf3): the shared handover prerequisites (sale double with the closer, Noah
+    // linked with his tokens and ephemeral key, the closer's key and the `handover` section).
+    const gated = o.gated
+      ? prepareHandover(b, dir, {
+          handover: { interval_ms: 1_000, pass_budget_ms: 3_000, op_deadline_ms: 2_000 },
+        })
+      : null;
+    const sale = gated ? gated.sale : b.w.chain.attachSale({ owner: FOUNDER });
     const budget = {
       rpc_requests: o.budget?.rpcRequests ?? 25_000,
       chain_calls: o.budget?.chainCalls ?? 4_000,
@@ -159,18 +173,20 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
     const db = openDb(b.db);
     try {
       const t = new Date().toISOString();
-      db.prepare(
-        "INSERT INTO chain_accounts (owner_kind, owner_id, account_id, secret, tx, created_at) VALUES ('person', ?, ?, NULL, 'fixture', ?)",
-      ).run(b.w.f.ava.id, FOUNDER, t);
-      db.prepare(
-        "INSERT INTO people (id, display_name, headline, bio, created_at) VALUES ('person-noah', 'Noah Brandt', '', '', ?)",
-      ).run(t);
-      db.prepare(
-        "INSERT INTO person_accounts (account_id, person_id, network, created_at) VALUES (?, 'person-noah', 'testnet', ?)",
-      ).run(CONFIGURED_BUYER, t);
-      db.prepare(
-        "INSERT INTO chain_accounts (owner_kind, owner_id, account_id, secret, tx, created_at) VALUES ('person', 'person-noah', ?, NULL, 'fixture', ?)",
-      ).run(CONFIGURED_BUYER, t);
+      if (!gated) {
+        db.prepare(
+          "INSERT INTO chain_accounts (owner_kind, owner_id, account_id, secret, tx, created_at) VALUES ('person', ?, ?, NULL, 'fixture', ?)",
+        ).run(b.w.f.ava.id, FOUNDER, t);
+        db.prepare(
+          "INSERT INTO people (id, display_name, headline, bio, created_at) VALUES ('person-noah', 'Noah Brandt', '', '', ?)",
+        ).run(t);
+        db.prepare(
+          "INSERT INTO person_accounts (account_id, person_id, network, created_at) VALUES (?, 'person-noah', 'testnet', ?)",
+        ).run(CONFIGURED_BUYER, t);
+        db.prepare(
+          "INSERT INTO chain_accounts (owner_kind, owner_id, account_id, secret, tx, created_at) VALUES ('person', 'person-noah', ?, NULL, 'fixture', ?)",
+        ).run(CONFIGURED_BUYER, t);
+      }
       db.prepare("UPDATE businesses SET name = ?, slug = ?, published_at = ? WHERE id = ?").run(
         "Ledgerline Invoice Reader",
         "ledgerline",
@@ -181,8 +197,8 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       db.close();
     }
     // Each fictional account's ephemeral full-access key (the synthetic RPC vouches for it).
-    const noahKey = nearKey();
-    b.rpc.keys.set(`${CONFIGURED_BUYER}|${noahKey.id}`, 0n);
+    const noahKey = gated ? gated.noah : nearKey();
+    if (!gated) b.rpc.keys.set(`${CONFIGURED_BUYER}|${noahKey.id}`, 0n);
     const keys: Record<string, ReturnType<typeof nearKey>> = {
       [FOUNDER]: b.ava,
       [CONFIGURED_BUYER]: noahKey,
@@ -193,6 +209,7 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
     const config = JSON.parse(readFileSync(b.configFile, "utf8")) as Json;
     config.web_dist = resolve(o.dist ?? "web/dist");
     config.sign_in = { ...config.sign_in, return_origin: origin };
+    if (gated) config.handover = gated.handover;
     writeFileSync(b.configFile, JSON.stringify(config));
 
     // ---- The normal entry, in its own bounded child process ----
@@ -203,7 +220,10 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       delayNextMs: 0,
       rpcDown: false,
       sent: [] as Json[],
+      /** Job 003wf3: the closer's next send is held (before it lands) until released. */
+      closeHeld: false,
     };
+    let heldClose: { open: () => void } | null = null;
     const env: NodeJS.ProcessEnv = {
       // Only what node needs to start, plus the two named variables; nothing else is passed.
       ...Object.fromEntries(
@@ -366,7 +386,9 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       };
       const supported =
         (call.receiverId === BIZ &&
-          (/_guarded$/.test(call.methodName) || call.methodName === "accept_sale")) ||
+          (/_guarded$/.test(call.methodName) ||
+            call.methodName === "accept_sale" ||
+            (gated !== null && call.methodName === "abort_close"))) ||
         (call.receiverId === TOKEN &&
           (call.methodName === "ft_transfer_call" || call.methodName === "storage_deposit"));
       if (!supported)
@@ -476,6 +498,16 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
         b,
         sale,
         controls,
+        gated: gated !== null,
+        holdClose: () => {
+          heldClose = b.rpc.holdNextSend();
+          controls.closeHeld = true;
+        },
+        releaseClose: () => {
+          heldClose?.open();
+          heldClose = null;
+          controls.closeHeld = false;
+        },
         app,
         customerUse,
         accounts: ACCOUNTS,
@@ -489,6 +521,8 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
     const stop = () =>
       (stopping ??= (async () => {
         await Promise.all([closeListener(siteServer), closeListener(controlServer)]);
+        // A close still held is let through (to nobody) so the child's stop isn't waiting on it.
+        (heldClose as { open: () => void } | null)?.open();
         let forcedKill = false;
         if (exitCode === undefined) {
           if (child.connected) child.send({ type: "shutdown" });
@@ -512,6 +546,8 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       controls,
       keys,
       business: b.w.f.business as string,
+      gated: gated !== null,
+      closer: gated ? CLOSER : null,
       budget,
       counters,
       out: () => out,
@@ -544,7 +580,11 @@ function configuredSaleControl(h: {
     delayNextMs: number;
     rpcDown: boolean;
     sent: Json[];
+    closeHeld: boolean;
   };
+  gated: boolean;
+  holdClose: () => void;
+  releaseClose: () => void;
   app: string;
   customerUse: () => Promise<unknown>;
   accounts: readonly string[];
@@ -574,6 +614,7 @@ function configuredSaleControl(h: {
       usage: usage(),
       controls: { ...controls, sent: controls.sent.length },
       business: b.w.f.business,
+      close_mode: h.gated ? "gated" : "direct",
       sale_page: `/sales/${b.w.f.business}`,
       contract: sale.controlView(),
       treasury: sale.treasuryView(),
@@ -629,6 +670,16 @@ function configuredSaleControl(h: {
     return c.json({ chain_now: new Date(Number(b.w.chain.ts)).toISOString() });
   });
   control.post("/customer-use", async (c) => c.json(await h.customerUse()));
+  // Job 003wf3 (Gated only): the closer's next send waits before it lands, until released.
+  control.post("/hold-close", (c) => {
+    if (!h.gated) return c.json({ error: "Gated harness only (--gated)" }, 400);
+    h.holdClose();
+    return c.json({ close_held: true });
+  });
+  control.post("/release-close", (c) => {
+    h.releaseClose();
+    return c.json({ close_held: false });
+  });
   // The whole synthetic RPC endpoint fails (every read and lookup), then works again.
   control.post("/rpc/down", (c) => {
     controls.rpcDown = true;

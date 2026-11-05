@@ -5,7 +5,13 @@
 // scripts/sale-harness.ts.
 //
 //   npm run web:build
-//   npx tsx scripts/sale-harness-configured.ts [--minutes 30] [--port 8814]
+//   npx tsx scripts/sale-harness-configured.ts [--minutes 30] [--port 8814] [--gated]
+//
+// --gated (job 003wf3): a Gated sale with the managed handover configured (a fictional closer and
+// its ephemeral close_sale-only key; the composition's coordinator passes every second). The
+// seller's acceptance starts the closing; the coordinator checks readiness, orders the close and
+// reconciles it, and the page's handover panel follows. Extra controls:
+//   POST /hold-close | /release-close   the closer's next send waits before it lands | goes on
 //
 // Site: http://127.0.0.1:<port>/ (default 8814). Sign in with the synthetic wallet (it starts as the
 // seller, ava-founder.near). Controls on http://127.0.0.1:<port+1>/ (a separate listener):
@@ -47,9 +53,10 @@ if (!Number.isInteger(port) || port < 1024 || port > 65_000) {
   console.error("--port must be 1024 to 65000");
   process.exit(2);
 }
-const h = await startConfiguredSaleHarness({ sitePort: port, controlPort: port + 1 });
+const gated = process.argv.includes("--gated");
+const h = await startConfiguredSaleHarness({ sitePort: port, controlPort: port + 1, gated });
 console.log(
-  `Configured-composition sale review harness (SYNTHETIC chain and wallet, fictional): ${h.origin}/`,
+  `Configured-composition ${gated ? "Gated (managed handover)" : "Direct"} sale review harness (SYNTHETIC chain and wallet, fictional): ${h.origin}/`,
 );
 console.log(`  Sale page: ${h.origin}/sales/${h.business}`);
 console.log(`  Controls: ${h.control}/   Stops in ${minutes} min or on Ctrl+C.`);
