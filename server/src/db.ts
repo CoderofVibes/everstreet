@@ -387,7 +387,7 @@ CREATE TABLE IF NOT EXISTS runtime_invocations (
   idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, input_sha TEXT NOT NULL, input_chars INTEGER NOT NULL,
   provider TEXT NOT NULL, provider_config TEXT NOT NULL, validator TEXT NOT NULL, pricing TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('running','completed','failed','cancelled','unknown')),
-  outcome TEXT CHECK (outcome IN ('extracted','incomplete','refused','invalid')),
+  outcome TEXT CHECK (outcome IN ('extracted','incomplete','refused','invalid','accepted')),
   failure_class TEXT, failure_detail TEXT, output TEXT,
   reserved_cents INTEGER NOT NULL DEFAULT 0, charged_cents INTEGER NOT NULL DEFAULT 0,
   charged_microcents INTEGER NOT NULL DEFAULT 0,
@@ -687,11 +687,32 @@ CREATE TRIGGER IF NOT EXISTS writer_history_checks_no_delete BEFORE DELETE ON wr
 BEGIN SELECT RAISE(ABORT, 'writer history checks are append-only'); END;
 `;
 
+// The workflow engine's cases (workflowCases.ts; WORKFLOW_ENGINE.md §5).
+export const WORKFLOW_CASES_SCHEMA = `
+CREATE TABLE IF NOT EXISTS workflow_cases (
+  request_id TEXT PRIMARY KEY REFERENCES customer_requests(id),
+  business_id TEXT NOT NULL REFERENCES businesses(id), offer_id TEXT NOT NULL,
+  project_id TEXT NOT NULL, release_id TEXT NOT NULL, stage TEXT NOT NULL,
+  assignee_account TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT
+) STRICT;
+CREATE INDEX IF NOT EXISTS workflow_cases_business ON workflow_cases(business_id, created_at);
+CREATE TABLE IF NOT EXISTS workflow_case_events (
+  n INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL REFERENCES workflow_cases(request_id),
+  at TEXT NOT NULL, actor_kind TEXT NOT NULL CHECK (actor_kind IN ('customer','staff','system')),
+  actor_account TEXT, from_stage TEXT, to_stage TEXT NOT NULL, note TEXT NOT NULL DEFAULT ''
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS workflow_case_events_no_update
+  BEFORE UPDATE ON workflow_case_events BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+CREATE TRIGGER IF NOT EXISTS workflow_case_events_no_delete
+  BEFORE DELETE ON workflow_case_events BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+`;
+
 export function openDb(path: string) {
   const db = new DatabaseSync(path);
   // The busy timeout first: two processes opening one file at once both switch its journal mode.
   db.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
+  db.exec(WORKFLOW_CASES_SCHEMA);
   // Columns added after the first release: attribution of how a response arrived.
   const cols = db.prepare("PRAGMA table_info(inquiries)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "source")) {
@@ -912,13 +933,29 @@ export function openDb(path: string) {
       )
       .get() as { sql: string } | undefined
   )?.sql;
-  if (runtimeSql && !runtimeSql.includes("'customer_use'")) {
+  // The workflow engine (WORKFLOW_ENGINE.md): the outcome `accepted`, the same way.
+  if (
+    runtimeSql &&
+    (!runtimeSql.includes("'customer_use'") || !runtimeSql.includes("'accepted'"))
+  ) {
     const cols = [...columns("runtime_invocations")].join(", ");
-    const next = runtimeSql
-      .replace(/CREATE TABLE ("?)runtime_invocations\1/, "CREATE TABLE runtime_invocations_next")
-      .replace("'trial','evaluation','release'", "'trial','evaluation','release','customer_use'");
-    if (!next.includes("'customer_use'") || !next.includes("runtime_invocations_next"))
-      throw new Error("runtime_invocations could not be upgraded for customer use");
+    let next = runtimeSql.replace(
+      /CREATE TABLE ("?)runtime_invocations\1/,
+      "CREATE TABLE runtime_invocations_next",
+    );
+    if (!next.includes("'customer_use'"))
+      next = next.replace(
+        "'trial','evaluation','release'",
+        "'trial','evaluation','release','customer_use'",
+      );
+    if (!next.includes("'accepted'"))
+      next = next.replace("'refused','invalid')", "'refused','invalid','accepted')");
+    if (
+      !next.includes("'customer_use'") ||
+      !next.includes("'accepted'") ||
+      !next.includes("runtime_invocations_next")
+    )
+      throw new Error("runtime_invocations could not be upgraded");
     db.exec("PRAGMA foreign_keys = OFF");
     try {
       db.exec("BEGIN IMMEDIATE");
@@ -1173,6 +1210,13 @@ function migrateHandover(db: DatabaseSync, columns: (t: string) => Set<string>) 
     BEGIN SELECT RAISE(ABORT, '${HANDOVER_REFUSAL}'); END;
     CREATE TRIGGER IF NOT EXISTS handover_gate_customer_requests_confirm BEFORE UPDATE OF state ON customer_requests
     WHEN OLD.state = 'prepared' AND NEW.state = 'reserve_requested' AND ${gated("NEW.business_id")}
+    BEGIN SELECT RAISE(ABORT, '${HANDOVER_REFUSAL}'); END;
+  `);
+  // The workflow engine: the owner's case moves stop during a handover. A case OPENED by the
+  // delivery of a request admitted before the handover is not new work, so it isn't gated.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS handover_gate_workflow_case_moves BEFORE INSERT ON workflow_case_events
+    WHEN NEW.actor_kind = 'staff' AND ${gated("(SELECT business_id FROM workflow_cases WHERE request_id = NEW.request_id)")}
     BEGIN SELECT RAISE(ABORT, '${HANDOVER_REFUSAL}'); END;
   `);
 }

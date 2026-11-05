@@ -195,8 +195,9 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
               </span>{" "}
               · {job.artifact.bytes.toLocaleString()} bytes
               <div className="muted" style={{ fontSize: 13 }}>
-                A checked description of the service ({job.artifact.spec.fields?.length ?? 0}{" "}
-                fields). It does not run yet; a managed runtime comes in a later slice.
+                {job.artifact.kind === "workflow_spec"
+                  ? `A compiled workflow: a request form with ${job.artifact.spec.intake?.fields.length ?? 0} fields, moving through ${(job.artifact.spec.stages ?? []).map((st) => st.label).join(" → ")}. Check and release it on the Service tab.`
+                  : `A checked description of the service (${job.artifact.spec.fields?.length ?? 0} fields). Check and release it on the Service tab.`}
               </div>
             </dd>
             <dt>Checks</dt>
@@ -254,9 +255,9 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
         <dl className="doc-grid">
           <dt>Limits</dt>
           <dd>
-            {job.budget.max_input_tokens.toLocaleString()} input /{" "}
-            {job.budget.max_output_tokens.toLocaleString()} output tokens, {job.budget.max_seconds}{" "}
-            s, cost limit {cents(job.budget.max_cost_cents)}
+            {job.provider === "workflow-compiler"
+              ? "None needed: the workflow engine compiles it without AI, so nothing is sent or spent."
+              : `${job.budget.max_input_tokens.toLocaleString()} input / ${job.budget.max_output_tokens.toLocaleString()} output tokens, ${job.budget.max_seconds} s, cost limit ${cents(job.budget.max_cost_cents)}`}
           </dd>
           <dt>Provider</dt>
           <dd className="mono">
@@ -375,6 +376,50 @@ export function BudgetPanel({
         </button>
         {most !== null && <span className="muted">Up to {cents(most)} here</span>}
       </form>
+      {error && <p className="error-text">{error}</p>}
+    </section>
+  );
+}
+
+/** The workflow engine: compile a saved revision (no provider, nothing held or spent). */
+function StartCompile({
+  projectId,
+  revision,
+  onStarted,
+}: {
+  projectId: string;
+  revision: number;
+  onStarted: (job: BuildJob) => void;
+}) {
+  const [key, setKey] = useState(() => newKey("build"));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const start = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      // No budget: a compile sends nothing anywhere (the server records zero limits).
+      const r = await productsApi.startBuild(projectId, { idempotency_key: key, revision });
+      setKey(newKey("build"));
+      onStarted(r.job);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="check-group">
+      <h3>
+        <Icon name="spark" /> Compile revision {revision}
+      </h3>
+      <p style={{ fontSize: 14 }}>
+        Your form becomes the request customers fill in, and your board's stages become the steps
+        each request moves through.
+      </p>
+      <button type="button" className="btn btn-primary" disabled={busy} onClick={start}>
+        {busy ? "Compiling…" : `Compile revision ${revision}`}
+      </button>
       {error && <p className="error-text">{error}</p>}
     </section>
   );
@@ -545,22 +590,33 @@ export function BuildsView({
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <p className="muted" style={{ maxWidth: "75ch" }}>
-        A build turns a saved revision into a checked service specification. It does not run the
-        service yet; that comes with the managed runtime.
-      </p>
+      {list.engine !== "workflow" && (
+        <p className="muted" style={{ maxWidth: "75ch" }}>
+          A build turns a saved revision into a checked service specification. Check and release it
+          on the Service tab to run it.
+        </p>
+      )}
+      {list.engine === "workflow" && (
+        <p className="notice info">
+          <strong>A SaaS workflow runs on Everstreet's workflow engine.</strong> Building compiles
+          your saved form and board into a fixed workflow: no AI is used, nothing is spent, and the
+          same revision always compiles to the same result.
+        </p>
+      )}
       {!list.availability.available && (
         <p className="notice">
           <strong>No build provider is connected.</strong> {list.availability.reason} Builds can't
           be started here, and none is simulated.
         </p>
       )}
-      <BudgetPanel
-        key={String(list.budget.limit_cents)}
-        businessId={businessId}
-        budget={list.budget}
-        onChanged={() => refresh()}
-      />
+      {list.engine !== "workflow" && (
+        <BudgetPanel
+          key={String(list.budget.limit_cents)}
+          businessId={businessId}
+          budget={list.budget}
+          onChanged={() => refresh()}
+        />
+      )}
       {list.availability.available && (
         <>
           {dirty && (
@@ -569,15 +625,26 @@ export function BuildsView({
               {headRevision}.
             </p>
           )}
-          <StartBuild
-            projectId={projectId}
-            revision={headRevision}
-            list={list}
-            onStarted={(job) => {
-              setSelected(job.id);
-              refresh();
-            }}
-          />
+          {list.engine === "workflow" ? (
+            <StartCompile
+              projectId={projectId}
+              revision={headRevision}
+              onStarted={(job) => {
+                setSelected(job.id);
+                refresh();
+              }}
+            />
+          ) : (
+            <StartBuild
+              projectId={projectId}
+              revision={headRevision}
+              list={list}
+              onStarted={(job) => {
+                setSelected(job.id);
+                refresh();
+              }}
+            />
+          )}
         </>
       )}
       {list.jobs.length === 0 ? (

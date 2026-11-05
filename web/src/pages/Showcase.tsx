@@ -4,13 +4,16 @@
 //   the bundled samples.json: no request, no analytics, nothing recorded.
 // - ExampleBusinesses: the three example cards, structurally apart from real listings.
 // - ExamplePage: /example/ledgerline reads the public projection of the VERIFIED testnet record
-//   (one read, no sign-in); /example/relaydesk and /example/signalwatch show labelled
-//   illustrations until their engines run.
+//   (one read, no sign-in); /example/signalwatch shows a labelled illustration until its engine
+//   runs.
+// - RelaydeskSample: three fictional support requests decided by the REAL workflow engine in
+//   advance (relaydesk.json, drift-tested); /example/relaydesk shows it. No request either.
 
 import { useEffect, useId, useRef, useState } from "react";
 import { usePublicRead } from "../actorRead.ts";
 import { ApiError } from "../api.ts";
 import { Link, useRouter } from "../router.tsx";
+import relaydesk from "../showcase/relaydesk.json" with { type: "json" };
 import samples from "../showcase/samples.json" with { type: "json" };
 import { readable } from "../TokenAmount.tsx";
 
@@ -146,6 +149,128 @@ export function SamplePanel({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
   );
 }
 
+// ---------- the Relaydesk sample (the real workflow engine, decided in advance) ----------
+
+export function RelaydeskSample() {
+  const uid = useId();
+  const list = relaydesk.samples as Json[];
+  const [choice, setChoice] = useState<string>(list[0]?.id ?? "");
+  const [shown, setShown] = useState<Json | null>(null);
+  const resultRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (shown) resultRef.current?.focus();
+  }, [shown]);
+  const fields = relaydesk.product.fields as Json[];
+  const stages = relaydesk.product.stages as Json[];
+  return (
+    <section className="sample-panel" aria-labelledby={`${uid}-h`}>
+      <p className="example-eyebrow">Example business · sample data</p>
+      <h2 id={`${uid}-h`} className="sample-title">
+        Relaydesk <span className="muted">· support workflow (SaaS)</span>
+      </h2>
+      <p className="small">
+        A customer fills in a support request; it becomes a case the team moves from{" "}
+        {stages.map((s) => s.label).join(" to ")}.
+      </p>
+      {!shown ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setShown(list.find((s) => s.id === choice) ?? null);
+          }}
+        >
+          <fieldset className="sample-choices">
+            <legend>Try a sample request</legend>
+            {list.map((s) => (
+              <label key={s.id} className="sample-choice">
+                <input
+                  type="radio"
+                  name={`${uid}-sample`}
+                  value={s.id}
+                  checked={choice === s.id}
+                  onChange={() => setChoice(s.id)}
+                />
+                <span>
+                  <strong>{s.title}</strong>
+                  <span className="small muted">{s.why}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          <button type="submit" className="btn btn-primary">
+            Send the sample request
+          </button>
+          <p className="small muted sample-note">
+            Sample run: decided in advance by Everstreet's real workflow engine (no AI model) and
+            checked by our tests. Nothing is sent or recorded.
+          </p>
+        </form>
+      ) : (
+        <div className="sample-result" aria-live="polite">
+          <p className="example-eyebrow">Sample run · workflow engine · nothing charged</p>
+          <h3 ref={resultRef} tabIndex={-1} className="sample-result-title">
+            {shown.title}
+          </h3>
+          <p>
+            Outcome{" "}
+            <span
+              className={`outcome-pill ${shown.result.outcome === "accepted" ? "extracted" : "refused"}`}
+            >
+              {shown.result.outcome === "accepted" ? "Accepted" : "Refused"}
+            </span>
+          </p>
+          <dl className="sample-fields is-stacked">
+            {fields.map((f) => (
+              <div key={f.key}>
+                <dt>{f.label}</dt>
+                <dd>{shown.fields[f.key] ?? <span className="muted">left empty</span>}</dd>
+              </div>
+            ))}
+          </dl>
+          {shown.result.outcome === "accepted" ? (
+            <ol className="wf-steps" aria-label="Where the request would stand">
+              {stages.map((s, i) => (
+                <li
+                  key={s.key}
+                  className={i === 0 ? "is-current" : ""}
+                  aria-current={i === 0 ? "step" : undefined}
+                >
+                  {s.label}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="notice info">{shown.result.reason}.</p>
+          )}
+          <div className="sample-would">
+            <strong>What a real request would record</strong>
+            <ul>
+              <li>
+                {shown.charged_on_a_real_run
+                  ? "One unit reserved, then charged, because the request was accepted."
+                  : "One unit reserved, then returned: a refused request is never charged."}
+              </li>
+              {shown.charged_on_a_real_run && (
+                <li>
+                  One case in {stages[0]?.label}. The business's current owner moves it one stage at
+                  a time, and the customer sees each step.
+                </li>
+              )}
+              <li>No AI compute: the workflow engine runs without a model.</li>
+            </ul>
+            <p className="small muted">{relaydesk.charging_rule}</p>
+          </div>
+          <div className="row sample-actions">
+            <button type="button" className="btn btn-quiet btn-sm" onClick={() => setShown(null)}>
+              Try another sample
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ---------- illustrations (not runs) ----------
 
 const ILLUSTRATIONS: Record<string, { name: string; kind: string; steps: [string, string][] }> = {
@@ -216,7 +341,18 @@ export function ExampleBusinesses() {
             </Link>
           </div>
         </article>
-        {(["relaydesk", "signalwatch"] as const).map((k) => (
+        <article className="example-card">
+          <p className="example-eyebrow">Example business · sample data</p>
+          <h3>Relaydesk</h3>
+          <p className="small muted">Support workflow (SaaS) · one unit per accepted request</p>
+          <p className="small">Runs on Everstreet's workflow engine: no AI model is involved.</p>
+          <div className="row example-actions">
+            <Link to="/example/relaydesk" className="btn btn-primary btn-sm">
+              Try a sample
+            </Link>
+          </div>
+        </article>
+        {(["signalwatch"] as const).map((k) => (
           <article key={k} className="example-card">
             <p className="example-eyebrow">Example business · sample data</p>
             <h3>{ILLUSTRATIONS[k]?.name}</h3>
@@ -258,7 +394,18 @@ function Source({ s }: { s: string | undefined }) {
 
 export function ExamplePage({ which }: { which: string }) {
   const { search } = useRouter();
-  if (which === "relaydesk" || which === "signalwatch") {
+  if (which === "relaydesk")
+    return (
+      <div className="page narrow">
+        <RelaydeskSample />
+        <p className="small muted" style={{ marginTop: 16 }}>
+          A sample with fictional requests. A real Relaydesk-style product is built, checked and
+          released in Everstreet's Studio from a saved form and board.
+        </p>
+        <Link to="/">Back to Everstreet</Link>
+      </div>
+    );
+  if (which === "signalwatch") {
     const it = ILLUSTRATIONS[which];
     return (
       <div className="page narrow">

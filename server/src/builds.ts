@@ -37,6 +37,12 @@ import type { Db } from "./db.ts";
 import { openHandover } from "./handover.ts";
 import type { Brief, Foundation, Prototype } from "./products.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import {
+  compileWorkflow,
+  WORKFLOW_ENGINE_AVAILABILITY,
+  WORKFLOW_KIND,
+  WORKFLOW_PROVIDER_CONFIG,
+} from "./workflow.ts";
 
 export const BUILD_LIMITS = {
   maxInputTokens: 200_000,
@@ -214,6 +220,9 @@ export interface BuildsOptions {
    */
   operatorCeilingCents?: number | null;
 }
+
+/** The recorded limits of a workflow compile: none is needed, since nothing is sent anywhere. */
+const NO_BUDGET = { max_input_tokens: 0, max_output_tokens: 0, max_seconds: 0, max_cost_cents: 0 };
 
 export class Builds {
   readonly now: () => number;
@@ -536,7 +545,10 @@ export class Builds {
     } else if (input.base_job !== undefined || input.instructions !== undefined)
       bad("base_job and instructions belong to an app build");
     const revision = whole(input.revision, 1, 1_000_000, "The revision");
-    const budget = parseBudget(input.budget);
+    // A SaaS workflow's build is a deterministic compile: nothing is sent or spent, so it takes no
+    // AI budget (any one given is ignored and recorded as zero).
+    const compiles = intent === "build" && project.foundation === "saas_workflow";
+    const budget = compiles ? NO_BUDGET : parseBudget(input.budget);
     const rev = this.db
       .prepare("SELECT content_hash FROM product_revisions WHERE project_id = ? AND number = ?")
       .get(project.id, revision) as { content_hash: string } | undefined;
@@ -570,6 +582,27 @@ export class Builds {
     };
     const found = existing();
     if (found) return same(found);
+
+    // Workflow engine (WORKFLOW_ENGINE.md §2): a SaaS workflow's build is COMPILED from the saved
+    // revision by Everstreet's own compiler: no provider call, nothing reserved or spent.
+    if (compiles) {
+      const made = this.compileWorkflowJob(
+        viewer,
+        project,
+        revision,
+        rev.content_hash,
+        key,
+        fingerprint,
+        budget,
+        retryOf,
+      );
+      if (!made) {
+        const raced = existing();
+        if (raced) return same(raced);
+      }
+      const row = existing() as JobRow;
+      return { job: this.view(row), created: row.id === made };
+    }
 
     const availability = this.availability();
     if (!availability.available || !this.provider) throw new HttpError(409, availability.reason);
@@ -663,6 +696,121 @@ export class Builds {
     return { job: this.view(made), created: true };
   }
 
+  /**
+   * The workflow kind's build: compiles the revision's form and board into an immutable
+   * `workflow_spec` artifact in one transaction, fenced like any build (owner epoch, no handover).
+   * Returns the new job id, or null when another writer won the same key.
+   */
+  private compileWorkflowJob(
+    viewer: Person,
+    project: { id: string; business_id: string },
+    revision: number,
+    contentHash: string,
+    key: string,
+    fingerprint: string,
+    budget: unknown,
+    retryOf: JobRow | null,
+  ): string | null {
+    const rev = this.db
+      .prepare("SELECT brief, prototype FROM product_revisions WHERE project_id = ? AND number = ?")
+      .get(project.id, revision) as { brief: string; prototype: string };
+    const brief = JSON.parse(rev.brief) as { name?: string };
+    const compiled = compileWorkflow(
+      JSON.parse(rev.prototype) as Prototype,
+      brief.name || "Workflow",
+    );
+    const id = randomUUID();
+    try {
+      this.store.tx(() => {
+        if (
+          this.db
+            .prepare("SELECT 1 FROM build_jobs WHERE project_id = ? AND idempotency_key = ?")
+            .get(project.id, key)
+        )
+          throw new Error("UNIQUE: raced");
+        this.store.requireNoHandover(project.business_id);
+        const epoch = this.ownerEpoch(project.business_id);
+        const t = this.iso();
+        const canonical = compiled.ok ? canon(compiled.spec) : null;
+        const digest = canonical ? sha(canonical) : null;
+        this.db
+          .prepare(
+            `INSERT INTO build_jobs (id, project_id, business_id, revision, content_hash, intent, idempotency_key, fingerprint, provider, provider_config, budget, pricing, retry_of, requested_by, owner_id, owner_generation, state, reserved_cents, created_at, updated_at, started_at, finished_at, failure_code, failure_detail, artifact_digest, request_ref, base_job, instructions)
+             VALUES (?, ?, ?, ?, ?, 'build', ?, ?, 'workflow-compiler', ?, ?, '{}', ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
+          )
+          .run(
+            id,
+            project.id,
+            project.business_id,
+            revision,
+            contentHash,
+            key,
+            fingerprint,
+            WORKFLOW_PROVIDER_CONFIG,
+            JSON.stringify(budget),
+            retryOf?.id ?? null,
+            viewer.id,
+            epoch.owner_id,
+            epoch.generation,
+            compiled.ok ? "succeeded" : "failed",
+            t,
+            t,
+            t,
+            t,
+            compiled.ok ? null : "invalid_output",
+            compiled.ok ? null : compiled.reason,
+            digest,
+          );
+        this.event({ id }, 0, "queued", {
+          intent: "build",
+          revision,
+          reserved_cents: 0,
+          compiler: "workflow",
+        });
+        if (compiled.ok && canonical && digest) {
+          this.db
+            .prepare(
+              "INSERT INTO build_artifacts (job_id, attempt, kind, schema_version, digest, bytes, content, checks, provenance, created_at) VALUES (?, 0, ?, 1, ?, ?, ?, ?, ?, ?)",
+            )
+            .run(
+              id,
+              WORKFLOW_KIND,
+              digest,
+              Buffer.byteLength(canonical),
+              canonical,
+              JSON.stringify([
+                {
+                  id: "workflow_spec",
+                  label: "The saved form and board compile into a valid workflow",
+                  passed: true,
+                  detail:
+                    "Every field is required and bounded; stages run in order and only the last closes a request",
+                },
+              ]),
+              JSON.stringify({
+                schema: "workflow_spec/1",
+                provider: "none",
+                compiler: "everstreet workflow compiler (deterministic)",
+                job: id,
+                project: project.id,
+                revision,
+              }),
+              t,
+            );
+          this.event({ id }, 0, "succeeded", { artifact_digest: digest, kind: WORKFLOW_KIND });
+        } else
+          this.event({ id }, 0, "failed", {
+            code: "invalid_output",
+            detail: compiled.ok ? "" : compiled.reason,
+          });
+      });
+    } catch (e) {
+      if (e instanceof Error && /UNIQUE/.test(e.message)) return null;
+      throw e;
+    }
+    return id;
+  }
+
   cancel(viewer: Person, jobId: string) {
     const job = this.ownedJob(viewer, jobId);
     if (TERMINAL.includes(job.state)) return this.view(job);
@@ -715,11 +863,14 @@ export class Builds {
         "SELECT * FROM build_jobs WHERE project_id = ? AND (? IS NULL OR intent = ?) ORDER BY created_at DESC LIMIT 50",
       )
       .all(project.id, intent, intent) as unknown as JobRow[];
-    const availability = this.availability();
+    // The workflow engine: a SaaS workflow's build is a deterministic compile (no provider).
+    const wf = project.foundation === "saas_workflow";
+    const availability = wf ? { ...WORKFLOW_ENGINE_AVAILABILITY } : this.availability();
     return {
+      engine: wf ? ("workflow" as const) : ("model" as const),
       availability,
-      pricing: availability.available ? (this.provider?.pricing() ?? null) : null,
-      provider: availability.available && this.provider ? this.provider.identity() : null,
+      pricing: !wf && availability.available ? (this.provider?.pricing() ?? null) : null,
+      provider: !wf && availability.available && this.provider ? this.provider.identity() : null,
       budget: this.budgetFor(project.business_id),
       limits: BUILD_LIMITS,
       jobs: rows.map((r) => this.view(r)),

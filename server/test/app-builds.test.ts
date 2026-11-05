@@ -85,11 +85,15 @@ function world(dbPath = ":memory:") {
 }
 type Actor = Awaited<ReturnType<ReturnType<typeof world>["join"]>>;
 
-async function project(a: Actor) {
+/**
+ * A project of a product type. A model `build` is checked on an AI API project: a SaaS workflow's
+ * build is the deterministic workflow compiler (WORKFLOW_ENGINE.md), with no model output to check.
+ */
+async function project(a: Actor, foundation = "saas_workflow") {
   const p = (
     await a("/api/product-projects", "POST", {
       idea: "A quote calculator for a fictional print shop",
-      foundation: "saas_workflow",
+      foundation,
     })
   ).body;
   await a(`/api/businesses/${p.project.business_id}/build-budget`, "PUT", { limit_cents: 100 });
@@ -137,7 +141,7 @@ describe("002e app builds", () => {
     const a = await appBuild(ava, pid, "app-key-0002");
     await w.drain(); // one job at a time: each takes its own scripted answer
     w.provider.next.push(QUOTE_BUNDLE);
-    const b = await ava(`/api/product-projects/${pid}/builds`, "POST", {
+    const b = await ava(`/api/product-projects/${await project(ava, "ai_api")}/builds`, "POST", {
       idempotency_key: "build-key-0002",
       revision: 1,
       budget: BUDGET,
@@ -214,7 +218,7 @@ describe("002e app builds", () => {
     const ok = await appBuild(ava, pid, "app-key-0008");
     await w.drain(); // one job at a time: each takes its own scripted answer
     w.provider.next.push({ kind: "extraction_spec", padding: "x".repeat(70_000) });
-    const spec = await ava(`/api/product-projects/${pid}/builds`, "POST", {
+    const spec = await ava(`/api/product-projects/${await project(ava, "ai_api")}/builds`, "POST", {
       idempotency_key: "build-key-0009",
       revision: 1,
       budget: BUDGET,

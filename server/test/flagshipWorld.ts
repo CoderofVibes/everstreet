@@ -209,13 +209,16 @@ export function child(
  * operator's writer key, fictional test tokens), and `start()` for a child on a fresh port (each
  * restart gets its own configuration file; the database, protected storage and keys are shared).
  */
-export async function installation(cleanups: Cleanup[], o: { gated?: boolean } = {}) {
+export async function installation(
+  cleanups: Cleanup[],
+  o: { gated?: boolean; foundation?: string } = {},
+) {
   const dir = mkdtempSync(join(tmpdir(), "flagship-h-"));
   cleanups.push(() =>
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   );
   const first = await freePort();
-  const b = await bootstrap(dir, first, MAINT, { bare: true });
+  const b = await bootstrap(dir, first, MAINT, { bare: true, foundation: o.foundation });
   b.w.chain.followWallClock = true;
   b.w.chain.balances.set(CUSTOMER, 100_000_000n);
   // Gated (MANAGED_HANDOVER.md): the sale half with a fictional closer, its function-call key and

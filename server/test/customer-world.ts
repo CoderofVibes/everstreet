@@ -1255,6 +1255,8 @@ export async function customerWorld(
     v3Now?: () => number;
     /** Flagship journey: the founder and the business shell only (no build, budget or release). */
     bare?: boolean;
+    /** With `bare`: the shell's product type (the workflow engine: `saas_workflow`). */
+    foundation?: string;
   } = {},
 ) {
   // The scripted extractor that passes the release check (fictional documents only).
@@ -1263,7 +1265,7 @@ export async function customerWorld(
   const rw = runtimeWorld(runtimeProvider, opts.runtime ?? {}, { dbPath: opts.dbPath });
   // Flagship journey (`bare`): only the founder and the project's business shell exist; nothing
   // is built or released here (the founder does that through the configured routes).
-  const f = opts.bare ? await rw.shell("Ava Chen") : await rw.founder("Ava Chen");
+  const f = opts.bare ? await rw.shell("Ava Chen", opts.foundation) : await rw.founder("Ava Chen");
   if (!opts.bare) await rw.release(f);
   const release = opts.bare
     ? { id: "" }

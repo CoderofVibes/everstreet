@@ -35,9 +35,9 @@ import {
   verifiesEd25519,
 } from "./customerSigning.ts";
 import type { Db } from "./db.ts";
-import type { Extraction } from "./extract.ts";
 import { armHandover, openHandover, pauseError, requireCustomerAdmission } from "./handover.ts";
 import type { InvocationRow, ManagedRuntime } from "./invocations.ts";
+import { inputCeiling, isFulfilled, type RunResult } from "./invocations.ts";
 import { maintenanceHealth } from "./maintenance.ts";
 import { RUNTIME_LIMITS } from "./runtime.ts";
 import { cutoffs, MIN_SIGN_MS, planUsability, reserveMs, type ServeTiming } from "./servePolicy.ts";
@@ -45,6 +45,8 @@ import { HttpError, type Person, type Store } from "./store.ts";
 import { tokenMetaOf } from "./tokenMeta.ts";
 import type { V3Observations } from "./v3observe.ts";
 import { type ControlV3, isAccountId, V3ReadError } from "./v3read.ts";
+import { validateWorkflowSpec } from "./workflow.ts";
+import { openCase } from "./workflowCases.ts";
 
 /** What a writer's endpoint said. Recorded as an event; never evidence by itself (§5.2). */
 export type WriterAnswer =
@@ -1249,31 +1251,50 @@ export class CustomerUses {
       .get(o.business_id) as { name: string; slug: string };
     const a = this.db
       .prepare(
-        "SELECT a.content FROM runtime_releases r JOIN build_artifacts a ON a.job_id = r.artifact_job WHERE r.id = ?",
+        "SELECT a.kind, a.content FROM runtime_releases r JOIN build_artifacts a ON a.job_id = r.artifact_job WHERE r.id = ?",
       )
-      .get(o.release_id) as { content: string } | undefined;
-    const spec = a
-      ? (JSON.parse(a.content) as {
-          name?: string;
-          input?: { max_chars?: number };
-          fields?: { key: string; label: string; type: string; required: boolean }[];
-        })
-      : {};
+      .get(o.release_id) as { kind: string; content: string } | undefined;
+    // Workflow engine: the public product is the intake form and its stages (no document limit).
+    const wf = a?.kind === "workflow_spec" ? validateWorkflowSpec(JSON.parse(a.content)) : null;
+    const spec =
+      a && !wf
+        ? (JSON.parse(a.content) as {
+            name?: string;
+            input?: { max_chars?: number };
+            fields?: { key: string; label: string; type: string; required: boolean }[];
+          })
+        : {};
     const plan = JSON.parse(o.plan) as PlanV3;
     return {
       offer_id: o.id,
       offer_state: o.state,
       business: { name: b.name, slug: b.slug },
-      product: {
-        name: spec.name ?? "Released product",
-        max_chars: Math.min(spec.input?.max_chars ?? LIMITS.inputChars, LIMITS.inputChars),
-        fields: (spec.fields ?? []).slice(0, 40).map((f) => ({
-          key: f.key,
-          label: f.label,
-          type: f.type,
-          required: f.required,
-        })),
-      },
+      product: wf
+        ? {
+            kind: "workflow" as const,
+            name: wf.name,
+            max_chars: inputCeiling({ kind: "workflow_spec", spec: wf }, LIMITS.inputChars),
+            fields: wf.intake.fields.map((f) => ({
+              key: f.key,
+              label: f.label,
+              type: f.type,
+              required: f.required,
+              max_chars: f.max_chars,
+              options: f.options,
+            })),
+            stages: wf.stages.map((st) => ({ key: st.key, label: st.label })),
+          }
+        : {
+            kind: "extraction" as const,
+            name: spec.name ?? "Released product",
+            max_chars: Math.min(spec.input?.max_chars ?? LIMITS.inputChars, LIMITS.inputChars),
+            fields: (spec.fields ?? []).slice(0, 40).map((f) => ({
+              key: f.key,
+              label: f.label,
+              type: f.type,
+              required: f.required,
+            })),
+          },
       terms: {
         units_per_use: 1,
         unit_price: plan.unit_price,
@@ -2406,9 +2427,9 @@ export class CustomerUses {
     return (
       x.delivery === "delivered" &&
       x.delivered_at !== null &&
-      x.result_outcome === "extracted" &&
+      isFulfilled(x.result_outcome) &&
       inv?.state === "completed" &&
-      inv.outcome === "extracted"
+      isFulfilled(inv.outcome)
     );
   }
 
@@ -2477,7 +2498,7 @@ export class CustomerUses {
       // complete extraction (not a judgement of its quality). Delivered: that result was durably
       // protected for the customer. Fulfilled (and eligible for settlement): both, frozen when
       // it was delivered; later expiry or deletion doesn't undo a delivery.
-      validated: state === "completed" && inv?.outcome === "extracted",
+      validated: state === "completed" && isFulfilled(inv?.outcome),
       delivered: x.delivered_at !== null,
       fulfilled: this.eligible(x, inv),
       settlement_eligible: this.eligible(x, inv),
@@ -2507,8 +2528,11 @@ export class CustomerUses {
       bad(409, "This request's unit is already being settled or released", "unit_settling");
     const runtime = this.runtime;
     if (!runtime || !this.reader || !this.operator) unavailable();
+    // A model product needs its runtime provider; the workflow engine needs none.
+    const offered = this.offer(r.offer_id);
     const availability = runtime.availability();
-    if (!availability.available) bad(503, availability.reason, "runtime_unavailable");
+    if (!(offered && runtime.isWorkflowProject(offered.project_id)) && !availability.available)
+      bad(503, availability.reason, "runtime_unavailable");
     const p = this.protection;
     if (!p?.load || !p.delete)
       bad(
@@ -2549,7 +2573,7 @@ export class CustomerUses {
     } else bad(409, "Send the same document again to run it", "input_needed");
     if (sha256Hex(Buffer.from(text, "utf8")) !== r.input_sha || text.length !== r.input_chars)
       bad(409, "That isn't the document this request was prepared for", "input_mismatch");
-    if (text.length > Math.min(rel.artifact.spec.input.max_chars, LIMITS.inputChars))
+    if (text.length > inputCeiling(rel.artifact.checked, LIMITS.inputChars))
       bad(409, "This product reads less text than this document", "input_too_long");
     // The local control epoch before the await: a change while reading fences the dispatch.
     const epoch = runtime.ownerEpoch(o.business_id);
@@ -2650,7 +2674,7 @@ export class CustomerUses {
       release_id: o.release_id,
       artifact_job: rel.artifact.job_id,
       artifact_digest: o.artifact_digest,
-      spec: rel.artifact.spec,
+      checked: rel.artifact.checked,
       text,
       request_id: id,
       person_id: viewer.id,
@@ -2714,7 +2738,7 @@ export class CustomerUses {
     id: string,
     retentionDays: number,
     _row: InvocationRow,
-    result: Extraction,
+    result: RunResult,
   ) {
     const p = this.protection as InputProtection;
     // 003o1: the decision is "protecting" before the await; only that same decision may become
@@ -2764,11 +2788,82 @@ export class CustomerUses {
           id,
         );
       if (!c.changes) this.event(id, "late_result_discarded", {});
+      // Workflow engine: an accepted, delivered request opens its case in THIS transaction, so
+      // a delivered request always has exactly one case (WORKFLOW_ENGINE.md §5).
+      if (c.changes === 1 && result.outcome === "accepted") {
+        const r = this.request(id) as RequestRow;
+        const o = this.offer(r.offer_id) as OfferRow;
+        openCase(
+          this.db,
+          {
+            id,
+            business_id: r.business_id,
+            offer_id: r.offer_id,
+            project_id: o.project_id,
+            release_id: o.release_id,
+          },
+          result.stage,
+        );
+      }
       return c.changes === 1;
     });
     // A late copy is never kept: deleted through the seam. If that fails, the orphan sweep
     // deletes it later: the decision is final, so the copy can never be published (003v).
     if (!kept) await p.delete?.(ref, ctx).catch(() => {});
+  }
+
+  /**
+   * Workflow engine: an accepted request's submitted fields, for the case view of the business's
+   * CURRENT owner only (the caller authorizes; WorkflowCases.one). A support request is written
+   * TO the business, so its staff read it; an extraction result is never read this way. The input
+   * copy is deleted once a request has run, so the fields come from the kept result (the engine's
+   * accepted fields, verbatim) while it is retained, or the input copy before that. Null when
+   * neither can be read (e.g. past retention).
+   */
+  async submissionFields(requestId: string): Promise<Record<string, string> | null> {
+    const r = this.request(requestId);
+    const p = this.protection;
+    if (!r || !p?.load) return null;
+    // Only for a request that opened a workflow case (an accepted workflow request).
+    if (!this.db.prepare("SELECT 1 FROM workflow_cases WHERE request_id = ?").get(r.id))
+      return null;
+    const asFields = (v: unknown) =>
+      v && typeof v === "object" && !Array.isArray(v)
+        ? (Object.fromEntries(
+            Object.entries(v as Record<string, unknown>).filter(([, x]) => typeof x === "string"),
+          ) as Record<string, string>)
+        : null;
+    const parse = (bytes: Buffer | null) => {
+      if (!bytes) return null;
+      try {
+        return JSON.parse(bytes.toString("utf8")) as unknown;
+      } catch {
+        return null;
+      }
+    };
+    const x = this.execution(r.id);
+    if (
+      x?.result_state === "stored" &&
+      x.result_ref &&
+      x.result_scheme === p.scheme &&
+      (x.retention_until_ms === null || this.now() < x.retention_until_ms)
+    ) {
+      const kept = parse(
+        await p
+          .load(x.result_ref, { person_id: r.person_id, request_id: r.id, kind: "result" })
+          .catch(() => null),
+      ) as { outcome?: string; fields?: { key: string; value: unknown }[] } | null;
+      if (kept?.outcome === "accepted" && Array.isArray(kept.fields))
+        return asFields(Object.fromEntries(kept.fields.map((f) => [f.key, f.value])));
+    }
+    if (!r.input_ref || r.input_scheme !== p.scheme) return null;
+    return asFields(
+      parse(
+        await p
+          .load(r.input_ref, { person_id: r.person_id, request_id: r.id, kind: "input" })
+          .catch(() => null),
+      ),
+    );
   }
 
   /** The customer's own result, through the protection seam, while it is retained. */
@@ -2803,7 +2898,7 @@ export class CustomerUses {
     if (after.result_ref !== x.result_ref)
       bad(409, "This result changed while it was being read", "result_changed");
     return {
-      result: JSON.parse(bytes.toString("utf8")) as Extraction,
+      result: JSON.parse(bytes.toString("utf8")) as RunResult,
       outcome: x.result_outcome,
       retention_until_ms: String(x.retention_until_ms),
     };
@@ -3164,10 +3259,14 @@ export class CustomerUses {
       // Job 003wf4 (§5): the offer's plan, under the current settings (a reconfiguration counts).
       if (!this.planUsability(JSON.parse(o.plan) as PlanV3).usable) reasons.push("plan_unusable");
     }
+    // The model runtime and its budget matter only when a model product is offered (or none is):
+    // the workflow engine runs with neither (WORKFLOW_ENGINE.md).
+    const modelOffered =
+      offers.length === 0 || offers.some((o) => !runtime?.isWorkflowProject(o.project_id));
     const availability = runtime?.availability();
-    if (!availability?.available)
+    if (modelOffered && !availability?.available)
       reasons.push(`runtime_unavailable${availability?.reason ? `: ${availability.reason}` : ""}`);
-    const budget = runtime?.budgetFor(businessId);
+    const budget = modelOffered ? runtime?.budgetFor(businessId) : null;
     if (budget && budget.available_cents === null) reasons.push("runtime_budget_unset");
     else if (
       budget &&

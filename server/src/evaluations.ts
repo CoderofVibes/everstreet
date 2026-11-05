@@ -8,9 +8,20 @@
 
 import { randomUUID } from "node:crypto";
 import type { Db } from "./db.ts";
-import { EXTRACT_VALIDATOR, type Extraction, normalDecimal } from "./extract.ts";
-import type { InvocationRow, ManagedRuntime } from "./invocations.ts";
+import { type Extraction, normalDecimal } from "./extract.ts";
+import {
+  type CheckedSpec,
+  type InvocationRow,
+  type ManagedRuntime,
+  validatorFor,
+} from "./invocations.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import {
+  requiredWorkflowCases,
+  validateWorkflowSpec,
+  WORKFLOW_KIND,
+  WORKFLOW_VALIDATOR,
+} from "./workflow.ts";
 
 export type Expected = "extracted" | "incomplete" | "refused" | "invalid" | "not_sent";
 const EXPECTED: Expected[] = ["extracted", "incomplete", "refused", "invalid", "not_sent"];
@@ -382,17 +393,46 @@ export class Evaluations {
       source: l?.source ?? null,
       cases: l ? (JSON.parse(l.cases) as EvalCase[]) : [],
       versions,
-      required: {
-        policy: RELEASE_POLICY,
-        name: "Required invoice release checks",
-        cases: REQUIRED_INVOICE_CASES.map((c) =>
-          c.input.length > 600
-            ? { ...c, input: `${c.input.slice(0, 600)}… (${c.input.length} characters)` }
-            : c,
-        ),
-        note: "Set by the platform for invoice products. They run in every check and all must pass to release; your own cases are added to them and can't replace them.",
-      },
+      required: this.runtime.isWorkflowProject(p.id)
+        ? this.workflowRequired(p.id)
+        : {
+            policy: RELEASE_POLICY,
+            name: "Required invoice release checks",
+            cases: REQUIRED_INVOICE_CASES.map((c) =>
+              c.input.length > 600
+                ? { ...c, input: `${c.input.slice(0, 600)}… (${c.input.length} characters)` }
+                : c,
+            ),
+            note: "Set by the platform for invoice products. They run in every check and all must pass to release; your own cases are added to them and can't replace them.",
+          },
       note: "Your own cases are kept apart from the worked examples the AI wrote, and every change is saved as a new version.",
+    };
+  }
+
+  /**
+   * A workflow's required checks (WORKFLOW_ENGINE.md §4), from its latest compiled version: the
+   * engine's own cases for that form. None until a version is compiled.
+   */
+  private workflowRequired(projectId: string) {
+    const a = this.db
+      .prepare(
+        "SELECT a.content FROM build_artifacts a JOIN build_jobs j ON j.id = a.job_id WHERE j.project_id = ? AND a.kind = ? ORDER BY j.created_at DESC, j.rowid DESC LIMIT 1",
+      )
+      .get(projectId, WORKFLOW_KIND) as { content: string } | undefined;
+    const spec = a ? validateWorkflowSpec(JSON.parse(a.content)) : null;
+    return {
+      policy: WORKFLOW_VALIDATOR,
+      name: "Required workflow checks",
+      cases: spec
+        ? requiredWorkflowCases(spec).map((c) => ({
+            id: c.id,
+            name: c.name,
+            why: c.why,
+            input: c.input,
+            expect: { outcomes: [c.expect] },
+          }))
+        : [],
+      note: "Set by the platform for workflow products: complete requests are accepted and every malformed one is refused. They run in every check and all must pass to release.",
     };
   }
 
@@ -447,8 +487,10 @@ export class Evaluations {
   start(viewer: Person, projectId: string, input: { artifact_job?: unknown }) {
     const p = this.runtime.project(viewer, projectId, "evaluation");
     const artifact = this.runtime.artifact(p.id, String(input.artifact_job ?? ""));
+    const kind = artifact.checked.kind;
     const fixture = this.latest(p.id);
-    const config = this.runtime.configNow();
+    // Workflow engine: no model is needed, so its checks run under the config "none".
+    const config = this.runtime.configFor(kind);
     if (!config) throw new HttpError(409, this.runtime.availability().reason);
     if (
       this.db
@@ -457,10 +499,22 @@ export class Evaluations {
     )
       throw new HttpError(409, "A check is already running for this product");
     const own = fixture ? (JSON.parse(fixture.cases) as EvalCase[]) : [];
-    const cases = [
-      ...REQUIRED_INVOICE_CASES.map((c) => ({ ...c, required: true })),
-      ...own.map((c) => ({ ...c, required: false })),
-    ];
+    // A workflow is checked by its own required cases (WORKFLOW_ENGINE.md §4); the founder's
+    // invoice cases don't apply to it.
+    const cases =
+      artifact.checked.kind === WORKFLOW_KIND
+        ? requiredWorkflowCases(artifact.checked.spec).map((c) => ({
+            id: c.id,
+            name: c.name,
+            why: c.why,
+            input: c.input,
+            expect: { outcomes: [c.expect] } as unknown as EvalCase["expect"],
+            required: true,
+          }))
+        : [
+            ...REQUIRED_INVOICE_CASES.map((c) => ({ ...c, required: true })),
+            ...own.map((c) => ({ ...c, required: false })),
+          ];
     const id = randomUUID();
     // Job 003wf3 (W15): no new check run while this business is changing hands (the eval_runs
     // trigger refuses it at commit too).
@@ -478,17 +532,20 @@ export class Evaluations {
         artifact.digest,
         fixture?.version ?? 0,
         RELEASE_POLICY,
-        EXTRACT_VALIDATOR,
+        validatorFor(kind),
         config,
         viewer.id,
         cases.length,
         this.runtime.iso(),
         this.runtime.runner,
       );
-    const declared = new Map(artifact.spec.fields.map((f) => [f.key, f.type as string]));
+    const declared =
+      artifact.checked.kind === WORKFLOW_KIND
+        ? new Map<string, string>()
+        : new Map(artifact.checked.spec.fields.map((f) => [f.key, f.type as string]));
     // Job 003wf1: owned by this process's runtime, so a stop can await it.
     const done = this.runtime.track(
-      this.execute(viewer, id, p.id, artifact.job_id, cases, declared),
+      this.execute(viewer, id, p.id, artifact.job_id, cases, declared, kind),
     );
     return { run: this.view(this.runRow(id) as RunRow), done };
   }
@@ -501,6 +558,7 @@ export class Evaluations {
     artifactJob: string,
     cases: (EvalCase & { required: boolean })[],
     declared: Map<string, string>,
+    kind: CheckedSpec["kind"] = "extraction_spec",
   ) {
     const results: CaseResult[] = [];
     let stopped: string | null = null;
@@ -509,7 +567,7 @@ export class Evaluations {
       // no longer this process's) is never continued: no further paid case is dispatched.
       if (!this.owns(runId)) return this.view(this.runRow(runId) as RunRow);
       let raw: CaseResult["raw"];
-      let result: Extraction | null = null;
+      let result: unknown = null;
       const wanted = Object.keys(c.expect.fields ?? {});
       if (stopped || wanted.some((k) => !declared.has(k))) {
         raw = { state: "not_run", outcome: null, invocation: null, failure: stopped };
@@ -527,7 +585,7 @@ export class Evaluations {
             { run: runId, case: c.id },
           );
           const inv = await done;
-          result = inv.output ? (JSON.parse(inv.output) as Extraction) : null;
+          result = inv.output ? (JSON.parse(inv.output) as unknown) : null;
           raw = {
             state: inv.state,
             outcome: inv.outcome,
@@ -548,10 +606,20 @@ export class Evaluations {
             raw = { state: "not_run", outcome: null, invocation: null, failure: stopped };
           }
         }
+      const want = (c.expect as unknown as { outcomes: string[] }).outcomes;
       const scored =
         raw.state === "not_run" && !wanted.some((k) => !declared.has(k))
           ? { score: "error" as const, fields: [], explanation: `Not run: ${raw.failure ?? ""}` }
-          : score(c, declared, raw, result);
+          : kind === WORKFLOW_KIND
+            ? // The workflow engine is deterministic: a case passes when its decision is expected.
+              raw.outcome !== null && want.includes(raw.outcome)
+              ? { score: "pass" as const, fields: [], explanation: `${raw.outcome}, as expected` }
+              : {
+                  score: "fail" as const,
+                  fields: [],
+                  explanation: `Expected ${want.join(" or ")}, got ${raw.outcome ?? raw.state}`,
+                }
+            : score(c, declared, raw, result as Extraction | null);
       results.push({ id: c.id, name: c.name, required: c.required, raw, ...scored });
       // Only while still this process's running run; otherwise nothing is written and it ends.
       if (!this.save(runId, results, cases.length, null))
@@ -605,10 +673,12 @@ export class Evaluations {
     const stale: string[] = [];
     if (r.state !== "complete")
       stale.push(r.state === "running" ? "Still running" : "Stopped before finishing");
-    if (r.validator !== EXTRACT_VALIDATOR)
+    const checked = this.checkedOf(r);
+    const kind = checked?.kind ?? "extraction_spec";
+    if (r.validator !== validatorFor(kind))
       stale.push("The platform's result checks have changed since");
     if (r.policy !== RELEASE_POLICY) stale.push("The required release checks have changed since");
-    const config = this.runtime.configNow();
+    const config = this.runtime.configFor(kind);
     if (config === null) stale.push(this.runtime.availability().reason);
     else if (config !== r.provider_config)
       stale.push("The model or its prices have changed since; check again");
@@ -618,9 +688,12 @@ export class Evaluations {
     // case must be present and have passed.
     const results = JSON.parse(r.results) as CaseResult[];
     const required = results.filter((x) => x.required);
+    const requiredCount =
+      checked?.kind === WORKFLOW_KIND
+        ? requiredWorkflowCases(checked.spec).length
+        : REQUIRED_INVOICE_CASES.length;
     const requiredOk =
-      required.length === REQUIRED_INVOICE_CASES.length &&
-      required.every((x) => x.score === "pass");
+      required.length === requiredCount && required.every((x) => x.score === "pass");
     const passed = r.state === "complete" && requiredOk && r.passed === r.total;
     const reasons = [...stale];
     if (r.state === "complete") {
@@ -636,6 +709,15 @@ export class Evaluations {
 
   row(id: string) {
     return this.runRow(id);
+  }
+
+  /** The checked spec a run checked (its kind decides which checks apply), or null. */
+  private checkedOf(r: RunRow): CheckedSpec | null {
+    try {
+      return this.runtime.artifact(r.project_id, r.artifact_job).checked;
+    } catch {
+      return null;
+    }
   }
 
   get(viewer: Person, id: string) {

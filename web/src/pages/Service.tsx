@@ -69,7 +69,8 @@ function RequestRecord({ i }: { i: Invocation }) {
       <dd>{i.elapsed_ms === null ? "—" : `${(i.elapsed_ms / 1000).toFixed(1)} s`}</dd>
       <dt>Model</dt>
       <dd>
-        {i.model ?? "—"} · checks {i.validator}
+        {i.validator === WORKFLOW_VALIDATOR ? "None (the workflow engine)" : (i.model ?? "—")} ·
+        checks {i.validator}
       </dd>
       <dt>Usage</dt>
       <dd>{usageLine(i)}</dd>
@@ -81,8 +82,51 @@ function RequestRecord({ i }: { i: Invocation }) {
   );
 }
 
+const WORKFLOW_VALIDATOR = "workflow-validator/1";
+
+/** A workflow engine trial: the request it took, and the stage it opened in, or why it refused. */
+function WorkflowResult({ i }: { i: Invocation }) {
+  const r = i.result as unknown as {
+    outcome: string;
+    fields?: { key: string; label: string; value: string }[];
+    stage?: string;
+    reason?: string;
+  } | null;
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <div className="row" style={{ alignItems: "center" }}>
+        <strong>
+          {r?.outcome === "accepted"
+            ? "Accepted into the first stage"
+            : r?.outcome === "refused"
+              ? "Not accepted"
+              : STATE_TEXT[i.state]}
+        </strong>
+        <span className="spacer" />
+        <span className={`pill ${i.fulfilled ? "mint" : "caution"}`}>
+          {i.fulfilled ? "A customer would be charged one unit" : "Not charged"}
+        </span>
+      </div>
+      {r?.outcome === "accepted" && (
+        <table className="table" style={{ width: "100%", marginTop: 10, fontSize: 14 }}>
+          <tbody>
+            {(r.fields ?? []).map((f) => (
+              <tr key={f.key}>
+                <td>{f.label}</td>
+                <td style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{f.value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {r?.outcome === "refused" && r.reason && <p style={{ fontSize: 14 }}>{r.reason}.</p>}
+    </div>
+  );
+}
+
 function Result({ i, onSaveCase }: { i: Invocation; onSaveCase?: () => void }) {
   const [copied, setCopied] = useState(false);
+  if (i.validator === WORKFLOW_VALIDATOR) return <WorkflowResult i={i} />;
   const r = i.result;
   return (
     <div className="card" style={{ padding: 16 }}>
@@ -301,7 +345,9 @@ export function ServiceView({
     );
   if (!list || !rel || !fix) return <p className="muted">Loading the service…</p>;
   const available = list.availability.available;
-  const budgetSet = list.budget.limit_cents !== null;
+  // The workflow engine uses no model, so it needs no runtime budget (WORKFLOW_ENGINE.md).
+  const workflow = list.engine === "workflow";
+  const budgetSet = workflow || list.budget.limit_cents !== null;
   const candidates = rel.candidates;
 
   const action = runAction(requests);
@@ -452,11 +498,13 @@ export function ServiceView({
         <div>
           <dt>Runtime budget</dt>
           <dd>
-            {list.budget.available_cents !== null
-              ? `${list.budget.available_cents}¢ available`
-              : budgetSet
-                ? "Set"
-                : "Not set"}
+            {workflow
+              ? "Not needed (no AI)"
+              : list.budget.available_cents !== null
+                ? `${list.budget.available_cents}¢ available`
+                : budgetSet
+                  ? "Set"
+                  : "Not set"}
           </dd>
         </div>
       </dl>
@@ -487,8 +535,9 @@ export function ServiceView({
       {notice && <p className="notice">{notice}</p>}
 
       <p className="muted" style={{ fontSize: 13.5 }} hidden={task !== "try"}>
-        Your product reads pasted text and returns the fields its checked version declares. Only you
-        can run it here. Running it uses its own budget, separate from the AI that builds it.
+        {workflow
+          ? "Your workflow takes a request through its form and opens it in the first stage. Only you can try it here. No AI is used, so trying it costs nothing."
+          : "Your product reads pasted text and returns the fields its checked version declares. Only you can run it here. Running it uses its own budget, separate from the AI that builds it."}
       </p>
       <section className="card" hidden={task !== "try"}>
         <h2>Try it</h2>
@@ -518,7 +567,7 @@ export function ServiceView({
                 ))}
               </select>
             </label>
-            <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+            <div className="row" style={{ gap: 6, flexWrap: "wrap" }} hidden={workflow}>
               <span className="muted" style={{ fontSize: 13 }}>
                 Fill with a fictional sample:
               </span>
@@ -534,7 +583,11 @@ export function ServiceView({
               ))}
             </div>
             <label className="field">
-              <span>Pasted text (the text itself isn't stored; the result is kept)</span>
+              <span>
+                {workflow
+                  ? 'A test request as JSON, one text value per form field, e.g. {"subject": "Export fails"}'
+                  : "Pasted text (the text itself isn't stored; the result is kept)"}
+              </span>
               <textarea
                 className="input"
                 rows={8}
@@ -573,9 +626,11 @@ export function ServiceView({
                 </button>
               )}
               <span className="muted" style={{ fontSize: 12.5 }}>
-                {!budgetSet
-                  ? "Set a runtime budget below first."
-                  : `Each request holds up to ${list.budget.per_request_cents}¢ until it settles.`}
+                {workflow
+                  ? "No AI is used; nothing is held or spent."
+                  : !budgetSet
+                    ? "Set a runtime budget below first."
+                    : `Each request holds up to ${list.budget.per_request_cents}¢ until it settles.`}
               </span>
             </div>
             {/* Lost answers stay recoverable from their own stored request, whatever the draft. */}
@@ -668,13 +723,22 @@ export function ServiceView({
             ))}
           </ul>
         </details>
-        <h3 style={{ fontSize: 15, marginTop: 14 }}>
-          Your own test cases {fix.version ? `· version ${fix.version}` : ""}
-        </h3>
-        <p className="muted" style={{ fontSize: 13.5 }}>
-          {fix.note} They are added to the required checks, never instead of them.
-        </p>
-        {fix.cases.length === 0 ? (
+        {workflow ? (
+          <p className="muted" style={{ fontSize: 13.5 }}>
+            A workflow is checked by the engine's own cases for its form; its decisions don't vary,
+            so there are no test cases of your own to add.
+          </p>
+        ) : (
+          <>
+            <h3 style={{ fontSize: 15, marginTop: 14 }}>
+              Your own test cases {fix.version ? `· version ${fix.version}` : ""}
+            </h3>
+            <p className="muted" style={{ fontSize: 13.5 }}>
+              {fix.note} They are added to the required checks, never instead of them.
+            </p>
+          </>
+        )}
+        {workflow ? null : fix.cases.length === 0 ? (
           <p className="muted" style={{ fontSize: 13.5 }}>
             None yet. After a trial, use "Save as a test case" to keep it as one.
           </p>
@@ -874,7 +938,7 @@ export function ServiceView({
         </section>
       )}
 
-      <section className="card" hidden={task !== "try"}>
+      <section className="card" hidden={task !== "try" || workflow}>
         <h2>Runtime budget</h2>
         <p className="muted" style={{ fontSize: 13 }}>
           {list.budget.basis}

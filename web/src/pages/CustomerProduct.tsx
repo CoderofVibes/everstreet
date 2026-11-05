@@ -4,7 +4,7 @@
 // only as the contract's views reported them, with their block and time.
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { customerHttp, type ResultView, type UseView } from "../customerApi.ts";
+import { customerHttp, type OfferView, type ResultView, type UseView } from "../customerApi.ts";
 import { type CustomerAuthorizer, pageAuthorizer } from "../customerAuthorizer.ts";
 import {
   activeCustomerStep,
@@ -26,8 +26,10 @@ import { tokenAmount } from "../purchase.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { TokenAmount } from "../TokenAmount.tsx";
+import { canonicalSubmission } from "../workflowApi.ts";
 import { DeviceKeyPanel } from "./DeviceKeyPanel.tsx";
 import { PurchasePanel } from "./PurchasePanel.tsx";
+import { CustomerCaseTrack } from "./WorkflowCaseBoard.tsx";
 
 const UNIT_WORDS: Record<UseView["units"]["unit"], { label: string; tone: string; text: string }> =
   {
@@ -153,8 +155,10 @@ function Consent({
   );
 }
 
-export function CustomerResult({ r }: { r: ResultView }) {
+export function CustomerResult({ r, workflow = false }: { r: ResultView; workflow?: boolean }) {
   const res = r.result;
+  // The workflow engine: a request is accepted into the first stage, or refused (never charged).
+  if (workflow || res.outcome === "accepted") return <WorkflowAnswer r={r} />;
   const json = JSON.stringify(res, null, 2);
   const download = () => {
     const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
@@ -246,6 +250,97 @@ export function CustomerResult({ r }: { r: ResultView }) {
   );
 }
 
+/** The workflow engine's answer: what was received, or why the request wasn't accepted. */
+function WorkflowAnswer({ r }: { r: ResultView }) {
+  const res = r.result;
+  const ok = res.outcome === "accepted";
+  return (
+    <div className={`use-answer ${ok ? "is-complete" : "is-partial"}`}>
+      <div className="row" style={{ marginBottom: 12 }}>
+        <span className={`pill ${ok ? "mint" : "caution"}`}>
+          {ok ? "Request received" : "Not accepted"}
+        </span>
+      </div>
+      {ok ? (
+        <table className="use-fields">
+          <tbody>
+            {res.fields.map((f) => (
+              <tr key={f.key}>
+                <th scope="row">{f.label}</th>
+                <td style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                  {String(f.value ?? "")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="notice info">
+          {res.reason} Nothing is charged for it; you can send a corrected request.
+        </p>
+      )}
+      <p className="muted use-note">Kept for you until {time(r.retention_until_ms)}.</p>
+    </div>
+  );
+}
+
+/** A workflow product's request form. The browser checks each field before anything is sent. */
+function WorkflowForm({
+  fields,
+  values,
+  onChange,
+}: {
+  fields: OfferView["product"]["fields"];
+  values: Record<string, string>;
+  onChange: (v: Record<string, string>) => void;
+}) {
+  return (
+    <div className="wf-form">
+      {fields.map((f) => {
+        const id = `wf-${f.key}`;
+        const v = values[f.key] ?? "";
+        const set = (x: string) => onChange({ ...values, [f.key]: x });
+        return (
+          <label className="field" key={f.key} htmlFor={id}>
+            <span>
+              {f.label}
+              {f.required && <span className="muted"> (required)</span>}
+            </span>
+            {f.type === "choice" ? (
+              <select id={id} className="input" value={v} onChange={(e) => set(e.target.value)}>
+                <option value="">Choose…</option>
+                {(f.options ?? []).map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            ) : f.type === "long_text" ? (
+              <textarea
+                id={id}
+                className="input"
+                rows={5}
+                value={v}
+                maxLength={f.max_chars}
+                onChange={(e) => set(e.target.value)}
+              />
+            ) : (
+              <input
+                id={id}
+                className="input"
+                inputMode={f.type === "number" ? "decimal" : undefined}
+                value={v}
+                maxLength={f.max_chars}
+                onChange={(e) => set(e.target.value)}
+              />
+            )}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * The active step card's heading: the request's own headline. 001j1 (Astra's recovery review):
  * while a lost answer is in doubt that headline is from before it, so it is shown only as the
@@ -278,13 +373,15 @@ export function ResultArea({
   result,
   fields,
   inDoubt = false,
+  workflow = false,
 }: {
   use: UseView | null;
   result: ResultView | null;
   fields: string[];
   inDoubt?: boolean;
+  workflow?: boolean;
 }) {
-  if (result) return <CustomerResult r={result} />;
+  if (result) return <CustomerResult r={result} workflow={workflow} />;
   // 001j1: no instruction from the stale state while a lost answer is in doubt.
   if (inDoubt)
     return (
@@ -446,6 +543,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
     setWasNeeded(false);
   }, [personId, offerId]);
   const [token, setToken] = useState<{ symbol: string; decimals: number } | null>(null);
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [w, setW] = useState<CustomerWorkspace | null>(null);
   useEffect(() => {
     if (!personId) return;
@@ -532,7 +630,16 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   const unit = use ? UNIT_WORDS[use.units.unit] : null;
   const needsDocument = !use || (use.state === "prepared" && s.accepted === null);
   const max = offer?.product.max_chars ?? 0;
-  const fields = offer?.product.fields.map((f) => f.label) ?? [];
+  const isWorkflow = offer?.product.kind === "workflow";
+  const fields = isWorkflow ? [] : (offer?.product.fields.map((f) => f.label) ?? []);
+  const formFields = offer?.product.fields ?? [];
+  // A workflow's form: the draft is the canonical submission once every required field is filled
+  // (until then there is nothing to send).
+  const setForm = (v: Record<string, string>) => {
+    setFormValues(v);
+    const complete = formFields.every((f) => !f.required || (v[f.key] ?? "").trim() !== "");
+    w.setDraft(complete ? canonicalSubmission(v) : "");
+  };
   // Job 001j: one resolution of where this use stands, for the step strip and the page's emphasis.
   const steps = customerSteps(s);
   const active = activeCustomerStep(s);
@@ -550,11 +657,21 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
           <dl className="use-offer-summary">
             <div>
               <dt>You give it</dt>
-              <dd>Pasted text, up to {offer.product.max_chars.toLocaleString()} characters</dd>
+              <dd>
+                {isWorkflow
+                  ? `A request: ${formFields.map((f) => f.label).join(", ")}`
+                  : `Pasted text, up to ${offer.product.max_chars.toLocaleString()} characters`}
+              </dd>
             </div>
             <div>
               <dt>You get</dt>
-              <dd>{fields.length > 0 ? fields.join(", ") : "Structured fields"}</dd>
+              <dd>
+                {isWorkflow
+                  ? `A tracked request: ${offer.product.stages.map((st) => st.label).join(" → ")}`
+                  : fields.length > 0
+                    ? fields.join(", ")
+                    : "Structured fields"}
+              </dd>
             </div>
             <div>
               <dt>Each use</dt>
@@ -649,7 +766,15 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               twice. Your typed text below is kept.
             </p>
           )}
-          {needsDocument && (
+          {needsDocument && isWorkflow && (
+            <>
+              {use && (
+                <p className="muted">Fill in the same request to check it before it's sent.</p>
+              )}
+              <WorkflowForm fields={formFields} values={formValues} onChange={setForm} />
+            </>
+          )}
+          {needsDocument && !isWorkflow && (
             <label className="field">
               <span>{use ? "Paste the same document to check it" : "Document"}</span>
               <textarea
@@ -727,8 +852,10 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
             use={use}
             result={s.result}
             fields={fields}
+            workflow={isWorkflow}
             inDoubt={!!use && s.inDoubt?.useId === use.id}
           />
+          {isWorkflow && use?.execution?.fulfilled && <CustomerCaseTrack requestId={use.id} />}
         </section>
 
         <section className="card use-recent-card" aria-labelledby="use-recent-title">

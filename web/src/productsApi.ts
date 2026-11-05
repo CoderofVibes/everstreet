@@ -195,7 +195,8 @@ export const productsApi = {
     ),
   startBuild: (
     projectId: string,
-    fields: { idempotency_key: string; revision: number; budget: BuildBudget },
+    /** A SaaS workflow's compile takes no budget (WORKFLOW_ENGINE.md); every other build does. */
+    fields: { idempotency_key: string; revision: number; budget?: BuildBudget },
   ) =>
     call<{ job: BuildJob; created: boolean }>(
       `/api/product-projects/${encodeURIComponent(projectId)}/builds`,
@@ -267,7 +268,13 @@ export interface BuildJob {
     schema_version: number;
     digest: string;
     bytes: number;
-    spec: { name?: string; fields?: { key: string; label: string; type: string }[] };
+    spec: {
+      name?: string;
+      fields?: { key: string; label: string; type: string }[];
+      /** A compiled workflow (kind workflow_spec): its request form and its stages. */
+      intake?: { fields: { key: string; label: string; type: string }[] };
+      stages?: { key: string; label: string }[];
+    };
     checks: { id: string; label: string; passed: boolean; detail: string }[];
   } | null;
   event_count: number;
@@ -350,6 +357,8 @@ export interface Conversation {
 }
 
 export interface BuildList {
+  /** A SaaS workflow's build is a deterministic compile (no AI provider, nothing spent). */
+  engine?: "workflow" | "model";
   availability: BuildAvailability;
   pricing: { inputCentsPerMillionTokens: number; outputCentsPerMillionTokens: number } | null;
   provider: { id: string; model: string; version: string } | null;

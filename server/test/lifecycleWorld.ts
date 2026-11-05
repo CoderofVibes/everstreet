@@ -713,6 +713,8 @@ export async function bootstrap(
      * budget, build, evaluation or release exists until the founder makes them in the child.
      */
     bare?: boolean;
+    /** With `bare`: the shell's product type (the workflow engine: `saas_workflow`). */
+    foundation?: string;
   } = {},
 ) {
   if (opts.bare) opts = { ...opts, fresh: true };
@@ -745,6 +747,7 @@ export async function bootstrap(
   const w = await customerWorld({
     dbPath: db,
     bare: opts.bare,
+    ...(opts.foundation ? { foundation: opts.foundation } : {}),
     businessAccount: BIZ,
     runtimeProvider: new AnthropicRuntime(
       ai.config,

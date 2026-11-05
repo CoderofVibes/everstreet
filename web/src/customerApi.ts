@@ -14,9 +14,20 @@ export interface OfferView {
   offer_state: "active" | "retired";
   business: { name: string; slug: string };
   product: {
+    /** The workflow engine takes a request form; an extraction product takes pasted text. */
+    kind: "workflow" | "extraction";
     name: string;
     max_chars: number;
-    fields: { key: string; label: string; type: string; required: boolean }[];
+    fields: {
+      key: string;
+      label: string;
+      type: string;
+      required: boolean;
+      max_chars?: number;
+      options?: string[];
+    }[];
+    /** A workflow's stages, in order (empty for an extraction product). */
+    stages: { key: string; label: string }[];
   };
   terms: {
     units_per_use: number;
@@ -140,6 +151,8 @@ export interface ResultView {
     problems: string[];
     issues: string[];
     reason: string | null;
+    /** A workflow request's first stage, when it was accepted. */
+    stage: string | null;
   };
 }
 
@@ -198,6 +211,7 @@ export function parseOffer(raw: unknown): OfferView {
     offer_state: oneOf(o.offer_state, ["active", "retired"] as const, "offer.state"),
     business: { name: str(b.name, "business.name"), slug: str(b.slug, "business.slug") },
     product: {
+      kind: p.kind === "workflow" ? "workflow" : "extraction",
       name: str(p.name, "product.name"),
       max_chars: int(p.max_chars, "product.max_chars"),
       fields: fields.slice(0, 40).map((f) => {
@@ -207,7 +221,15 @@ export function parseOffer(raw: unknown): OfferView {
           label: str(x.label, "field.label"),
           type: str(x.type, "field.type"),
           required: bool(x.required, "field.required"),
+          ...(x.max_chars === undefined ? {} : { max_chars: int(x.max_chars, "field.max_chars") }),
+          ...(Array.isArray(x.options)
+            ? { options: x.options.slice(0, 40).map((o) => str(o, "field.option")) }
+            : {}),
         };
+      }),
+      stages: (Array.isArray(p.stages) ? p.stages : []).slice(0, 12).map((st) => {
+        const x = obj(st, "stage");
+        return { key: str(x.key, "stage.key"), label: str(x.label, "stage.label") };
       }),
     },
     terms: {
@@ -388,7 +410,8 @@ export function parseResult(raw: unknown): ResultView {
         return {
           key: str(x.key, "result.field.key"),
           label: str(x.label, "result.field.label"),
-          required: bool(x.required, "result.field.required"),
+          // A workflow request's fields are all required, and its answer doesn't repeat it.
+          required: x.required === undefined ? true : bool(x.required, "result.field.required"),
           value:
             x.value === null || typeof x.value === "boolean"
               ? x.value
@@ -400,6 +423,7 @@ export function parseResult(raw: unknown): ResultView {
       problems: list(r.problems, "result.problems"),
       issues: list(r.issues, "result.issues"),
       reason: nullable(r.reason ?? null, (v) => str(v, "result.reason")),
+      stage: nullable(r.stage ?? null, (v) => str(v, "result.stage")),
     },
   };
 }

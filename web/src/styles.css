@@ -1408,6 +1408,8 @@ ul.plain { margin: 0; padding-left: 18px; }
 .sample-fields > div { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 10px; border-top: 1px solid var(--line); padding-top: 4px; }
 .sample-fields dt { color: var(--text-3); font-size: 13px; }
 .sample-fields dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.sample-fields.is-stacked > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.sample-fields.is-stacked dd { font-weight: 500; overflow-wrap: break-word; white-space: pre-wrap; }
 .sample-issues { margin: 6px 0; padding-left: 18px; font-size: 13.5px; }
 .sample-input pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
 .sample-would { border-top: 1px dashed var(--line-strong); margin-top: 10px; padding-top: 8px; font-size: 13.5px; }
@@ -1433,3 +1435,29 @@ ul.plain { margin: 0; padding-left: 18px; }
 .example-txs li { overflow-wrap: anywhere; }
 .prov { display: inline-block; font-size: 11px; color: var(--text-3); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
 .scroll-x { overflow-x: auto; max-width: 100%; }
+
+/* The workflow engine: the owner's case board and a customer's case track (WORKFLOW_ENGINE.md). */
+.wf-board-card { margin-top: 16px; display: grid; gap: 12px; }
+.wf-board { display: grid; gap: 10px; }
+.wf-col { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: grid; gap: 6px; align-content: start; min-height: 72px; }
+.wf-col-head { font-size: 12.5px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; padding: 2px 4px; }
+.wf-card { all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.wf-card:hover, .wf-card:focus-visible { border-color: var(--line-strong); }
+.wf-card:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+.wf-card.is-open { border-color: var(--mint); box-shadow: 0 0 0 1px var(--mint); }
+.wf-card-id { font-size: 12px; }
+.wf-detail { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 12px; }
+.wf-detail-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; }
+@media (max-width: 760px) { .wf-detail-grid { grid-template-columns: 1fr; } .wf-board { grid-template-columns: 1fr !important; } }
+.wf-fields { margin: 0; display: grid; gap: 10px; }
+.wf-fields dt { font-size: 12.5px; color: var(--ink-2); }
+.wf-fields dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wf-history { margin: 0 0 12px; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; }
+.wf-note { color: var(--ink-2); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+.wf-move { display: grid; gap: 8px; }
+.wf-track { display: grid; gap: 12px; margin-top: 12px; }
+.wf-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; }
+.wf-steps li { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); }
+.wf-steps li.is-done { background: var(--mint-soft); border-color: var(--mint-line); color: var(--mint-ink); }
+.wf-steps li.is-current { background: var(--mint); border-color: var(--mint); color: #fff; font-weight: 600; }
+.wf-form { display: grid; gap: 12px; }

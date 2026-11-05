@@ -42,6 +42,7 @@ import { HttpError, type Person, type Store } from "./store.ts";
 import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
 import { type Overrides, Valuation } from "./value.ts";
+import { WorkflowCases } from "./workflowCases.ts";
 import type { WriterHistory } from "./writerHistory.ts";
 
 const COOKIE = "es_session";
@@ -150,6 +151,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const v3Intents = new V3Intents(store.db, store, v3);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const customerUses = new CustomerUses(store.db, store, v3, options.customer, runtime);
+  // The workflow engine: one case per accepted request, worked by the business's current owner.
+  const workflowCases = new WorkflowCases(store.db, store, {
+    load: (id) => customerUses.submissionFields(id),
+  });
   const agentAccess = new AgentAccess(
     store.db,
     store,
@@ -483,6 +488,16 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/businesses/:id/customer-offers/:offer/retire", (c) =>
     c.json(customerUses.retireOffer(me(c), c.req.param("id"), c.req.param("offer"))),
   );
+  // The workflow engine (WORKFLOW_ENGINE.md §5): the owner's case board, one case, and a move.
+  app.get("/api/businesses/:id/workflow-cases", (c) =>
+    c.json(workflowCases.list(me(c), c.req.param("id"))),
+  );
+  app.get("/api/businesses/:id/workflow-cases/:request", async (c) =>
+    c.json(await workflowCases.one(me(c), c.req.param("id"), c.req.param("request"))),
+  );
+  app.post("/api/businesses/:id/workflow-cases/:request/advance", async (c) =>
+    c.json(workflowCases.advance(me(c), c.req.param("id"), c.req.param("request"), await body(c))),
+  );
   // Job 003r: the owner's readiness summary (local facts only) and the bounded plan inspector.
   app.get("/api/businesses/:id/customer-offer-readiness", (c) =>
     c.json(
@@ -595,6 +610,9 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   app.post("/api/customer/uses/:id/execution/cancel", (c) =>
     c.json(customerUses.cancelExecution(me(c), c.req.param("id"))),
+  );
+  app.get("/api/customer/uses/:id/case", (c) =>
+    c.json(workflowCases.forCustomer(me(c), c.req.param("id"))),
   );
   app.get("/api/customer/uses/:id/result", async (c) =>
     c.json(await customerUses.result(me(c), c.req.param("id"))),

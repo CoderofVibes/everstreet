@@ -13,6 +13,41 @@ import type { Db } from "./db.ts";
 import { RELEASE_POLICY } from "./evaluations.ts";
 import { EXTRACT_VALIDATOR, type Extraction, validateExtraction } from "./extract.ts";
 import {
+  runWorkflow,
+  validateWorkflowSpec,
+  WORKFLOW_ENGINE_AVAILABILITY,
+  WORKFLOW_KIND,
+  WORKFLOW_PROVIDER_CONFIG,
+  WORKFLOW_VALIDATOR,
+  type WorkflowResult,
+  type WorkflowSpec,
+} from "./workflow.ts";
+
+/** What a run produces: an extraction, or a workflow intake decision (WORKFLOW_ENGINE.md). */
+export type RunResult = Extraction | WorkflowResult;
+/** A use is fulfilled (and its unit chargeable) only for these outcomes. */
+export const isFulfilled = (outcome: string | null | undefined) =>
+  outcome === "extracted" || outcome === "accepted";
+/** A checked artifact, by kind: an extraction spec can never be read as a workflow, or back. */
+export type CheckedSpec =
+  | { kind: "extraction_spec"; spec: ExtractionSpec }
+  | { kind: "workflow_spec"; spec: WorkflowSpec };
+export const validatorFor = (kind: CheckedSpec["kind"]) =>
+  kind === WORKFLOW_KIND ? WORKFLOW_VALIDATOR : EXTRACT_VALIDATOR;
+const ZERO_PRICING = JSON.stringify({
+  inputCentsPerMillionTokens: 0,
+  outputCentsPerMillionTokens: 0,
+});
+/** The workflow engine's input ceiling; the extraction spec's own limit otherwise. */
+export const inputCeiling = (c: CheckedSpec, extractionMax: number) =>
+  c.kind === WORKFLOW_KIND
+    ? Math.min(
+        c.spec.intake.fields.reduce((n, f) => n + f.max_chars * 2 + f.key.length + 8, 16),
+        extractionMax,
+      )
+    : Math.min(c.spec.input.max_chars, extractionMax);
+
+import {
   RUNTIME_LIMITS,
   RuntimeFailure,
   type RuntimeProvider,
@@ -216,6 +251,11 @@ export class ManagedRuntime {
     return this.provider && this.availability().available ? runtimeConfig(this.provider) : null;
   }
 
+  /** The model config a release of this kind must have: none for the workflow engine. */
+  configFor(kind: CheckedSpec["kind"]): string | null {
+    return kind === WORKFLOW_KIND ? WORKFLOW_PROVIDER_CONFIG : this.configNow();
+  }
+
   /** Worst case for one request at the fixed limits, rounded up to whole cents. */
   worstCents() {
     const p = this.provider?.pricing();
@@ -293,6 +333,14 @@ export class ManagedRuntime {
   }
 
   /** The project, if this person may run its product for this purpose; otherwise 404. */
+  /** A SaaS workflow product runs on the workflow engine (WORKFLOW_ENGINE.md), not a model. */
+  isWorkflowProject(projectId: string) {
+    const r = this.db
+      .prepare("SELECT foundation FROM product_projects WHERE id = ?")
+      .get(projectId) as { foundation: string } | undefined;
+    return r?.foundation === "saas_workflow";
+  }
+
   project(viewer: Person, projectId: string, purpose: Purpose = "trial") {
     const p = this.db
       .prepare(
@@ -308,7 +356,7 @@ export class ManagedRuntime {
   artifact(projectId: string, jobId: string) {
     const a = this.db
       .prepare(
-        `SELECT j.id AS job_id, j.revision, j.owner_id, j.owner_generation, a.digest, a.content, a.created_at
+        `SELECT j.id AS job_id, j.revision, j.owner_id, j.owner_generation, a.kind, a.digest, a.content, a.created_at
            FROM build_jobs j JOIN build_artifacts a ON a.job_id = j.id
           WHERE j.id = ? AND j.project_id = ? AND j.intent = 'build' AND j.state = 'succeeded'`,
       )
@@ -318,13 +366,22 @@ export class ManagedRuntime {
           revision: number;
           owner_id: string;
           owner_generation: number;
+          kind: string;
           digest: string;
           content: string;
           created_at: string;
         }
       | undefined;
     if (!a) throw new HttpError(404, "No checked version with that id");
-    return { ...a, spec: JSON.parse(a.content) as ExtractionSpec };
+    const parsed = JSON.parse(a.content) as unknown;
+    if (a.kind === WORKFLOW_KIND) {
+      const spec = validateWorkflowSpec(parsed);
+      if (!spec) throw new HttpError(409, "This version's workflow isn't valid");
+      return { ...a, checked: { kind: WORKFLOW_KIND, spec } as CheckedSpec, spec: null };
+    }
+    if (a.kind !== "extraction_spec") throw new HttpError(409, "This version can't be run here");
+    const spec = parsed as ExtractionSpec;
+    return { ...a, checked: { kind: "extraction_spec", spec } as CheckedSpec, spec };
   }
 
   // ---------- budget ----------
@@ -442,10 +499,12 @@ export class ManagedRuntime {
           }
         | undefined;
       if (!active) throw new HttpError(409, "Nothing is released yet");
-      // A release serves only under the model, checks and release policy it was released with.
+      // A release serves only under the model, checks and release policy it was released with
+      // (a workflow release needs no model: its config is "none").
+      const kindNow = this.artifact(project.id, active.artifact_job).checked.kind;
       if (
-        active.provider_config !== this.configNow() ||
-        active.validator !== EXTRACT_VALIDATOR ||
+        active.provider_config !== this.configFor(kindNow) ||
+        active.validator !== validatorFor(kindNow) ||
         active.policy !== RELEASE_POLICY
       )
         throw new HttpError(
@@ -460,17 +519,19 @@ export class ManagedRuntime {
     );
     // Free checks: nothing is reserved or sent for these.
     if (!text.trim()) throw new HttpError(400, "Paste some text to process first");
-    const max = Math.min(artifact.spec.input.max_chars, RUNTIME_LIMITS.maxInputChars);
+    const max = inputCeiling(artifact.checked, RUNTIME_LIMITS.maxInputChars);
     if (text.length > max)
       throw new HttpError(
         400,
         `This service reads up to ${max} characters; the text has ${text.length}`,
       );
+    const wf = artifact.checked.kind === WORKFLOW_KIND;
     const availability = this.availability();
-    if (!availability.available || !this.provider) throw new HttpError(409, availability.reason);
-    const pricing = this.provider.pricing();
-    const config = runtimeConfig(this.provider);
-    const worst = this.worstCents();
+    if (!wf && (!availability.available || !this.provider))
+      throw new HttpError(409, availability.reason);
+    const pricing = wf ? JSON.parse(ZERO_PRICING) : (this.provider as RuntimeProvider).pricing();
+    const config = wf ? WORKFLOW_PROVIDER_CONFIG : runtimeConfig(this.provider as RuntimeProvider);
+    const worst = wf ? 0 : this.worstCents();
 
     const id = randomUUID();
     try {
@@ -492,8 +553,9 @@ export class ManagedRuntime {
             .get(evalRef.run, this.runner)
         )
           throw new HttpError(409, "This check was stopped", "eval_stopped");
-        this.reserveChecks(project.business_id, worst);
+        this.reserveChecks(project.business_id, worst, !wf);
         this.insertRunning({
+          kind: artifact.checked.kind,
           id,
           business_id: project.business_id,
           project_id: project.id,
@@ -523,7 +585,7 @@ export class ManagedRuntime {
     }
     const made = existing() as InvocationRow;
     if (made.id !== id) return same(made);
-    const done = this.track(this.run(made, artifact.spec, text));
+    const done = this.track(this.run(made, artifact.checked, text));
     return { invocation: made, created: true, done };
   }
 
@@ -531,7 +593,25 @@ export class ManagedRuntime {
    * The runtime's own admission checks, inside the caller's transaction: the business's budget,
    * the operator's overall ceiling and the concurrency limit, all for the worst case.
    */
-  private reserveChecks(businessId: string, worst: number) {
+  private reserveChecks(businessId: string, worst: number, budget = true) {
+    if (budget) this.budgetChecks(businessId, worst);
+    const running = (
+      this.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM runtime_invocations WHERE business_id = ? AND state = 'running'",
+        )
+        .get(businessId) as { n: number }
+    ).n;
+    if (running >= RUNTIME_LIMITS.concurrency)
+      throw new HttpError(
+        409,
+        `At most ${RUNTIME_LIMITS.concurrency} requests run at once; wait for one to finish`,
+        this.coded("concurrency_limit"),
+      );
+  }
+
+  /** The business's budget and the operator's ceiling, for the worst case (model kinds only). */
+  private budgetChecks(businessId: string, worst: number) {
     const limit = this.db
       .prepare("SELECT limit_cents FROM runtime_budgets WHERE business_id = ?")
       .get(businessId) as { limit_cents: number } | undefined;
@@ -555,19 +635,6 @@ export class ManagedRuntime {
         "The platform's overall limit for running products has been reached. Nothing was sent.",
         this.coded("ceiling_reached"),
       );
-    const running = (
-      this.db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM runtime_invocations WHERE business_id = ? AND state = 'running'",
-        )
-        .get(businessId) as { n: number }
-    ).n;
-    if (running >= RUNTIME_LIMITS.concurrency)
-      throw new HttpError(
-        409,
-        `At most ${RUNTIME_LIMITS.concurrency} requests run at once; wait for one to finish`,
-        this.coded("concurrency_limit"),
-      );
   }
 
   /** Codes only on the customer path (job 003n), so existing trial answers stay as they were. */
@@ -578,6 +645,7 @@ export class ManagedRuntime {
 
   /** The dispatch intent: a running record and its worst-case reservation, in one transaction. */
   private insertRunning(v: {
+    kind: CheckedSpec["kind"];
     id: string;
     business_id: string;
     project_id: string;
@@ -620,9 +688,9 @@ export class ManagedRuntime {
         v.fingerprint,
         v.input_sha,
         v.input_chars,
-        this.provider?.id ?? "none",
+        v.kind === WORKFLOW_KIND ? "workflow-engine" : (this.provider?.id ?? "none"),
         v.config,
-        EXTRACT_VALIDATOR,
+        validatorFor(v.kind),
         v.pricing,
         v.worst,
         t,
@@ -651,13 +719,13 @@ export class ManagedRuntime {
         }
       | undefined;
     if (!r) return { ok: false as const, code: "release_not_active" };
+    const artifact = this.artifact(projectId, r.artifact_job);
     if (
-      r.provider_config !== this.configNow() ||
-      r.validator !== EXTRACT_VALIDATOR ||
+      r.provider_config !== this.configFor(artifact.checked.kind) ||
+      r.validator !== validatorFor(artifact.checked.kind) ||
       r.policy !== RELEASE_POLICY
     )
       return { ok: false as const, code: "release_needs_recheck" };
-    const artifact = this.artifact(projectId, r.artifact_job);
     if (artifact.digest !== artifactDigest) return { ok: false as const, code: "artifact_changed" };
     return { ok: true as const, release: r, artifact };
   }
@@ -676,15 +744,16 @@ export class ManagedRuntime {
     release_id: string;
     artifact_job: string;
     artifact_digest: string;
-    spec: ExtractionSpec;
+    checked: CheckedSpec;
     text: string;
     request_id: string;
     person_id: string;
     inTx: (invocationId: string) => void;
-    sink: (row: InvocationRow, result: Extraction) => Promise<void>;
+    sink: (row: InvocationRow, result: RunResult) => Promise<void>;
   }): { invocation: InvocationRow; created: boolean; done: Promise<InvocationRow> } {
+    const wf = ctx.checked.kind === WORKFLOW_KIND;
     const availability = this.availability();
-    if (!availability.available || !this.provider)
+    if (!wf && (!availability.available || !this.provider))
       throw new HttpError(503, availability.reason, "runtime_unavailable");
     const key = `customer-${ctx.request_id}`;
     const inputSha = sha(ctx.text);
@@ -697,16 +766,19 @@ export class ManagedRuntime {
         .get(ctx.project_id, key) as InvocationRow | undefined;
     const found = existing();
     if (found) return { invocation: found, created: false, done: this.settled(found.id) };
-    const worst = this.worstCents();
-    const config = runtimeConfig(this.provider);
-    const pricing = JSON.stringify(this.provider.pricing());
+    const worst = wf ? 0 : this.worstCents();
+    const config = wf ? WORKFLOW_PROVIDER_CONFIG : runtimeConfig(this.provider as RuntimeProvider);
+    const pricing = wf
+      ? ZERO_PRICING
+      : JSON.stringify((this.provider as RuntimeProvider).pricing());
     const id = randomUUID();
     try {
       this.codes = true;
       this.store.tx(() => {
         if (existing()) return;
-        this.reserveChecks(ctx.business_id, worst);
+        this.reserveChecks(ctx.business_id, worst, !wf);
         this.insertRunning({
+          kind: ctx.checked.kind,
           id,
           business_id: ctx.business_id,
           project_id: ctx.project_id,
@@ -739,7 +811,7 @@ export class ManagedRuntime {
     }
     const made = existing() as InvocationRow;
     if (made.id !== id) return { invocation: made, created: false, done: this.settled(made.id) };
-    const done = this.track(this.run(made, ctx.spec, ctx.text, ctx.sink));
+    const done = this.track(this.run(made, ctx.checked, ctx.text, ctx.sink));
     return { invocation: made, created: true, done };
   }
 
@@ -757,9 +829,9 @@ export class ManagedRuntime {
   /** Runs the request and returns the final record. The input exists only in this call. */
   private async run(
     row: InvocationRow,
-    spec: ExtractionSpec,
+    checked: CheckedSpec,
     text: string,
-    sink?: (row: InvocationRow, result: Extraction) => Promise<void>,
+    sink?: (row: InvocationRow, result: RunResult) => Promise<void>,
   ): Promise<InvocationRow> {
     const provider = this.provider as RuntimeProvider;
     const controller = new AbortController();
@@ -772,19 +844,29 @@ export class ManagedRuntime {
     const timer = setTimeout(() => stop("timeout"), this.timeoutMs);
     const started = this.now();
     try {
-      const { usage, output } = await provider.extract(
-        {
-          invocationId: row.id,
-          spec,
-          document: text,
-          limits: {
-            maxInputTokens: RUNTIME_LIMITS.maxInputTokens,
-            maxOutputTokens: RUNTIME_LIMITS.maxOutputTokens,
+      // The engine for this artifact's kind: the deterministic workflow engine (no model, zero
+      // usage, final), or the AI provider plus the extraction validator.
+      let usage: RuntimeUsage;
+      let result: RunResult;
+      if (checked.kind === WORKFLOW_KIND) {
+        result = runWorkflow(checked.spec, text);
+        usage = { inputTokens: 0, outputTokens: 0, final: true };
+      } else {
+        const answer = await provider.extract(
+          {
+            invocationId: row.id,
+            spec: checked.spec,
+            document: text,
+            limits: {
+              maxInputTokens: RUNTIME_LIMITS.maxInputTokens,
+              maxOutputTokens: RUNTIME_LIMITS.maxOutputTokens,
+            },
           },
-        },
-        controller.signal,
-      );
-      const result = validateExtraction(spec, output);
+          controller.signal,
+        );
+        usage = answer.usage;
+        result = validateExtraction(checked.spec, answer.output);
+      }
       // Job 003n: a customer's late answer after a cancellation is neither stored nor delivered;
       // its usage is still accounted.
       const late =
@@ -846,7 +928,7 @@ export class ManagedRuntime {
   private finish(
     row: InvocationRow,
     state: Exclude<InvocationState, "running">,
-    result: Extraction | null,
+    result: RunResult | null,
     info: {
       failureClass: string | null;
       detail: string | null;
@@ -908,7 +990,7 @@ export class ManagedRuntime {
       );
     else this.ledger(row.id, "unknown", null, "Sent, but no usage was reported");
     if (release) this.ledger(row.id, "release", row.reserved_cents, "Settled by the final receipt");
-    this.admission.settle(row, state === "completed" && result?.outcome === "extracted");
+    this.admission.settle(row, state === "completed" && isFulfilled(result?.outcome));
   }
 
   /** Resolves when a request (possibly running in this process) has finished. */
@@ -968,8 +1050,10 @@ export class ManagedRuntime {
         "SELECT * FROM runtime_invocations WHERE project_id = ? AND purpose NOT IN ('evaluation','customer_use') ORDER BY created_at DESC, rowid DESC LIMIT 50",
       )
       .all(p.id) as unknown as InvocationRow[];
+    const wf = this.isWorkflowProject(p.id);
     return {
-      availability: this.availability(),
+      engine: wf ? ("workflow" as const) : ("model" as const),
+      availability: wf ? { ...WORKFLOW_ENGINE_AVAILABILITY } : this.availability(),
       budget: this.budgetFor(p.business_id),
       limits: RUNTIME_LIMITS,
       invocations: rows.map((r) => this.view(r)),
@@ -989,7 +1073,7 @@ export class ManagedRuntime {
       validator: r.validator,
       state: r.state,
       outcome: r.outcome,
-      fulfilled: r.state === "completed" && r.outcome === "extracted",
+      fulfilled: r.state === "completed" && isFulfilled(r.outcome),
       result: r.output ? (JSON.parse(r.output) as Extraction) : null,
       failure: r.failure_class ? { class: r.failure_class, detail: r.failure_detail ?? "" } : null,
       input_chars: r.input_chars,

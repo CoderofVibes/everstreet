@@ -70,8 +70,30 @@ describe("the sample panel", () => {
     expect(document.querySelectorAll(".example-card")).toHaveLength(3);
     await act(async () => root?.unmount());
     root = null;
-    await mount(createElement(ExamplePage, { which: "relaydesk" }), "/example/relaydesk");
+    await mount(createElement(ExamplePage, { which: "signalwatch" }), "/example/signalwatch");
     expect(text()).toMatch(/Illustration, not a run/);
+    expect(calls).toEqual([]);
+  });
+
+  it("Relaydesk: the real engine's decisions, prepared in advance, with no request", async () => {
+    const calls = trap();
+    await mount(createElement(ExamplePage, { which: "relaydesk" }), "/example/relaydesk");
+    expect(text()).toMatch(/real workflow engine/);
+    await act(async () => (document.querySelector("form") as HTMLFormElement).requestSubmit());
+    expect(text()).toMatch(/Accepted/);
+    expect(text()).toMatch(/Export button does nothing/);
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toBe("Received");
+    await act(async () =>
+      [...document.querySelectorAll("button")]
+        .find((b) => /Try another/.test(b.textContent ?? ""))
+        ?.click(),
+    );
+    const missing = document.querySelector('input[value="rd_missing"]') as HTMLInputElement;
+    await act(async () => missing.click());
+    await act(async () => (document.querySelector("form") as HTMLFormElement).requestSubmit());
+    expect(text()).toMatch(/Refused/);
+    expect(text()).toMatch(/What happened is required/);
+    expect(text()).toMatch(/never charged/);
     expect(calls).toEqual([]);
   });
 });

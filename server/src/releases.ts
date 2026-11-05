@@ -75,7 +75,8 @@ export class Releases {
         out.push("That check was for a different version");
       const c = this.evaluations.currency(run);
       out.push(...c.reasons);
-      if (!this.runtime.configNow()) out.push(this.runtime.availability().reason);
+      if (!this.runtime.configFor(artifact.checked.kind))
+        out.push(this.runtime.availability().reason);
     }
     return { blockers: out, artifact };
   }

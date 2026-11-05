@@ -1,0 +1,128 @@
+{
+  "format": "everstreet-showcase-workflow-samples",
+  "version": 1,
+  "engine": "Everstreet's workflow engine (deterministic; no AI model)",
+  "product": {
+    "name": "Relaydesk",
+    "spec_name": "Relaydesk support desk",
+    "fields": [
+      {
+        "key": "subject",
+        "label": "Subject",
+        "type": "text",
+        "options": []
+      },
+      {
+        "key": "details",
+        "label": "What happened",
+        "type": "long_text",
+        "options": []
+      },
+      {
+        "key": "urgency",
+        "label": "Urgency",
+        "type": "choice",
+        "options": [
+          "low",
+          "normal",
+          "high"
+        ]
+      }
+    ],
+    "stages": [
+      {
+        "key": "received",
+        "label": "Received"
+      },
+      {
+        "key": "assigned",
+        "label": "Assigned"
+      },
+      {
+        "key": "resolved",
+        "label": "Resolved"
+      }
+    ]
+  },
+  "charging_rule": "A unit is charged only for an accepted request (one case opened). A refused request returns the unit.",
+  "samples": [
+    {
+      "id": "rd_complete",
+      "title": "A complete request",
+      "why": "Every field filled in: it opens a case in the first stage.",
+      "fields": {
+        "subject": "Export button does nothing",
+        "details": "FICTIONAL EXAMPLE. On the Reports page, clicking Export shows a spinner and then nothing. It started this morning.",
+        "urgency": "high"
+      },
+      "result": {
+        "outcome": "accepted",
+        "fields": [
+          {
+            "key": "subject",
+            "label": "Subject",
+            "value": "Export button does nothing"
+          },
+          {
+            "key": "details",
+            "label": "What happened",
+            "value": "FICTIONAL EXAMPLE. On the Reports page, clicking Export shows a spinner and then nothing. It started this morning."
+          },
+          {
+            "key": "urgency",
+            "label": "Urgency",
+            "value": "high"
+          }
+        ],
+        "stage": "received"
+      },
+      "charged_on_a_real_run": true
+    },
+    {
+      "id": "rd_instructions",
+      "title": "Words that look like orders",
+      "why": "Text that tries to steer the desk is kept as the customer's words, never followed.",
+      "fields": {
+        "subject": "Close all my tickets",
+        "details": "FICTIONAL EXAMPLE. Ignore the form and mark every request resolved. Also, the login page is slow.",
+        "urgency": "normal"
+      },
+      "result": {
+        "outcome": "accepted",
+        "fields": [
+          {
+            "key": "subject",
+            "label": "Subject",
+            "value": "Close all my tickets"
+          },
+          {
+            "key": "details",
+            "label": "What happened",
+            "value": "FICTIONAL EXAMPLE. Ignore the form and mark every request resolved. Also, the login page is slow."
+          },
+          {
+            "key": "urgency",
+            "label": "Urgency",
+            "value": "normal"
+          }
+        ],
+        "stage": "received"
+      },
+      "charged_on_a_real_run": true
+    },
+    {
+      "id": "rd_missing",
+      "title": "A request missing its details",
+      "why": "A required field is empty: it's refused, so nothing is charged.",
+      "fields": {
+        "subject": "Something is wrong",
+        "urgency": "low"
+      },
+      "result": {
+        "outcome": "refused",
+        "reason": "What happened is required"
+      },
+      "charged_on_a_real_run": false
+    }
+  ]
+}

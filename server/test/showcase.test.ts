@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { relaydeskJson } from "../../scripts/lib/relaydeskSamples.ts";
 import { samplesJson } from "../../scripts/lib/showcaseSamples.ts";
 import { DEFAULT_LEDGERLINE_RECORD, ledgerlineExample } from "../src/examples.ts";
 import { customerWorld, type Json } from "./customer-world.ts";
@@ -27,6 +28,25 @@ describe("showcase samples", () => {
       by("req_unrelated_text").extraction.outcome,
       by("req_unrelated_text").charged_on_a_real_run,
     ]).toEqual(["refused", false]);
+  });
+
+  it("the committed Relaydesk sample equals a fresh run through the real compiler and engine", () => {
+    const committed = readFileSync("web/src/showcase/relaydesk.json", "utf8").replace(
+      /\r\n/g,
+      "\n",
+    );
+    expect(committed).toBe(relaydeskJson());
+    const j = JSON.parse(committed) as Json;
+    const by = (id: string) => (j.samples as Json[]).find((s) => s.id === id) as Json;
+    expect(by("rd_complete").result).toMatchObject({ outcome: "accepted", stage: "received" });
+    // Instruction-shaped words are kept verbatim as data.
+    expect(
+      (by("rd_instructions").result.fields as Json[]).find((f) => f.key === "details")?.value,
+    ).toMatch(/^FICTIONAL EXAMPLE\. Ignore the form/);
+    expect([by("rd_missing").result.outcome, by("rd_missing").charged_on_a_real_run]).toEqual([
+      "refused",
+      false,
+    ]);
   });
 });
 

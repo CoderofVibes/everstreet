@@ -239,12 +239,15 @@ export function runtimeWorld(
    * so the business's contract account can be bound in the configuration. No budget, build,
    * evaluation or release: the founder makes those through the configured child's own routes.
    */
-  const shell = async (name = "Ava Chen") => {
+  const shell = async (name = "Ava Chen", foundation = "ai_api") => {
     const ava = await join(name);
     const p = (
       await ava("/api/product-projects", "POST", {
-        idea: "Turn fictional supplier invoices into clean rows",
-        foundation: "ai_api",
+        idea:
+          foundation === "saas_workflow"
+            ? "A support desk for a small fictional software team"
+            : "Turn fictional supplier invoices into clean rows",
+        foundation,
       })
     ).body.project;
     return { ava, project: p.id as string, business: p.business_id as string, job: "" };

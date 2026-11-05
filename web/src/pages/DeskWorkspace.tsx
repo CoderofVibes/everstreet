@@ -25,6 +25,7 @@ import { DeskGrowth, DeskShare, DeskTeamIfPaid } from "./DeskGrowth.tsx";
 import { OpsTiles, UsageChart } from "./DeskOperations.tsx";
 import { DeskSelling } from "./DeskSale.tsx";
 import { DeskImports } from "./Import.tsx";
+import { WorkflowCaseBoard } from "./WorkflowCaseBoard.tsx";
 
 /** The checklist (first-week tasks), shared by the legacy desk and the workspace. */
 export function Checklist({ desk, title, load }: { desk: Desk; title: string; load: () => void }) {
@@ -342,6 +343,7 @@ export function DigitalWorkspace({
             )}
           </div>
         </div>
+        <WorkflowCaseBoard businessId={b.id} />
         <DeskImports businessId={b.id} />
         {showOffer && (
           <div className="ws-legacy-offer">
