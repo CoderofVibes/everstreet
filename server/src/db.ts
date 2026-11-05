@@ -659,7 +659,8 @@ BEGIN SELECT RAISE(ABORT, 'build usage is append-only'); END;
 
 export function openDb(path: string) {
   const db = new DatabaseSync(path);
-  db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;");
+  // The busy timeout first: two processes opening one file at once both switch its journal mode.
+  db.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
   // Columns added after the first release: attribution of how a response arrived.
   const cols = db.prepare("PRAGMA table_info(inquiries)").all() as { name: string }[];

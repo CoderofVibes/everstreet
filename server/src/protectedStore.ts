@@ -174,9 +174,10 @@ export class ProtectedStore implements InputProtection {
     }
     this.db = new DatabaseSync(file);
     // Rollback journal (not WAL), full sync, and freed pages overwritten in the main file. That
-    // is logical deletion, not a secure wipe: see the design's deletion section.
+    // is logical deletion, not a secure wipe: see the design's deletion section. The busy timeout
+    // comes first (job 003wf3): two processes starting at once both set the journal mode.
     this.db.exec(
-      "PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL; PRAGMA secure_delete = ON; PRAGMA busy_timeout = 5000;",
+      "PRAGMA busy_timeout = 5000; PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL; PRAGMA secure_delete = ON;",
     );
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS store_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL) STRICT;

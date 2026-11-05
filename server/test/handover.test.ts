@@ -3,6 +3,7 @@
 // RPC/model answered here). Each case drives the coordinator's passes itself.
 
 import { afterEach, describe, expect, it } from "vitest";
+import { DEFAULT_JOURNAL, journal } from "../src/handover.ts";
 import { HandoverCoordinator } from "../src/handoverCoordinator.ts";
 import type { Json } from "./customer-world.ts";
 import { BUYER, CLOSER, type HandoverWorld, handoverWorld, PRICE } from "./handoverWorld.ts";
@@ -321,7 +322,10 @@ describe("003wf3 lease (D7) and bounded journal (D2)", () => {
     expect(w.coordinator.claim(w.biz)).toBeNull();
   }, 60_000);
 
-  it("the smallest valid journal: unchanged failing passes stay bounded and the final close is still recorded; an invalid reserve is refused", async () => {
+  // The journal's caps are fixed in code (DEFAULT_JOURNAL 256/40), not configurable; max_orders is
+  // configurable up to 8, which needs the largest reserve (3·8+8 = 32). This world runs max_orders 8,
+  // so it is the most demanding valid production configuration of the journal.
+  it("the fixed journal at max_orders 8: unchanged failing passes coalesce, alternating codes stop at cap − reserve, and the required entries and the release still fit; an invalid reserve is refused", async () => {
     expect(
       () =>
         new HandoverCoordinator(
@@ -358,11 +362,31 @@ describe("003wf3 lease (D7) and bounded journal (D2)", () => {
         .get(h.id) as Json
     ).n;
     expect(n).toBeLessThanOrEqual(3); // armed, one coalesced not_ready (unchanged reason)
+    // Alternating diagnostic codes (never coalesced), written by the real journal function in
+    // the composition's database: ordinary entries stop at cap − reserve (216).
+    for (let i = 0; i < 400; i++)
+      journal(db, { id: h.id as string }, "not_ready", i % 2 ? "holds_active" : "below_floor", {
+        now: Date.now(),
+      });
+    const ordinary = () =>
+      Number(
+        (
+          db
+            .prepare("SELECT COUNT(*) AS n FROM handover_journal WHERE handover_id = ?")
+            .get(h.id) as Json
+        ).n,
+      );
+    expect(ordinary()).toBe(DEFAULT_JOURNAL.cap - DEFAULT_JOURNAL.reserve);
     db.prepare("DELETE FROM process_presence WHERE holder = 'old-binary'").run();
     await passUntil(w, (s) => s === "released_to_buyer");
     const kinds = w
       .rows("SELECT kind FROM handover_journal WHERE handover_id = ?", h.id)
       .map((j) => j.kind);
     expect(kinds).toEqual(expect.arrayContaining(["order_created", "outcome", "terminal"]));
+    expect(kinds.length).toBeLessThanOrEqual(DEFAULT_JOURNAL.cap);
+    expect(w.rows("SELECT n FROM close_orders")).toHaveLength(1);
+    expect(
+      w.rows("SELECT 1 FROM handover_evidence WHERE handover_id = ?", h.id).length,
+    ).toBeGreaterThan(0);
   }, 90_000);
 });

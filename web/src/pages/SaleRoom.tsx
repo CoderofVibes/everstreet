@@ -9,6 +9,7 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react"
 import { Link, useRouter } from "../router.tsx";
 import {
   type SaleAction,
+  type SaleHandover,
   type SaleKind,
   type SalePreview,
   type SaleSetup,
@@ -150,8 +151,8 @@ function TermsDocument({ text, hash }: { text: string; hash: string }) {
 const HANDOVER_STATE: Record<string, string> = {
   gated: "Checking the handover",
   ready: "Ready to close",
-  ordering: "Close sent; confirming on NEAR",
-  outcome_unknown: "Close sent; its answer didn't arrive, so it's confirmed from the contract",
+  ordering: "Close prepared; confirmation pending",
+  outcome_unknown: "Confirmation pending; checking the original transaction and the contract",
   closed_observed: "Closed on the contract; applying it here",
   reconciled: "Applied here",
   attention: "Needs attention",
@@ -171,12 +172,24 @@ function waitingWords(code: string | null): string | null {
   if (c === "below_floor") return "The business's available balance is below the agreed floor.";
   if (c === "too_late")
     return "Too little time is left before the deadline to send the close safely. After the deadline either party can end the closing.";
-  if (c === "order_outstanding") return "The close was sent; waiting for the contract to show it.";
+  if (c === "order_outstanding")
+    return "A close order exists; its own transaction and the contract are being checked.";
   if (c.startsWith("capability_"))
-    return "The managed close isn't available on this server right now; nothing was sent.";
+    return "Further closing work isn't available on this server right now. Any transaction already sent is still being confirmed.";
   if (c.startsWith("read_") || c.startsWith("evidence_"))
     return "The contract couldn't be read just now; it is read again shortly.";
   return "Checking the handover.";
+}
+
+/** One close order's transaction, from its own evidence only (Astra 02:00). */
+function attemptWords(a: SaleHandover["orders"][number]["attempt"]): string {
+  if (a === null) return "prepared; no transaction yet";
+  if (a.state === "success") return "its transaction succeeded";
+  if (a.state === "failure") return `its transaction was refused (${a.code ?? "refused"})`;
+  if (a.state === "invalid")
+    return `its transaction wasn't accepted by the network (${a.code ?? "invalid"})`;
+  if ((a.broadcasts ?? 0) > 0) return "sent; its outcome is read from its own transaction";
+  return "signed; not known to be sent yet";
 }
 
 const SERVICE_WORDS: Record<string, string> = {
@@ -222,8 +235,8 @@ export function HandoverPanel({ s }: { s: SaleSetup }) {
       {waiting && !h.state.startsWith("released") && <p>{waiting}</p>}
       {h.state === "attention" && (
         <p className="error-text">
-          The contract's evidence and this server's records don't agree yet, so nothing was changed
-          and the business stays paused until they do.
+          Managing the business here stays paused while this server reconciles its ownership records
+          with the contract's evidence. What the contract shows stays as it is.
         </p>
       )}
       {h.orders.length > 0 && (
@@ -232,14 +245,7 @@ export function HandoverPanel({ s }: { s: SaleSetup }) {
           <ul>
             {h.orders.map((o) => (
               <li key={o.n}>
-                Order {o.n}, issued <When ms={o.issued_at_ms} />:{" "}
-                {o.attempt === null
-                  ? "prepared"
-                  : o.attempt.state === "success"
-                    ? "its transaction succeeded"
-                    : o.attempt.state === "failure"
-                      ? `its transaction was refused (${o.attempt.code ?? "refused"})`
-                      : "sent; its outcome is read from its own transaction"}
+                Order {o.n}, issued <When ms={o.issued_at_ms} />: {attemptWords(o.attempt)}
                 {o.attempt && <span className="muted mono wrap"> · {o.attempt.tx_hash}</span>}
               </li>
             ))}

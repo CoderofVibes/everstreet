@@ -53,13 +53,39 @@ describe("003wf3 the handover panel says what is happening, in plain words", () 
         {
           n: 1,
           issued_at_ms: "1793872100000",
-          attempt: { state: "signed", code: null, tx_hash: "HASH1" },
+          attempt: { state: "signed", code: null, tx_hash: "HASH1", broadcasts: 1 },
         },
       ],
     });
-    expect(t).toContain("its answer didn't arrive, so it's confirmed from the contract");
+    expect(t).toContain("Confirmation pending; checking the original transaction and the contract");
     expect(t).toContain("sent; its outcome is read from its own transaction");
-    expect(t).not.toMatch(/failed/i);
+    expect(t).not.toMatch(/failed|confirmed from/i);
+  });
+
+  it("only an attempt's own evidence says sent: ordering is prepared, a signed attempt isn't sent, an invalid one isn't 'sent'", () => {
+    const order = (attempt: SaleHandover["orders"][number]["attempt"]) =>
+      text({
+        ...base,
+        state: "ordering",
+        waiting_for: null,
+        orders: [{ n: 1, issued_at_ms: "1793872100000", attempt }],
+      });
+    const prepared = order(null);
+    expect(prepared).toContain("Handover: Close prepared; confirmation pending");
+    expect(prepared).toContain("prepared; no transaction yet");
+    expect(prepared).not.toMatch(/sent/i);
+    expect(order({ state: "signed", code: null, tx_hash: "H", broadcasts: 0 })).toContain(
+      "signed; not known to be sent yet",
+    );
+    const invalid = order({ state: "invalid", code: "InvalidNonce", tx_hash: "H", broadcasts: 1 });
+    expect(invalid).toContain("wasn't accepted by the network (InvalidNonce)");
+    expect(invalid).not.toContain("its outcome is read");
+  });
+
+  it("a capability failure never claims nothing was sent", () => {
+    const t = text({ ...base, waiting_for: "not_ready:capability_incompatible_peer" });
+    expect(t).toContain("Any transaction already sent is still being confirmed.");
+    expect(t).not.toContain("nothing was sent");
   });
 
   it("after the close, administration and customer service are separate facts (D4)", () => {
@@ -91,7 +117,8 @@ describe("003wf3 the handover panel says what is happening, in plain words", () 
   it("attention keeps the business paused and says why plainly", () => {
     const t = text({ ...base, state: "attention", attention_reason: "authority_advanced" });
     expect(t).toContain("Needs attention");
-    expect(t).toContain("nothing was changed and the business stays paused until they do");
+    expect(t).toContain("stays paused while this server reconciles its ownership records");
+    expect(t).not.toContain("nothing was changed");
   });
 });
 

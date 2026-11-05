@@ -233,4 +233,68 @@ describe("003wf3 managed handover in actual processes", () => {
     // B stops cleanly (admission, drain, fence, close).
     expect(await bChild.shutdown()).toBe(0);
   }, 150_000);
+
+  it("two live processes, both coordinating, one close held in flight: exactly one order, one close, one reconciliation; the late answer writes nothing; both stop cleanly", async () => {
+    const i = await installation();
+    const a = child(i.fileA, i.rpc, i.model);
+    const bChild = child(i.fileB, i.rpc, i.model);
+    await Promise.all([a.ready(), bChild.ready()]);
+    // Both are present with the handover capability: neither blocks the other (D3).
+    const caps = i.read<Json>("SELECT capabilities FROM process_presence");
+    expect(caps).toHaveLength(2);
+    for (const c of caps)
+      expect(JSON.parse(String(c.capabilities))).toMatchObject({ handover_gate: 1 });
+    const seller = browser(i.portA);
+    const buyer = browser(i.portB); // the buyer's requests go to the other process
+    await signInAs(seller, FOUNDER, i.ava);
+    await signInAs(buyer, BUYER, i.noah);
+    const terms = {
+      buyer_account: BUYER,
+      price: PRICE,
+      expires_in_days: 7,
+      available_floor: "0",
+      grants: [{ account: OP, caps: 1 }],
+      exclusions: [],
+      note: "",
+      close_window_minutes: 30,
+    };
+    expect((await act(i, seller, FOUNDER, "propose", terms)).resolution.kind).toBe("confirmed");
+    for (const k of ["register", "fund", "accept"])
+      expect((await act(i, buyer, BUYER, k)).resolution.kind, k).toBe("confirmed");
+    const held = i.rpc.holdNextSend();
+    expect((await act(i, seller, FOUNDER, "accept")).resolution.result).toBe("closing");
+    await held.entered;
+    // Whichever process sent it, its step is now stuck in the send; its lease lapses and the
+    // other live process takes over, recovering the same attempt by its own signed bytes.
+    await until(
+      () =>
+        i.read<Json>("SELECT state FROM business_handovers WHERE business_id = ?", i.biz)[0]
+          ?.state === "released_to_buyer",
+      "the handover released by one of the two live processes",
+      60_000,
+    );
+    held.open();
+    await new Promise((r) => setTimeout(r, 1_500)); // a few coordinator passes in both
+    expect(i.rpc.applied.filter((x) => x.method === "close_sale")).toHaveLength(1);
+    expect(i.read<Json>("SELECT COUNT(*) AS n FROM close_orders")[0]?.n).toBe(1);
+    expect(i.read<Json>("SELECT state FROM closer_tx_attempts")).toEqual([{ state: "success" }]);
+    expect(
+      i.read<Json>("SELECT COUNT(*) AS n FROM ownership WHERE business_id = ?", i.biz)[0]?.n,
+    ).toBe(1);
+    expect(
+      i.read<Json>("SELECT COUNT(*) AS n FROM events WHERE type = 'v3.reconciled_by_handover'")[0]
+        ?.n,
+    ).toBe(1);
+    const holders = i.read<Json>(
+      "SELECT holder, gen FROM handover_lease WHERE business_id = ?",
+      i.biz,
+    );
+    expect(holders).toHaveLength(1);
+    expect(Number(holders[0]?.gen)).toBeGreaterThanOrEqual(2); // taken over at least once
+    expect(i.read<Json>("SELECT kind FROM handover_journal").map((j) => j.kind)).toContain(
+      "takeover",
+    );
+    expect(await a.shutdown()).toBe(0);
+    expect(await bChild.shutdown()).toBe(0);
+  }, 150_000);
 });

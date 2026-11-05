@@ -94,7 +94,8 @@ export interface SaleHandover {
   orders: {
     n: number;
     issued_at_ms: string;
-    attempt: { state: string; code: string | null; tx_hash: string } | null;
+    /** The order's newest transaction attempt; `broadcasts` counts its actual sends. */
+    attempt: { state: string; code: string | null; tx_hash: string; broadcasts?: number } | null;
   }[];
   service: { eligible: boolean; reasons: string[]; note: string } | null;
 }

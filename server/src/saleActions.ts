@@ -933,15 +933,17 @@ export class SaleActions {
     ).map((o) => {
       const a = this.db
         .prepare(
-          "SELECT state, code, tx_hash FROM closer_tx_attempts WHERE operation = ? ORDER BY attempt DESC LIMIT 1",
+          "SELECT state, code, tx_hash, broadcasts FROM closer_tx_attempts WHERE operation = ? ORDER BY attempt DESC LIMIT 1",
         )
         .get(`close-${h.id}-${o.n}|close_sale`) as
-        | { state: string; code: string | null; tx_hash: string }
+        | { state: string; code: string | null; tx_hash: string; broadcasts: number }
         | undefined;
       return {
         n: o.n,
         issued_at_ms: (JSON.parse(o.order_json) as { issued_at_ms: string }).issued_at_ms,
-        attempt: a ? { state: a.state, code: a.code, tx_hash: a.tx_hash } : null,
+        attempt: a
+          ? { state: a.state, code: a.code, tx_hash: a.tx_hash, broadcasts: Number(a.broadcasts) }
+          : null,
       };
     });
     return {
