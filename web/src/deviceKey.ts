@@ -268,7 +268,13 @@ export type DeviceAnswer =
   | { kind: "not_confirmed"; readiness: Readiness; message: string }
   | { kind: "cancelled"; readiness: Readiness; message: string }
   /** The exact request differs from the one the customer reviewed: shown again, nothing sent. */
-  | { kind: "changed"; call: WalletFunctionCall; message: string; observed?: RevokeObservation }
+  | {
+      kind: "changed";
+      call: WalletFunctionCall;
+      message: string;
+      observed?: RevokeObservation;
+      review?: RevokeReview;
+    }
   | { kind: "refused"; message: string }
   | { kind: "stale" };
 
@@ -282,6 +288,16 @@ export interface RevokeObservation {
   slot: number;
   public_key: string;
   epoch: number;
+}
+
+/** A revocation review (from prepareRevoke): immutable, the call bound to the key it was shown for. */
+export interface RevokeReview {
+  readonly kind: "request";
+  readonly call: WalletFunctionCall;
+  readonly slot: number;
+  readonly thisDevice: boolean;
+  readonly account: string;
+  readonly observed: RevokeObservation;
 }
 
 export interface DeviceKeysDeps {
@@ -478,61 +494,48 @@ export class DeviceKeys {
    * (e.g. revoke only if the slot's epoch is the one reviewed) would close that window; it is a
    * contract change, recorded as a follow-up, not made here.
    */
-  async prepareRevoke(
-    offerId: string,
-    slot: number,
-  ): Promise<
-    | {
-        kind: "request";
-        call: WalletFunctionCall;
-        slot: number;
-        thisDevice: boolean;
-        account: string;
-        observed: RevokeObservation;
-      }
-    | DeviceAnswer
-  > {
+  async prepareRevoke(offerId: string, slot: number): Promise<RevokeReview | DeviceAnswer> {
     const v = await this.view(offerId);
     if (!this.alive) return { kind: "stale" };
     const k = v.rb.keys[slot];
     if (k?.state !== "active") return { kind: "refused", message: "That key slot isn't active." };
-    const call = revokeCall(v.rb.contract, v.rb.plan_id, slot);
-    const observed = this.observe(v.rb, slot);
-    this.reviews.set(JSON.stringify(call), observed);
-    return {
-      kind: "request",
-      call,
-      slot,
-      thisDevice: v.record?.slot === slot && v.record.public_key === k.public_key,
-      account: this.deps.account,
-      observed,
-    };
+    return this.review(v.rb, slot, v.record?.slot === slot && v.record.public_key === k.public_key);
   }
 
-  private reviews = new Map<string, RevokeObservation>();
-  private observe(rb: KeysReadback, slot: number): RevokeObservation {
+  /** An immutable review: the exact call AND the key it was shown for, together. */
+  private review(rb: KeysReadback, slot: number, thisDevice: boolean): RevokeReview {
     const k = rb.keys[slot] as KeySlotView;
-    return {
-      account: this.deps.account,
-      network: rb.network,
-      contract: rb.contract,
-      plan_id: rb.plan_id,
-      reg_id: rb.reg_id,
+    return Object.freeze({
+      kind: "request" as const,
+      call: Object.freeze(revokeCall(rb.contract, rb.plan_id, slot)),
       slot,
-      public_key: k.public_key,
-      epoch: k.epoch,
-    };
+      thisDevice,
+      account: this.deps.account,
+      observed: Object.freeze({
+        account: this.deps.account,
+        network: rb.network,
+        contract: rb.contract,
+        plan_id: rb.plan_id,
+        reg_id: rb.reg_id,
+        slot,
+        public_key: k.public_key,
+        epoch: k.epoch,
+      }),
+    });
   }
 
   /**
-   * Revokes a slot from the customer's account (this device's key, or a lost one). With
-   * `reviewed` (the request the customer saw, from prepareRevoke), it is sent only if the request
-   * AND the key it was reviewed for are unchanged; otherwise the new review is returned, unsent.
+   * Revokes a slot from the customer's account (this device's key, or a lost one), only under a
+   * review from `prepareRevoke`: it is sent only if the exact call AND the key that review was
+   * shown for (its own, immutable observation) are unchanged now. Astra's follow-up probe: two
+   * reviews of one slot have identical call bytes, so a bare call can't say which key it was
+   * reviewed for; it is never enough, and gets a fresh review back, unsent. Without `reviewed` at
+   * all, the revocation is unreviewed (tests only; the panel always passes its review).
    */
   async revoke(
     offerId: string,
     slot: number,
-    reviewed?: WalletFunctionCall,
+    reviewed?: RevokeReview | WalletFunctionCall,
   ): Promise<DeviceAnswer> {
     const v = await this.view(offerId);
     if (!this.alive) return { kind: "stale" };
@@ -540,18 +543,27 @@ export class DeviceKeys {
       return { kind: "refused", message: "That key slot isn't active." };
     const exact = revokeCall(v.rb.contract, v.rb.plan_id, slot);
     if (reviewed) {
-      const seen = this.reviews.get(JSON.stringify(reviewed));
-      const now = this.observe(v.rb, slot);
-      if (!sameCall(reviewed, exact) || !seen || JSON.stringify(seen) !== JSON.stringify(now)) {
-        this.reviews.set(JSON.stringify(exact), now);
+      const k = v.rb.keys[slot] as KeySlotView;
+      const fresh = this.review(
+        v.rb,
+        slot,
+        v.record?.slot === slot && v.record.public_key === k.public_key,
+      );
+      const r = "observed" in reviewed ? reviewed : null;
+      if (
+        !r ||
+        !sameCall(r.call, exact) ||
+        JSON.stringify(r.observed) !== JSON.stringify(fresh.observed)
+      )
         return {
           kind: "changed",
-          call: exact,
-          observed: now,
-          message:
-            "The key in this slot changed since you reviewed it (another device may have replaced it). Review the key now there before revoking.",
+          call: fresh.call,
+          observed: fresh.observed,
+          review: fresh,
+          message: r
+            ? "The key in this slot changed since you reviewed it (another device may have replaced it). Review the key now there before revoking."
+            : "Review which key this revokes before asking your wallet.",
         };
-      }
     }
     const mine = v.record?.slot === slot ? v.record : null;
     if (mine && !(await updateRecord(v.store, { ...mine, intent: "revoke" })))

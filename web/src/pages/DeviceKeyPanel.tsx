@@ -19,6 +19,7 @@ import {
   deviceView,
   type Readiness,
   type RevokeObservation,
+  type RevokeReview,
   readKeys,
 } from "../deviceKey.ts";
 import { useSession } from "../session.tsx";
@@ -123,6 +124,7 @@ type Outcome = {
   call?: WalletFunctionCall;
   observed?: RevokeObservation;
   thisDevice?: boolean;
+  review?: RevokeReview;
 };
 
 type Review =
@@ -133,6 +135,8 @@ type Review =
       slot: number;
       thisDevice: boolean;
       observed?: RevokeObservation;
+      /** The immutable review this confirmation is for (call + observed key). */
+      rr: RevokeReview;
     };
 
 export function DeviceKeyPanel({
@@ -224,6 +228,7 @@ export function DeviceKeyPanel({
               slot,
               thisDevice: Boolean(out.thisDevice),
               observed: out.observed,
+              rr: out as unknown as RevokeReview,
             }
           : null,
     );
@@ -281,10 +286,16 @@ export function DeviceKeyPanel({
                           : null,
                     )
                   : act(
-                      (k) => k.revoke(offerId, review.slot, review.call),
+                      (k) => k.revoke(offerId, review.slot, review.rr),
                       (out) =>
-                        out.kind === "changed" && out.call
-                          ? { ...review, call: out.call, observed: out.observed }
+                        out.kind === "changed" && out.review
+                          ? {
+                              ...review,
+                              call: out.review.call,
+                              observed: out.review.observed,
+                              thisDevice: out.review.thisDevice,
+                              rr: out.review,
+                            }
                           : null,
                     )
               }

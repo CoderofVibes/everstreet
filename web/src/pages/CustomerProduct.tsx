@@ -400,29 +400,43 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   // Job 003w-e2: in verified mode the authorizer is this device's enrolled key (DeviceKeyPanel),
   // only while the contract shows it ready; the preview keeps its labelled synthetic one.
   const device = useRef<CustomerAuthorizer | null>(null);
-  const [w] = useState(
-    () =>
-      new CustomerWorkspace(customerHttp, {
-        personId: person?.id ?? "anon",
-        offerId,
-        useId,
-        authorizer: identity === "verified" ? () => device.current : pageAuthorizer,
-        storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
-      }),
-  );
-  const s = useSyncExternalStore(w.subscribe, w.getState);
-  // Stable across renders, so the device panel's effects don't re-run on every page update.
+  // Job 003wea (Astra's WalletBrowserRepeat: "Loading…" after the first sign-in). The workspace's
+  // lifetime belongs to WHO is acting and WHAT is open, as strings: the person's id, the offer or
+  // use, and the identity mode. A session refresh for the same person hands over a new person
+  // OBJECT; that must change nothing (the typed draft, the request and the device readiness stay).
+  // Before, the effect depended on the object, so such a refresh retired the one workspace for
+  // good and then "started" it again (a retired workspace ignores everything): stuck on Loading,
+  // or dead to typing. Each effect run now owns its own workspace (so StrictMode's dev re-run is
+  // fine too), and a real identity change retires the old one (the page is also keyed by person).
+  const personId = person?.id ?? null;
+  const [w, setW] = useState<CustomerWorkspace | null>(null);
+  useEffect(() => {
+    if (!personId) return;
+    const ws = new CustomerWorkspace(customerHttp, {
+      personId,
+      offerId,
+      useId,
+      authorizer: identity === "verified" ? () => device.current : pageAuthorizer,
+      storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
+    });
+    setW(ws);
+    void ws.start();
+    return () => {
+      ws.retire();
+      setW((cur) => (cur === ws ? null : cur));
+    };
+  }, [personId, offerId, useId, identity]);
+  const subscribe = useCallback((fn: () => void) => (w ? w.subscribe(fn) : () => {}), [w]);
+  const snapshot = useCallback(() => (w ? w.getState() : null), [w]);
+  const s = useSyncExternalStore(subscribe, snapshot, snapshot);
+  // Stable per workspace, so the device panel's effects don't re-run on every page update.
   const onAuthorizer = useCallback(
     (a: CustomerAuthorizer | null) => {
       device.current = a;
-      w.refreshAuthorizer();
+      w?.refreshAuthorizer();
     },
     [w],
   );
-  useEffect(() => {
-    if (person) void w.start();
-    return () => w.retire();
-  }, [w, person]);
 
   if (!person)
     return (
@@ -438,7 +452,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
         </button>
       </div>
     );
-  if (s.status === "loading")
+  if (!w || !s || s.status === "loading")
     return (
       <div className="page muted" role="status">
         Loading…

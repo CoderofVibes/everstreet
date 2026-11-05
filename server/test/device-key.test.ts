@@ -574,7 +574,7 @@ describe("003wea revocation is reviewed first, exactly", () => {
     });
     t.wal.sent.length = 0;
     if (p.kind !== "request") throw new Error("no request");
-    expect(await k.revoke(t.offer, 1, p.call)).toMatchObject({ kind: "done" });
+    expect(await k.revoke(t.offer, 1, p)).toMatchObject({ kind: "done" });
     expect(t.wal.sent).toEqual([revokeCall(BUSINESS, 1, 1)]);
   });
 
@@ -658,14 +658,20 @@ describe("003wea a revocation review is for one key, not for a slot", () => {
       } as never),
     );
     t.wal.sent.length = 0;
-    const out = await k.revoke(t.offer, 0, p.call);
+    const out = await k.revoke(t.offer, 0, p);
     expect(out).toMatchObject({
       kind: "changed",
       observed: { slot: 0, public_key: "cd".repeat(32), epoch: p.observed.epoch + 2 },
     });
     expect(t.wal.sent).toEqual([]);
-    // Reviewed again (the new key), it is sent.
-    expect(await k.revoke(t.offer, 0, p.call)).toMatchObject({ kind: "done" });
+    // The old review again (identical call bytes): still changed, still nothing sent.
+    expect(await k.revoke(t.offer, 0, p)).toMatchObject({ kind: "changed" });
+    // A bare call never says which key it was reviewed for.
+    expect(await k.revoke(t.offer, 0, p.call)).toMatchObject({ kind: "changed" });
+    expect(t.wal.sent).toEqual([]);
+    // The NEW review (shown for key cd..): sent, exactly once.
+    if (out.kind !== "changed" || !out.review) throw new Error("no fresh review");
+    expect(await k.revoke(t.offer, 0, out.review)).toMatchObject({ kind: "done" });
     expect(t.wal.sent).toEqual([revokeCall(BUSINESS, 1, 0)]);
   });
 });
