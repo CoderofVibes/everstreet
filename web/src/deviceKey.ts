@@ -38,6 +38,16 @@ export interface KeysReadback {
   keys: KeySlotView[];
 }
 
+/** The browser's real readback: GET /api/customer/offers/:offer/keys (same-origin session). */
+export async function readKeys(offerId: string): Promise<KeysReadback> {
+  const res = await fetch(`/api/customer/offers/${encodeURIComponent(offerId)}/keys`, {
+    credentials: "same-origin",
+  });
+  const body = (await res.json().catch(() => ({}))) as KeysReadback & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `Couldn't read your keys (${res.status})`);
+  return body;
+}
+
 export interface DeviceKeyRecord {
   id: string;
   network: string;
@@ -258,9 +268,21 @@ export type DeviceAnswer =
   | { kind: "not_confirmed"; readiness: Readiness; message: string }
   | { kind: "cancelled"; readiness: Readiness; message: string }
   /** The exact request differs from the one the customer reviewed: shown again, nothing sent. */
-  | { kind: "changed"; call: WalletFunctionCall; message: string }
+  | { kind: "changed"; call: WalletFunctionCall; message: string; observed?: RevokeObservation }
   | { kind: "refused"; message: string }
   | { kind: "stale" };
+
+/** The key a revocation was reviewed for (Astra's revoke-review probe). */
+export interface RevokeObservation {
+  account: string;
+  network: string;
+  contract: string;
+  plan_id: number;
+  reg_id: string | null;
+  slot: number;
+  public_key: string;
+  epoch: number;
+}
 
 export interface DeviceKeysDeps {
   store: () => Promise<DeviceKeyStore>;
@@ -442,12 +464,95 @@ export class DeviceKeys {
     };
   }
 
-  /** Revokes a slot from the customer's account (this device's key, or a lost one). */
-  async revoke(offerId: string, slot: number): Promise<DeviceAnswer> {
+  /**
+   * Job 003wea: step 1 of revoking. The exact `revoke_key` request for this slot, from a fresh
+   * readback, for review: whether it is this device's key, the acting account, and WHICH key
+   * (public key and epoch) the customer is looking at. That observation is remembered with the
+   * request: `revoke` refuses to send if the slot's key, epoch, registration or account changed
+   * since (Astra's revoke-review probe: a replacement key must never be revoked under the old
+   * key's review). Nothing is sent here.
+   *
+   * Limit (stated, not hidden): the contract's revoke_key is slot-based, so this is a client-side
+   * comparison against a fresh read, not an atomic on-chain guarantee. Between that read and the
+   * transaction's inclusion another device could still replace the key. A guarded contract method
+   * (e.g. revoke only if the slot's epoch is the one reviewed) would close that window; it is a
+   * contract change, recorded as a follow-up, not made here.
+   */
+  async prepareRevoke(
+    offerId: string,
+    slot: number,
+  ): Promise<
+    | {
+        kind: "request";
+        call: WalletFunctionCall;
+        slot: number;
+        thisDevice: boolean;
+        account: string;
+        observed: RevokeObservation;
+      }
+    | DeviceAnswer
+  > {
+    const v = await this.view(offerId);
+    if (!this.alive) return { kind: "stale" };
+    const k = v.rb.keys[slot];
+    if (k?.state !== "active") return { kind: "refused", message: "That key slot isn't active." };
+    const call = revokeCall(v.rb.contract, v.rb.plan_id, slot);
+    const observed = this.observe(v.rb, slot);
+    this.reviews.set(JSON.stringify(call), observed);
+    return {
+      kind: "request",
+      call,
+      slot,
+      thisDevice: v.record?.slot === slot && v.record.public_key === k.public_key,
+      account: this.deps.account,
+      observed,
+    };
+  }
+
+  private reviews = new Map<string, RevokeObservation>();
+  private observe(rb: KeysReadback, slot: number): RevokeObservation {
+    const k = rb.keys[slot] as KeySlotView;
+    return {
+      account: this.deps.account,
+      network: rb.network,
+      contract: rb.contract,
+      plan_id: rb.plan_id,
+      reg_id: rb.reg_id,
+      slot,
+      public_key: k.public_key,
+      epoch: k.epoch,
+    };
+  }
+
+  /**
+   * Revokes a slot from the customer's account (this device's key, or a lost one). With
+   * `reviewed` (the request the customer saw, from prepareRevoke), it is sent only if the request
+   * AND the key it was reviewed for are unchanged; otherwise the new review is returned, unsent.
+   */
+  async revoke(
+    offerId: string,
+    slot: number,
+    reviewed?: WalletFunctionCall,
+  ): Promise<DeviceAnswer> {
     const v = await this.view(offerId);
     if (!this.alive) return { kind: "stale" };
     if (v.rb.keys[slot]?.state !== "active")
       return { kind: "refused", message: "That key slot isn't active." };
+    const exact = revokeCall(v.rb.contract, v.rb.plan_id, slot);
+    if (reviewed) {
+      const seen = this.reviews.get(JSON.stringify(reviewed));
+      const now = this.observe(v.rb, slot);
+      if (!sameCall(reviewed, exact) || !seen || JSON.stringify(seen) !== JSON.stringify(now)) {
+        this.reviews.set(JSON.stringify(exact), now);
+        return {
+          kind: "changed",
+          call: exact,
+          observed: now,
+          message:
+            "The key in this slot changed since you reviewed it (another device may have replaced it). Review the key now there before revoking.",
+        };
+      }
+    }
     const mine = v.record?.slot === slot ? v.record : null;
     if (mine && !(await updateRecord(v.store, { ...mine, intent: "revoke" })))
       return { kind: "refused", message: "Another tab changed this device's key; check again." };
@@ -456,7 +561,7 @@ export class DeviceKeys {
     if (!("send" in w)) return w;
     let cancelled = false;
     try {
-      await w.send(revokeCall(v.rb.contract, v.rb.plan_id, slot));
+      await w.send(exact);
     } catch (e) {
       cancelled = CANCEL.test((e as Error)?.message ?? "");
     }
@@ -539,4 +644,38 @@ export class DeviceKeys {
       },
     };
   }
+}
+
+/**
+ * Job 003wea (lifetime): one controller and ONE store connection for one offer view. `dispose()`
+ * (offer change, account change, unmount) retires the controller, closes its connection, including
+ * one whose open resolves only later, and refuses any further open by the retired controller.
+ */
+export function deviceView(
+  deps: Omit<DeviceKeysDeps, "store"> & { open?: () => Promise<DeviceKeyStore> },
+) {
+  let opened: Promise<DeviceKeyStore> | null = null;
+  let disposed = false;
+  const keys = new DeviceKeys({
+    ...deps,
+    store: () => {
+      if (disposed) return Promise.reject(new Error("This view has closed."));
+      opened ??= (deps.open ?? openDeviceKeyStore)();
+      return opened;
+    },
+  });
+  return {
+    keys,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      keys.retire();
+      const o = opened;
+      opened = null;
+      void o?.then(
+        (s) => s.close?.(),
+        () => {},
+      );
+    },
+  };
 }

@@ -2,8 +2,11 @@
 // always shows the current person, and the local preview lets you switch between fictional people.
 //
 // Job 003w-e1: in verified mode the acting identity is (person, account) from the server's session,
-// and signing in goes through the wallet controller (wallet.ts). Signing out, or any change of
-// account, fences every sign-in still in flight so a late answer lands nowhere.
+// and signing in goes through the wallet controller (wallet.ts).
+// Job 003wea: the identity state machine is SessionModel (sessionModel.ts), whose orderings are
+// tested: an old /me answer never restores an ended or replaced identity, a delayed logout answer
+// never clears a newer one, and sign-out settles a pending prompt. Every change of who is acting
+// fences sign-ins still in flight; private pages remount per person (App.tsx keys).
 
 import {
   createContext,
@@ -13,8 +16,10 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { api, type Person } from "./api.ts";
+import { SessionModel } from "./sessionModel.ts";
 import {
   SignInController,
   type SignInOutcome,
@@ -63,32 +68,22 @@ function sessionStore(): Storage | null {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [person, setPerson] = useState<Person | null>(null);
-  const [account, setAccount] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-  const [env, setEnv] = useState<{
-    environment: string;
-    localPreview: boolean;
-    identity?: "preview" | "verified";
-    wallet?: WalletEnv | null;
-  }>({ environment: "Local preview", localPreview: true });
-  const [signInReason, setSignInReason] = useState<string | null>(null);
-  const [resolver, setResolver] = useState<((p: Person | null) => void) | null>(null);
-  const boundary = useRef<Promise<WalletBoundary> | null>(null);
   const controller = useRef<SignInController | null>(null);
+  const [model] = useState(
+    () =>
+      new SessionModel(
+        { me: () => api.me(), env: () => api.env(), signOut: () => api.signOut() },
+        () => controller.current?.fence(),
+      ),
+  );
+  const s = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  const boundary = useRef<Promise<WalletBoundary> | null>(null);
 
-  const refresh = useCallback(async () => {
-    const [me, e] = await Promise.all([api.me(), api.env()]);
-    setPerson(me.person);
-    setAccount(me.account ?? null);
-    setEnv(e);
-    setReady(true);
-  }, []);
   useEffect(() => {
-    refresh().catch(() => setReady(true));
-  }, [refresh]);
+    model.refresh().catch(() => model.setReadyAfterFailure());
+  }, [model]);
 
-  const walletEnv = env.identity === "verified" ? (env.wallet ?? null) : null;
+  const walletEnv = s.env.identity === "verified" ? (s.env.wallet ?? null) : null;
   const walletBoundary = useCallback(() => {
     if (!walletEnv) return null;
     if (!boundary.current) {
@@ -116,31 +111,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sessionStore(),
     );
 
-  // Any change of who is acting fences sign-ins started under someone else.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: person/account are triggers
-  useEffect(() => {
-    controller.current?.fence();
-  }, [person?.id, account]);
-
-  const requireSignIn = (reason: string, asNewPerson = false) => {
-    if (person && !asNewPerson) return Promise.resolve(person);
-    setSignInReason(reason);
-    return new Promise<Person | null>((resolve) => setResolver(() => resolve));
-  };
-  const finishSignIn = (p: Person | null) => {
-    if (p) setPerson(p);
-    setSignInReason(null);
-    resolver?.(p);
-    setResolver(null);
-  };
-  const settle = async (out: SignInOutcome) => {
-    if (out.kind === "signed_in") {
-      setPerson(out.person);
-      setAccount(out.account);
-      await refresh().catch(() => {});
-    }
-    return out;
-  };
   const unavailable = async (): Promise<SignInOutcome> => ({
     kind: "unavailable",
     message: "Signing in with a wallet isn't available here.",
@@ -149,28 +119,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   return (
     <SessionContext.Provider
       value={{
-        person,
-        account,
-        ready,
-        localPreview: env.localPreview,
-        identity: env.identity === "verified" ? "verified" : "preview",
-        environment: env.environment,
+        person: s.person,
+        account: s.account,
+        ready: s.ready,
+        localPreview: s.env.localPreview,
+        identity: s.env.identity === "verified" ? "verified" : "preview",
+        environment: s.env.environment,
         wallet: walletEnv,
-        refresh,
-        setPerson,
-        requireSignIn,
-        signInReason,
-        finishSignIn,
+        refresh: model.refresh,
+        setPerson: model.setPerson,
+        requireSignIn: model.requireSignIn,
+        signInReason: s.signInReason,
+        finishSignIn: model.finishSignIn,
         walletSignIn: (d) =>
-          controller.current ? controller.current.start(d).then(settle) : unavailable(),
+          controller.current ? controller.current.start(d).then(model.settle) : unavailable(),
         completeWalletReturn: (f) =>
-          controller.current ? controller.current.completeReturn(f).then(settle) : unavailable(),
-        signOut: async () => {
-          controller.current?.fence();
-          await api.signOut();
-          setPerson(null);
-          setAccount(null);
-        },
+          controller.current
+            ? controller.current.completeReturn(f).then(model.settle)
+            : unavailable(),
+        signOut: model.signOut,
         disconnectWallet: async () => {
           await controller.current?.abandon();
           const w = boundary.current;

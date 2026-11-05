@@ -8,6 +8,7 @@
 // http://127.0.0.1:8815/ (a separate listener; no control route exists in the app):
 //   POST /cancel-next   the next wallet window is "closed" by the person
 //   POST /lose-next     the next transaction lands but its answer is lost
+//   POST /delay-next/<ms>  the next wallet answer arrives late (0 to 30000 ms)
 //   POST /account/<id>  the synthetic wallet switches to another (fictional) account
 //   GET  /             what the synthetic wallet signed and sent
 // FICTIONAL and SYNTHETIC (scripts/lib/walletHarness.ts): in-memory data, the real app and routes
@@ -68,6 +69,13 @@ control.post("/cancel-next", (c) => {
 control.post("/lose-next", (c) => {
   h.controls.loseNext = true;
   return c.json({ lose_next: true });
+});
+control.post("/delay-next/:ms", (c) => {
+  const ms = Number(c.req.param("ms"));
+  if (!Number.isInteger(ms) || ms < 0 || ms > 30_000)
+    return c.json({ error: "0 to 30000 ms" }, 400);
+  h.controls.delayNextMs = ms;
+  return c.json({ delay_next_ms: ms });
 });
 control.post("/account/:id", (c) => {
   h.controls.account = c.req.param("id");

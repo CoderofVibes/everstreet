@@ -4,7 +4,12 @@
 
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
-import { HARNESS_LABEL, WALLET_SCRIPT, walletHarness } from "../../scripts/lib/walletHarness.ts";
+import {
+  HARNESS_CSP,
+  HARNESS_LABEL,
+  WALLET_SCRIPT,
+  walletHarness,
+} from "../../scripts/lib/walletHarness.ts";
 import { DeviceKeys, type KeysReadback, openDeviceKeyStore } from "../../web/src/deviceKey.ts";
 import { SignInController, type WalletBoundary } from "../../web/src/wallet.ts";
 import { CUSTOMER } from "./customer-world.ts";
@@ -144,5 +149,16 @@ describe("003w-e the wallet review harness", () => {
     );
     expect((await c.start("/")).kind).toBe("cancelled");
     expect(((await call("/api/me")) as { person: unknown }).person).toBeNull();
+  });
+
+  it("late wallet answers are a bounded, one-shot control; the page may connect only to the harness", async () => {
+    const { h, call } = await harness();
+    h.controls.delayNextMs = 120;
+    const t0 = Date.now();
+    await call("/__harness/tx", "POST", { receiverId: "studio.biz.near", actions: [] });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(100);
+    expect(h.controls.delayNextMs).toBe(0);
+    expect(HARNESS_CSP).toContain("connect-src 'self'");
+    expect(HARNESS_CSP).toContain("default-src 'self'");
   });
 });

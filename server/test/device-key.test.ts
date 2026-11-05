@@ -557,3 +557,115 @@ describe("003w-e2 the harness double keeps the contract's continuity rules", () 
     expect(e.hold_active).toBe(true); // uses already signed stay settleable until settle_until
   });
 });
+
+describe("003wea revocation is reviewed first, exactly", () => {
+  it("prepareRevoke shows the exact revoke_key for this device's slot; revoke sends exactly that", async () => {
+    const t = await world();
+    const k = t.keys();
+    const done = await k.enroll(t.offer, 10);
+    if (done.kind !== "done" || done.readiness.kind !== "ready") throw new Error("not ready");
+    const p = await k.prepareRevoke(t.offer, done.readiness.slot);
+    expect(p).toMatchObject({
+      kind: "request",
+      slot: 1,
+      thisDevice: true,
+      account: CUSTOMER,
+      call: revokeCall(BUSINESS, 1, 1),
+    });
+    t.wal.sent.length = 0;
+    if (p.kind !== "request") throw new Error("no request");
+    expect(await k.revoke(t.offer, 1, p.call)).toMatchObject({ kind: "done" });
+    expect(t.wal.sent).toEqual([revokeCall(BUSINESS, 1, 1)]);
+  });
+
+  it("a lost device's slot is reviewed as NOT this device's; a request that no longer matches is shown again, unsent", async () => {
+    const t = await world();
+    const k = t.keys();
+    const p = await k.prepareRevoke(t.offer, 0); // the fixture's key: not this device's
+    expect(p).toMatchObject({ kind: "request", slot: 0, thisDevice: false });
+    const stale = { ...revokeCall(BUSINESS, 1, 0), args: { plan_id: 1, slot: 3 } };
+    expect(await k.revoke(t.offer, 0, stale)).toMatchObject({
+      kind: "changed",
+      call: revokeCall(BUSINESS, 1, 0),
+    });
+    expect(t.wal.sent).toEqual([]);
+    expect(await k.prepareRevoke(t.offer, 2)).toMatchObject({ kind: "refused" }); // empty slot
+  });
+});
+
+describe("003wea one offer view owns its controller and store connection", () => {
+  it("disposing closes a connection that opens late, refuses later opens, and retires the controller", async () => {
+    const { deviceView } = await import("../../web/src/deviceKey.ts");
+    let release: (s: DeviceKeyStore) => void = () => {};
+    let opens = 0;
+    let closed = 0;
+    const store: DeviceKeyStore = {
+      get: async () => null,
+      put: async () => {},
+      delete: async () => {},
+      close: () => void closed++,
+    };
+    const view = deviceView({
+      read: async () => ({
+        network: "testnet",
+        contract: BUSINESS,
+        plan_id: 1,
+        customer: CUSTOMER,
+        plan_max_hold_units: 1,
+        block: { height: "1", timestamp_ms: "1" },
+        registered: true,
+        active: true,
+        reg_id: "1",
+        keys: [],
+      }),
+      wallet: () => null,
+      account: CUSTOMER,
+      open: () => {
+        opens++;
+        return new Promise<DeviceKeyStore>((r) => {
+          release = r;
+        });
+      },
+    });
+    const pending = view.keys.status("offer"); // the open is still in flight
+    await new Promise((r) => setTimeout(r, 0));
+    view.dispose(); // the offer or account changed
+    release(store); // ...and only now does the open resolve
+    await pending.catch(() => {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(closed).toBe(1);
+    expect(view.keys.retired).toBe(true);
+    await expect(view.keys.status("offer")).rejects.toThrow(/closed/);
+    expect(opens).toBe(1);
+  });
+});
+
+describe("003wea a revocation review is for one key, not for a slot", () => {
+  it("if another device replaces the slot's key during review, nothing is sent and the new key is shown", async () => {
+    const t = await world();
+    const k = t.keys();
+    const p = await k.prepareRevoke(t.offer, 0);
+    if (p.kind !== "request") throw new Error("no review");
+    t.wal.apply(revokeCall(BUSINESS, 1, 0));
+    t.wal.apply(
+      installCall({
+        contract: BUSINESS,
+        plan_id: 1,
+        slot: 0,
+        public_key: "cd".repeat(32),
+        max_hold_units: 1,
+        max_units_per_day: 5,
+      } as never),
+    );
+    t.wal.sent.length = 0;
+    const out = await k.revoke(t.offer, 0, p.call);
+    expect(out).toMatchObject({
+      kind: "changed",
+      observed: { slot: 0, public_key: "cd".repeat(32), epoch: p.observed.epoch + 2 },
+    });
+    expect(t.wal.sent).toEqual([]);
+    // Reviewed again (the new key), it is sent.
+    expect(await k.revoke(t.offer, 0, p.call)).toMatchObject({ kind: "done" });
+    expect(t.wal.sent).toEqual([revokeCall(BUSINESS, 1, 0)]);
+  });
+});

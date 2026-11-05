@@ -97,6 +97,7 @@ export function applyKeyCall(
     Object.assign(k, { state: "revoked", epoch: k.epoch + 1 });
     if (ent.hold_active && ent.hold_key_slot === call.args.slot) {
       const until = BigInt(ent.serve_until_ms);
+      // biome-ignore lint/complexity/useMathMinMax: BigInt values (Math.min takes numbers only)
       ent.serve_until_ms = String(until < plan.now_ms ? until : plan.now_ms);
     }
   } else throw new Error("The synthetic wallet only sends install_key and revoke_key.");
@@ -109,6 +110,26 @@ export function applyKeyCall(
 export async function walletHarness(opts: { origin: string }) {
   const protection = new SyntheticProtection();
   const w = await customerWorld({ customer: { protection } });
+  // Job 003wea (Astra's actual browser handoff: the product was "Not available"): the public
+  // offer route rightly needs a PUBLISHED business, so the fictional one is published here, as
+  // the customer preview does. Public access rules are untouched.
+  // The chain double and the server follow THIS computer's clock (the browser's), moving only
+  // forward, so freshness, deadlines and the browser's own envelope check agree.
+  const time = { offset: 0 };
+  const sync = () => {
+    w.clock.now = Date.now() + time.offset;
+    const d = BigInt(w.clock.now) - w.chain.ts;
+    if (d > 0n) w.chain.tick(d);
+  };
+  const finalBlock = w.reader.finalBlock.bind(w.reader);
+  w.reader.finalBlock = async () => {
+    sync();
+    return finalBlock();
+  };
+  sync();
+  w.state.store.db
+    .prepare("UPDATE businesses SET name = ?, slug = ?, published_at = ? WHERE id = ?")
+    .run("Ledgerline Invoice Reader", "ledgerline", new Date().toISOString(), w.f.business);
   const offerId = await w.offer();
   // The synthetic account key the harness wallet signs with (FullAccess for the fictional customer).
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -138,8 +159,16 @@ export async function walletHarness(opts: { origin: string }) {
     cancelNext: false,
     /** The next transaction lands but its answer is lost. */
     loseNext: false,
+    /** The next wallet answer (sign-in or transaction) arrives this many ms late (0 to 30000). */
+    delayNextMs: 0,
     signed: 0,
     sent: [] as Json[],
+  };
+  /** A late wallet answer (a harness control): bounded, applied once. */
+  const late = async () => {
+    const ms = Math.min(Math.max(controls.delayNextMs, 0), 30_000);
+    controls.delayNextMs = 0;
+    if (ms) await new Promise((r) => setTimeout(r, ms));
   };
   const site = new Hono();
   site.get("/__harness/wallet.js", (c) =>
@@ -162,6 +191,7 @@ export async function walletHarness(opts: { origin: string }) {
     return c.json({ ok: true });
   });
   site.post("/__harness/sign-message", async (c) => {
+    await late();
     if (controls.cancelNext) {
       controls.cancelNext = false;
       return c.json({ error: "User closed the window" }, 400);
@@ -186,6 +216,8 @@ export async function walletHarness(opts: { origin: string }) {
     });
   });
   site.post("/__harness/tx", async (c) => {
+    await late();
+    sync();
     if (controls.cancelNext) {
       controls.cancelNext = false;
       return c.json({ error: "User closed the window" }, 400);
@@ -217,6 +249,9 @@ export async function walletHarness(opts: { origin: string }) {
     }
     return c.json({ status: { SuccessValue: "" } });
   });
-  site.all("/api/*", (c) => w.state.app.fetch(c.req.raw));
+  site.all("/api/*", (c) => {
+    sync();
+    return w.state.app.fetch(c.req.raw);
+  });
   return { site, controls, offerId, world: w, accountKey };
 }

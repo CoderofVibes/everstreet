@@ -1,52 +1,103 @@
-// Job 003w-e2 (§9.4–9.6): "Use this product on this device", the second of the three separate
-// acts. Plain words for what enrolling means; the EXACT wallet request (this device's real key and
-// slot) shown before the customer asks the wallet, and re-checked when it is sent; readiness only
-// from a fresh contract readback; honest recovery for an interrupted enrollment, lost storage and
-// revocation. Nothing private leaves this browser.
+// Job 003w-e2 (§9.4–9.6), corrected by 003wea: "Use this product on this device", the second of the
+// three separate acts. Both enrolling AND revoking go through review: the exact wallet request
+// (acting account, contract, plan, slot, deposit, gas) with plain consequences first, then an
+// explicit "ask my wallet" for exactly that request; a request that changed meanwhile is shown
+// again, never sent. Readiness comes only from a fresh contract readback. Nothing private leaves
+// this browser.
 //
-// Astra's DeviceKeyReview corrections: one store connection per panel, closed on unmount; the
-// readback runs on mount, on an explicit check and after an action, never as a render feedback loop;
-// a retired panel (sign-out, another account or offer) applies no late answer.
+// Lifetime (Astra's DeviceKeyReview / 003wea): each offer view owns one controller and one store
+// connection (deviceView); an offer, account or unmount change disposes it (closing a connection
+// that opens late), clears any request under review, busy and error state, and withdraws the
+// authorizer. Late answers to a disposed view are dropped.
 
 import { useEffect, useRef, useState } from "react";
 import type { CustomerAuthorizer } from "../customerAuthorizer.ts";
 import {
   DeviceKeyError,
   type DeviceKeyRecord,
-  type DeviceKeyStore,
-  DeviceKeys,
-  type KeysReadback,
-  openDeviceKeyStore,
+  type DeviceKeys,
+  deviceView,
   type Readiness,
+  type RevokeObservation,
+  readKeys,
 } from "../deviceKey.ts";
 import { useSession } from "../session.tsx";
 import type { WalletFunctionCall } from "../wallet.ts";
 
-async function readKeys(offerId: string): Promise<KeysReadback> {
-  const res = await fetch(`/api/customer/offers/${encodeURIComponent(offerId)}/keys`, {
-    credentials: "same-origin",
-  });
-  const body = (await res.json().catch(() => ({}))) as KeysReadback & { error?: string };
-  if (!res.ok) throw new Error(body.error ?? `Couldn't read your keys (${res.status})`);
-  return body;
-}
+const tgas = (gas: string) => `${(Number(BigInt(gas) / 1_000_000_000n) / 1000).toString()} Tgas`;
 
-export function RequestFields({ call }: { call: WalletFunctionCall }) {
+/** The exact request, in readable terms first; the raw call underneath. */
+export function RequestFields({
+  call,
+  account,
+}: {
+  call: WalletFunctionCall;
+  account?: string | null;
+}) {
+  const a = call.args;
+  const install = call.methodName === "install_key";
   return (
-    <dl className="use-terms">
-      <dt>Contract</dt>
-      <dd className="mono">{call.receiverId}</dd>
-      <dt>Method</dt>
-      <dd className="mono">{call.methodName}</dd>
-      {Object.entries(call.args).map(([k, v]) => (
-        <div key={k} style={{ display: "contents" }}>
-          <dt>{k}</dt>
-          <dd className="mono">{String(v)}</dd>
-        </div>
-      ))}
-      <dt>Deposit</dt>
-      <dd className="mono">{call.deposit} yoctoNEAR (the contract requires exactly 1)</dd>
-    </dl>
+    <>
+      <dl className="use-terms">
+        {account && (
+          <>
+            <dt>Your account (approves and pays)</dt>
+            <dd className="mono">{account}</dd>
+          </>
+        )}
+        <dt>Business contract</dt>
+        <dd className="mono">{call.receiverId}</dd>
+        <dt>What it does</dt>
+        <dd>
+          {install
+            ? `Enrolls this device's key in slot ${a.slot}`
+            : call.methodName === "revoke_key"
+              ? `Revokes the key in slot ${a.slot}`
+              : call.methodName}
+        </dd>
+        {a.plan_id !== undefined && (
+          <>
+            <dt>Plan</dt>
+            <dd className="mono">{String(a.plan_id)}</dd>
+          </>
+        )}
+        {a.slot !== undefined && (
+          <>
+            <dt>Key slot</dt>
+            <dd className="mono">{String(a.slot)}</dd>
+          </>
+        )}
+        {install && (
+          <>
+            <dt>This device's public key</dt>
+            <dd className="mono">{String(a.pk)}</dd>
+            <dt>Limits</dt>
+            <dd>
+              Holds of at most {String(a.max_hold_units)} use; at most {String(a.max_units_per_day)}{" "}
+              uses a day
+            </dd>
+          </>
+        )}
+        <dt>Deposit</dt>
+        <dd className="mono">{call.deposit} yoctoNEAR (the contract requires exactly 1)</dd>
+        <dt>Gas</dt>
+        <dd className="mono">up to {tgas(call.gas)}</dd>
+      </dl>
+      <details>
+        <summary>The exact request</summary>
+        <p className="mono">
+          {call.methodName} {JSON.stringify(call.args)}
+        </p>
+        <dl className="use-terms">
+          {Object.entries(call.args).map(([k, v]) => (
+            <div key={k} style={{ display: "contents" }}>
+              <dt className="mono">{k}</dt>
+              <dd className="mono">{String(v)}</dd>
+            </div>
+          ))}
+        </dl>
+      </details>
+    </>
   );
 }
 
@@ -62,6 +113,28 @@ const WORDS: Record<Readiness["kind"], string> = {
     "You have no units for this product yet, so there is nothing to enroll a device for. Buying units comes first.",
 };
 
+/** What revoking means, in plain words (lib.rs revoke_key). */
+export const REVOKE_CONSEQUENCE =
+  "The key stops authorizing new requests at once, and a reservation it opened stops serving now. Uses you already signed can still be settled until their settlement deadline, so nothing you approved is lost.";
+
+type Outcome = {
+  kind: string;
+  message?: string;
+  call?: WalletFunctionCall;
+  observed?: RevokeObservation;
+  thisDevice?: boolean;
+};
+
+type Review =
+  | { kind: "enroll"; call: WalletFunctionCall }
+  | {
+      kind: "revoke";
+      call: WalletFunctionCall;
+      slot: number;
+      thisDevice: boolean;
+      observed?: RevokeObservation;
+    };
+
 export function DeviceKeyPanel({
   offerId,
   onAuthorizer,
@@ -71,23 +144,22 @@ export function DeviceKeyPanel({
 }) {
   const { account, walletBoundary, wallet } = useSession();
   const keys = useRef<DeviceKeys | null>(null);
-  const store = useRef<Promise<DeviceKeyStore> | null>(null);
   const report = useRef(onAuthorizer);
   report.current = onAuthorizer;
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [record, setRecord] = useState<DeviceKeyRecord | null>(null);
-  const [request, setRequest] = useState<WalletFunctionCall | null>(null);
+  const [review, setReview] = useState<Review | null>(null);
   const [perDay, setPerDay] = useState(10);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   const check = async (k: DeviceKeys | null = keys.current) => {
-    if (!k) return;
+    if (!k || k.retired) return;
     setProblem(null);
     try {
       const s = await k.status(offerId);
-      if (k.retired) return; // a late answer for a page that has moved on
+      if (k.retired) return; // a late answer for a view that has moved on
       setRecord(s.record);
       setReadiness(s.readiness);
       report.current(s.readiness.kind === "ready" ? k.authorizer(offerId, s.readiness) : null);
@@ -97,31 +169,29 @@ export function DeviceKeyPanel({
       report.current(null);
     }
   };
-  // biome-ignore lint/correctness/useExhaustiveDependencies: read once per offer; then on demand
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one view per offer and account
   useEffect(() => {
+    // A new view: nothing from the previous offer or account is presented or busy.
+    setReadiness(null);
+    setRecord(null);
+    setReview(null);
+    setBusy(false);
+    setNote(null);
+    setProblem(null);
     if (!account) return;
-    // One controller and one store connection per offer view (closed on unmount or change).
-    const k = new DeviceKeys({
-      store: () => {
-        store.current ??= openDeviceKeyStore();
-        return store.current;
-      },
-      read: readKeys,
-      wallet: walletBoundary,
-      account,
-    });
-    keys.current = k;
-    void check(k);
+    const view = deviceView({ read: readKeys, wallet: walletBoundary, account });
+    keys.current = view.keys;
+    void check(view.keys);
     return () => {
-      k?.retire();
+      view.dispose();
+      if (keys.current === view.keys) keys.current = null;
       report.current(null);
-      void store.current?.then((s) => s.close?.()).catch(() => {});
-      store.current = null;
     };
   }, [offerId, account]);
 
   const act = async (
-    f: (k: DeviceKeys) => Promise<{ kind: string; message?: string; call?: WalletFunctionCall }>,
+    f: (k: DeviceKeys) => Promise<Outcome>,
+    next: (out: Outcome) => Review | null = () => null,
   ) => {
     const k = keys.current;
     if (!k) return;
@@ -131,8 +201,7 @@ export function DeviceKeyPanel({
     try {
       const out = await f(k);
       if (k.retired || out.kind === "stale") return;
-      if (out.kind === "request" || out.kind === "changed") setRequest(out.call ?? null);
-      else setRequest(null);
+      setReview(next(out));
       if (out.message) setNote(out.message);
       await check(k);
     } catch (e) {
@@ -144,6 +213,20 @@ export function DeviceKeyPanel({
       if (!k.retired) setBusy(false);
     }
   };
+  const reviewRevoke = (slot: number) =>
+    act(
+      (k) => k.prepareRevoke(offerId, slot),
+      (out) =>
+        out.kind === "request" && out.call
+          ? {
+              kind: "revoke",
+              call: out.call,
+              slot,
+              thisDevice: Boolean(out.thisDevice),
+              observed: out.observed,
+            }
+          : null,
+    );
 
   if (!account || !wallet) return null;
   const canEnroll = readiness && readiness.kind !== "ready" && readiness.kind !== "no_entitlement";
@@ -158,84 +241,141 @@ export function DeviceKeyPanel({
       <p aria-live="polite">{readiness ? WORDS[readiness.kind] : "Checking the contract…"}</p>
       {problem && <p className="error-text">{problem}</p>}
       {note && <p className="muted">{note}</p>}
-      {canEnroll && !request && (
-        <>
-          <label className="field">
-            <span>Most uses a day this device may authorize</span>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              max={65535}
-              value={record?.max_units_per_day ?? perDay}
-              disabled={Boolean(record) || busy}
-              onChange={(e) => setPerDay(Number(e.target.value))}
-            />
-          </label>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={busy}
-            onClick={() =>
-              act((k) => k.prepareEnrollment(offerId, record?.max_units_per_day ?? perDay))
-            }
-          >
-            {record ? "Review the request for this device's key" : "Make this device's key"}
-          </button>
-        </>
-      )}
-      {canEnroll && request && (
-        <>
+
+      {review ? (
+        <section className="use-consent" aria-labelledby="device-review-title">
+          <h4 id="device-review-title">
+            {review.kind === "enroll"
+              ? "Review: enroll this device"
+              : review.thisDevice
+                ? `Review: revoke this device's key (slot ${review.slot})`
+                : `Review: revoke the key in slot ${review.slot} (not this device's)`}
+          </h4>
+          {review.kind === "revoke" && (
+            <>
+              <p>{REVOKE_CONSEQUENCE}</p>
+              {review.observed && (
+                <p>
+                  The key being revoked: <span className="mono">{review.observed.public_key}</span>{" "}
+                  (epoch {review.observed.epoch}). If the key in this slot changes before you
+                  approve, this review is shown again and nothing is sent.
+                </p>
+              )}
+            </>
+          )}
           <p>Your wallet will ask you to approve exactly this:</p>
-          <RequestFields call={request} />
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={busy}
-            onClick={() =>
-              act((k) => k.enroll(offerId, Number(request.args.max_units_per_day), request))
-            }
-          >
-            Ask my wallet to enroll exactly this
-          </button>
+          <RequestFields call={review.call} account={account} />
+          <div className="row">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={() =>
+                review.kind === "enroll"
+                  ? act(
+                      (k) =>
+                        k.enroll(offerId, Number(review.call.args.max_units_per_day), review.call),
+                      (out) =>
+                        out.kind === "changed" && out.call
+                          ? { kind: "enroll", call: out.call }
+                          : null,
+                    )
+                  : act(
+                      (k) => k.revoke(offerId, review.slot, review.call),
+                      (out) =>
+                        out.kind === "changed" && out.call
+                          ? { ...review, call: out.call, observed: out.observed }
+                          : null,
+                    )
+              }
+            >
+              {review.kind === "enroll"
+                ? "Ask my wallet to enroll exactly this"
+                : "Ask my wallet to revoke exactly this"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-quiet"
+              disabled={busy}
+              onClick={() => setReview(null)}
+            >
+              Not now
+            </button>
+          </div>
+        </section>
+      ) : (
+        <>
+          {canEnroll && (
+            <>
+              <label className="field">
+                <span>Most uses a day this device may authorize</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={record?.max_units_per_day ?? perDay}
+                  disabled={Boolean(record) || busy}
+                  onChange={(e) => setPerDay(Number(e.target.value))}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() =>
+                  act(
+                    (k) => k.prepareEnrollment(offerId, record?.max_units_per_day ?? perDay),
+                    (out) =>
+                      out.kind === "request" && out.call
+                        ? { kind: "enroll", call: out.call }
+                        : null,
+                  )
+                }
+              >
+                {record ? "Review the request for this device's key" : "Make this device's key"}
+              </button>
+            </>
+          )}
+          {readiness?.kind === "ready" && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={busy}
+              onClick={() => reviewRevoke(readiness.slot)}
+            >
+              Review revoking this device's key (slot {readiness.slot})
+            </button>
+          )}
+          {readiness?.kind === "elsewhere" &&
+            readiness.slots.map((slot) => (
+              <button
+                key={slot}
+                type="button"
+                className="btn btn-quiet"
+                disabled={busy}
+                onClick={() => reviewRevoke(slot)}
+              >
+                Review revoking the key in slot {slot} (for a lost device)
+              </button>
+            ))}
+          {record && readiness?.kind !== "ready" && (
+            <button
+              type="button"
+              className="btn btn-quiet"
+              disabled={busy}
+              onClick={() =>
+                act(async (k) => {
+                  await k.forget(offerId);
+                  return { kind: "done" };
+                })
+              }
+            >
+              Forget this device's key here (if it was enrolled, its slot stays active until
+              revoked)
+            </button>
+          )}
         </>
-      )}
-      {readiness?.kind === "ready" && (
-        <button
-          type="button"
-          className="btn btn-secondary"
-          disabled={busy}
-          onClick={() => act((k) => k.revoke(offerId, readiness.slot))}
-        >
-          Revoke this device's key (slot {readiness.slot})
-        </button>
-      )}
-      {readiness?.kind === "elsewhere" &&
-        readiness.slots.map((slot) => (
-          <button
-            key={slot}
-            type="button"
-            className="btn btn-quiet"
-            disabled={busy}
-            onClick={() => act((k) => k.revoke(offerId, slot))}
-          >
-            Revoke the key in slot {slot} (for a lost device)
-          </button>
-        ))}
-      {record && readiness?.kind !== "ready" && (
-        <button
-          type="button"
-          className="btn btn-quiet"
-          disabled={busy}
-          onClick={() =>
-            act(async (k) => {
-              await k.forget(offerId);
-              return { kind: "done" };
-            })
-          }
-        >
-          Forget this device's key here (if it was enrolled, its slot stays active until revoked)
-        </button>
       )}
       <button type="button" className="btn btn-quiet" disabled={busy} onClick={() => void check()}>
         Check the contract again
