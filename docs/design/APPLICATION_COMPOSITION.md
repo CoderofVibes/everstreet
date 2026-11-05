@@ -1099,3 +1099,34 @@ network transports injected, by the test child:
   - a late answer after stop resumes nothing; a listen failure exits 1 with the DB closed.
 - **Left for later 003wf children:** the purchase/provider/close restart and nonce/migration
   matrix, the full journey through normal APIs, browser review, and the rehearsal packet.
+
+### 12.7 Built (and what changed from 12.1–12.6)
+
+The design held. Astra's reviews during the job changed how the boundary works:
+- **The database gate** (`fence.ts` `gateDb`): every records access goes through it. Once
+  stop closes it, any access (getters included) throws `StoppedError`, an HttpError 503
+  `stopping`, so a route resuming after a body read answers 503, a maintenance item past its
+  deadline is caught by the supervisor's own wrapper, and nothing reaches the closed SQLite.
+- **The fence settles instead of leaving work pending.** After close, a call is refused before
+  it reaches its adapter (object methods too), and `close()` rejects every outstanding call at
+  once, whatever its raw adapter does.
+- **Stop:** every owner's stop starts together, then they and the admitted requests drain under
+  ONE shared deadline. Requests get at most 2 s of it, then are answered 503 by the stop itself.
+  Then the gates close and resources close. `lastStop()` records a forced drain and stop
+  failures, and `serve.ts` reports them. The listener then closes idle connections first, lets
+  answers being written finish, and cuts the rest at 2 s.
+- **Recovery never takes a live peer's work.** `process_presence` (renewed every 10 s,
+  removed at stop) and `runtime_invocations.runner`: `recover({ isLive })` at start and
+  periodically after recovers only requests whose runner is gone or unrecorded. Evaluation
+  runs, which have no runner, are stopped only when no peer is alive. The build worker recovers
+  only lapsed leases.
+- **One claim per completion:** in `ManagedRuntime.finish` the conditional update comes first;
+  ledger rows and the admission settlement follow only if it moved the row.
+- **`customer_authorization`** is derived from sign-in, its browser callback and customer use.
+- **Test support** (`server/test/lifecycleWorld.ts`, `entryChild.ts`): the synthetic RPC models
+  only the one business, keeps the last 64 blocks' view snapshots, validates the transaction
+  envelope, signature and nonce, and refuses anything it can't establish.
+- **`npm test`** runs the child-process file after the main suite (both required).
+
+The report `docs/astra/reports/2026-11-04_003wf1_configured-maintenance-lifecycle.md` maps each
+requirement to its evidence and lists what is left.

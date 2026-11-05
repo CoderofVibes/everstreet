@@ -2,6 +2,8 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Lifecycle RPC evidence review](2026-11-04_LifecycleRpcEvidenceReview.md) | The synthetic RPC must keep contract and block identity and validate envelopes | Probe committed 081f017; fixed in e83a79b with negative cases |
+| 2026-11-04 | [Configured lifecycle design review](2026-11-04_ConfiguredLifecycleDesignReview.md) | Own all work before closing storage; admission/exit order; live-peer recovery; one claim per completion; fence waiters | Probes committed 6ad77a5/f711bd8; addressed in cc151d4/1eaf7bc; 003wf1 in review |
 | 2026-11-04 | [Guarded revoke source verified](2026-11-04_GuardedRevokeSourceVerified.md) | 003wec source/keyless slice verified (independent 1423+1 skipped); 003wf1 lifecycle dispatched | 003wec stays review with browser gates open; 003wf partial |
 | 2026-11-04 | [Key capability timeout review](2026-11-04_KeyCapabilityTimeoutReview.md) | An unanswered get_key_terms must not stall key readiness | Probe committed 0ae3af2; fixed in c7334ca (own deadline and cancellation) |
 | 2026-11-04 | [Guarded revoke design review](2026-11-04_GuardedRevokeDesignReview.md) | Keep a key serving a newer authorization; conditional local writes; outcome wording | Committed 0ae3af2 with the key-record probe; addressed in c7334ca; 003wf1 brief prepared, not dispatched |
