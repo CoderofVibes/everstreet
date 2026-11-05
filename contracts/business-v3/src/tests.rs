@@ -4888,7 +4888,7 @@ fn p03_no_guarded_plan_while_a_deal_is_live_or_at_the_cap() {
 }
 
 #[test]
-fn p04_appoint_replaces_the_mask_and_renews_the_generation() {
+fn p04_appoint_replaces_the_mask_in_the_same_generation() {
     let mut w = W::new();
     let cs = U64(w.b.control_seq);
     w.call(FOUNDER, 1, |b| b.appoint_operator_guarded(id(STRANGER), SUPPORT, cs));
@@ -4903,4 +4903,183 @@ fn p04_appoint_replaces_the_mask_and_renews_the_generation() {
     w.call(FOUNDER, 1, |b| b.appoint_operator_guarded(id(STRANGER), METERING | SUPPORT, cs));
     assert_eq!(slot(&w), Some((METERING | SUPPORT, w.b.generation)));
     w.invariants();
+}
+
+/// The measured quote for one plan at the test's byte cost.
+fn plan_quote() -> u128 {
+    PLAN_BYTES as u128 * env::storage_byte_cost().as_yoctonear()
+}
+
+/// A guarded create of `input` under the current review, attaching `yocto`, as `who`.
+fn guarded_by(w: &mut W, who: &str, input: PlanInput, yocto: u128) -> u32 {
+    let cs = U64(w.b.control_seq);
+    let next = w.b.get_plan_terms().next_plan_id;
+    let (got, grew) = w.measured(who, yocto, |b| b.create_plan_guarded(input, cs, next));
+    assert_eq!(grew as u64, PLAN_BYTES);
+    w.invariants();
+    assert_eq!(got, next);
+    got
+}
+
+/// The yoctoNEAR transferred back to `who` by the call just made.
+fn refunds_to(who: &str) -> Vec<u128> {
+    near_sdk::test_utils::get_created_receipts()
+        .into_iter()
+        .filter(|r| r.receiver_id == id(who))
+        .flat_map(|r| r.actions)
+        .filter_map(|a| match a {
+            near_sdk::mock::MockAction::Transfer { deposit, .. } => Some(deposit.as_yoctonear()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn p05_guarded_plan_each_argument_rule_at_its_boundary() {
+    let mut w = W::new();
+    let q = plan_quote();
+    let r = w.b.get_rules();
+    let base = || plan_input(P);
+    // Just outside each rule: refused, nothing changed (W.refuse compares the whole state).
+    let outside: Vec<(&str, PlanInput)> = vec![
+        ("price 0", PlanInput { unit_price: U128(0), ..base() }),
+        ("no units per purchase", PlanInput { max_units_per_purchase: 0, ..base() }),
+        ("outstanding below purchase", PlanInput { max_units_per_purchase: 5, max_units_outstanding: 4, ..base() }),
+        ("no hold units", PlanInput { max_hold_units: 0, ..base() }),
+        ("hold units above the rules", PlanInput { max_hold_units: r.rules.max_hold_units + 1, ..base() }),
+        ("hold below a minute", PlanInput { hold_ttl_ms: U64(MIN_SERVE_MS - 1), ..base() }),
+        ("hold above the rules", PlanInput { hold_ttl_ms: U64(r.max_hold_ttl_ms.0 + 1), ..base() }),
+        ("grace above the rules", PlanInput { settle_grace_ms: U64(r.max_settle_grace_ms.0 + 1), ..base() }),
+    ];
+    for (name, input) in outside {
+        let cs = U64(w.b.control_seq);
+        let next = w.b.get_plan_terms().next_plan_id;
+        let before = w.snap();
+        w.refuse(FOUNDER, q, "E_ARGS", |b| b.create_plan_guarded(input, cs, next));
+        assert_eq!(w.snap(), before, "{name}");
+    }
+    // Exactly at each boundary: created, and read back field by field.
+    let inside: Vec<PlanInput> = vec![
+        PlanInput { unit_price: U128(1), ..base() },
+        PlanInput { max_units_per_purchase: 1, max_units_outstanding: 1, ..base() },
+        PlanInput { max_units_per_purchase: 5, max_units_outstanding: 5, ..base() },
+        PlanInput { max_hold_units: 1, ..base() },
+        PlanInput { max_hold_units: r.rules.max_hold_units, ..base() },
+        PlanInput { hold_ttl_ms: U64(MIN_SERVE_MS), ..base() },
+        PlanInput { hold_ttl_ms: r.max_hold_ttl_ms, ..base() },
+        PlanInput { settle_grace_ms: U64(0), ..base() },
+        PlanInput { settle_grace_ms: r.max_settle_grace_ms, ..base() },
+    ];
+    for want in inside {
+        let got = guarded_by(&mut w, FOUNDER, want.clone(), q);
+        let p = w.b.get_plan(got).unwrap();
+        assert_eq!(
+            (p.unit_price, p.max_units_per_purchase, p.max_units_outstanding, p.max_hold_units, p.hold_ttl_ms, p.settle_grace_ms),
+            (want.unit_price, want.max_units_per_purchase, want.max_units_outstanding, want.max_hold_units, want.hold_ttl_ms, want.settle_grace_ms)
+        );
+        assert_eq!(p.created_generation, w.b.generation);
+    }
+}
+
+#[test]
+fn p06_guarded_plan_refunds_the_excess_and_advances_its_terms() {
+    let mut w = W::new();
+    let q = plan_quote();
+    let before = w.b.get_plan_terms();
+    // Exactly the quote: nothing to refund; the event names the plan.
+    let first = guarded_by(&mut w, FOUNDER, plan_input(P), q);
+    assert_eq!(refunds_to(FOUNDER), Vec::<u128>::new());
+    let logs = near_sdk::test_utils::get_logs();
+    assert!(logs.iter().any(|l| l.contains("\"plan_created\"") && l.contains(&format!("\"plan_id\":{first}"))), "{logs:?}");
+    // More than the quote: exactly the excess goes back to the caller.
+    let second = guarded_by(&mut w, FOUNDER, plan_input(2 * P), q + 7);
+    assert_eq!(refunds_to(FOUNDER), vec![7]);
+    // Every field of the terms after two plans.
+    let after = w.b.get_plan_terms();
+    assert_eq!(after.next_plan_id, before.next_plan_id + 2);
+    assert_eq!(after.plan_count, before.plan_count + 2);
+    assert_eq!(after.control_seq.0, before.control_seq.0 + 2);
+    assert_eq!(second, after.plan_count);
+    assert_eq!(
+        (after.version, after.guarded, after.max_plans, after.plan_bytes, after.storage_byte_cost, after.generation, after.live_deal),
+        (before.version, before.guarded, before.max_plans, before.plan_bytes, before.storage_byte_cost, before.generation, before.live_deal)
+    );
+    assert_eq!(after.rules, before.rules);
+}
+
+#[test]
+fn p07_a_close_replaces_every_slot_so_no_older_generation_slot_remains() {
+    // In this code an operator slot can't outlive its generation: a close installs exactly the
+    // reviewed grants at the new generation. The server's review still handles an older-generation
+    // slot (another code's state), from a control view only.
+    let mut w = W::new();
+    let cs = U64(w.b.control_seq);
+    w.call(FOUNDER, 1, |b| b.appoint_operator_guarded(id(STRANGER), SUPPORT, cs));
+    w.sell(FOUNDER, BUYER, 10 * P, &[(METER, METERING)]);
+    let c = w.b.get_control();
+    assert_eq!(c.operators, vec![(id(METER), METERING, c.generation)]);
+    // The new owner's appointment of the same account replaces its mask at this generation.
+    let cs = U64(w.b.control_seq);
+    w.call(BUYER, 1, |b| b.appoint_operator_guarded(id(METER), METERING | SUPPORT, cs));
+    let c = w.b.get_control();
+    assert_eq!(c.operators, vec![(id(METER), METERING | SUPPORT, c.generation)]);
+    // A plan the new owner creates now records the new generation.
+    let got = guarded_by(&mut w, BUYER, plan_input(P), plan_quote());
+    assert_eq!(w.b.get_plan(got).unwrap().created_generation, c.generation);
+}
+
+#[test]
+fn plan_setup_matches_server_fixture() {
+    // One scripted history of guarded plan creation, every step with its outcome and the views
+    // after it, for the server's double (SaleChain) to replay exactly.
+    let mut w = W::new();
+    let q = plan_quote();
+    let start = serde_json::json!({
+        "terms": serde_json::to_string(&w.b.get_plan_terms()).unwrap(),
+        "plan_1": serde_json::to_string(&w.b.get_plan(1)).unwrap(),
+        "control": serde_json::to_string(&w.b.get_control()).unwrap(),
+    });
+    let cs0 = w.b.control_seq;
+    let reviewed = PlanInput { hold_ttl_ms: U64(10 * MIN), settle_grace_ms: U64(6 * MIN), ..plan_input(3 * P) };
+    #[allow(clippy::type_complexity)]
+    let steps: Vec<(&str, &str, PlanInput, u64, u32, u128, Option<&str>)> = vec![
+        ("stale control", FOUNDER, reviewed.clone(), cs0 + 1, 2, q, Some("E_REVIEWED")),
+        ("stale plan id", FOUNDER, reviewed.clone(), cs0, 3, q, Some("E_REVIEWED_PLAN")),
+        ("not the owner", STRANGER, reviewed.clone(), cs0, 2, q, Some("E_NOT_OWNER")),
+        ("under-attached", FOUNDER, reviewed.clone(), cs0, 2, q - 1, Some("E_STORAGE")),
+        ("price 0", FOUNDER, PlanInput { unit_price: U128(0), ..reviewed.clone() }, cs0, 2, q, Some("E_ARGS")),
+        ("hold below a minute", FOUNDER, PlanInput { hold_ttl_ms: U64(MIN_SERVE_MS - 1), ..reviewed.clone() }, cs0, 2, q, Some("E_ARGS")),
+        ("the reviewed plan", FOUNDER, reviewed.clone(), cs0, 2, q, None),
+        ("the same review again", FOUNDER, reviewed.clone(), cs0, 2, q, Some("E_REVIEWED")),
+        ("excess attached", FOUNDER, plan_input(4 * P), cs0 + 1, 3, q + 5, None),
+    ];
+    let mut out = vec![];
+    for (name, signer, input, cs, plan_id, deposit, code) in steps {
+        let args = serde_json::json!({ "input": input, "expected_control_seq": cs.to_string(), "expected_plan_id": plan_id });
+        let run = move |b: &mut Business| b.create_plan_guarded(input, U64(cs), plan_id);
+        let (value, logs, refund) = match code {
+            Some(c) => {
+                w.refuse(signer, deposit, c, run);
+                (None, vec![], None)
+            }
+            None => {
+                let (v, _) = w.measured(signer, deposit, run);
+                w.invariants();
+                let back: u128 = refunds_to(signer).iter().sum();
+                (Some(v), near_sdk::test_utils::get_logs(), Some(back.to_string()))
+            }
+        };
+        out.push(serde_json::json!({
+            "case": name, "signer": signer, "args": args, "deposit": deposit.to_string(), "refused": code,
+            "value": value, "logs": logs, "refund": refund,
+            "terms": serde_json::to_string(&w.b.get_plan_terms()).unwrap(),
+            "plan": serde_json::to_string(&w.b.get_plan(plan_id)).unwrap(),
+        }));
+    }
+    let doc = serde_json::json!({
+        "note": "Produced by contracts/business-v3 tests.rs plan_setup_matches_server_fixture (job 003wf4). Test-world accounts only.",
+        "business": BIZ, "owner": FOUNDER, "quote": q.to_string(), "start": start, "steps": out,
+    });
+    let actual = serde_json::to_string_pretty(&doc).unwrap() + "\n";
+    fixture("plan-setup", include_str!("../../../server/test/fixtures/v3/plan-setup.json"), actual);
 }

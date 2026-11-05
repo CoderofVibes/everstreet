@@ -18,6 +18,10 @@ import { type DigestInput, dealDigest } from "../src/saleTerms.ts";
 type Json = Record<string, any>;
 
 export const PARTY_BASE_BYTES = 176n;
+/** lib.rs PLAN_BYTES (job 003wf4): one plan's measured storage growth. */
+export const PLAN_BYTES = 90n;
+const MAX_PLANS = 32;
+const MIN_SERVE_MS = 60_000n;
 const MAX_GRANTS = 4;
 const MAX_OPERATORS = 8;
 const PAYOUT_SLOTS = 16;
@@ -146,6 +150,25 @@ const BUSINESS_ARGS: Record<string, (a: Json) => boolean> = {
     isUint(a.order.manifest_seq, 64) &&
     isUint(a.order.issued_at_ms, 64),
   abort_close: (a) => exactly(a, ["deal_seq"]) && isUint(a.deal_seq, 64),
+  // 003wf4: guarded plan creation (lib.rs PlanInput, exactly).
+  create_plan_guarded: (a) =>
+    exactly(a, ["input", "expected_control_seq", "expected_plan_id"]) &&
+    exactly(a.input, [
+      "unit_price",
+      "max_units_per_purchase",
+      "max_units_outstanding",
+      "max_hold_units",
+      "hold_ttl_ms",
+      "settle_grace_ms",
+    ]) &&
+    isUint(a.input.unit_price, 128) &&
+    isSmall(a.input.max_units_per_purchase, 0xffff_ffff) &&
+    isSmall(a.input.max_units_outstanding, 0xffff_ffff) &&
+    isSmall(a.input.max_hold_units, 0xff) &&
+    isUint(a.input.hold_ttl_ms, 64) &&
+    isUint(a.input.settle_grace_ms, 64) &&
+    isUint(a.expected_control_seq, 64) &&
+    isSmall(a.expected_plan_id, 0xffff_ffff),
 };
 const MIN_GAS = 1_000_000_000_000n;
 const MAX_GAS = 300_000_000_000_000n;
@@ -287,6 +310,8 @@ export interface SaleStart {
   storage_byte_cost: bigint;
   min_reserve: bigint;
   plan_count: number;
+  /** Job 003wf4: the business's rules (lib.rs Rules); default the contract tests' rules(). */
+  rules?: { max_hold_units: number; max_hold_ttl_ms: bigint; max_settle_grace_ms: bigint };
   payout_seq: bigint;
   deal_seq: bigint;
   control: Json;
@@ -311,6 +336,11 @@ export class SaleChain {
   manifestSeq: bigint;
   operators: ({ account: string; caps: number; generation: number } | null)[];
   planCount: number;
+  /** Job 003wf4: plans created through create_plan_guarded here (plan 1 is the customer double's). */
+  plans = new Map<number, Json>();
+  /** False: answers like an older contract without get_plan_terms (no guided plans). */
+  planTerms = true;
+  readonly rules: { max_hold_units: number; max_hold_ttl_ms: bigint; max_settle_grace_ms: bigint };
   dealSeq: bigint;
   deal: Deal | null = null;
   outcomes: (Outcome | null)[];
@@ -327,6 +357,8 @@ export class SaleChain {
   /** The token ledger (shared with the customer double): balances and NEP-145 registrations. */
   balances: Map<string, bigint>;
   registered: Set<string>;
+  /** Job 003wf4: excess deposits returned to their signers (NEAR balances aren't modelled). */
+  refunds: { to: string; amount: bigint }[] = [];
   /** Synthetic faults: the next payout transfers fail (a harness control). */
   failPayouts = 0;
   /** Job 003wf3: false answers like contract code without get_handover_terms (no guard). */
@@ -362,6 +394,11 @@ export class SaleChain {
     });
     if (c.live_deal) throw new Error("a sale double starts with no live deal");
     this.planCount = s.plan_count;
+    this.rules = s.rules ?? {
+      max_hold_units: 10,
+      max_hold_ttl_ms: 3_600_000n,
+      max_settle_grace_ms: 3_600_000n,
+    };
     this.dealSeq = s.deal_seq;
     this.outcomes = Array(OUTCOME_RING).fill(null);
     for (const o of s.outcomes)
@@ -583,6 +620,37 @@ export class SaleChain {
     };
   }
 
+  /** lib.rs get_plan_terms (job 003wf4), field order included. */
+  planTermsView(): Json {
+    return {
+      version: 1,
+      guarded: true,
+      next_plan_id: this.planCount + 1,
+      plan_count: this.planCount,
+      max_plans: MAX_PLANS,
+      plan_bytes: String(PLAN_BYTES),
+      storage_byte_cost: String(this.byteCost),
+      control_seq: String(this.controlSeq),
+      generation: this.generation,
+      live_deal: this.deal !== null,
+      rules: {
+        rules: {
+          min_reserve: String(this.minReserve),
+          max_hold_units: this.rules.max_hold_units,
+          max_hold_ttl_ms: String(this.rules.max_hold_ttl_ms),
+          max_settle_grace_ms: String(this.rules.max_settle_grace_ms),
+        },
+        min_hold_ttl_ms: String(MIN_SERVE_MS),
+        max_hold_ttl_ms: String(this.rules.max_hold_ttl_ms),
+        max_settle_grace_ms: String(this.rules.max_settle_grace_ms),
+        payout_slots: PAYOUT_SLOTS,
+        max_party_pending_total: MAX_PARTY_PENDING_TOTAL,
+        max_party_pending_each: MAX_PARTY_PENDING_EACH,
+        max_customer_pending: 2,
+      },
+    };
+  }
+
   /** A business view by method name (the sale's part), or undefined if it isn't one. */
   view(method: string, args: Json): string | undefined {
     this.bump();
@@ -596,6 +664,12 @@ export class SaleChain {
     if (method === "get_outcomes") return JSON.stringify(this.outcomesView());
     if (method === "get_pending") return JSON.stringify(this.pendingView());
     if (method === "get_party") return JSON.stringify(this.partyView(String(args.account)));
+    if (method === "get_plan_terms") {
+      if (!this.planTerms) throw new Error("MethodNotFound: get_plan_terms");
+      return JSON.stringify(this.planTermsView());
+    }
+    if (method === "get_plan" && this.plans.has(Number(args.plan_id)))
+      return JSON.stringify(this.plans.get(Number(args.plan_id)));
     if (method === "get_sale_terms") {
       if (!this.saleTerms) throw new Error("MethodNotFound: get_sale_terms");
       return JSON.stringify(this.saleTermsView(String(args.buyer)));
@@ -829,7 +903,13 @@ export class SaleChain {
     method: string,
     a: Json,
     deposit: bigint,
-  ): { value: unknown; logs: string[]; payout?: { slot: number; id: bigint } } {
+  ): {
+    value: unknown;
+    logs: string[];
+    payout?: { slot: number; id: bigint };
+    /** Job 003wf4: the attached deposit beyond the measured storage, returned to the signer. */
+    refund?: bigint;
+  } {
     this.bump();
     const seqOf = (k: string) => {
       const v = a[k];
@@ -1029,6 +1109,64 @@ export class SaleChain {
         need(d.state !== 2, "E_CLOSING: a closing sale ends by its close or its abort");
         need(this.now >= d.expires_at_ms, "E_NOT_EXPIRED: the offer is still open");
         return { value: undefined, logs: this.terminate(d, 3, this.nextControl()) };
+      }
+      case "create_plan_guarded": {
+        // lib.rs create_plan_guarded: every check before any write, then create_plan's own.
+        if (!this.planTerms) refuse("MethodNotFound: create_plan_guarded");
+        this.requireOwner(signer);
+        this.requireNoDeal();
+        need(
+          seqOf("expected_control_seq") === this.controlSeq,
+          "E_REVIEWED: control changed since you reviewed this plan; review it again",
+        );
+        need(
+          this.planCount + 1 === a.expected_plan_id,
+          "E_REVIEWED_PLAN: another plan was created since you reviewed this one; review it again",
+        );
+        const quote = PLAN_BYTES * this.byteCost;
+        need(
+          deposit >= quote,
+          `E_STORAGE: attach at least ${quote} yoctoNEAR for ${PLAN_BYTES} bytes`,
+        );
+        const i = a.input as Json;
+        const control = this.nextControl();
+        need(this.planCount < MAX_PLANS, "E_LIMIT: at most 32 plans");
+        need(BigInt(i.unit_price) > 0n, "E_ARGS: unit price must be above 0");
+        need(i.max_units_per_purchase >= 1, "E_ARGS: allow at least 1 unit per purchase");
+        need(
+          i.max_units_outstanding >= i.max_units_per_purchase,
+          "E_ARGS: outstanding cap below the purchase cap",
+        );
+        need(
+          i.max_hold_units >= 1 && i.max_hold_units <= this.rules.max_hold_units,
+          "E_ARGS: hold units outside the rules",
+        );
+        need(
+          BigInt(i.hold_ttl_ms) >= MIN_SERVE_MS &&
+            BigInt(i.hold_ttl_ms) <= this.rules.max_hold_ttl_ms,
+          "E_ARGS: hold ttl outside the rules",
+        );
+        need(
+          BigInt(i.settle_grace_ms) <= this.rules.max_settle_grace_ms,
+          "E_ARGS: settle grace outside the rules",
+        );
+        this.planCount += 1;
+        const id = this.planCount;
+        this.plans.set(id, {
+          unit_price: i.unit_price,
+          max_units_per_purchase: i.max_units_per_purchase,
+          max_units_outstanding: i.max_units_outstanding,
+          max_hold_units: i.max_hold_units,
+          hold_ttl_ms: i.hold_ttl_ms,
+          settle_grace_ms: i.settle_grace_ms,
+          created_generation: this.generation,
+        });
+        this.controlSeq = control;
+        return {
+          value: id,
+          logs: [event("plan_created", { plan_id: id, unit_price: i.unit_price })],
+          refund: deposit - quote,
+        };
       }
       case "appoint_operator_guarded": {
         need(deposit >= 1n, "E_DEPOSIT: attach at least 1 yoctoNEAR");
@@ -1364,6 +1502,13 @@ export class SaleChain {
           );
           receipts.push(ok(this.business, cb.logs, b64(cb.value), rid("callback")));
           status = { SuccessValue: b64(cb.value) };
+        } else if (r.refund !== undefined && r.refund > 0n) {
+          // The excess deposit's transfer back to the signer (lib.rs charge_bytes): a refund
+          // child receipt, executed for the signer, empty success.
+          receipts.push(ok(this.business, r.logs, b64(r.value), rid("call"), [rid("refund")]));
+          receipts.push(ok(signer, [], "", rid("refund")));
+          this.refunds.push({ to: signer, amount: r.refund });
+          status = { SuccessValue: b64(r.value) };
         } else {
           receipts.push(ok(this.business, r.logs, b64(r.value), rid("call")));
           status = { SuccessValue: b64(r.value) };
@@ -1488,6 +1633,8 @@ export class SaleChain {
       generation: this.generation,
       controlSeq: this.controlSeq,
       operators: this.operators,
+      planCount: this.planCount,
+      plans: this.plans,
       dealSeq: this.dealSeq,
       deal: this.deal,
       outcomes: this.outcomes,
@@ -1510,6 +1657,8 @@ export class SaleChain {
     this.generation = s.generation;
     this.controlSeq = s.controlSeq;
     this.operators = s.operators;
+    this.planCount = s.planCount;
+    this.plans = s.plans;
     this.dealSeq = s.dealSeq;
     this.deal = s.deal;
     this.outcomes = s.outcomes;

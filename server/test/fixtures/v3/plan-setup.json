@@ -1,0 +1,224 @@
+{
+  "note": "Produced by contracts/business-v3 tests.rs plan_setup_matches_server_fixture (job 003wf4). Test-world accounts only.",
+  "business": "studio.biz.near",
+  "owner": "founder.near",
+  "quote": "900000000000000000000",
+  "start": {
+    "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":2,\"plan_count\":1,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"2\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+    "plan_1": "{\"unit_price\":\"50000\",\"max_units_per_purchase\":100,\"max_units_outstanding\":200,\"max_hold_units\":10,\"hold_ttl_ms\":\"1800000\",\"settle_grace_ms\":\"600000\",\"created_generation\":1}",
+    "control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"2\",\"close_mode\":\"direct\",\"closer\":null,\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":null}"
+  },
+  "steps": [
+    {
+      "case": "stale control",
+      "signer": "founder.near",
+      "args": {
+        "input": {
+          "unit_price": "150000",
+          "max_units_per_purchase": 100,
+          "max_units_outstanding": 200,
+          "max_hold_units": 10,
+          "hold_ttl_ms": "600000",
+          "settle_grace_ms": "360000"
+        },
+        "expected_control_seq": "3",
+        "expected_plan_id": 2
+      },
+      "deposit": "900000000000000000000",
+      "refused": "E_REVIEWED",
+      "value": null,
+      "logs": [],
+      "refund": null,
+      "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":2,\"plan_count\":1,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"2\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+      "plan": "null"
+    },
+    {
+      "case": "stale plan id",
+      "signer": "founder.near",
+      "args": {
+        "input": {
+          "unit_price": "150000",
+          "max_units_per_purchase": 100,
+          "max_units_outstanding": 200,
+          "max_hold_units": 10,
+          "hold_ttl_ms": "600000",
+          "settle_grace_ms": "360000"
+        },
+        "expected_control_seq": "2",
+        "expected_plan_id": 3
+      },
+      "deposit": "900000000000000000000",
+      "refused": "E_REVIEWED_PLAN",
+      "value": null,
+      "logs": [],
+      "refund": null,
+      "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":2,\"plan_count\":1,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"2\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+      "plan": "null"
+    },
+    {
+      "case": "not the owner",
+      "signer": "stranger.near",
+      "args": {
+        "input": {
+          "unit_price": "150000",
+          "max_units_per_purchase": 100,
+          "max_units_outstanding": 200,
+          "max_hold_units": 10,
+          "hold_ttl_ms": "600000",
+          "settle_grace_ms": "360000"
+        },
+        "expected_control_seq": "2",
+        "expected_plan_id": 2
+      },
+      "deposit": "900000000000000000000",
+      "refused": "E_NOT_OWNER",
+      "value": null,
+      "logs": [],
+      "refund": null,
+      "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":2,\"plan_count\":1,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"2\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+      "plan": "null"
+    },
+    {
+      "case": "under-attached",
+      "signer": "founder.near",
+      "args": {
+        "input": {
+          "unit_price": "150000",
+          "max_units_per_purchase": 100,
+          "max_units_outstanding": 200,
+          "max_hold_units": 10,
+          "hold_ttl_ms": "600000",
+          "settle_grace_ms": "360000"
+        },
+        "expected_control_seq": "2",
+        "expected_plan_id": 2
+      },
+      "deposit": "899999999999999999999",
+      "refused": "E_STORAGE",
+      "value": null,
+      "logs": [],
+      "refund": null,
+      "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":2,\"plan_count\":1,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"2\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+      "plan": "null"
+    },
+    {
+      "case": "price 0",
+      "signer": "founder.near",
+      "args": {
+        "input": {
+          "unit_price": "0",
+          "max_units_per_purchase": 100,
+          "max_units_outstanding": 200,
+          "max_hold_units": 10,
+          "hold_ttl_ms": "600000",
+          "settle_grace_ms": "360000"
+        },
+        "expected_control_seq": "2",
+        "expected_plan_id": 2
+      },
+      "deposit": "900000000000000000000",
+      "refused": "E_ARGS",
+      "value": null,
+      "logs": [],
+      "refund": null,
+      "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":2,\"plan_count\":1,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"2\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+      "plan": "null"
+    },
+    {
+      "case": "hold below a minute",
+      "signer": "founder.near",
+      "args": {
+        "input": {
+          "unit_price": "150000",
+          "max_units_per_purchase": 100,
+          "max_units_outstanding": 200,
+          "max_hold_units": 10,
+          "hold_ttl_ms": "59999",
+          "settle_grace_ms": "360000"
+        },
+        "expected_control_seq": "2",
+        "expected_plan_id": 2
+      },
+      "deposit": "900000000000000000000",
+      "refused": "E_ARGS",
+      "value": null,
+      "logs": [],
+      "refund": null,
+      "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":2,\"plan_count\":1,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"2\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+      "plan": "null"
+    },
+    {
+      "case": "the reviewed plan",
+      "signer": "founder.near",
+      "args": {
+        "input": {
+          "unit_price": "150000",
+          "max_units_per_purchase": 100,
+          "max_units_outstanding": 200,
+          "max_hold_units": 10,
+          "hold_ttl_ms": "600000",
+          "settle_grace_ms": "360000"
+        },
+        "expected_control_seq": "2",
+        "expected_plan_id": 2
+      },
+      "deposit": "900000000000000000000",
+      "refused": null,
+      "value": 2,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"plan_created\",\"data\":[{\"plan_id\":2,\"unit_price\":\"150000\"}]}"
+      ],
+      "refund": "0",
+      "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":3,\"plan_count\":2,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"3\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+      "plan": "{\"unit_price\":\"150000\",\"max_units_per_purchase\":100,\"max_units_outstanding\":200,\"max_hold_units\":10,\"hold_ttl_ms\":\"600000\",\"settle_grace_ms\":\"360000\",\"created_generation\":1}"
+    },
+    {
+      "case": "the same review again",
+      "signer": "founder.near",
+      "args": {
+        "input": {
+          "unit_price": "150000",
+          "max_units_per_purchase": 100,
+          "max_units_outstanding": 200,
+          "max_hold_units": 10,
+          "hold_ttl_ms": "600000",
+          "settle_grace_ms": "360000"
+        },
+        "expected_control_seq": "2",
+        "expected_plan_id": 2
+      },
+      "deposit": "900000000000000000000",
+      "refused": "E_REVIEWED",
+      "value": null,
+      "logs": [],
+      "refund": null,
+      "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":3,\"plan_count\":2,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"3\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+      "plan": "{\"unit_price\":\"150000\",\"max_units_per_purchase\":100,\"max_units_outstanding\":200,\"max_hold_units\":10,\"hold_ttl_ms\":\"600000\",\"settle_grace_ms\":\"360000\",\"created_generation\":1}"
+    },
+    {
+      "case": "excess attached",
+      "signer": "founder.near",
+      "args": {
+        "input": {
+          "unit_price": "200000",
+          "max_units_per_purchase": 100,
+          "max_units_outstanding": 200,
+          "max_hold_units": 10,
+          "hold_ttl_ms": "1800000",
+          "settle_grace_ms": "600000"
+        },
+        "expected_control_seq": "3",
+        "expected_plan_id": 3
+      },
+      "deposit": "900000000000000000005",
+      "refused": null,
+      "value": 3,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"plan_created\",\"data\":[{\"plan_id\":3,\"unit_price\":\"200000\"}]}"
+      ],
+      "refund": "5",
+      "terms": "{\"version\":1,\"guarded\":true,\"next_plan_id\":4,\"plan_count\":3,\"max_plans\":32,\"plan_bytes\":\"90\",\"storage_byte_cost\":\"10000000000000000000\",\"control_seq\":\"4\",\"generation\":1,\"live_deal\":false,\"rules\":{\"rules\":{\"min_reserve\":\"250000\",\"max_hold_units\":10,\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\"},\"min_hold_ttl_ms\":\"60000\",\"max_hold_ttl_ms\":\"3600000\",\"max_settle_grace_ms\":\"3600000\",\"payout_slots\":16,\"max_party_pending_total\":4,\"max_party_pending_each\":2,\"max_customer_pending\":2}}",
+      "plan": "{\"unit_price\":\"200000\",\"max_units_per_purchase\":100,\"max_units_outstanding\":200,\"max_hold_units\":10,\"hold_ttl_ms\":\"1800000\",\"settle_grace_ms\":\"600000\",\"created_generation\":1}"
+    }
+  ]
+}

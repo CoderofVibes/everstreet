@@ -108,7 +108,14 @@ export class FixtureChain {
   business = BUSINESS;
   height = 1_000;
   ts = T0;
-  plan = view("plan_1");
+  /** Plan 1's terms: the fixture's, unless plan 1 was created through the sale double (003wf4). */
+  private basePlan: Json | null = view("plan_1");
+  get plan(): Json {
+    return (this.sale?.plans.get(1) ?? this.basePlan) as Json;
+  }
+  set plan(p: Json) {
+    this.basePlan = p;
+  }
   control: Json = JSON.parse(ACCEPTING.get_control as string);
   treasury: Json = JSON.parse(ACCEPTING.get_treasury as string);
   ents = new Map<string, Json>();
@@ -280,7 +287,12 @@ export class FixtureChain {
     }
     if (method === "get_control") return JSON.stringify(this.control);
     if (method === "get_treasury") return JSON.stringify(this.treasury);
-    if (method === "get_plan") return JSON.stringify(args.plan_id === 1 ? this.plan : null);
+    if (method === "get_plan")
+      return JSON.stringify(
+        args.plan_id === 1 && (this.basePlan !== null || this.sale?.plans.has(1))
+          ? this.plan
+          : null,
+      );
     if (method === "get_entitlement")
       return JSON.stringify(args.plan_id === 1 ? this.ent(String(args.customer)) : null);
     if (method === "check_use") return JSON.stringify(this.checkUse(args));
