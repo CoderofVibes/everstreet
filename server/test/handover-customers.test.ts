@@ -359,6 +359,33 @@ describe("003wf3 S-16: a provider result whose protection is pending or fails", 
     const results = async () =>
       (await prot.list(null, 50)).filter((o) => o.request_id === id && o.kind === "result");
     expect(await results()).toHaveLength(1); // the orphan copy
+    // Astra 02:36: the provider's usage is accounted exactly once and survives the failed
+    // delivery (the business's running budget pays for the run; the customer isn't charged).
+    const accounting = () => ({
+      invocation: w.rows(
+        "SELECT state, usage_state, reserved_cents, charged_cents, charged_microcents FROM runtime_invocations WHERE purpose = 'customer_use'",
+      ),
+      ledger: w
+        .rows(
+          "SELECT u.kind, u.cents, u.microcents FROM runtime_usage u JOIN runtime_invocations i ON i.id = u.invocation_id WHERE i.purpose = 'customer_use' ORDER BY u.rowid",
+        )
+        .map((r) => ({ kind: r.kind, cents: r.cents, microcents: r.microcents })),
+    });
+    const atDelivery = accounting();
+    const inv = atDelivery.invocation[0] as Json;
+    expect(atDelivery.invocation).toHaveLength(1);
+    expect(inv).toMatchObject({ state: "completed", reserved_cents: 0 });
+    expect(Number(inv.charged_microcents)).toBeGreaterThan(0);
+    const kinds = atDelivery.ledger.map((l) => l.kind);
+    expect(kinds.filter((k) => k === "reservation")).toHaveLength(1);
+    expect(kinds.filter((k) => k === "actual")).toHaveLength(1);
+    expect(kinds).not.toContain("unknown");
+    const actual = atDelivery.ledger.find((l) => l.kind === "actual") as Json;
+    expect(actual.microcents).toBe(inv.charged_microcents);
+    const runtimeBudget = () =>
+      (w.rows("SELECT limit_cents FROM runtime_budgets WHERE business_id = ?", w.biz)[0] as Json)
+        .limit_cents;
+    const limitBefore = runtimeBudget();
     await passUntil(w, (s) => s === "released_to_buyer");
     expect(applied(w, "settle_hold")).toBe(0);
     expect(applied(w, "release_hold_for")).toBe(1);
@@ -371,5 +398,9 @@ describe("003wf3 S-16: a provider result whose protection is pending or fails", 
     expect(swept).toMatchObject({ deleted: 1, failed: 0 });
     expect(await results()).toHaveLength(0);
     expect((await w.cara(`/api/customer/uses/${id}/result`)).status).toBe(409);
+    // After the return, the close and the sweep: the same single usage record, nothing added,
+    // removed or re-reserved; the budget's limit is unchanged.
+    expect(accounting()).toEqual(atDelivery);
+    expect(runtimeBudget()).toBe(limitBefore);
   }, 90_000);
 });
