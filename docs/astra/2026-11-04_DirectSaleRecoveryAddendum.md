@@ -122,3 +122,44 @@ If another check already finalized the row, return that coherent stored outcome 
 the stale computed result. Invoke local effects only for the authoritative confirmed result,
 with safe retry of an already-confirmed effect when needed. Cover both reply orders and a
 cross-process race; state/identity/evidence must always describe the same accepted transaction.
+
+## Correction verification in progress
+
+At22:47 Astra reran the exact negative-token probe after Claude added envelope validation.
+It now refuses the call and preserves both token balances (exit0). This verifies that reproduced
+case only; broader malformed-input tests, payout graph, ask admission and check-CAS corrections
+remain under implementation/review. The earlier fixture replay and encoder evidence still have
+their stated scope. No whole-job acceptance is implied.
+
+At22:51 Astra independently reran the production-method probes on the updated source:
+requested grants only the first call (second returns already_asked; asks stays1), and the late
+failed check preserves the winning confirmed hash/evidence and returns that stored resolution.
+Both passed in disposable in-memory SQLite, closed afterward. The updated synthetic claim
+receipts now follow the callback promise; both restored and paid resolve correctly. This is
+narrow in-process verification; controller and actual-process evidence remains due.
+
+Two follow-up receipt probes still fail the intended behavior:
+
+- Starting from either valid paid or restored callback graph, add one distinct gas-refund child
+  to the first receipt, with its outcome executed by the signer and SuccessValue="". Resolution
+  becomes null because resolveClaim requires exactly two children. NEAR's runtime can add gas
+  refunds to the generated receipt list, so child count is not the business's promise count.
+  Preserve the unique required callback/transfer paths and permit valid extra refund receipts;
+  reject ambiguous required paths instead of assuming an exact total of two. See the same
+  [runtime source](https://docs.rs/near-runtime/latest/src/near_runtime/lib.rs.html):
+  generate_refund_receipts appends refunds before the outcome's receipt IDs are collected.
+- Starting from the valid paid graph, change ONLY the token-transfer receipt status to {}.
+  It still resolves confirmed/paid because transferOk means "no Failure". Require affirmative,
+  well-formed success of the expected transfer; unknown/empty/contradictory status proves no
+  payout. Keep strict callback and top-level agreement. Add this exact mutation plus conflicting
+  success/failure fields and malformed values to the negative graph cases.
+
+These are independent keyless graph probes over the new code, not live RPC observations. Correct
+both before accepting the claim resolver or using its browser result as payment evidence.
+
+At22:54 Astra independently ran sale-chain.test.ts and sale-journey.test.ts together:20/20
+passed, exit0. Read coverage includes malformed envelopes,49-step replay, real-route economic
+continuity, reversible-state recovery, one-winner asks and both lookup-race reply orders. The
+gas-refund-child and empty-transfer-status follow-up cases above are not covered by those20
+tests and remain unresolved in the inspected source. This is still in-process synthetic
+evidence; actual-process and browser requirements remain open.

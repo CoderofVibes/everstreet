@@ -202,8 +202,25 @@ type Receipt = {
   receipt_ids?: unknown[];
   status?: Record<string, unknown>;
 };
+/** Affirmative, well-formed success: exactly { SuccessValue: <string> }. */
 const succeeded = (r: Receipt | undefined) =>
-  Boolean(r?.status && typeof r.status === "object" && "SuccessValue" in r.status);
+  Boolean(
+    r?.status &&
+      typeof r.status === "object" &&
+      !Array.isArray(r.status) &&
+      Object.keys(r.status).length === 1 &&
+      typeof r.status.SuccessValue === "string",
+  );
+/** Affirmative, well-formed failure: exactly { Failure: <object> }. */
+const failedReceipt = (r: Receipt | undefined) =>
+  Boolean(
+    r?.status &&
+      typeof r.status === "object" &&
+      !Array.isArray(r.status) &&
+      Object.keys(r.status).length === 1 &&
+      typeof r.status.Failure === "object" &&
+      r.status.Failure !== null,
+  );
 const receiptValue = (r: Receipt | undefined): unknown => {
   try {
     const raw = Buffer.from(String(r?.status?.SuccessValue ?? ""), "base64").toString("utf8");
@@ -212,10 +229,18 @@ const receiptValue = (r: Receipt | undefined): unknown => {
     return Symbol("malformed");
   }
 };
-const failureText = (r: Receipt | undefined) => {
-  const f = r?.status?.Failure;
-  return f ? JSON.stringify(f).slice(0, 400) : null;
-};
+/**
+ * A gas refund the runtime appends to a receipt's children (Astra's addendum): executed for the
+ * signer (or the system), an empty success, no logs, nothing further. It proves nothing itself.
+ */
+const isRefund = (r: Receipt, signer: string) =>
+  (r.executor_id === signer || r.executor_id === "system") &&
+  succeeded(r) &&
+  r.status?.SuccessValue === "" &&
+  (r.logs ?? []).length === 0 &&
+  (r.receipt_ids ?? []).length === 0;
+const failureText = (r: Receipt | undefined) =>
+  failedReceipt(r) ? JSON.stringify(r?.status?.Failure).slice(0, 400) : null;
 function eventsOf(r: Receipt | undefined, name: string): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   for (const log of r?.logs ?? []) {
@@ -298,7 +323,7 @@ export function resolveSaleTx(
   const refused = (why: string | null): SaleResolution | null => {
     // A contract refusal rolls the receipt back: definitive for this transaction (each row is
     // asked at most once; another request is another row with its own transaction).
-    if (!top || !("Failure" in top) || !why) return null;
+    if (!failedReceipt({ status: top }) || !why) return null;
     const code = REASON.exec(why)?.[0] ?? "refused";
     return {
       kind: "refused",
@@ -316,10 +341,31 @@ export function resolveSaleTx(
 
   if (p.kind === "fund") {
     // The token's transfer, the business's receiver outcome and the token's resolution.
-    if (!first.status || "Failure" in first.status) return refused(failureText(first));
-    const kids = (first.receipt_ids ?? []).map((id) => byId.get(String(id)));
-    const receiver = kids.find((k) => k?.executor_id === p.contract);
-    const resolution = kids.find((k) => k?.executor_id === p.asset);
+    if (failedReceipt(first)) return refused(failureText(first));
+    // The token's transfer returns its resolution promise: exactly { SuccessReceiptId }.
+    const fst = first.status;
+    if (!fst || Object.keys(fst).length !== 1 || typeof fst.SuccessReceiptId !== "string")
+      return null;
+    const ids = (first.receipt_ids ?? []).map(String);
+    if (new Set(ids).size !== ids.length) return null;
+    const kids = ids.map((id) => ({ id, r: byId.get(id) }));
+    // Exactly one receiver outcome and one resolution; any other child must be a refund.
+    const receivers = kids.filter((k) => k.r?.executor_id === p.contract);
+    const resolutions = kids.filter((k) => k.r?.executor_id === p.asset);
+    if (receivers.length !== 1 || resolutions.length !== 1) return null;
+    if (fst.SuccessReceiptId !== resolutions[0]?.id) return null;
+    if (
+      kids.some(
+        (k) =>
+          !k.r ||
+          (k.r.executor_id !== p.contract &&
+            k.r.executor_id !== p.asset &&
+            !isRefund(k.r, p.account)),
+      )
+    )
+      return null;
+    const receiver = receivers[0]?.r;
+    const resolution = resolutions[0]?.r;
     if (!receiver || !resolution || !succeeded(receiver) || !succeeded(resolution) || !topOk)
       return null;
     const unused = receiptValue(receiver);
@@ -457,13 +503,27 @@ function resolveClaim(
   top: Record<string, unknown> | undefined,
   refused: (why: string | null) => SaleResolution | null,
 ): SaleResolution | null {
-  if (first.status && "Failure" in first.status) return refused(failureText(first));
+  if (failedReceipt(first)) return refused(failureText(first));
   const st = first.status;
   if (!st || Object.keys(st).length !== 1 || typeof st.SuccessReceiptId !== "string") return null;
   const cbId = st.SuccessReceiptId;
   const kids = (first.receipt_ids ?? []).map(String);
-  if (new Set(kids).size !== kids.length || kids.length !== 2 || !kids.includes(cbId)) return null;
-  const transferId = kids.find((k) => k !== cbId) as string;
+  if (new Set(kids).size !== kids.length || !kids.includes(cbId)) return null;
+  // Exactly one callback (the business: the named one) and one token transfer; any other child
+  // must be an unambiguous gas refund (the runtime may append them).
+  const present = kids.filter((k) => byId.has(k)).map((k) => ({ k, r: byId.get(k) as Receipt }));
+  const callbacks = present.filter((x) => x.r.executor_id === p.contract);
+  const transfers = present.filter((x) => x.r.executor_id === p.asset);
+  if (callbacks.length > 1 || transfers.length !== 1) return null;
+  if (callbacks.length === 1 && callbacks[0]?.k !== cbId) return null;
+  if (
+    present.some(
+      (x) =>
+        x.r.executor_id !== p.contract && x.r.executor_id !== p.asset && !isRefund(x.r, p.account),
+    )
+  )
+    return null;
+  const transferId = transfers[0]?.k as string;
   const started = eventsOf(first, "payout_started").filter(
     (d) => d.to === p.account && d.amount === review.amount,
   );
@@ -489,8 +549,9 @@ function resolveClaim(
     top && Object.keys(top).length === 1 && typeof top.SuccessValue === "string"
       ? receiptValue({ status: top })
       : Symbol("no value");
-  const transferOk = !("Failure" in transfer.status);
-  if (value !== ok || topValue !== value) return null;
+  // The transfer's own outcome, affirmatively: an empty, unknown or two-sided status proves nothing.
+  const transferOk = succeeded(transfer) ? true : failedReceipt(transfer) ? false : null;
+  if (transferOk === null || value !== ok || topValue !== value) return null;
   if (value === true && transferOk)
     return {
       kind: "confirmed",

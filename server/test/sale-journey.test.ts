@@ -319,16 +319,74 @@ describe("003wf2 claim receipts: the returned promise is the evidence", () => {
       }),
     ).toBeNull();
     expect(edit((o) => (o.receipts_outcome[2].outcome.executor_id = s.TOKEN))).toBeNull();
+    // A gas refund the runtime appends to the claim receipt's children is allowed...
+    const refund = {
+      id: "refund-receipt-1",
+      outcome: { executor_id: BUYER, logs: [], receipt_ids: [], status: { SuccessValue: "" } },
+    };
+    const withRefund = (o: Json) => {
+      o.receipts_outcome[0].outcome.receipt_ids.push(refund.id);
+      o.receipts_outcome.push(structuredClone(refund));
+    };
+    expect(edit(withRefund)).toMatchObject({ kind: "confirmed", result: "restored" });
+    // ...but not one that isn't a refund, and not a second transfer or callback (ambiguous paths).
+    expect(
+      edit((o) => {
+        withRefund(o);
+        o.receipts_outcome[3].outcome.logs = ["something"];
+      }),
+    ).toBeNull();
+    expect(
+      edit((o) => {
+        o.receipts_outcome[0].outcome.receipt_ids.push("transfer-2");
+        o.receipts_outcome.push({ ...structuredClone(o.receipts_outcome[1]), id: "transfer-2" });
+      }),
+    ).toBeNull();
+    // The transfer's status must be affirmatively success or failure.
+    for (const status of [
+      {},
+      { SuccessValue: "", Failure: {} },
+      { Failure: null },
+      { SuccessValue: 1 },
+    ])
+      expect(edit((o) => (o.receipts_outcome[1].outcome.status = status))).toBeNull();
     // Through the route: restored, then a fresh review collects it, paid.
     expect(
       (await s.noah(`/api/sales/actions/${first.id}/check`, "POST", { tx_hash: h })).body.resolution
         .result,
     ).toBe("restored");
     const second = await claim(false);
-    expect(resolveSaleTx(second.row, second.out, second.out.transaction.hash)).toMatchObject({
+    const paid = second.out;
+    const h2 = paid.transaction.hash as string;
+    expect(resolveSaleTx(second.row, paid, h2)).toMatchObject({
       kind: "confirmed",
       result: "paid",
     });
+    const paidEdit = (f: (o: Json) => void) => {
+      const o = structuredClone(paid);
+      f(o);
+      return resolveSaleTx(second.row, o, h2);
+    };
+    // Astra's probes on the paid graph: a refund child is fine; an empty transfer status is no payment.
+    expect(
+      paidEdit((o) => {
+        o.receipts_outcome[0].outcome.receipt_ids.push(refund.id);
+        o.receipts_outcome.push(structuredClone(refund));
+      }),
+    ).toMatchObject({ kind: "confirmed", result: "paid" });
+    expect(paidEdit((o) => (o.receipts_outcome[1].outcome.status = {}))).toBeNull();
+    expect(
+      paidEdit((o) => (o.receipts_outcome[1].outcome.status = { Failure: { ActionError: "x" } })),
+    ).toBeNull();
+    expect(
+      paidEdit(
+        (o) =>
+          (o.receipts_outcome[2].outcome.status = {
+            SuccessValue: o.receipts_outcome[2].outcome.status.SuccessValue,
+            Failure: {},
+          }),
+      ),
+    ).toBeNull();
   });
 });
 
