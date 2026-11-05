@@ -1474,10 +1474,18 @@ async function resumeRecovery(ex: Example, port: number) {
         status: without.status,
         resolution: without.body?.resolution ?? null,
       });
-      const hash = await originalPurchaseHash(ex.customer);
+      // The ID the customer copied from their wallet's activity: kept by the operator in the run
+      // folder (with where it came from), else the public explorer's activity list.
+      const copied = join(dir, "original-purchase-hash.json");
+      const found = existsSync(copied)
+        ? (JSON.parse(readFileSync(copied, "utf8")) as { hash: string; source: string })
+        : {
+            hash: await originalPurchaseHash(ex.customer),
+            source: "the customer's own activity, as listed by the public testnet explorer",
+          };
+      const hash = found.hash;
       rec.app("original_hash_found", {
-        source:
-          "the customer's own activity, as listed by the public testnet explorer (nearblocks)",
+        source: found.source,
         hash,
         explorer: `${EXPLORER}${hash}`,
       });
