@@ -471,11 +471,16 @@ impl W {
     /// Proposes (W1 only if the buyer has no record yet); returns the deal number.
     fn propose(&mut self, seller: &str, t: DealTermsInput) -> u64 {
         let had = self.b.party.contains_key(&t.buyer);
+        self.env(seller, 0);
+        let quote = self.b.get_sale_terms(t.buyer.clone());
         let (seq, d) = self.measured(seller, NEAR, |b| b.propose_sale(t));
         if had {
             assert_eq!(d, 0, "proposing to a buyer with a record allocates nothing");
+            assert_eq!((quote.party_exists, quote.party_bytes.0), (true, 0));
         } else {
             assert!(d > 0, "a new buyer record is measured growth");
+            // 003wf2: the declared quote is exactly the measured growth.
+            assert_eq!((quote.party_exists, quote.party_bytes.0), (false, d as u64), "party quote = growth");
         }
         self.invariants();
         seq.0
@@ -542,6 +547,15 @@ impl W {
 fn fund_msg(seq: u64, version: u32, price: u128) -> String {
     serde_json::json!({ "fund_deal": { "deal_seq": seq.to_string(), "version": version, "price": price.to_string() } })
         .to_string()
+}
+
+/// 003wf2: a funding message that names the control sequence the buyer reviewed.
+fn fund_msg_at(seq: u64, version: u32, price: u128, control_seq: u64) -> String {
+    serde_json::json!({ "fund_deal": {
+        "deal_seq": seq.to_string(), "version": version, "price": price.to_string(),
+        "expected_control_seq": control_seq.to_string(),
+    } })
+    .to_string()
 }
 
 /// A HoldAuth for any plan and key slot, signed by `k`.
@@ -4082,4 +4096,491 @@ fn guarded_revoke_matches_server_fixture() {
     });
     let actual = serde_json::to_string_pretty(&doc).unwrap() + "\n";
     fixture("guarded-revoke", include_str!("../../../server/test/fixtures/v3/guarded-revoke.json"), actual);
+}
+
+// =====================================================================================
+// 003wf2: guarded sale methods. Each names the control state (or the owed amount) its caller
+// reviewed; anything that moved since is refused before any change. The originals' effects,
+// storage, events and control_seq rise are unchanged (the guarded methods share their paths).
+// =====================================================================================
+
+/// The digest a proposal of `t` by `seller` would get now (the contract's own computation).
+fn proposal_digest(w: &W, seller: &str, t: &DealTermsInput) -> String {
+    w.env(seller, 0);
+    let vt = w.b.validate_terms(&id(seller), t);
+    let d = w.b.proposed_slot(&id(seller), &vt, w.b.deal_seq + 1);
+    hex::encode(w.b.digest_of(&d))
+}
+
+/// The digest the live deal would get revised to `t` (version + 1).
+fn revision_digest(w: &W, seller: &str, t: &DealTermsInput) -> String {
+    w.env(seller, 0);
+    let vt = w.b.validate_terms(&id(seller), t);
+    let mut d = *w.b.deal.get(&0).unwrap();
+    vt.apply(&mut d);
+    d.version += 1;
+    hex::encode(w.b.digest_of(&d))
+}
+
+fn cs(w: &W) -> U64 {
+    U64(w.b.control_seq)
+}
+
+#[test]
+fn w01_a_guarded_proposal_names_the_reviewed_control_and_digest() {
+    let mut w = W::new();
+    let t = w.terms(BUYER, 100 * P, &[(METER, METERING)]);
+    let digest = proposal_digest(&w, FOUNDER, &t);
+    w.env(FOUNDER, 0);
+    let quote = w.b.get_sale_terms(id(BUYER));
+    assert_eq!((quote.version, quote.guarded, quote.next_deal_seq.0, quote.plan_count), (1, true, 1, 1));
+    assert_eq!((quote.party_exists, quote.min_reserve.0), (false, 5 * P));
+    let deposit = quote.party_bytes.0 as u128 * quote.storage_byte_cost.0;
+    let c = cs(&w);
+    assert_eq!(c.0, 2);
+    // Stale control (one step older than now): refused, nothing changed.
+    w.refuse(FOUNDER, deposit, "E_REVIEWED", |b| b.propose_sale_guarded(t.clone(), U64(1), digest.clone()));
+    w.refuse(FOUNDER, deposit, "E_TERMS", |b| b.propose_sale_guarded(t.clone(), U64(2), "00".repeat(32)));
+    w.refuse(FOUNDER, deposit, "E_TERMS", |b| b.propose_sale_guarded(t.clone(), U64(2), "zz".into()));
+    let mut other = t.clone();
+    other.price = U128(101 * P);
+    w.refuse(FOUNDER, deposit, "E_TERMS", |b| b.propose_sale_guarded(other, U64(2), digest.clone()));
+    w.refuse(STRANGER, deposit, "E_NOT_OWNER", |b| b.propose_sale_guarded(t.clone(), U64(2), digest.clone()));
+    // The reviewed proposal, at exactly the quoted deposit: measured growth = the quote.
+    let (seq, grew) = w.measured(FOUNDER, deposit, |b| b.propose_sale_guarded(t.clone(), U64(2), digest.clone()));
+    w.invariants();
+    assert_eq!((seq.0, grew as u64), (1, quote.party_bytes.0));
+    let d = w.deal();
+    assert_eq!((d.digest.clone(), d.version, w.b.control_seq), (digest.clone(), 1, 3));
+    let r = w.b.get_party(id(BUYER)).unwrap();
+    assert_eq!((r.payer, r.deposit.0), (id(FOUNDER), deposit));
+    // A second identical request (a wallet asked again): refused, the first stands.
+    w.refuse(FOUNDER, deposit, "E_DEAL_PENDING", |b| b.propose_sale_guarded(t.clone(), U64(2), digest.clone()));
+}
+
+#[test]
+fn w02_party_quotes_are_the_measured_growth_for_short_and_long_buyers() {
+    for buyer in [BUYER.to_string(), long('q')] {
+        let mut w = W::new();
+        let t = w.terms(&buyer, 100 * P, &[]);
+        w.propose(FOUNDER, t);
+    }
+    // With a record already there, one yoctoNEAR is enough and nothing grows.
+    let mut w = W::new();
+    let t = w.terms(BUYER, 100 * P, &[]);
+    w.propose(FOUNDER, t.clone());
+    w.neutral(FOUNDER, 1, |b| b.cancel_sale(U64(1)));
+    w.env(FOUNDER, 0);
+    assert_eq!(w.b.get_sale_terms(id(BUYER)).party_bytes.0, 0);
+    let digest = proposal_digest(&w, FOUNDER, &t);
+    let c = cs(&w);
+    let (_, grew) = w.measured(FOUNDER, 1, |b| b.propose_sale_guarded(t, c, digest));
+    assert_eq!(grew, 0);
+    w.invariants();
+}
+
+#[test]
+#[should_panic(expected = "E_STORAGE")]
+fn w02b_an_underfunded_guarded_proposal_to_a_new_buyer_fails_whole() {
+    // On chain the receipt reverts; the unit VM doesn't roll back, so this is should_panic only.
+    let mut w = W::new();
+    let t = w.terms(BUYER, 100 * P, &[]);
+    let digest = proposal_digest(&w, FOUNDER, &t);
+    w.env(FOUNDER, 1);
+    w.b.propose_sale_guarded(t, U64(2), digest);
+}
+
+#[test]
+fn w03_guarded_revise_unfund_cancel_and_expire_refuse_a_stale_review() {
+    let mut w = W::new();
+    let t = w.terms(BUYER, 100 * P, &[(METER, METERING)]);
+    w.propose(FOUNDER, t.clone());
+    let reviewed = cs(&w);
+    // The buyer funds after the seller reviewed a revision: the revision is refused.
+    assert_eq!(w.fund(BUYER), 0);
+    let mut t2 = t.clone();
+    t2.terms_hash = "22".repeat(32);
+    let d2 = revision_digest(&w, FOUNDER, &t2);
+    w.refuse(FOUNDER, 1, "E_REVIEWED", |b| b.revise_sale_guarded(U64(1), reviewed, t2.clone(), d2.clone()));
+    w.refuse(FOUNDER, 1, "E_TERMS", |b| b.revise_sale_guarded(U64(1), U64(4), t2.clone(), "00".repeat(32)));
+    // Reviewed again: same price, escrow stays, version 2, acceptances cleared.
+    w.neutral(FOUNDER, 1, |b| b.revise_sale_guarded(U64(1), U64(4), t2.clone(), d2.clone()));
+    let d = w.deal();
+    assert_eq!((d.version, d.escrow.0, d.digest.clone()), (2, 100 * P, d2));
+    // Unfund and cancel name the control they reviewed.
+    w.refuse(BUYER, 1, "E_REVIEWED", |b| b.unfund_deal_guarded(U64(1), U64(4)));
+    w.neutral(BUYER, 1, |b| b.unfund_deal_guarded(U64(1), U64(5)));
+    assert_eq!(w.b.get_party(id(BUYER)).unwrap().escrow_return_claim.0, 100 * P);
+    w.refuse(BUYER, 1, "E_REVIEWED", |b| b.cancel_sale_guarded(U64(1), U64(5)));
+    w.refuse(STRANGER, 1, "E_NOT_PARTY", |b| b.cancel_sale_guarded(U64(1), U64(6)));
+    w.refuse(BUYER, 0, "E_DEPOSIT", |b| b.cancel_sale_guarded(U64(1), U64(6)));
+    w.neutral(BUYER, 1, |b| b.cancel_sale_guarded(U64(1), U64(6)));
+    assert_eq!(w.b.get_outcomes()[0].status, "cancelled");
+    // Expire: anyone, after expiry, naming the control reviewed.
+    let t3 = w.terms(BUYER, 100 * P, &[]);
+    w.propose(FOUNDER, t3);
+    let c = cs(&w);
+    w.refuse(STRANGER, 0, "E_NOT_EXPIRED", |b| b.expire_sale_guarded(U64(2), c));
+    w.now += DAY;
+    w.refuse(STRANGER, 0, "E_REVIEWED", |b| b.expire_sale_guarded(U64(2), U64(c.0 - 1)));
+    w.refuse(STRANGER, 0, "E_NO_DEAL", |b| b.expire_sale_guarded(U64(1), c));
+    w.neutral(STRANGER, 0, |b| b.expire_sale_guarded(U64(2), c));
+    assert_eq!(w.b.get_outcomes()[0].status, "expired");
+}
+
+#[test]
+fn w04_guarded_claims_pay_exactly_the_reviewed_amount_and_appointments_name_control() {
+    let mut w = W::new();
+    let t = w.terms(BUYER, 100 * P, &[]);
+    w.propose(FOUNDER, t);
+    assert_eq!(w.fund(BUYER), 0);
+    assert_eq!(w.accept(FOUNDER), "accepted");
+    assert_eq!(w.accept(BUYER), "closed");
+    // The seller's proceeds: a stale amount or payout sequence is refused; the reviewed claim
+    // starts the payout.
+    let ps = U64(w.b.payout_seq);
+    w.refuse(FOUNDER, 1, "E_REVIEWED", |b| b.claim_party_guarded(CLAIM_SALE_PROCEEDS, U128(99 * P), ps));
+    w.refuse(FOUNDER, 1, "E_REVIEWED", |b| b.claim_party_guarded(CLAIM_ESCROW_RETURN, U128(100 * P), ps));
+    w.refuse(FOUNDER, 1, "E_REVIEWED", |b| b.claim_party_guarded(CLAIM_SALE_PROCEEDS, U128(100 * P), U64(ps.0 + 1)));
+    w.call(FOUNDER, 1, |b| drop(b.claim_party_guarded(CLAIM_SALE_PROCEEDS, U128(100 * P), ps)));
+    let (slot, pid) = w.last_payout();
+    assert!(!w.callback(slot, pid, false), "the transfer failed");
+    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().sale_proceeds_claim.0, 100 * P, "restored in its category");
+    // The same request again (a delayed duplicate): its payout already started, so it is refused
+    // even though the same amount is owed again; the restored claim needs a fresh review.
+    w.refuse(FOUNDER, 1, "E_REVIEWED", |b| b.claim_party_guarded(CLAIM_SALE_PROCEEDS, U128(100 * P), ps));
+    let ps2 = U64(w.b.payout_seq);
+    w.call(FOUNDER, 1, |b| drop(b.claim_party_guarded(CLAIM_SALE_PROCEEDS, U128(100 * P), ps2)));
+    let (slot, pid) = w.last_payout();
+    assert!(w.callback(slot, pid, true));
+    assert_eq!(w.b.get_party(id(FOUNDER)).unwrap().sale_proceeds_claim.0, 0);
+    let ps3 = U64(w.b.payout_seq);
+    w.refuse(FOUNDER, 1, "E_FUNDS", |b| b.claim_party_guarded(CLAIM_SALE_PROCEEDS, U128(0), ps3));
+    // A guarded funding message names the reviewed control: a stale one is returned whole.
+    let mut v = W::new();
+    let t = v.terms(BUYER, 100 * P, &[]);
+    v.propose(FOUNDER, t);
+    let c = v.b.control_seq;
+    v.returned(BUYER, 100 * P, fund_msg_at(1, 1, 100 * P, c - 1));
+    assert_eq!(v.ft(BUYER, 100 * P, fund_msg_at(1, 1, 100 * P, c)), 0);
+    v.neutral(BUYER, 1, |b| b.unfund_deal_guarded(U64(1), U64(c + 1)));
+    v.returned(BUYER, 100 * P, fund_msg_at(1, 1, 100 * P, c));
+    // The new owner appoints metering, naming the control reviewed; the old owner can't.
+    let c = cs(&w);
+    w.refuse(FOUNDER, 1, "E_NOT_OWNER", |b| b.appoint_operator_guarded(id(METER), METERING, c));
+    w.refuse(BUYER, 1, "E_REVIEWED", |b| b.appoint_operator_guarded(id(METER), METERING, U64(c.0 - 1)));
+    w.refuse(BUYER, 0, "E_DEPOSIT", |b| b.appoint_operator_guarded(id(METER), METERING, c));
+    w.neutral(BUYER, 1, |b| b.appoint_operator_guarded(id(METER), METERING, c));
+    assert_eq!(w.b.get_control().operators, vec![(id(METER), METERING, 2)]);
+}
+
+// ---------- 003wf2: the scripted Direct sale history the server's double replays ----------
+
+const SALE_PRICE: u128 = 250 * E18;
+
+/// The sale views after a step, as JSON strings, for the accounts the history names.
+fn sale_views(w: &W) -> serde_json::Value {
+    w.env(STRANGER, 0);
+    let s = |v: String| serde_json::Value::String(v);
+    let parties: serde_json::Map<String, serde_json::Value> = [FOUNDER, BUYER, STRANGER]
+        .iter()
+        .map(|a| (a.to_string(), s(serde_json::to_string(&w.b.get_party(id(a))).unwrap())))
+        .collect();
+    let terms: serde_json::Map<String, serde_json::Value> = [BUYER, STRANGER]
+        .iter()
+        .map(|a| (a.to_string(), s(serde_json::to_string(&w.b.get_sale_terms(id(a))).unwrap())))
+        .collect();
+    serde_json::json!({
+        "get_control": s(serde_json::to_string(&w.b.get_control()).unwrap()),
+        "get_treasury": s(serde_json::to_string(&w.b.get_treasury()).unwrap()),
+        "get_outcomes": s(serde_json::to_string(&w.b.get_outcomes()).unwrap()),
+        "get_pending": s(serde_json::to_string(&w.b.get_pending()).unwrap()),
+        "get_party": parties,
+        "get_sale_terms": terms,
+    })
+}
+
+/// Runs one business-contract call from its JSON arguments, exactly as a wallet sends them;
+/// returns the method's JSON value (null for no value).
+fn run_sale_call(b: &mut Business, method: &str, a: &serde_json::Value) -> serde_json::Value {
+    let terms = |v: &serde_json::Value| serde_json::from_value::<DealTermsInput>(v.clone()).unwrap();
+    let u64v = |k: &str| U64(a[k].as_str().unwrap().parse().unwrap());
+    let s = |k: &str| a[k].as_str().unwrap().to_string();
+    match method {
+        "propose_sale_guarded" => {
+            serde_json::to_value(b.propose_sale_guarded(terms(&a["terms"]), u64v("expected_control_seq"), s("digest"))).unwrap()
+        }
+        "revise_sale_guarded" => {
+            b.revise_sale_guarded(u64v("deal_seq"), u64v("expected_control_seq"), terms(&a["terms"]), s("digest"));
+            serde_json::Value::Null
+        }
+        "accept_sale" => {
+            serde_json::to_value(b.accept_sale(u64v("deal_seq"), a["version"].as_u64().unwrap() as u32, s("digest"))).unwrap()
+        }
+        "unfund_deal_guarded" => {
+            b.unfund_deal_guarded(u64v("deal_seq"), u64v("expected_control_seq"));
+            serde_json::Value::Null
+        }
+        "cancel_sale_guarded" => {
+            b.cancel_sale_guarded(u64v("deal_seq"), u64v("expected_control_seq"));
+            serde_json::Value::Null
+        }
+        "expire_sale_guarded" => {
+            b.expire_sale_guarded(u64v("deal_seq"), u64v("expected_control_seq"));
+            serde_json::Value::Null
+        }
+        "appoint_operator_guarded" => {
+            let acct: AccountId = s("account").parse().unwrap();
+            b.appoint_operator_guarded(acct, a["caps"].as_u64().unwrap() as u8, u64v("expected_control_seq"));
+            serde_json::Value::Null
+        }
+        "claim_party_guarded" => {
+            let amount = U128(a["expected_amount"].as_str().unwrap().parse().unwrap());
+            drop(b.claim_party_guarded(a["category"].as_u64().unwrap() as u8, amount, u64v("expected_payout_seq")));
+            serde_json::Value::Null
+        }
+        other => panic!("not a scripted sale call: {other}"),
+    }
+}
+
+/// One scripted step's expectation.
+enum Expect {
+    Ok,
+    Refused(&'static str),
+    /// A claim: whether the payout's token transfer succeeds.
+    Payout(bool),
+}
+
+struct Script {
+    w: W,
+    out: Vec<serde_json::Value>,
+}
+
+impl Script {
+    /// A business-contract call by `signer` with `deposit`.
+    fn call(&mut self, case: &str, signer: &str, deposit: u128, method: &str, args: serde_json::Value, expect: Expect) {
+        let a = args.clone();
+        let m = method.to_string();
+        let mut step = serde_json::json!({
+            "case": case, "signer": signer, "receiver": BIZ, "method": method, "args": args,
+            "deposit": deposit.to_string(), "now_ms": self.w.now.to_string(),
+        });
+        match expect {
+            Expect::Refused(code) => {
+                self.w.refuse(signer, deposit, code, move |b| run_sale_call(b, &m, &a));
+                step["refused"] = serde_json::json!(code);
+            }
+            Expect::Ok => {
+                // Only a proposal (or a buyer-changing revision) to a buyer without a record grows
+                // storage, by exactly the declared quote; every other step is storage-neutral.
+                let buyer = a["terms"]["buyer"].as_str().map(id);
+                let quoted = buyer.map_or(0, |b| {
+                    self.w.env(signer, 0);
+                    self.w.b.get_sale_terms(b).party_bytes.0 as i64
+                });
+                let (v, grew) = self.w.measured(signer, deposit, move |b| run_sale_call(b, &m, &a));
+                assert_eq!(grew, quoted, "{case}: storage growth is exactly the quote");
+                self.w.invariants();
+                step["value"] = v;
+                step["logs"] = serde_json::json!(near_sdk::test_utils::get_logs());
+            }
+            Expect::Payout(ok) => {
+                self.w.call(signer, deposit, move |b| run_sale_call(b, &m, &a));
+                step["logs"] = serde_json::json!(near_sdk::test_utils::get_logs());
+                let (slot, pid) = self.w.last_payout();
+                let r = self.w.callback(slot, pid, ok);
+                step["payout"] = serde_json::json!({
+                    "slot": slot, "payout_id": pid.to_string(), "transfer_ok": ok, "value": r,
+                    "logs": near_sdk::test_utils::get_logs(),
+                });
+            }
+        }
+        step["views"] = sale_views(&self.w);
+        self.out.push(step);
+    }
+
+    /// The token delivering `ft_transfer_call(business, amount, msg)` from `sender`.
+    fn ft(&mut self, case: &str, sender: &str, amount: u128, msg: String, expect_unused: u128) {
+        let mut step = serde_json::json!({
+            "case": case, "signer": sender, "receiver": TOKEN, "method": "ft_transfer_call",
+            "args": { "receiver_id": BIZ, "amount": amount.to_string(), "msg": msg.clone() },
+            "deposit": "1", "now_ms": self.w.now.to_string(),
+        });
+        let before = self.w.snap();
+        let unused = self.w.ft(sender, amount, msg);
+        assert_eq!(unused, expect_unused, "{case}");
+        if unused == amount {
+            assert_eq!(self.w.snap(), before, "{case}: returned funding changed nothing");
+        }
+        step["unused"] = serde_json::json!(unused.to_string());
+        step["logs"] = serde_json::json!(near_sdk::test_utils::get_logs());
+        step["views"] = sale_views(&self.w);
+        self.out.push(step);
+    }
+}
+
+fn terms_json(t: &DealTermsInput) -> serde_json::Value {
+    serde_json::json!({
+        "buyer": t.buyer, "price": t.price, "expires_at_ms": t.expires_at_ms, "close_window_ms": t.close_window_ms,
+        "available_floor": t.available_floor,
+        "grants": t.grants.iter().map(|(a, c)| serde_json::json!([a, c])).collect::<Vec<_>>(),
+        "terms_hash": t.terms_hash,
+    })
+}
+
+fn party_quote(w: &W, buyer: &str) -> u128 {
+    w.env(buyer, 0);
+    let q = w.b.get_sale_terms(id(buyer));
+    q.party_bytes.0 as u128 * q.storage_byte_cost.0
+}
+
+fn propose_args(t: &DealTermsInput, cs: u64, d: &str) -> serde_json::Value {
+    serde_json::json!({ "terms": terms_json(t), "expected_control_seq": cs.to_string(), "digest": d })
+}
+
+fn revise_args(seq: u64, t: &DealTermsInput, cs: u64, d: &str) -> serde_json::Value {
+    serde_json::json!({ "deal_seq": seq.to_string(), "expected_control_seq": cs.to_string(), "terms": terms_json(t), "digest": d })
+}
+
+fn accept_args(seq: u64, v: u32, d: &str) -> serde_json::Value {
+    serde_json::json!({ "deal_seq": seq.to_string(), "version": v, "digest": d })
+}
+
+fn seq_args(seq: u64, cs: u64) -> serde_json::Value {
+    serde_json::json!({ "deal_seq": seq.to_string(), "expected_control_seq": cs.to_string() })
+}
+
+fn claim_args(cat: u8, amount: u128, payout_seq: u64) -> serde_json::Value {
+    serde_json::json!({ "category": cat, "expected_amount": amount.to_string(), "expected_payout_seq": payout_seq.to_string() })
+}
+
+#[test]
+fn direct_sale_matches_server_fixture() {
+    let w = fixture_world(W::new);
+    let start = sale_views(&w);
+    w.env(STRANGER, 0);
+    let internal = serde_json::json!({
+        "payout_seq": w.b.payout_seq.to_string(), "deal_seq": w.b.deal_seq.to_string(),
+        "now_ms": w.now.to_string(), "storage_byte_cost": env::storage_byte_cost().as_yoctonear().to_string(),
+    });
+    let mut s = Script { w, out: vec![] };
+
+    // Deal 1: proposed with the platform's metering account named.
+    let mut t1 = s.w.terms(BUYER, SALE_PRICE, &[(METER, METERING)]);
+    t1.available_floor = U128(2 * E18);
+    t1.terms_hash = "a1".repeat(32);
+    let d1 = proposal_digest(&s.w, FOUNDER, &t1);
+    let q = party_quote(&s.w, BUYER);
+    let c = s.w.b.control_seq;
+    s.call("stale control", FOUNDER, q, "propose_sale_guarded", propose_args(&t1, c - 1, &d1), Expect::Refused("E_REVIEWED"));
+    s.call("another digest", FOUNDER, q, "propose_sale_guarded", propose_args(&t1, c, &"00".repeat(32)), Expect::Refused("E_TERMS"));
+    s.call("not the owner", STRANGER, q, "propose_sale_guarded", propose_args(&t1, c, &d1), Expect::Refused("E_NOT_OWNER"));
+    s.call("propose", FOUNDER, q, "propose_sale_guarded", propose_args(&t1, c, &d1), Expect::Ok);
+    s.call("propose twice", FOUNDER, q, "propose_sale_guarded", propose_args(&t1, c, &d1), Expect::Refused("E_DEAL_PENDING"));
+    s.call("accept unfunded", BUYER, 1, "accept_sale", accept_args(1, 1, &d1), Expect::Refused("E_UNFUNDED"));
+    let c = s.w.b.control_seq;
+    s.ft("a stranger funds", STRANGER, SALE_PRICE, fund_msg_at(1, 1, SALE_PRICE, c), SALE_PRICE);
+    s.ft("another amount", BUYER, SALE_PRICE - 1, fund_msg_at(1, 1, SALE_PRICE - 1, c), SALE_PRICE - 1);
+    s.ft("another version", BUYER, SALE_PRICE, fund_msg_at(1, 2, SALE_PRICE, c), SALE_PRICE);
+    s.ft("a stale review", BUYER, SALE_PRICE, fund_msg_at(1, 1, SALE_PRICE, c - 1), SALE_PRICE);
+    s.ft("fund", BUYER, SALE_PRICE, fund_msg_at(1, 1, SALE_PRICE, c), 0);
+    s.ft("the same request again", BUYER, SALE_PRICE, fund_msg_at(1, 1, SALE_PRICE, c), SALE_PRICE);
+    s.ft("an unguarded message, funded", BUYER, SALE_PRICE, fund_msg(1, 1, SALE_PRICE), SALE_PRICE);
+
+    // Revised at the same price: escrow stays, the buyer must accept the new version.
+    let mut t2 = t1.clone();
+    t2.terms_hash = "a2".repeat(32);
+    t2.grants = vec![(id(METER), METERING), (id(METER2), SUPPORT)];
+    let d2 = revision_digest(&s.w, FOUNDER, &t2);
+    let c = s.w.b.control_seq;
+    s.call("revise stale", FOUNDER, 1, "revise_sale_guarded", revise_args(1, &t2, c - 1, &d2), Expect::Refused("E_REVIEWED"));
+    s.call("revise same price", FOUNDER, 1, "revise_sale_guarded", revise_args(1, &t2, c, &d2), Expect::Ok);
+    s.call("accept the old version", BUYER, 1, "accept_sale", accept_args(1, 1, &d1), Expect::Refused("E_VERSION"));
+    s.call("buyer accepts", BUYER, 1, "accept_sale", accept_args(1, 2, &d2), Expect::Ok);
+    s.call("accept twice", BUYER, 1, "accept_sale", accept_args(1, 2, &d2), Expect::Refused("E_ALREADY_ACCEPTED"));
+
+    // Revised to another price, naming no metering: escrow comes back as the buyer's claim.
+    let price3 = SALE_PRICE + 10 * E18;
+    let mut t3 = t2.clone();
+    t3.price = U128(price3);
+    t3.terms_hash = "a3".repeat(32);
+    t3.grants = vec![];
+    let d3 = revision_digest(&s.w, FOUNDER, &t3);
+    let c = s.w.b.control_seq;
+    s.call("revise the price", FOUNDER, 1, "revise_sale_guarded", revise_args(1, &t3, c, &d3), Expect::Ok);
+    let ps = s.w.b.payout_seq;
+    s.call("claim a stale amount", BUYER, 1, "claim_party_guarded", claim_args(1, 1, ps), Expect::Refused("E_REVIEWED"));
+    s.call("claim; the transfer fails", BUYER, 1, "claim_party_guarded", claim_args(1, SALE_PRICE, ps), Expect::Payout(false));
+    s.call("the same claim request again", BUYER, 1, "claim_party_guarded", claim_args(1, SALE_PRICE, ps), Expect::Refused("E_REVIEWED"));
+    let ps = s.w.b.payout_seq;
+    s.call("the restored claim, reviewed again; paid", BUYER, 1, "claim_party_guarded", claim_args(1, SALE_PRICE, ps), Expect::Payout(true));
+    let c = s.w.b.control_seq;
+    s.call("unfund with nothing funded", BUYER, 1, "unfund_deal_guarded", seq_args(1, c), Expect::Refused("E_FUNDS"));
+    s.ft("fund the new price", BUYER, price3, fund_msg_at(1, 3, price3, c), 0);
+    let c = s.w.b.control_seq;
+    s.call("unfund stale", BUYER, 1, "unfund_deal_guarded", seq_args(1, c - 1), Expect::Refused("E_REVIEWED"));
+    s.call("unfund", BUYER, 1, "unfund_deal_guarded", seq_args(1, c), Expect::Ok);
+    // The earlier funding request, arriving late after the unfund: returned whole.
+    s.ft("a delayed funding request after unfund", BUYER, price3, fund_msg_at(1, 3, price3, c - 1), price3);
+    let c = s.w.b.control_seq;
+    s.ft("fund again", BUYER, price3, fund_msg_at(1, 3, price3, c), 0);
+    s.call("seller accepts", FOUNDER, 1, "accept_sale", accept_args(1, 3, &d3), Expect::Ok);
+    let c = s.w.b.control_seq;
+    s.call("cancel stale", BUYER, 1, "cancel_sale_guarded", seq_args(1, c - 1), Expect::Refused("E_REVIEWED"));
+    s.call("buyer accepts: closed", BUYER, 1, "accept_sale", accept_args(1, 3, &d3), Expect::Ok);
+    assert_eq!(s.w.b.get_control().owner, id(BUYER));
+    s.call("the old seller cancels", FOUNDER, 1, "cancel_sale_guarded", seq_args(1, c + 1), Expect::Refused("E_NO_DEAL"));
+
+    // Claims after the close: proceeds to the seller, the unfunded escrow to the buyer.
+    let ps = s.w.b.payout_seq;
+    s.call("seller collects proceeds", FOUNDER, 1, "claim_party_guarded", claim_args(2, price3, ps), Expect::Payout(true));
+    let ps = s.w.b.payout_seq;
+    s.call("buyer collects returned escrow", BUYER, 1, "claim_party_guarded", claim_args(1, price3, ps), Expect::Payout(true));
+
+    // The terms named no metering: the new owner appoints it explicitly.
+    let ap = |cs: u64| serde_json::json!({ "account": METER, "caps": METERING, "expected_control_seq": cs.to_string() });
+    let c = s.w.b.control_seq;
+    s.call("the old owner appoints", FOUNDER, 1, "appoint_operator_guarded", ap(c), Expect::Refused("E_NOT_OWNER"));
+    s.call("appoint stale", BUYER, 1, "appoint_operator_guarded", ap(c - 1), Expect::Refused("E_REVIEWED"));
+    s.call("the new owner appoints metering", BUYER, 1, "appoint_operator_guarded", ap(c), Expect::Ok);
+
+    // Deal 2 (the new owner sells on): funded, then cancelled by its buyer.
+    let mut t4 = s.w.terms(STRANGER, 5 * E18, &[(METER, METERING)]);
+    t4.terms_hash = "b1".repeat(32);
+    let d4 = proposal_digest(&s.w, BUYER, &t4);
+    let q = party_quote(&s.w, STRANGER);
+    let c = s.w.b.control_seq;
+    s.call("propose to a new buyer", BUYER, q, "propose_sale_guarded", propose_args(&t4, c, &d4), Expect::Ok);
+    let c = s.w.b.control_seq;
+    s.ft("the new buyer funds", STRANGER, 5 * E18, fund_msg_at(2, 1, 5 * E18, c), 0);
+    let c = s.w.b.control_seq;
+    s.call("the buyer cancels", STRANGER, 1, "cancel_sale_guarded", seq_args(2, c), Expect::Ok);
+    let first_claim = s.w.b.payout_seq;
+    s.call("the new buyer collects returned escrow", STRANGER, 1, "claim_party_guarded", claim_args(1, 5 * E18, first_claim), Expect::Payout(true));
+
+    // Deal 3: proposed (the record exists: 1 yoctoNEAR), funded, then left to expire.
+    let mut t5 = s.w.terms(STRANGER, 5 * E18, &[(METER, METERING)]);
+    t5.terms_hash = "b2".repeat(32);
+    t5.expires_at_ms = U64(s.w.now + 2 * MIN);
+    let d5 = proposal_digest(&s.w, BUYER, &t5);
+    let c = s.w.b.control_seq;
+    s.call("propose again", BUYER, 1, "propose_sale_guarded", propose_args(&t5, c, &d5), Expect::Ok);
+    let c = s.w.b.control_seq;
+    s.ft("fund deal 3", STRANGER, 5 * E18, fund_msg_at(3, 1, 5 * E18, c), 0);
+    let c = s.w.b.control_seq;
+    s.call("expire too early", METER2, 0, "expire_sale_guarded", seq_args(3, c), Expect::Refused("E_NOT_EXPIRED"));
+    s.w.now += 3 * MIN;
+    s.call("accept after expiry", STRANGER, 1, "accept_sale", accept_args(3, 1, &d5), Expect::Refused("E_EXPIRED"));
+    s.call("anyone ends it", METER2, 0, "expire_sale_guarded", seq_args(3, c), Expect::Ok);
+    // The same amount is owed again: the earlier, already-paid claim request can't collect it.
+    s.call("an old claim request for a same-amount credit", STRANGER, 1, "claim_party_guarded", claim_args(1, 5 * E18, first_claim), Expect::Refused("E_REVIEWED"));
+    let ps = s.w.b.payout_seq;
+    s.call("the new credit, reviewed; paid", STRANGER, 1, "claim_party_guarded", claim_args(1, 5 * E18, ps), Expect::Payout(true));
+
+    let doc = serde_json::json!({
+        "note": "Produced by contracts/business-v3 tests.rs direct_sale_matches_server_fixture (job 003wf2). Test-world accounts only; synthetic payouts.",
+        "business": BIZ, "asset": TOKEN, "internal": internal, "start": start, "steps": s.out,
+    });
+    let actual = serde_json::to_string_pretty(&doc).unwrap() + "\n";
+    fixture("direct-sale", include_str!("../../../server/test/fixtures/v3/direct-sale.json"), actual);
 }

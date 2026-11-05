@@ -45,7 +45,7 @@ before any change and nothing happens.
 | `unfund_deal_guarded(deal_seq, expected_control_seq)` | buyer; exactly 1 yocto | `E_REVIEWED` | `unfund_deal` |
 | `cancel_sale_guarded(deal_seq, expected_control_seq)` | seller or buyer; exactly 1 yocto | `E_REVIEWED` | `cancel_sale` |
 | `expire_sale_guarded(deal_seq, expected_control_seq)` | anyone; none | `E_REVIEWED` | `expire_sale` |
-| `claim_party_guarded(category, expected_amount)` | the party; exactly 1 yocto | owed in that category `== expected` (`E_REVIEWED`) | `claim_party` |
+| `claim_party_guarded(category, expected_amount, expected_payout_seq)` | the party; exactly 1 yocto | owed in that category `== expected_amount` AND `payout_seq == expected_payout_seq` (`E_REVIEWED`) | `claim_party` |
 | `appoint_operator_guarded(account, caps, expected_control_seq)` | owner; ≥ 1 yocto, excess refunded | `E_REVIEWED` | `appoint_operator` |
 
 **Unchanged and used as is:**
@@ -54,8 +54,18 @@ before any change and nothing happens.
   the review says so as a conditional ("if the buyer has accepted by then, this closes the sale").
   A control_seq guard here would make two parties' acceptances refuse each other.
 - Funding: `ft_transfer_call` on the business's token with
-  `msg = {"fund_deal": {deal_seq, version, price}}`. `(deal_seq, version)` names one fixed set of
-  terms (versions only rise, numbers never repeat); anything else is returned whole.
+  `msg = {"fund_deal": {deal_seq, version, price, expected_control_seq}}`. `(deal_seq, version)`
+  names one fixed set of terms; `expected_control_seq` (new, optional in the message so older
+  messages still parse) makes it land only on exactly the reviewed control state. Without it a
+  delayed or repeated request could fund the same version again after an intervening unfund
+  (Astra's DirectSaleDesignReview 1). Anything else is returned whole.
+
+**Why a claim names the payout sequence (Astra's review 1).** An amount alone doesn't identify a
+claim: after a payout the same category can be credited the same amount again (a later deal's
+escrow return), and an old request would then collect it. Every payout raises `payout_seq` and only
+a payout lowers a claim; every credit or restore raises the amount. So "owed == X and payout_seq ==
+p" holds at execution only if nothing was paid or credited since the review: the request collects
+exactly the claim incarnation reviewed. `get_sale_terms` reports `payout_seq`.
 
 Guarded methods check their guard first, then call the same internal path as the original, so the
 original's refusals, storage accounting, events and `control_seq` rise are identical. The
@@ -114,13 +124,13 @@ stay in the technical details. Every call is ONE FunctionCall.
 |---|---|---|---|---|
 | Propose these terms (seller) | `propose_sale_guarded` → business | party quote or 1; 50 Tgas | `get_control`, `get_sale_terms(buyer)`, `get_treasury`, token `ft_metadata` | no capability; Gated; live deal; chain owner ≠ the seller's account; buyer unmapped or the seller; invalid terms |
 | Revise (seller) | `revise_sale_guarded` → business | as propose | same | not live; closing; buyer change while funded |
-| Register with the token (buyer) | `storage_deposit` → token | token's `storage_balance_bounds.min`; 30 Tgas | token `storage_balance_of` | already registered |
-| Fund escrow (buyer) | `ft_transfer_call(business, price, fund_deal msg)` → token | 1; 100 Tgas | `get_control`, token balance/registration of buyer and business | funded; expired; balance < price; not registered |
+| Register with the token (buyer before funding; any claimant before collecting) | `storage_deposit(account, registration_only: true)` → token | token's `storage_balance_bounds.min`; 30 Tgas | token `storage_balance_of`, `storage_balance_bounds` | already registered |
+| Fund escrow (buyer) | `ft_transfer_call(business, price, fund_deal msg with expected_control_seq)` → token | 1; 100 Tgas | `get_control`, token balance/registration of buyer and business | funded; expired; balance < price; not registered |
 | Accept version V (seller or buyer) | `accept_sale` → business | 1; 30 Tgas | `get_control`, `get_treasury` | not a party; already accepted; expired; floor not met; buyer unfunded; seller's version not recorded here |
 | Take escrow back (buyer) | `unfund_deal_guarded` → business | 1; 30 Tgas | `get_control` | nothing funded; closing |
 | Cancel the offer (seller or buyer) | `cancel_sale_guarded` → business | 1; 30 Tgas | `get_control` | closing |
 | End the expired offer (either party) | `expire_sale_guarded` → business | 0; 30 Tgas | `get_control` + block timestamp | not yet expired at the block |
-| Collect sale proceeds / returned escrow (party) | `claim_party_guarded(2 or 1, amount)` → business | 1; 60 Tgas | `get_party(account)`, `get_pending` | nothing owed; party payout cap reached |
+| Collect sale proceeds / returned escrow (party) | `claim_party_guarded(2 or 1, amount, payout_seq)` → business | 1; 60 Tgas | `get_party(account)`, `get_pending`, `get_sale_terms` (payout_seq), token `storage_balance_of(account)` | nothing owed; party payout cap reached; the recipient isn't registered with the token (register first: an unregistered recipient's transfer fails and the claim is restored) |
 | Appoint metering (new owner) | `appoint_operator_guarded(platform, METERING)` → business | 1; 30 Tgas | `get_control` | not the owner; live deal; already appointed |
 
 **Authority here.** A person acts only with their linked account, and the server refuses a preview
@@ -132,13 +142,45 @@ person with their own sale actions for it.
 
 ## 5. Durable wallet intent and recovery
 
-One row per wallet action (`sale_actions`), with the same states as a purchase:
+One row per wallet action (`sale_actions`):
 
 ```
 prepared ──ask recorded──▶ requested ──check──▶ confirmed | refused | unknown
-   │                           ▲                      │
-   └─ set aside (never asked)  └──── ask again (identical request, its own consent) ◀┘
+   │                                                 │
+   └─ set aside (never asked)        a fresh final read proves it can't take effect any more
+                                                     ▼
+                                     no_longer_possible (still checkable by its own transaction)
 ```
+
+**No fresh ask for an unknown action (Astra's DirectSaleDesignReview 1).** The wallet signs a NEW
+transaction every time it is asked, so asking again is never "the same request": it is a second
+transaction whose effect must be proven separately. An asked action is recovered only by its own
+transaction (the wallet's hash, or the ID the person copies from the wallet's activity). If the
+wallet gave no hash, the stored request is kept and the page explains how to find the original;
+a new transaction is never taken as proof of what the old one did.
+
+**Each guard gives an exclusivity identity.** Every action this page prepares carries one:
+
+| Kinds | Identity | Why at most one action with it can ever take effect |
+|---|---|---|
+| propose, revise, unfund, cancel, expire, appoint, fund | `control:<expected_control_seq>` | the first success raises control_seq; every other call guarded on that value is refused (funding: returned whole) |
+| accept | `accept:<deal_seq>:<version>:<account>` | a party's second acceptance of a version is refused (`E_ALREADY_ACCEPTED`), and only a revision (a new version) clears it |
+| claim | `claim:<category>:<payout_seq>` | the first payout raises payout_seq |
+| register | `register:<token>:<account>` | NEP-145 requires `registration_only: true` to refund the whole deposit when the account is already registered (the double implements and tests it; another token's conformance isn't verified here) |
+
+**"Can no longer take effect"** is provable from one fresh final read, per identity: control_seq
+moved past the expected value; the deal number isn't live, its version moved on, or this party's
+acceptance is recorded; payout_seq moved; the account is registered. The row then becomes
+`no_longer_possible`: whether it took effect is still unknown, and it stays checkable by its own
+transaction, but it no longer blocks a new action.
+
+**A replacement while an action is unknown** is offered only when a fresh preview has the SAME
+identity as the open one (the state hasn't moved): at most one of the two can take effect, and the
+person is told exactly that before their wallet is asked. A preview with another identity is
+admitted only once the open action is no longer possible. A new action after a definitive refusal
+or a restored claim is simply a new action. Admission (in one `BEGIN IMMEDIATE` transaction): an
+open `prepared` row is returned for recovery; an open asked row admits a new one only with the same
+identity and an explicit `replaces` naming it; otherwise `action_open` with that row.
 
 1. **Prepare** (no row): one pinned read, the exact call and an `action_digest` =
    sha256 of [kind, network, contract, actor account, receiver, method, args, deposit, gas,
@@ -154,10 +196,8 @@ prepared ──ask recorded──▶ requested ──check──▶ confirmed | 
    transaction outcome's id = its hash, and its receipt graph (§5.1). A readback informs but never
    confirms and never shows an action didn't happen; a lookalike later deal is not this action. A
    named transaction ID is recorded only once it is shown to be exactly this action.
-5. **Unknown stays unknown.** No automatic resend because time passed, a nonce was used or a
-   result is missing. Asking the wallet again is an explicit, consented step for the identical
-   stored request; the guards make a duplicate fail without effect (control_seq or the owed amount
-   already moved; acceptance: `E_ALREADY_ACCEPTED`; funding: returned whole as "already funded").
+5. **Unknown stays unknown.** No automatic or offered resend because time passed, a nonce was used
+   or a result is missing (see the identities above for the only replacement).
 6. **Set aside** is only for a row whose wallet was never asked (`prepared`). An asked row stays
    tracked until its own transaction shows the outcome.
 
@@ -203,20 +243,31 @@ by this module.
 
 ## 6. Synthetic network boundary
 
-`SaleChain` (server test support) is ONE state model of the business's sale, party records, payout
-slots, outcome ring, treasury buckets and the token ledger. It applies the actual encoded calls a
-wallet sends (receiver, method, JSON args, deposit, signer) by the contract's rules, and answers
-every view and each transaction's FINAL outcome with its receipt graph and logs. The customer chain
-double reads `get_control` / `get_treasury` from it, and the observation transport reads the same
-object, so customer metering after the close follows the actual post-sale operators. It refuses
-unexpected receivers, methods, multiple actions and malformed arguments. It is anchored by
-replaying the contract's `direct-sale.json`: same calls, byte-identical views, same codes and
-values. No real fetch exists in it or in the harness.
+`SaleChain` (server test support) is the sale half of ONE state model with the existing customer
+chain double: control, operators, deal slot, party records, payout slots, outcome ring, the
+treasury buckets and the token ledger. It applies the actual encoded calls a wallet sends
+(receiver, method, JSON args, deposit, signer) by the contract's rules, and answers every view and
+each transaction's FINAL outcome with its receipt graph and logs. It refuses unexpected receivers,
+methods, multiple actions and malformed arguments. No real fetch exists in it or in the harness.
+
+**One economic state (Astra's review 2).** The customer double's purchases, holds, settlements
+and releases move the same treasury buckets the sale reads (`held`, `ent_free_value`,
+`ent_held_value`, `available`), exactly as lib.rs books them (a purchase adds to held and free
+value; opening a hold moves value from free to held; a charged use moves it to available; a
+release moves it back to free). So a customer's settled use raises `available` and can let the
+sale's floor pass; customer obligations shown to the buyer are the live buckets; metering after the
+close is checked against the post-sale operators and generation of the same object; the
+observation transport reads the same object. Tests exercise a customer operation that changes the
+floor outcome and the service continuing under the buyer's actual grants.
+
+**Anchors, kept apart.** The sale rules are anchored by replaying the contract's `direct-sale.json`
+(same calls; byte-identical views; same codes, values and logs). The customer rules keep their own
+contract fixtures (customer-purchase, customer-settlement, guarded-revoke). The combined journey is
+labelled synthetic evidence; it is not a contract run.
 
 Not modelled, and stated: gas use and limits (gas values are reviewed but unchecked), protocol
 storage pricing beyond the fixture's byte cost, receipt timing across blocks (each transaction
-lands at once), and customer settlement moving `available` (the sale double's treasury starts from
-the contract fixture's).
+lands at once), NEAR (not token) balances and refunds, and the monthly books (`get_period`).
 
 ## 7. Composition
 
@@ -238,12 +289,27 @@ Progress: Terms proposed · Escrow funded · Both accept (closes) · Applied her
 └───────────────────────────────────────┘ └──────────────────────────────────────────┘
 ```
 
+**Roles (from one read plus the local records; Astra's review 3).**
+
+| Role | When |
+|---|---|
+| seller | owner here AND the contract's owner is your account |
+| buyer | the live deal names your account as buyer |
+| former seller | a closed outcome names you as seller (the contract's owner is someone else) |
+| new owner | a closed outcome names you as buyer and the contract's owner is your account |
+| claimant | your party record holds a claim or a payout to you is in flight |
+
+A person can hold several (a new owner who also has returned escrow to collect). Nothing for a live
+deal is offered when no deal is live: an ended deal shows its outcome, never fund/accept actions.
+
 **The one next action (first match wins):** an open action (check it, or recover it) · load error
-(try again) · no linked account · older contract / Gated (none; reason shown) · seller with no live
-deal (prepare terms) · buyer not registered with the token (register) · buyer unfunded (fund
-escrow) · own acceptance missing (accept version V) · other party pending (none: "waiting for the
-buyer/seller") · closed but not applied here (apply the close here) · new owner without metering
-(appoint metering) · a claim owed (collect) · otherwise none.
+(try again) · no linked account · older contract / Gated (none; reason shown) · a closed sale of
+yours not applied here (apply the close here) · a claim owed whose recipient isn't registered with
+the token (register) · a claim owed (collect proceeds / returned escrow) · new owner without the
+platform's metering (appoint metering so customers continue) · buyer not registered with the token
+(register) · buyer unfunded (fund escrow) · own acceptance missing (accept version V) · other party
+pending (none: "waiting for the buyer/seller") · seller with no live deal (prepare terms) ·
+otherwise none.
 
 Revise, cancel, take escrow back and end-expired are secondary, quieter actions with their own
 review. Every review shows the exact call (receiver, method, arguments, deposit, gas), the plain

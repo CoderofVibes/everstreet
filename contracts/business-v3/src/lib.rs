@@ -629,6 +629,10 @@ pub struct FundDeal {
     pub deal_seq: U64,
     pub version: u32,
     pub price: U128,
+    /// 003wf2: when present, the control sequence the buyer reviewed. Funding then lands only on
+    /// exactly that control state (else the whole amount is returned), so a delayed or repeated
+    /// funding request can't fund again after an intervening unfund.
+    pub expected_control_seq: Option<U64>,
 }
 
 #[near(serializers = [json])]
@@ -681,6 +685,34 @@ pub struct PurchaseTermsView {
 /// The entitlement record's fixed size plus its map key's fixed part (measured: customer-purchase
 /// fixture); a shell grows storage by exactly this plus the customer account's length.
 pub const SHELL_BASE_BYTES: u64 = 811;
+
+/// 003wf2: a party record's fixed size plus its map key's fixed part (measured: every proposal to
+/// a buyer without a record checks it against the actual growth); a new buyer record grows storage
+/// by exactly this plus the buyer account's length.
+pub const PARTY_BASE_BYTES: u64 = 176;
+
+/// 003wf2: what a wallet needs to prepare a sale against THIS code (a client must not assume it).
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SaleTermsView {
+    /// The sale-path capability version (1: control_seq-guarded sale methods).
+    pub version: u32,
+    /// The `_guarded` sale methods exist: each names the control state (or owed amount) reviewed.
+    pub guarded: bool,
+    /// The number the next proposal will get.
+    pub next_deal_seq: U64,
+    /// Bound into every deal's digest (with `min_reserve`), so a client can recompute it.
+    pub plan_count: u32,
+    pub min_reserve: U128,
+    /// Whether `buyer` already has a party record (then proposing needs only 1 yoctoNEAR).
+    pub party_exists: bool,
+    /// The exact storage growth of a new party record for `buyer` (0 when it exists).
+    pub party_bytes: U64,
+    /// The byte price that growth is charged at (yoctoNEAR).
+    pub storage_byte_cost: U128,
+    /// The latest payout id (it rises with every payout): a guarded claim names it.
+    pub payout_seq: U64,
+}
 
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
@@ -1255,9 +1287,20 @@ impl Business {
     /// the excess is refunded.
     #[payable]
     pub fn appoint_operator(&mut self, account: AccountId, caps: u8) {
+        self.appoint(account, caps, None)
+    }
+
+    /// 003wf2: `appoint_operator`, only if control is still exactly as reviewed (`E_REVIEWED`).
+    #[payable]
+    pub fn appoint_operator_guarded(&mut self, account: AccountId, caps: u8, expected_control_seq: U64) {
+        self.appoint(account, caps, Some(expected_control_seq.0))
+    }
+
+    fn appoint(&mut self, account: AccountId, caps: u8, guard: Option<u64>) {
         require!(env::attached_deposit().as_yoctonear() >= 1, "E_DEPOSIT: attach at least 1 yoctoNEAR");
         self.require_owner();
         self.require_no_deal();
+        self.require_reviewed(guard);
         require!(caps != 0 && caps & !(METERING | SUPPORT) == 0, "E_ARGS: capabilities are METERING (1) and SUPPORT (2)");
         let control = self.next_control();
         let slot = self
@@ -1735,11 +1778,30 @@ impl Business {
     /// toward the same party payout caps as withdrawals.
     #[payable]
     pub fn claim_party(&mut self, category: u8) -> Promise {
+        self.claim(category, None)
+    }
+
+    /// 003wf2: `claim_party`, only for the exact claim the party reviewed: `expected_amount` owed
+    /// in that category AND no payout started since (`expected_payout_seq`), else `E_REVIEWED`.
+    /// Every payout raises the payout sequence and only a payout lowers a claim, so a request can
+    /// never collect a later credit of the same amount after its own payout.
+    #[payable]
+    pub fn claim_party_guarded(&mut self, category: u8, expected_amount: U128, expected_payout_seq: U64) -> Promise {
+        self.claim(category, Some((expected_amount.0, expected_payout_seq.0)))
+    }
+
+    fn claim(&mut self, category: u8, expected: Option<(u128, u64)>) -> Promise {
         assert_one_yocto();
         require!((category as usize) < CLAIM_CATEGORIES, "E_ARGS: claim categories are 0, 1 and 2");
         let who = env::predecessor_account_id();
         let mut r = *self.party.get(&who).unwrap_or_else(|| env::panic_str("E_NO_RECORD: no party record"));
         let amount = r.claims[category as usize];
+        if let Some((e, seq)) = expected {
+            require!(
+                amount == e && seq == self.payout_seq,
+                "E_REVIEWED: what you are owed changed since you reviewed it; review it again"
+            );
+        }
         require!(amount > 0, "E_FUNDS: nothing to claim");
         let slot = self.party_slot(&r);
         let payout_id = self.next_payout_id();
@@ -1858,24 +1920,30 @@ impl Business {
     /// paid by the proposer. Returns the deal's sequence number.
     #[payable]
     pub fn propose_sale(&mut self, terms: DealTermsInput) -> U64 {
+        self.propose(terms, None)
+    }
+
+    /// 003wf2: `propose_sale`, only if control is still exactly as reviewed (`expected_control_seq`,
+    /// else `E_REVIEWED`) and the proposed deal's digest is the one reviewed (`E_TERMS`). Both are
+    /// checked before anything changes.
+    #[payable]
+    pub fn propose_sale_guarded(&mut self, terms: DealTermsInput, expected_control_seq: U64, digest: String) -> U64 {
+        self.propose(terms, Some((expected_control_seq.0, digest)))
+    }
+
+    fn propose(&mut self, terms: DealTermsInput, guard: Option<(u64, String)>) -> U64 {
         require!(env::attached_deposit().as_yoctonear() >= 1, "E_DEPOSIT: attach at least 1 yoctoNEAR");
         let seller = self.require_owner();
         self.require_no_deal();
+        self.require_reviewed(guard.as_ref().map(|g| g.0));
         let t = self.validate_terms(&seller, &terms);
         let seq = self.deal_seq.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: deal sequence"));
         let control = self.next_control();
+        let d = self.proposed_slot(&seller, &t, seq);
+        if let Some((_, digest)) = &guard {
+            self.require_digest(digest, &d);
+        }
         self.ensure_party(&terms.buyer);
-        let mut d = DealSlot::empty();
-        d.live = true;
-        d.state = DEAL_PROPOSED;
-        d.seq = seq;
-        d.version = 1;
-        d.seller = FixedAccount::of(&seller);
-        t.apply(&mut d);
-        d.expected_generation = self.generation;
-        d.manifest = self.service_manifest;
-        d.manifest_seq = self.manifest_seq;
-        d.plan_count = self.plan_count;
         self.deal.insert(0, d);
         self.deal_seq = seq;
         self.control_seq = control;
@@ -1888,9 +1956,22 @@ impl Business {
     /// The buyer can change only while nothing is funded.
     #[payable]
     pub fn revise_sale(&mut self, deal_seq: U64, terms: DealTermsInput) {
+        self.revise(deal_seq, terms, None)
+    }
+
+    /// 003wf2: `revise_sale`, only if control is still exactly as reviewed (`E_REVIEWED`: e.g. the
+    /// buyer funded, accepted or took escrow back meanwhile) and the revised version's digest is the
+    /// one reviewed (`E_TERMS`). Both are checked before anything changes.
+    #[payable]
+    pub fn revise_sale_guarded(&mut self, deal_seq: U64, expected_control_seq: U64, terms: DealTermsInput, digest: String) {
+        self.revise(deal_seq, terms, Some((expected_control_seq.0, digest)))
+    }
+
+    fn revise(&mut self, deal_seq: U64, terms: DealTermsInput, guard: Option<(u64, String)>) {
         require!(env::attached_deposit().as_yoctonear() >= 1, "E_DEPOSIT: attach at least 1 yoctoNEAR");
         let seller = self.require_owner();
         let mut d = self.live_deal(deal_seq.0);
+        self.require_reviewed(guard.as_ref().map(|g| g.0));
         require!(d.state != DEAL_CLOSING, "E_CLOSING: the sale is closing; terms can't change");
         require!(d.seller.is(&seller) && d.expected_generation == self.generation, "E_GENERATION: control changed since this deal was proposed");
         let t = self.validate_terms(&seller, &terms);
@@ -1898,6 +1979,14 @@ impl Business {
         require!(!(buyer_changes && d.escrow > 0), "E_FUNDED_BUYER: the buyer can't change while their escrow is held");
         let version = d.version.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: deal version"));
         let control = self.next_control();
+        if let Some((_, digest)) = &guard {
+            // The digest covers terms, version and the state they're agreed against, never escrow
+            // or acceptances, so the revised slot's digest is known before anything changes.
+            let mut next = d;
+            t.apply(&mut next);
+            next.version = version;
+            self.require_digest(digest, &next);
+        }
         let returned = if d.escrow > 0 && t.price != d.price { d.escrow } else { 0 };
         if returned > 0 {
             self.party_record(&d.escrow_owner.account());
@@ -1929,9 +2018,20 @@ impl Business {
     /// claim, and their acceptance is cleared.
     #[payable]
     pub fn unfund_deal(&mut self, deal_seq: U64) {
+        self.unfund(deal_seq, None)
+    }
+
+    /// 003wf2: `unfund_deal`, only if control is still exactly as reviewed (`E_REVIEWED`).
+    #[payable]
+    pub fn unfund_deal_guarded(&mut self, deal_seq: U64, expected_control_seq: U64) {
+        self.unfund(deal_seq, Some(expected_control_seq.0))
+    }
+
+    fn unfund(&mut self, deal_seq: U64, guard: Option<u64>) {
         assert_one_yocto();
         let who = env::predecessor_account_id();
         let mut d = self.live_deal(deal_seq.0);
+        self.require_reviewed(guard);
         require!(d.buyer.is(&who), "E_NOT_BUYER: only the buyer");
         require!(d.state != DEAL_CLOSING, "E_CLOSING: the sale is closing; escrow stays until it closes or is aborted");
         require!(d.escrow > 0, "E_FUNDS: nothing is funded");
@@ -2011,9 +2111,20 @@ impl Business {
     /// The seller or the buyer ends a deal that isn't closing. Escrow returns as the buyer's claim.
     #[payable]
     pub fn cancel_sale(&mut self, deal_seq: U64) {
+        self.cancel(deal_seq, None)
+    }
+
+    /// 003wf2: `cancel_sale`, only if control is still exactly as reviewed (`E_REVIEWED`).
+    #[payable]
+    pub fn cancel_sale_guarded(&mut self, deal_seq: U64, expected_control_seq: U64) {
+        self.cancel(deal_seq, Some(expected_control_seq.0))
+    }
+
+    fn cancel(&mut self, deal_seq: U64, guard: Option<u64>) {
         assert_one_yocto();
         let who = env::predecessor_account_id();
         let d = self.live_deal(deal_seq.0);
+        self.require_reviewed(guard);
         require!(d.seller.is(&who) || d.buyer.is(&who), "E_NOT_PARTY: only the seller or the buyer");
         require!(d.state != DEAL_CLOSING, "E_CLOSING: a closing sale ends by its close or its abort");
         let control = self.next_control();
@@ -2022,7 +2133,17 @@ impl Business {
 
     /// Anyone ends an offer that has expired (not one that is closing).
     pub fn expire_sale(&mut self, deal_seq: U64) {
+        self.expire(deal_seq, None)
+    }
+
+    /// 003wf2: `expire_sale`, only if control is still exactly as reviewed (`E_REVIEWED`).
+    pub fn expire_sale_guarded(&mut self, deal_seq: U64, expected_control_seq: U64) {
+        self.expire(deal_seq, Some(expected_control_seq.0))
+    }
+
+    fn expire(&mut self, deal_seq: U64, guard: Option<u64>) {
         let d = self.live_deal(deal_seq.0);
+        self.require_reviewed(guard);
         require!(d.state != DEAL_CLOSING, "E_CLOSING: a closing sale ends by its close or its abort");
         require!(now_ms() >= d.expires_at_ms, "E_NOT_EXPIRED: the offer is still open");
         let control = self.next_control();
@@ -2095,6 +2216,22 @@ impl Business {
     /// 003wec: the device-key capabilities of this code (see KeyTermsView).
     pub fn get_key_terms(&self) -> KeyTermsView {
         KeyTermsView { version: 1, guarded_revoke: true }
+    }
+
+    /// 003wf2: the exact sale-path terms for proposing to `buyer` (see SaleTermsView).
+    pub fn get_sale_terms(&self, buyer: AccountId) -> SaleTermsView {
+        let exists = self.party.contains_key(&buyer);
+        SaleTermsView {
+            version: 1,
+            guarded: true,
+            next_deal_seq: U64(self.deal_seq.saturating_add(1)),
+            plan_count: self.plan_count,
+            min_reserve: self.rules.min_reserve,
+            party_exists: exists,
+            party_bytes: U64(if exists { 0 } else { PARTY_BASE_BYTES + buyer.as_str().len() as u64 }),
+            storage_byte_cost: U128(env::storage_byte_cost().as_yoctonear()),
+            payout_seq: U64(self.payout_seq),
+        }
     }
 
     pub fn get_plan(&self, plan_id: u32) -> Option<Plan> {
@@ -2416,6 +2553,38 @@ impl Business {
         require!(!self.deal_slot().live, "E_DEAL_PENDING: not while a sale is in progress");
     }
 
+    /// 003wf2: a guarded call names the control sequence its caller reviewed. Every successful
+    /// control change raises it by exactly 1 (and nothing else does), so equality means the control
+    /// state is exactly as reviewed.
+    fn require_reviewed(&self, expected_control_seq: Option<u64>) {
+        if let Some(e) = expected_control_seq {
+            require!(e == self.control_seq, "E_REVIEWED: the sale changed since you reviewed it; review it again");
+        }
+    }
+
+    /// 003wf2: the reviewed digest must be exactly the digest of the deal this call would write.
+    fn require_digest(&self, digest: &str, d: &DealSlot) {
+        let given = hex32(digest).unwrap_or_else(|| env::panic_str("E_TERMS: the digest is 64 hex characters"));
+        require!(given == self.digest_of(d), "E_TERMS: these aren't the terms you reviewed");
+    }
+
+    /// The slot a proposal writes (no change here): terms, the next number, version 1, and the
+    /// control state the terms are agreed against.
+    fn proposed_slot(&self, seller: &AccountId, t: &ValidTerms, seq: u64) -> DealSlot {
+        let mut d = DealSlot::empty();
+        d.live = true;
+        d.state = DEAL_PROPOSED;
+        d.seq = seq;
+        d.version = 1;
+        d.seller = FixedAccount::of(seller);
+        t.apply(&mut d);
+        d.expected_generation = self.generation;
+        d.manifest = self.service_manifest;
+        d.manifest_seq = self.manifest_seq;
+        d.plan_count = self.plan_count;
+        d
+    }
+
     /// The control sequence after this call's single rise, checked before anything changes.
     fn next_control(&self) -> u64 {
         self.control_seq.checked_add(1).unwrap_or_else(|| env::panic_str("E_OVERFLOW: control sequence"))
@@ -2606,6 +2775,8 @@ impl Business {
             Some("the sale is closing")
         } else if f.version != d.version {
             Some("the terms were revised")
+        } else if f.expected_control_seq.is_some_and(|c| c.0 != self.control_seq) {
+            Some("the sale changed since this funding was reviewed")
         } else if !d.buyer.is(sender) {
             Some("only the buyer funds the deal")
         } else if f.price.0 != d.price || amount.0 != d.price {
