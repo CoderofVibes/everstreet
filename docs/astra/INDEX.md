@@ -2,6 +2,9 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Purchase handoff review](2026-11-04_PurchaseHandoffReview.md) | Affirmative transaction success and historical purchase recovery after registration changes | 6aa4979 not accepted; independent1388pass/1skip/2fail; bounded003web correction before browser review |
+| 2026-11-04 | [Purchase design review](2026-11-04_PurchaseDesignReview.md) | Registration-bound purchase, exact quote, receipt evidence, durable uncertainty, consent and migration | Independent reproductions and correction checkpoints; latest two failures carried to handoff review |
+| 2026-11-04 | [Approved capability extensions](2026-11-04_ApprovedCapabilityExtensions.md) | Tony approved buyer control/handover record, economics/recovery, agent products and successor rehearsal | Four briefs committed4aa5963 and queued in JOBS; preserve all six milestones |
 | 2026-11-04 | [Wallet corrections accepted](2026-11-04_WalletCorrectionsAccepted.md) | First sign-in,390px exact review,cancel/retry,single-use settlement,lost revoke and1440/sign-out pass | Narrow003wea acceptance16ec3d4; independent1339+1skip;003web next,guarded003wec/integration003wf remain |
 | 2026-11-04 | [Wallet browser repeat](2026-11-04_WalletBrowserRepeat.md) | Actual synthetic enroll/use/settle99free1used and lost-answer revocation pass after reload | First sign-in Loading and390px clipping block003wea; bounded correction next; all six milestones open |
 | 2026-11-04 | [Device-key review](2026-11-04_DeviceKeyReview.md) | Original controller races corrected; two-handle storage checks pass; actual browser sign-in then unavailable product | Independent1315+1skip snapshot;003wea corrects unpublished harness, revoke review and UI lifetime; full browser acceptance pending |
