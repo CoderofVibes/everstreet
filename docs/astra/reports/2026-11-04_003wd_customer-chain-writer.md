@@ -10,6 +10,10 @@ Job: `docs/astra/jobs/2026-11-04_003wd_customer-chain-writer.md`.
 - `99cba15`: the writer, the interface change, configuration, tests and APPLICATION_COMPOSITION §8.
 - `0a80cef`: Astra's overlap appendix, the queued 003we row and its brief (003we is not dispatched).
 - `47649b7`: the overlap correction (§3a).
+- `0a3f01c`: this report and JOBS for §3a.
+- `a6b4343`: Astra's "Overlap correction repeat and actual old-schema migration" appendix,
+  committed after the check passed (1261 passed and 1 skipped).
+- `373a17c`: the upgrade correction (§3b), its regressions and design §8.
 
 **Status: in review.** The 003w parent stays **partial**: 003w-e (wallet and device use key) and
 003w-f (the integrated 100/20/80 restart journey and the rehearsal packet) are required next.
@@ -35,8 +39,8 @@ confirmed it.
 ## 2. The writer (APPLICATION_COMPOSITION §8)
 
 Honest order: the callers and contract methods below were read before coding, but §8 itself was
-appended after the first module and then corrected twice, after Astra's two counterexamples (§3
-and §3a). It describes the final behaviour.
+appended after the first module and then corrected three times, after Astra's counterexamples
+(§3, §3a and §3b). It describes the final behaviour.
 
 **Callers read.**
 - `CustomerUses.submit` and the unit step mark intent "unknown" under their lease, and treat the
@@ -68,7 +72,8 @@ None is payable, so the deposit is 0 and gas is 100 Tgas. There is no unguarded 
 
 - **Fresh nonce.** Only allowed when a used-nonce or expired-hash admission refusal reached the
   **sole** sender of those bytes. Every send is durably claimed first (`broadcasts`), and `invalid`
-  is a compare-and-set requiring `broadcasts = 1` (§3a).
+  is a compare-and-set requiring a counted row with `broadcasts = 1` (§3a, §3b). Every attempt
+  of the operation must be such a counted `invalid`.
 - **Refusals before effects:**
   - a changed payload: `E_PAYLOAD_MISMATCH`;
   - a changed signer or key: `E_SIGNER_CHANGED`;
@@ -125,9 +130,73 @@ transaction with a new nonce.
 
 The earlier 17 still pass, including the sole-sender proof.
 
+## 3b. The third counterexample: upgrading an earlier records file (after `47649b7`)
+
+**What Astra showed.** The upgrade added `broadcasts` with `DEFAULT 0`, so a pending row that an
+earlier writer may already have sent looked never sent. Astra made an actual old-schema file,
+closed it, reopened it through `openDb` and called `openHold` twice (status not found, then
+InvalidNonce). The result was `migratedBroadcasts=0`, `persisted=invalid` and
+`freshAttemptReads=1`.
+
+**Reproduced first.** I used a temporary probe, deleted afterwards, against the committed
+`47649b7` writer and migration. It had the 99cba15 table with one pending row and placeholder
+bytes, an ephemeral key whose `sign` throws, and a synthetic RPC that returns `null` for the
+access key.
+- **Before:** `migratedBroadcasts 0`, the first answer `invalid_nonce`, the second answer reached
+  the fresh path (`E_SIGNER_KEY`), `persisted invalid`, `freshAttemptReads 1`, `signatures 0`.
+- **After the fix, the same probe:** `history uncounted`, both answers `invalid_unproven`,
+  `persisted signed`, `freshAttemptReads 0`, `signatures 0`. Its own placeholder bytes were sent
+  twice.
+
+**The upgrade policy** (in `db.ts` and design §8). It runs once, in one write transaction.
+- **Every row present at the upgrade becomes `uncounted`.** Its count never proves a sole
+  sender. It is still resolved by its own status and its own bytes, never by a fresh
+  transaction. The writer's own new rows are `counted`.
+- **Every `invalid` row present is flagged `reconcile = legacy_invalid`.** The old
+  classification may come from the reproduced unsafe exception, so it is kept, with its code, but
+  not trusted.
+  - A flagged row sends nothing. Only its own exact FINAL status resolves it, and success or
+    failure is then recorded and the flag cleared.
+  - Otherwise it answers `unknown: needs_reconciliation`.
+  - It blocks fresh attempts for its operation, and stays flagged for the operator even when a
+    later attempt resolves.
+  - Nothing is silently marked complete.
+- **Recorded `success` and `failure` stand.** Every committed writer recorded them only from a
+  FINAL status for the exact hash.
+- **It is conservative.** A 47649b7 file whose rows really were counted from creation is still
+  treated as uncounted. No deployed records file exists.
+
+**In the writer:**
+- the `invalid` compare-and-set requires `history = 'counted'` and `broadcasts = 1`;
+- a fresh attempt requires every attempt of the operation to be a counted `invalid`, which is
+  re-checked under `BEGIN IMMEDIATE`.
+
+**Regressions.** All five use actual earlier files: really signed rows rewritten into the 99cba15
+and 47649b7 schemas, closed, then reopened through `openDb`.
+1. **A pending old row, for each schema.**
+   - A used nonce plus a missing status stays `signed` and unknown. There is no fresh read, and
+     only its own bytes are sent.
+   - It is found once it has landed.
+   - A new row in the same upgraded file keeps the sole-sender proof.
+   - Reopening doesn't upgrade again.
+2. **An old `invalid` row.**
+   - It is flagged, sends nothing and reads only its own status (`tx` twice), answering
+     `needs_reconciliation`.
+   - It is corrected to `success` when its FINAL status shows it executed, then answers `already`.
+3. **A later attempt behind an old `invalid` one.** The later attempt resolves by its own bytes,
+   and the old one stays flagged.
+4. **Old success and failure** answer with no RPC at all.
+
+**Mutation checks** (temporary, reverted):
+- dropping the `counted` guard from the compare-and-set fails both pending-row regressions;
+- making the fresh-attempt check always true fails the old-`invalid` regression.
+
+All the earlier overlap, finality, signer-mismatch and sole-sender tests pass unchanged.
+
 ## 4. Evidence
 
-**`server/test/customerWriter.test.ts`, 19 tests** (17 plus the two overlap regressions). A synthetic JSON-RPC testnet independently
+**`server/test/customerWriter.test.ts`, 24 tests** (17, plus the two overlap regressions, plus
+the five upgrade regressions in §3b). A synthetic JSON-RPC testnet independently
 decodes Borsh, verifies the ed25519 signature, and checks the nonce and inclusion. Keys are newly
 generated; the database is disposable, over separate connections.
 - **Exact transactions:**
@@ -162,8 +231,8 @@ generated; the database is disposable, over separate connections.
 - A writer is refused outside configured mode.
 
 **Checks:**
-- **`npm run check`:** exit 0, lint and types clean. 1261 passed and 1 skipped (1262), across 130
-  passed and 1 skipped files.
+- **`npm run check`** (final, at `373a17c`'s content): exit 0, lint (367 files) and types clean.
+  1266 passed and 1 skipped (1267), across 130 passed and 1 skipped files.
 - **`npm run web:build`:** 886.08 kB JS, 72.52 kB CSS.
 
 **Nothing live.** There was no live endpoint, wallet, existing key, credential, `.env`, runtime
@@ -181,11 +250,14 @@ tests (checked).
 
   These belong to **003w-f** and its testnet rehearsal packet, which is prepared, never run, by
   this job.
-- **`needs_reconciliation` has no operator UI or procedure yet.** The customer-use readback still
-  decides the request, and maxSubmissions bounds resends. That procedure belongs in 003w-f.
-- **003w-e** (wallet NEP-413 sign-in in the browser; device use-key authorization) is next. Astra's
-  `jobs/2026-11-04_003we_wallet-and-customer-authorization.md` brief is present and left
-  uncommitted for its own dispatch.
+- **`needs_reconciliation` and `legacy_invalid` have no operator UI or procedure yet.** The
+  customer-use readback still decides the request, and maxSubmissions bounds resends. The
+  procedure belongs in 003w-f.
+- **The upgrade's cross-process behaviour** is not separately tested: it runs in one `BEGIN
+  IMMEDIATE` transaction at `openDb`.
+- **003w-e** (wallet NEP-413 sign-in in the browser; device use-key authorization) is next. Its
+  JOBS row and Astra's brief (`jobs/2026-11-04_003we_wallet-and-customer-authorization.md`) were
+  committed in `0a80cef` as queued, not dispatched.
 - **Unchanged gates.** The worker stays off (002f partial, 002f1 queued). 004b, 005c, 005d, 006a and
   all of M6 are retained.
 - **Launcher.** Replacing the double-click launcher with the composed preview remains a routine
