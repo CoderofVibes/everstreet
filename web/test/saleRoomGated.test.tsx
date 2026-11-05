@@ -140,16 +140,6 @@ async function as(account: string) {
     ),
   );
 }
-/** Reloads this person's page (bounded) until the handover panel says `words`. */
-async function reloadUntil(account: string, words: string) {
-  for (let i = 0; i < 40; i++) {
-    await as(account);
-    await wait(() => text().includes("Deal") || text().includes("you are"), "the page", 400);
-    if (panel().includes(words)) return;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  expect(panel(), `the handover panel never said "${words}"`).toContain(words);
-}
 
 describe("003wf3 a Gated sale on the sale page over the configured composition (actual child process)", () => {
   it("seller proposes; buyer registers, funds and accepts", async () => {
@@ -199,13 +189,31 @@ describe("003wf3 a Gated sale on the sale page over the configured composition (
     await click("Ask my wallet for exactly this");
     await wait(() => text().includes("Everstreet is checking the handover"), "the closing");
     expect(button("End the closing")).toBeUndefined(); // only after the deadline
-    // The coordinator arms, checks readiness and prepares order 1; its send is held.
-    await reloadUntil(CONFIGURED_SELLER, "Close orders (1)");
+    // Astra 02:23: the SAME mounted page follows the handover, never a remount or reload.
+    const mounted = document.body.firstElementChild;
+    // The coordinator arms, checks readiness and prepares order 1; its send is held. The explicit
+    // read-only check shows it (nothing is sent: the wallet log doesn't grow).
+    const sent = h.controls.sent.length;
+    for (let i = 0; i < 60 && !panel().includes("Close orders (1)"); i++) {
+      if (button("Check the handover") && !button("Check the handover")?.disabled)
+        await act(async () => button("Check the handover")?.click());
+      await act(async () => new Promise((r) => setTimeout(r, 500)));
+    }
+    expect(panel(), "order 1 through Check the handover").toContain("Close orders (1)");
+    expect(panel()).toContain("Last checked");
     expect(panel()).not.toContain("succeeded");
     expect(panel()).not.toContain("Handed over");
     expect(panel()).toMatch(/Close deadline.*UTC/);
+    // The close lands outside this page; the page's own bounded follow shows it, no click.
     await control("/release-close");
-    await reloadUntil(CONFIGURED_SELLER, "Handover: Handed over to the buyer");
+    await wait(
+      () => panel().includes("Handover: Handed over to the buyer"),
+      "the follow shows the external close",
+      4_000,
+    );
+    expect(document.body.firstElementChild).toBe(mounted);
+    expect(h.controls.sent.length).toBe(sent);
+    expect(button("Check the handover")).toBeUndefined(); // nothing left to follow
     expect(panel()).toContain("its transaction succeeded");
     expect(text()).toContain("you are the former seller");
     expect(text()).toContain("The named closer closes it");

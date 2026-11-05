@@ -25,6 +25,7 @@ import {
 } from "../saleCalls.ts";
 import {
   currentSale,
+  handoverInProgress,
   SaleFlow,
   type SaleFlowState,
   saleNext,
@@ -215,7 +216,19 @@ const serviceWord = (r: string) =>
  * the close order(s) and their own transactions, the outcome, and (after the close) whether
  * customers are eligible to be served, kept apart from "applied here".
  */
-export function HandoverPanel({ s }: { s: SaleSetup }) {
+export function HandoverPanel({
+  s,
+  checkedMs = null,
+  onCheck,
+  checking = false,
+  blocked = false,
+}: {
+  s: SaleSetup;
+  checkedMs?: number | null;
+  onCheck?: () => void;
+  checking?: boolean;
+  blocked?: boolean;
+}) {
   const h = s.handover;
   if (!h) return null;
   const waiting = waitingWords(h.waiting_for);
@@ -251,6 +264,25 @@ export function HandoverPanel({ s }: { s: SaleSetup }) {
             ))}
           </ul>
         </details>
+      )}
+      {onCheck && (
+        <p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onCheck}
+            disabled={checking || blocked}
+          >
+            {checking ? "Checking…" : "Check the handover"}
+          </button>{" "}
+          <small className="muted">
+            Reads the contract and this server again; nothing is sent.
+            {blocked ? " Finish or set aside the request you're reviewing first." : ""}
+            {checkedMs !== null
+              ? ` Last checked ${new Date(checkedMs).toISOString().slice(11, 19)} UTC.`
+              : " This page also checks every few seconds while it's open."}
+          </small>
+        </p>
       )}
       {h.service && (
         <p>
@@ -1107,6 +1139,12 @@ export function SaleRoom({ id }: { id: string }) {
   );
   const [showTerms, setShowTerms] = useState(false);
   const router = useRouter();
+  // Job 003wf3 (Astra 02:23): a handover in progress is followed while this page is open
+  // (bounded; read-only; the controller's retirement on a route or account change ends it).
+  const following = handoverInProgress(st.setup);
+  useEffect(() => {
+    if (flow && following) flow.watchHandover();
+  }, [flow, following]);
   // After a review is set aside, focus returns to the control it was opened from.
   useEffect(() => {
     if (!flow || !st.focus || st.review) return;
@@ -1235,7 +1273,15 @@ export function SaleRoom({ id }: { id: string }) {
       <div className="sale-grid">
         <div className="sale-main">
           <Review flow={flow} st={st} s={s} />
-          {s.handover && <HandoverPanel s={s} />}
+          {s.handover && (
+            <HandoverPanel
+              s={s}
+              checkedMs={st.handoverCheckedMs ?? null}
+              onCheck={handoverInProgress(s) ? () => void flow.checkHandover() : undefined}
+              checking={st.busy === "reading"}
+              blocked={Boolean(st.review) || (st.busy !== null && st.busy !== "reading")}
+            />
+          )}
           {flow.resumableId && (
             <section className="card" aria-label="A request your wallet wasn't asked for yet">
               <p>

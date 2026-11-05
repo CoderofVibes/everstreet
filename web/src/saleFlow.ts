@@ -56,6 +56,25 @@ export interface SaleFlowState {
   drafts: Partial<Record<"propose" | "revise", TermsDraft>>;
   /** Where focus returns after a review is set aside (a control's `data-focus` key). */
   focus: string | null;
+  /** Job 003wf3: when the handover was last read successfully here (this browser's clock). */
+  handoverCheckedMs?: number | null;
+}
+
+const OPEN_HANDOVER = [
+  "gated",
+  "ready",
+  "ordering",
+  "outcome_unknown",
+  "closed_observed",
+  "reconciled",
+  "attention",
+];
+/** Job 003wf3: whether this page has a managed handover still in progress to follow. */
+export function handoverInProgress(s: SaleSetup | null): boolean {
+  if (!s) return false;
+  if (s.handover && OPEN_HANDOVER.includes(s.handover.state)) return true;
+  // Closing on the contract, before (or without) a handover row here.
+  return s.control.close_mode === "gated" && s.control.live_deal?.state === "closing";
 }
 
 const CANCEL = /closed the window|cancel|reject/i;
@@ -103,6 +122,9 @@ export class SaleFlow {
   private listeners = new Set<() => void>();
   private alive = true;
   private reads = 0;
+  private watchTimer: ReturnType<typeof setTimeout> | null = null;
+  private watchLeft = 0;
+  private checkFailure: SaleNotice | null = null;
 
   constructor(
     private readonly port: SalePort,
@@ -120,6 +142,54 @@ export class SaleFlow {
   retire() {
     this.alive = false;
     this.listeners.clear();
+    if (this.watchTimer) clearTimeout(this.watchTimer);
+    this.watchTimer = null;
+  }
+
+  /**
+   * Job 003wf3 (Astra 02:23): a read-only check of the handover: one fresh read, nothing stored,
+   * signed or sent. It doesn't run while a review or a wallet request is in progress (that exact
+   * request and its draft stay as they are). A failed read keeps what was shown and says so; the
+   * next check can succeed.
+   */
+  async checkHandover(): Promise<boolean> {
+    if (!this.alive || this.state.busy || this.state.review) return false;
+    const before = this.state.notice;
+    const ok = await this.load();
+    if (ok) {
+      // A warning left by an earlier failed check is cleared; any other notice (a wallet
+      // request's answer) stays exactly as it was.
+      const stale = this.checkFailure !== null && this.state.notice === this.checkFailure;
+      this.checkFailure = null;
+      this.set({ handoverCheckedMs: Date.now(), ...(stale ? { notice: null } : {}) });
+    } else if (this.state.notice !== before) this.checkFailure = this.state.notice;
+    return ok;
+  }
+
+  /**
+   * Follows a handover in progress: a check every `everyMs`, at most `max` reads, while this
+   * controller is alive (a route or account change retires it). A tick with a review or a
+   * request in progress is skipped, not counted. It ends by itself once the handover is over.
+   */
+  watchHandover(everyMs = 5_000, max = 60) {
+    if (!this.alive || this.watchTimer) return;
+    this.watchLeft = max;
+    const tick = async () => {
+      this.watchTimer = null;
+      if (!this.alive || !handoverInProgress(this.state.setup) || this.watchLeft <= 0) return;
+      if (!this.state.busy && !this.state.review) {
+        this.watchLeft--;
+        await this.checkHandover();
+      }
+      if (this.alive && handoverInProgress(this.state.setup) && this.watchLeft > 0)
+        this.watchTimer = setTimeout(() => void tick(), everyMs);
+    };
+    this.watchTimer = setTimeout(() => void tick(), everyMs);
+  }
+
+  /** Whether the handover is being followed now (a check is scheduled). */
+  get watching() {
+    return this.watchTimer !== null;
   }
   get retired() {
     return !this.alive;
