@@ -1,24 +1,32 @@
-// Job 003web (docs/design/APPLICATION_COMPOSITION.md §10): a FRESH customer's purchase path. The
-// server reads and verifies only: it never signs or sends. Every request it prepares is signed in
-// the customer's own wallet. Its durable intents keep the original purchase (sequence, terms, exact
-// request) through a lost answer, a reload, another tab and a restart, and resolve it only from
-// THIS purchase's own final transaction; a readback alone never confirms one (§10.4).
+// Job 003web (docs/design/APPLICATION_COMPOSITION.md §10, corrected after Astra's
+// PurchaseDesignReview): a FRESH customer's purchase path. The server reads and verifies only; it
+// never signs or sends. Every request it prepares is signed in the customer's own wallet.
+//
+// - The running contract declares its purchase terms (`get_purchase_terms`: version, the exact
+//   shell bytes its tests prove equal the measured growth, the byte cost, registration-bound
+//   buys). A contract without them is unavailable for purchase (an upgrade): the fixture constant
+//   is never applied to unidentified code.
+// - Purchases name their registration (`reg_id`): a replaced registration can't accept them.
+// - A durable intent keeps the original purchase through a lost answer, a reload, another tab and
+//   a restart. Only THIS purchase's own FINAL transaction resolves it, through its exact receipt
+//   graph (the token's transfer, the business's receiver outcome, the token's resolution). A
+//   readback alone never confirms one. A requested purchase is never "cancelled": it is closed as
+//   not accepted only when its registration was replaced (registration-bound buys can't be
+//   accepted by another). No time window closes it: the wallet picks the transaction's reference
+//   block when it signs, which can be long after it was asked (Astra's recovery probe). Only a
+//   preparation the wallet was never asked for can be set aside.
 
 import { createHash, randomUUID } from "node:crypto";
 import {
   type CustomerViewTransport,
   type EntitlementV3,
+  type PinnedBlock,
   type PlanV3,
   readCustomerViews,
 } from "./customerRead.ts";
 import type { Db } from "./db.ts";
 import { HttpError, type Person } from "./store.ts";
 import { V3ReadError } from "./v3read.ts";
-
-/** Measured by the contract (customer-purchase.json): a shell is exactly 811 + len(customer) bytes. */
-export const SHELL_BASE_BYTES = 811n;
-export const SHELL_BASIS =
-  "business-v3 sponsor_shell, measured by the contract's own test (customer-purchase.json): 811 bytes plus the customer account's length, whatever the payer";
 
 const U128_MAX = (1n << 128n) - 1n;
 const U32_MAX = 0xffff_ffff;
@@ -29,6 +37,7 @@ const KEY = /^[A-Za-z0-9_-]{8,80}$/;
 const HEX32 = /^[0-9a-f]{64}$/;
 const GAS_30 = "30000000000000";
 const GAS_100 = "100000000000000";
+export const TERMS_VERSION = 1;
 
 const bad = (status: number, message: string, code?: string, detail?: unknown): never => {
   throw new HttpError(status as 400, message, code, detail as never);
@@ -48,15 +57,34 @@ export function u128(v: unknown): string | null {
   return v;
 }
 
-export function shellQuote(customer: string, byteCost: string) {
-  const bytes = SHELL_BASE_BYTES + BigInt(Buffer.byteLength(customer, "utf8"));
-  const deposit = bytes * BigInt(byteCost);
+export interface PurchaseTerms {
+  version: number;
+  shell_bytes: string;
+  storage_byte_cost: string;
+  binds_registration: true;
+}
+/** The contract's declared terms (get_purchase_terms), validated; null when unsupported. */
+export function validTerms(v: unknown): PurchaseTerms | null {
+  const o = v as Record<string, unknown> | null;
+  if (!o || o.version !== TERMS_VERSION || o.binds_registration !== true) return null;
+  const bytes = u128(o.shell_bytes);
+  const cost = u128(o.storage_byte_cost);
+  if (!bytes || !cost || BigInt(bytes) > 100_000n || cost === "0") return null;
+  return {
+    version: TERMS_VERSION,
+    shell_bytes: bytes,
+    storage_byte_cost: cost,
+    binds_registration: true,
+  };
+}
+
+export function shellQuote(t: PurchaseTerms) {
   return {
     exact: true as const,
-    bytes: bytes.toString(),
-    byte_cost: byteCost,
-    deposit: deposit.toString(),
-    basis: SHELL_BASIS,
+    bytes: t.shell_bytes,
+    byte_cost: t.storage_byte_cost,
+    deposit: (BigInt(t.shell_bytes) * BigInt(t.storage_byte_cost)).toString(),
+    basis: `the business contract's own get_purchase_terms (version ${t.version}); its tests prove the stated size equals the growth sponsor_shell charges. Any excess deposit is refunded; less is refused.`,
   };
 }
 
@@ -114,15 +142,34 @@ export interface Install {
   max_units_per_day: number;
 }
 
+/** The exact purchase request (registration-bound: reg_id is always named). */
 export const buyCall = (
   asset: string,
   contract: string,
   amount: string,
-  buy: { plan_id: number; units: number; purchase_seq: number; install: Install | null },
+  buy: {
+    plan_id: number;
+    units: number;
+    purchase_seq: number;
+    install: Install | null;
+    reg_id: string;
+  },
 ): WalletCall => ({
   receiverId: asset,
   methodName: "ft_transfer_call",
-  args: { receiver_id: contract, amount, msg: JSON.stringify({ buy }) },
+  args: {
+    receiver_id: contract,
+    amount,
+    msg: JSON.stringify({
+      buy: {
+        plan_id: buy.plan_id,
+        units: buy.units,
+        purchase_seq: buy.purchase_seq,
+        install: buy.install,
+        reg_id: buy.reg_id,
+      },
+    }),
+  },
   gas: GAS_100,
   deposit: "1",
 });
@@ -171,8 +218,15 @@ interface OfferRow {
   state: "active" | "retired";
 }
 
-type State = "prepared" | "requested" | "unknown" | "confirmed" | "returned" | "abandoned";
-interface PurchaseRow {
+type State =
+  | "prepared"
+  | "requested"
+  | "unknown"
+  | "confirmed"
+  | "returned"
+  | "not_accepted"
+  | "set_aside";
+export interface PurchaseRow {
   id: string;
   person_id: string;
   customer_account: string;
@@ -191,6 +245,8 @@ interface PurchaseRow {
   idempotency_key: string;
   state: State;
   tx_hash: string | null;
+  /** How many times the wallet was asked (a returned attempt is definitive only at 1). */
+  asks?: number;
   evidence: string | null;
   created_at: string;
   updated_at: string;
@@ -205,8 +261,9 @@ export function migratePurchases(db: Db) {
       contract TEXT NOT NULL, asset TEXT NOT NULL, plan_id INTEGER NOT NULL, reg_id TEXT NOT NULL,
       purchase_seq INTEGER NOT NULL, units INTEGER NOT NULL, amount TEXT NOT NULL, install TEXT,
       call TEXT NOT NULL, terms_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL,
-      state TEXT NOT NULL CHECK (state IN ('prepared','requested','unknown','confirmed','returned','abandoned')),
-      tx_hash TEXT, evidence TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('prepared','requested','unknown','confirmed','returned','not_accepted','set_aside')),
+      tx_hash TEXT, asks INTEGER NOT NULL DEFAULT 0,
+      evidence TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE (person_id, idempotency_key)
     ) STRICT;
     CREATE UNIQUE INDEX IF NOT EXISTS customer_purchases_one_open
@@ -218,24 +275,61 @@ export function migratePurchases(db: Db) {
 export type Resolution =
   | { kind: "confirmed"; units: number; amount: string }
   | { kind: "returned"; amount: string; reason: string }
+  | { kind: "not_accepted"; message: string }
   | { kind: "unknown"; message: string; purchase_seq_now: number | null; free_now: string | null };
 
+type Receipt = {
+  executor_id?: unknown;
+  logs?: unknown[];
+  receipt_ids?: unknown[];
+  status?: Record<string, unknown>;
+};
+const succeeded = (r: Receipt | undefined) =>
+  Boolean(r?.status && typeof r.status === "object" && "SuccessValue" in r.status);
+const value = (r: Receipt): unknown => {
+  try {
+    return JSON.parse(Buffer.from(String(r.status?.SuccessValue), "base64").toString("utf8"));
+  } catch {
+    return undefined;
+  }
+};
+
 /**
- * One final transaction, checked to be EXACTLY this intent's request; then the business
- * receipt's own events say what happened. Anything else is unknown.
+ * One FINAL transaction, checked to be EXACTLY this intent's request, then its receipt graph:
+ * the transaction's single receipt is the token's transfer (succeeded), whose children are the
+ * business's receiver outcome and the token's resolution. Accepted: the receiver succeeded,
+ * returned 0 unused and logged `units_bought` for exactly this purchase, and the resolution
+ * succeeded using the whole amount. Returned: the receiver logged `purchase_returned` with the
+ * whole amount unused AND the resolution succeeded using none (and the transaction didn't fail).
+ * Anything else, including a failed or disconnected receipt or a non-final answer, is no evidence
+ * (null).
  */
-export function resolveFromTx(p: PurchaseRow, r: unknown): Resolution | null {
+export function resolveFromTx(
+  p: PurchaseRow,
+  r: unknown,
+  hash: string | null = p.tx_hash,
+): Resolution | null {
   const o = r as {
+    final_execution_status?: unknown;
+    status?: Record<string, unknown>;
     transaction?: {
       hash?: unknown;
       signer_id?: unknown;
       receiver_id?: unknown;
       actions?: unknown[];
     };
-    receipts_outcome?: { outcome?: { executor_id?: unknown; logs?: unknown[] } }[];
+    transaction_outcome?: { id?: unknown; outcome?: Receipt };
+    receipts_outcome?: { id?: unknown; outcome?: Receipt }[];
   } | null;
-  const t = o?.transaction;
-  if (!t || t.hash !== p.tx_hash || t.signer_id !== p.customer_account || t.receiver_id !== p.asset)
+  if (!o || o.final_execution_status !== "FINAL") return null;
+  const t = o.transaction;
+  if (
+    !t ||
+    !hash ||
+    t.hash !== hash ||
+    t.signer_id !== p.customer_account ||
+    t.receiver_id !== p.asset
+  )
     return null;
   if (!Array.isArray(t.actions) || t.actions.length !== 1) return null;
   const fc = (t.actions[0] as { FunctionCall?: Record<string, unknown> })?.FunctionCall;
@@ -246,30 +340,59 @@ export function resolveFromTx(p: PurchaseRow, r: unknown): Resolution | null {
   } catch {
     return null;
   }
-  const want = (JSON.parse(p.call) as WalletCall).args;
-  if (JSON.stringify(args) !== JSON.stringify(want)) return null;
-  for (const ro of o?.receipts_outcome ?? []) {
-    if (ro.outcome?.executor_id !== p.contract) continue;
-    for (const log of ro.outcome.logs ?? []) {
-      if (typeof log !== "string" || !log.startsWith("EVENT_JSON:")) continue;
-      let e: { standard?: string; event?: string; data?: Record<string, unknown>[] };
-      try {
-        e = JSON.parse(log.slice(11));
-      } catch {
-        continue;
-      }
-      const d = e.data?.[0];
-      if (e.standard !== "business_core" || !d || d.customer !== p.customer_account) continue;
-      if (
-        e.event === "units_bought" &&
-        d.plan_id === p.plan_id &&
-        d.units === p.units &&
-        d.amount === p.amount
-      )
-        return { kind: "confirmed", units: p.units, amount: p.amount };
-      if (e.event === "purchase_returned" && d.amount === p.amount)
-        return { kind: "returned", amount: p.amount, reason: String(d.reason ?? "returned") };
-    }
+  if (JSON.stringify(args) !== JSON.stringify((JSON.parse(p.call) as WalletCall).args)) return null;
+  const byId = new Map<string, Receipt>();
+  for (const x of o.receipts_outcome ?? [])
+    if (typeof x.id === "string" && x.outcome) byId.set(x.id, x.outcome);
+  const first = o.transaction_outcome?.outcome?.receipt_ids;
+  if (!Array.isArray(first) || first.length !== 1) return null;
+  const transfer = byId.get(String(first[0]));
+  if (
+    !transfer ||
+    transfer.executor_id !== p.asset ||
+    !transfer.status ||
+    "Failure" in transfer.status
+  )
+    return null;
+  const kids = (transfer.receipt_ids ?? []).map((id) => byId.get(String(id)));
+  const receiver = kids.find((k) => k?.executor_id === p.contract);
+  const resolution = kids.find((k) => k?.executor_id === p.asset);
+  if (!receiver || !resolution || !succeeded(receiver)) return null;
+  const unused = value(receiver);
+  let event: { event?: string; data?: Record<string, unknown>[] } | null = null;
+  for (const log of receiver.logs ?? []) {
+    if (typeof log !== "string" || !log.startsWith("EVENT_JSON:")) continue;
+    try {
+      const e = JSON.parse(log.slice(11)) as {
+        standard?: string;
+        event?: string;
+        data?: Record<string, unknown>[];
+      };
+      if (e.standard === "business_core" && e.data?.[0]?.customer === p.customer_account) event = e;
+    } catch {}
+  }
+  const d = event?.data?.[0];
+  if (!event || !d) return null;
+  const used = succeeded(resolution) ? value(resolution) : undefined;
+  if (
+    event.event === "units_bought" &&
+    d.plan_id === p.plan_id &&
+    d.units === p.units &&
+    d.amount === p.amount &&
+    unused === "0"
+  )
+    return used === p.amount ? { kind: "confirmed", units: p.units, amount: p.amount } : null;
+  if (event.event === "purchase_returned" && d.amount === p.amount && unused === p.amount) {
+    if (used !== "0" || (o.status && "Failure" in o.status)) return null; // refund not confirmed
+    const reason = String(d.reason ?? "returned");
+    if ((p.asks ?? 1) > 1)
+      return {
+        kind: "unknown",
+        purchase_seq_now: null,
+        free_now: null,
+        message: `This attempt was returned in full (${reason}). The request was sent more than once, so an earlier attempt may have been accepted; check with that attempt's transaction, or see the units the contract holds for you.`,
+      };
+    return { kind: "returned", amount: p.amount, reason };
   }
   return null;
 }
@@ -286,7 +409,9 @@ export class CustomerPurchases {
   private get timeout() {
     return this.opts.readTimeoutMs ?? 10_000;
   }
-
+  private stamp() {
+    return new Date((this.opts.now ?? Date.now)()).toISOString();
+  }
   private offer(id: string) {
     const o = this.db.prepare("SELECT * FROM customer_offers WHERE id = ?").get(id) as unknown as
       | OfferRow
@@ -316,6 +441,34 @@ export class CustomerPurchases {
         .get(account, contract, planId) as unknown as PurchaseRow | undefined) ?? null
     );
   }
+  private settle(id: string, state: State, evidence: unknown) {
+    this.db
+      .prepare(
+        "UPDATE customer_purchases SET state = ?, evidence = ?, updated_at = ? WHERE id = ? AND state IN ('prepared','requested','unknown')",
+      )
+      .run(state, JSON.stringify(evidence), this.stamp(), id);
+  }
+
+  /** One view on `account` at the pinned block, bounded and from that block only. */
+  private async at(
+    account: string,
+    network: string,
+    method: string,
+    args: Record<string, unknown>,
+    block: PinnedBlock,
+  ) {
+    const reader = this.reader as CustomerViewTransport;
+    const a = await reader.view({ network, account, method, args, block });
+    if (a.block.height !== block.height || a.block.hash !== block.hash)
+      bad(503, "NEAR answered from another block; try again", "mixed_blocks");
+    if (typeof a.result !== "string" || a.result.length > 4096)
+      bad(503, "NEAR's answer isn't usable", "malformed");
+    try {
+      return JSON.parse(a.result) as unknown;
+    } catch {
+      return bad(503, "NEAR's answer isn't usable", "malformed");
+    }
+  }
 
   /** The whole prerequisite picture at ONE final block (§10.2), and an exact preview. */
   async setup(
@@ -324,13 +477,12 @@ export class CustomerPurchases {
     want: { units?: number; install?: Install | null } = {},
   ) {
     if (!this.reader) bad(503, "Buying isn't connected on this server", "purchase_unavailable");
-    const reader = this.reader as CustomerViewTransport;
     const o = this.offer(offerId);
     const customer = this.accountOf(viewer.id);
     if (!customer) bad(409, "You have no NEAR account linked here", "no_chain_account");
     const account = customer as string;
     const read = await readCustomerViews(
-      reader,
+      this.reader as CustomerViewTransport,
       o,
       { plan: o.plan_id, entitlement: { customer: account, plan_id: o.plan_id } },
       this.timeout,
@@ -339,45 +491,39 @@ export class CustomerPurchases {
     if (!plan || JSON.stringify(plan) !== o.plan)
       bad(409, "The contract's plan differs from the offer", "plan_changed");
     const block = read.block;
-    const token = async (method: string, args: Record<string, unknown>) => {
-      const a = await reader
-        .view({ network: o.network, account: o.asset, method, args, block })
-        .catch(() => bad(503, "The token couldn't be read; try again", "token_unavailable"));
-      if (a.block.height !== block.height || a.block.hash !== block.hash)
-        bad(503, "The token answered from another block; try again", "mixed_blocks");
-      if (typeof a.result !== "string" || a.result.length > 4096)
-        bad(503, "The token's answer isn't usable", "token_malformed");
-      try {
-        return JSON.parse(a.result) as unknown;
-      } catch {
-        return bad(503, "The token's answer isn't usable", "token_malformed");
-      }
-    };
-    const [metaRaw, balanceRaw, mineRaw, bizRaw, boundsRaw, byteCost] = await Promise.all([
+    const token = (method: string, args: Record<string, unknown>) =>
+      this.at(o.asset, o.network, method, args, block).catch((e) => {
+        if (e instanceof HttpError) throw e;
+        return bad(503, "The token couldn't be read; try again", "token_unavailable");
+      });
+    const [termsRaw, metaRaw, balanceRaw, mineRaw, bizRaw, boundsRaw] = await Promise.all([
+      // An older contract has no such view: purchase is then unavailable (an upgrade).
+      this.at(o.account, o.network, "get_purchase_terms", { customer: account }, block).catch(
+        () => null,
+      ),
       token("ft_metadata", {}),
       token("ft_balance_of", { account_id: account }),
       token("storage_balance_of", { account_id: account }),
       token("storage_balance_of", { account_id: o.account }),
       token("storage_balance_bounds", {}),
-      reader.storageByteCost
-        ? reader.storageByteCost(o.network).catch(() => null)
-        : Promise.resolve(null),
     ]);
+    const terms = validTerms(termsRaw);
     const meta = validMetadata(metaRaw);
     const balance = u128(balanceRaw);
     const mine = storageBalance(mineRaw);
     const biz = storageBalance(bizRaw);
-    const bounds = boundsRaw as { min?: unknown; max?: unknown } | null;
-    const minDeposit = u128(bounds?.min);
+    const minDeposit = u128((boundsRaw as { min?: unknown } | null)?.min);
     if (!meta || balance === null || mine === "bad" || biz === "bad" || !minDeposit)
       bad(503, "The token's answers aren't valid", "token_malformed");
     const e = read.entitlement as EntitlementV3 | null;
     const held = e?.hold_active ? e.hold_units - e.hold_charged : 0;
-    const quote = byteCost && u128(byteCost) ? shellQuote(account, byteCost) : null;
+    const quote = terms ? shellQuote(terms) : null;
     const steps: string[] = [];
+    if (!terms) steps.push("contract_upgrade");
     if (!e) steps.push("shell");
     if (mine === null) steps.push("token_storage");
     if (biz === null) steps.push("business_token_storage");
+    const openRow = this.open(account, o.account, o.plan_id);
     const out = {
       block,
       network: o.network,
@@ -386,6 +532,7 @@ export class CustomerPurchases {
       plan_id: o.plan_id,
       customer: account,
       offer_state: o.state,
+      terms,
       plan: {
         unit_price: plan?.unit_price,
         max_units_per_purchase: plan?.max_units_per_purchase,
@@ -421,13 +568,17 @@ export class CustomerPurchases {
         call: mine === null ? tokenStorageCall(o.asset, account, minDeposit as string) : null,
       },
       steps,
-      open: (() => {
-        const p = this.open(account, o.account, o.plan_id);
-        return p ? view(p) : null;
-      })(),
+      open: openRow ? view(openRow) : null,
       preview: null as null | ReturnType<typeof preview>,
     };
-    if (want.units !== undefined) out.preview = preview(out, plan as PlanV3, e, held, want);
+    if (want.units !== undefined)
+      out.preview = terms
+        ? preview(out, plan as PlanV3, e, held, want)
+        : {
+            code: "contract_upgrade",
+            problem:
+              "This business's contract predates purchase support here (it doesn't state its purchase terms). The owner needs to upgrade it before anyone can buy.",
+          };
     return out;
   }
 
@@ -462,14 +613,14 @@ export class CustomerPurchases {
       bad(409, "The purchase changed since you reviewed it; review it again", "terms_changed", {
         preview: ok,
       });
-    const now = new Date((this.opts.now ?? Date.now)()).toISOString();
+    const now = this.stamp();
     const id = randomUUID();
     const o = this.offer(offerId);
     try {
       this.db
         .prepare(
-          `INSERT INTO customer_purchases (id, person_id, customer_account, offer_id, business_id, network, contract, asset, plan_id, reg_id, purchase_seq, units, amount, install, call, terms_digest, idempotency_key, state, tx_hash, evidence, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', NULL, NULL, ?, ?)`,
+          `INSERT INTO customer_purchases (id, person_id, customer_account, offer_id, business_id, network, contract, asset, plan_id, reg_id, purchase_seq, units, amount, install, call, terms_digest, idempotency_key, state, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)`,
         )
         .run(
           id,
@@ -502,7 +653,10 @@ export class CustomerPurchases {
     return { created: true, purchase: view(this.own(viewer, id)) };
   }
 
-  /** The wallet was asked (and perhaps gave a transaction hash). */
+  /**
+   * Called with no hash just BEFORE each wallet request (an ask; durable before the wallet is
+   * asked, so a crash after it is still "requested"), and with the hash after one answers.
+   */
   requested(viewer: Person, id: string, input: Record<string, unknown>) {
     const p = this.own(viewer, id);
     if (!OPEN.includes(p.state)) return { purchase: view(p) };
@@ -510,39 +664,45 @@ export class CustomerPurchases {
       typeof input.tx_hash === "string" && TX_HASH.test(input.tx_hash) ? input.tx_hash : null;
     this.db
       .prepare(
-        "UPDATE customer_purchases SET state = CASE WHEN state = 'prepared' THEN 'requested' ELSE state END, tx_hash = COALESCE(tx_hash, ?), updated_at = ? WHERE id = ?",
+        "UPDATE customer_purchases SET state = CASE WHEN state = 'prepared' THEN 'requested' ELSE state END, tx_hash = COALESCE(tx_hash, ?), asks = asks + ?, updated_at = ? WHERE id = ?",
       )
-      .run(hash, new Date().toISOString(), id);
+      .run(hash, hash ? 0 : 1, this.stamp(), id);
     return { purchase: view(this.own(viewer, id)) };
   }
 
-  /** Bounded, explicit resolution (§10.4). */
+  /** Bounded, explicit resolution (§10.4, corrected). */
   async check(viewer: Person, id: string, input: Record<string, unknown> = {}) {
     let p = this.own(viewer, id);
     if (!OPEN.includes(p.state)) return { purchase: view(p), resolution: null };
     if (!this.reader) bad(503, "Buying isn't connected on this server", "purchase_unavailable");
-    const hash =
+    const reader = this.reader as CustomerViewTransport;
+    const named =
       typeof input.tx_hash === "string" && TX_HASH.test(input.tx_hash) ? input.tx_hash : null;
-    if (hash && !p.tx_hash) {
+    if (named && !p.tx_hash) {
       this.db
         .prepare("UPDATE customer_purchases SET tx_hash = ? WHERE id = ? AND tx_hash IS NULL")
-        .run(hash, id);
+        .run(named, id);
       p = this.own(viewer, id);
     }
-    const reader = this.reader as CustomerViewTransport;
-    if (p.tx_hash && reader.txOutcome) {
-      const r = await reader.txOutcome(p.tx_hash, p.customer_account).catch(() => null);
-      const res = r ? resolveFromTx(p, r) : null;
+    // The transaction to verify: one named now (e.g. an earlier attempt's, from the wallet's
+    // history), else the one recorded. It must be exactly this request either way.
+    const which = named ?? p.tx_hash;
+    if (which && reader.txOutcome) {
+      const r = await reader.txOutcome(which, p.customer_account).catch(() => null);
+      const res = r ? resolveFromTx(p, r, which) : null;
+      if (res && res.kind !== "unknown") {
+        if (res.kind === "confirmed" && which !== p.tx_hash)
+          this.db.prepare("UPDATE customer_purchases SET tx_hash = ? WHERE id = ?").run(which, id);
+        this.settle(id, res.kind, res);
+        return { purchase: view(this.own(viewer, id)), resolution: res };
+      }
       if (res) {
-        this.db
-          .prepare(
-            "UPDATE customer_purchases SET state = ?, evidence = ?, updated_at = ? WHERE id = ? AND state IN ('prepared','requested','unknown')",
-          )
-          .run(res.kind, JSON.stringify(res), new Date().toISOString(), id);
+        this.settle(id, "unknown", res);
         return { purchase: view(this.own(viewer, id)), resolution: res };
       }
     }
-    // No proof from this purchase's own transaction: the readback informs, never confirms.
+    // No proof from this purchase's own transaction: the readback informs and may close it as not
+    // accepted (never confirm it).
     const read = await readCustomerViews(
       reader,
       { network: p.network, account: p.contract },
@@ -550,6 +710,15 @@ export class CustomerPurchases {
       this.timeout,
     ).catch(readFailed);
     const e = read.entitlement as EntitlementV3 | null;
+    if (p.state !== "prepared" && (!e || e.reg_id !== p.reg_id)) {
+      const res: Resolution = {
+        kind: "not_accepted",
+        message:
+          "The registration this purchase was made for no longer exists, and the contract refuses a purchase for any other registration, so it can't be accepted. If the token took a payment for it, the contract returned it; the token's own records show that refund.",
+      };
+      this.settle(id, "not_accepted", res);
+      return { purchase: view(this.own(viewer, id)), resolution: res };
+    }
     const seqNow = e ? e.purchase_seq : null;
     const res: Resolution = {
       kind: "unknown",
@@ -558,43 +727,34 @@ export class CustomerPurchases {
       message:
         seqNow !== null && seqNow >= p.purchase_seq
           ? "A purchase with this request's sequence is recorded, but it can't be shown to be this one (no transaction from your wallet was available to check). The units shown are what the contract holds for you."
-          : "This purchase isn't recorded. If you approved it, it may still be processing, or the token returned it. You can check again, or set it aside to start a new one.",
+          : p.state === "prepared"
+            ? "Your wallet hasn't been asked for this purchase yet."
+            : "This purchase isn't recorded yet. If you approved it, it may still be processing; if your wallet's window is still open, it can still be approved. It stays open until its own transaction shows the outcome. You can ask your wallet again for exactly the same purchase: at most one is ever accepted.",
     };
-    this.db
-      .prepare(
-        "UPDATE customer_purchases SET state = 'unknown', evidence = ?, updated_at = ? WHERE id = ? AND state IN ('prepared','requested','unknown')",
-      )
-      .run(JSON.stringify(res), new Date().toISOString(), id);
+    if (p.state !== "prepared") this.settle(id, "unknown", res);
     return { purchase: view(this.own(viewer, id)), resolution: res };
   }
 
   /**
-   * The customer sets an unconfirmed purchase aside: only while its sequence is still unused on
-   * the contract. Safe: a new purchase takes that SAME next sequence, so at most one is accepted.
+   * Sets aside a preparation the wallet was NEVER asked for (state prepared: the ask is recorded
+   * durably before any wallet request). A requested or unknown purchase is never set aside: it may
+   * still execute, so it stays tracked (Astra's recovery probe).
    */
-  async abandon(viewer: Person, id: string) {
+  abandon(viewer: Person, id: string) {
     const p = this.own(viewer, id);
-    if (!OPEN.includes(p.state))
-      bad(409, "That purchase already has its outcome", "purchase_settled");
-    if (!this.reader) bad(503, "Buying isn't connected on this server", "purchase_unavailable");
-    const read = await readCustomerViews(
-      this.reader as CustomerViewTransport,
-      { network: p.network, account: p.contract },
-      { entitlement: { customer: p.customer_account, plan_id: p.plan_id } },
-      this.timeout,
-    ).catch(readFailed);
-    const e = read.entitlement as EntitlementV3 | null;
-    if (e && e.purchase_seq >= p.purchase_seq)
+    if (p.state !== "prepared")
       bad(
         409,
-        "A purchase with this sequence is recorded, so it can't be set aside",
-        "sequence_used",
+        OPEN.includes(p.state)
+          ? "Your wallet was asked for this purchase, so it stays open until its outcome is known"
+          : "That purchase already has its outcome",
+        OPEN.includes(p.state) ? "purchase_requested" : "purchase_settled",
       );
     this.db
       .prepare(
-        "UPDATE customer_purchases SET state = 'abandoned', updated_at = ? WHERE id = ? AND state IN ('prepared','requested','unknown')",
+        "UPDATE customer_purchases SET state = 'set_aside', updated_at = ? WHERE id = ? AND state = 'prepared'",
       )
-      .run(new Date().toISOString(), id);
+      .run(this.stamp(), id);
     return { purchase: view(this.own(viewer, id)) };
   }
 
@@ -633,6 +793,7 @@ function view(p: PurchaseRow) {
     idempotency_key: p.idempotency_key,
     state: p.state,
     tx_hash: p.tx_hash,
+    asks: p.asks ?? 0,
     evidence: p.evidence ? (JSON.parse(p.evidence) as Resolution) : null,
     created_at: p.created_at,
     updated_at: p.updated_at,
@@ -720,6 +881,7 @@ function preview(
     units,
     purchase_seq,
     install,
+    reg_id: e.reg_id,
   });
   const terms = {
     account: s.customer,

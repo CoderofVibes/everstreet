@@ -425,7 +425,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     c.json(await purchases.check(me(c), c.req.param("id"), await body(c))),
   );
   app.post("/api/customer/purchases/:id/abandon", async (c) =>
-    c.json(await purchases.abandon(me(c), c.req.param("id"))),
+    c.json(purchases.abandon(me(c), c.req.param("id"))),
   );
   // Job 003w-e2: a fresh readback of the caller's own key slots for an offer (device readiness).
   app.get("/api/customer/offers/:offer/keys", async (c) =>

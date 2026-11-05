@@ -178,6 +178,16 @@ export class FixtureChain {
     if (method === "get_entitlement")
       return JSON.stringify(args.plan_id === 1 ? this.ent(String(args.customer)) : null);
     if (method === "check_use") return JSON.stringify(this.checkUse(args));
+    if (method === "get_purchase_terms") {
+      if (!this.purchaseTerms) throw new Error("MethodNotFound: get_purchase_terms");
+      const c = String(args.customer);
+      return JSON.stringify({
+        version: 1,
+        shell_bytes: String(811 + Buffer.byteLength(c)),
+        storage_byte_cost: String(this.byteCost),
+        binds_registration: true,
+      });
+    }
     if (method.startsWith("ft_") || method.startsWith("storage_balance"))
       return this.tokenAnswer(method, args);
     throw new Error(`no view ${method}`);
@@ -199,6 +209,10 @@ export class FixtureChain {
   readonly byteCost = 10_000_000_000_000_000_000n;
   private regSeq = 1;
   readonly txs = new Map<string, Json>();
+  /** False: an older deployed contract without get_purchase_terms (purchase unavailable). */
+  purchaseTerms = true;
+  /** Synthetic fault: the token's ft_resolve_transfer receipt fails (refund unconfirmed). */
+  failResolution = false;
   private txCount = 0;
 
   private tokenAnswer(method: string, args: Record<string, unknown>): string {
@@ -254,6 +268,8 @@ export class FixtureChain {
     if (buy.plan_id !== 1) return back("no such plan");
     const e = this.ents.get(sender);
     if (!e) return back("no entitlement record; sponsor a shell first");
+    if (buy.reg_id !== undefined && buy.reg_id !== null && String(buy.reg_id) !== e.reg_id)
+      return back("registration changed since this purchase was prepared");
     const units = Number(buy.units);
     if (!Number.isInteger(units) || units < 1 || units > this.plan.max_units_per_purchase)
       return back("units outside the plan's purchase limit");
@@ -321,8 +337,21 @@ export class FixtureChain {
     );
     const deposit = BigInt(call.deposit);
     const receipts: Json[] = [];
-    const ok = (executor: string, logs: string[], value = "") => ({
-      outcome: { executor_id: executor, logs, status: { SuccessValue: value } },
+    const rid = (k: string) => `${hash.slice(0, 8)}-${k}`;
+    const ok = (
+      executor: string,
+      logs: string[],
+      value = "",
+      id = rid("call"),
+      children: string[] = [],
+    ) => ({
+      id,
+      outcome: {
+        executor_id: executor,
+        logs,
+        receipt_ids: children,
+        status: { SuccessValue: value },
+      },
     });
     const b64 = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64");
     let failure: string | null = null;
@@ -347,15 +376,35 @@ export class FixtureChain {
         if (have < amount) throw new ChainRefusal("The account doesn't have enough balance");
         this.balances.set(signer, have - amount);
         this.balances.set(receiver, (this.balances.get(receiver) ?? 0n) + amount);
-        receipts.push(ok(TOKEN, []));
+        receipts.push({
+          id: rid("call"),
+          outcome: {
+            executor_id: TOKEN,
+            logs: [],
+            receipt_ids: [rid("receiver"), rid("resolution")],
+            status: { SuccessReceiptId: rid("resolution") },
+          },
+        });
         const r = this.onTransfer(signer, amount, String(call.args.msg));
-        receipts.push(ok(BUSINESS, r.logs, b64(String(r.unused))));
+        receipts.push(ok(BUSINESS, r.logs, b64(String(r.unused)), rid("receiver")));
         if (r.unused > 0n) {
           // ft_resolve_transfer: the unused amount goes back to the sender.
           this.balances.set(receiver, (this.balances.get(receiver) ?? 0n) - r.unused);
           this.balances.set(signer, (this.balances.get(signer) ?? 0n) + r.unused);
         }
-        receipts.push(ok(TOKEN, [], b64(String(amount - r.unused))));
+        receipts.push(
+          this.failResolution
+            ? {
+                id: rid("resolution"),
+                outcome: {
+                  executor_id: TOKEN,
+                  logs: [],
+                  receipt_ids: [],
+                  status: { Failure: { ActionError: "synthetic resolution failure" } },
+                },
+              }
+            : ok(TOKEN, [], b64(String(amount - r.unused)), rid("resolution")),
+        );
       } else throw new ChainRefusal("E_ARGS: not a purchase-path call");
     } catch (err) {
       if (!(err instanceof ChainRefusal)) throw err;
@@ -380,8 +429,35 @@ export class FixtureChain {
       },
       status: failure
         ? { Failure: { ActionError: { kind: { FunctionCallError: { ExecutionError: failure } } } } }
-        : { SuccessValue: "" },
-      receipts_outcome: receipts,
+        : this.failResolution && call.methodName === "ft_transfer_call"
+          ? { Failure: { ActionError: "synthetic resolution failure" } }
+          : { SuccessValue: "" },
+      transaction_outcome: {
+        id: hash,
+        outcome: {
+          executor_id: signer,
+          logs: [],
+          receipt_ids: [rid("call")],
+          status: { SuccessReceiptId: rid("call") },
+        },
+      },
+      receipts_outcome: failure
+        ? [
+            {
+              id: rid("call"),
+              outcome: {
+                executor_id: call.receiverId,
+                logs: [],
+                receipt_ids: [],
+                status: {
+                  Failure: {
+                    ActionError: { kind: { FunctionCallError: { ExecutionError: failure } } },
+                  },
+                },
+              },
+            },
+          ]
+        : receipts,
     };
     this.txs.set(hash, outcome);
     return outcome;
@@ -677,10 +753,6 @@ export class FixtureReader implements CustomerViewTransport {
   }
   /** Runs once before the next view answers (job 003n: something lands during the read). */
   duringRead: (() => void) | null = null;
-  /** Job 003web: the protocol storage price per byte (as the contract tests run it). */
-  async storageByteCost() {
-    return String(this.chain.byteCost);
-  }
   /** Job 003web: a transaction's FINAL outcome, by hash, as the double recorded it. */
   async txOutcome(hash: string) {
     return this.chain.txs.get(hash) ?? null;

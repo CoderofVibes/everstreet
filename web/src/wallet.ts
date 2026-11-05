@@ -45,14 +45,23 @@ export interface WalletBoundary {
   /** The wallet's connected account for transactions (connects WITHOUT adding a contract key). */
   connect(): Promise<string | null>;
   accounts(): Promise<string[]>;
-  /** Asks the wallet to sign and send ONE FunctionCall; the answer is never treated as an outcome. */
-  send(call: WalletFunctionCall): Promise<void>;
+  /**
+   * Asks the wallet to sign and send ONE FunctionCall. The answer is never treated as an outcome:
+   * at most it carries the transaction's hash (job 003web), for the server to read and verify.
+   */
+  send(call: WalletFunctionCall): Promise<{ txHash: string | null } | undefined>;
   /** Disconnects the wallet from this browser (never ends the Everstreet session). */
   disconnect(): Promise<void>;
   onChange(fn: () => void): () => void;
 }
 
 const HARNESS_GLOBAL = "__everstreetHarnessWallet";
+
+/** Job 003web: a transaction hash from a wallet's answer, only if it is a well-formed one. */
+export function txHashOf(out: unknown): string | null {
+  const h = (out as { transaction?: { hash?: unknown } } | null | undefined)?.transaction?.hash;
+  return typeof h === "string" && /^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(h) ? h : null;
+}
 
 /** The real boundary: the pinned Wallet Selector with one module. Loaded only when used. */
 export async function selectorWallet(env: WalletEnv): Promise<WalletBoundary> {
@@ -105,7 +114,9 @@ export async function selectorWallet(env: WalletEnv): Promise<WalletBoundary> {
       return (await wallet.getAccounts()).map((a: { accountId: string }) => a.accountId);
     },
     async send(call) {
-      await wallet.signAndSendTransaction({
+      // Job 003web: the pinned adapter answers a FinalExecutionOutcome (or nothing for a
+      // redirect-style wallet); only its transaction hash is kept, never a claimed result.
+      const out = (await wallet.signAndSendTransaction({
         receiverId: call.receiverId,
         actions: [
           core.actionCreators.functionCall(
@@ -115,7 +126,8 @@ export async function selectorWallet(env: WalletEnv): Promise<WalletBoundary> {
             BigInt(call.deposit),
           ),
         ],
-      });
+      })) as { transaction?: { hash?: unknown } } | undefined;
+      return { txHash: txHashOf(out) };
     },
     async disconnect() {
       await wallet.signOut();

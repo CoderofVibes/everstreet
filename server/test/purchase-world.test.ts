@@ -114,3 +114,33 @@ describe("003web the purchase double matches the contract's own outcomes", () =>
     expect((c.ent(CUSTOMER) as Json).purchase_seq).toBe(0);
   });
 });
+
+describe("003web registration-bound purchases and the contract's declared terms", () => {
+  it("get_purchase_terms states the measured shell bytes for every fixture customer", () => {
+    const c = new FixtureChain();
+    for (const s of PURCHASE.shells as Json[])
+      expect(c.answer("get_purchase_terms", { customer: s.customer })).toBe(s.terms);
+  });
+
+  it("a buy for a replaced registration is returned whole; one for the current registration is accepted", () => {
+    const x = PURCHASE.replacement as Json;
+    const c = new FixtureChain();
+    // The first registration, then unregistered (nothing bought) and a new shell: purchase_seq 0.
+    shell(c, x.customer, x.customer, "8200000000000000000000");
+    const first = (c.ent(x.customer) as Json).reg_id;
+    c.ents.delete(x.customer);
+    shell(c, x.customer, x.customer, "8200000000000000000000");
+    const second = (c.ent(x.customer) as Json).reg_id;
+    const old = x.bound_old.msg.replace(`"reg_id":"${x.first_reg_id}"`, `"reg_id":"${first}"`);
+    const o = pay(c, x.customer, x.bound_old.amount, old);
+    expect(businessLogs(o)).toEqual(x.bound_old.logs);
+    expect(returned(o)).toBe(x.bound_old.returned);
+    const cur = x.bound_current.msg.replace(
+      `"reg_id":"${x.second_reg_id}"`,
+      `"reg_id":"${second}"`,
+    );
+    const ok = pay(c, x.customer, x.bound_current.amount, cur);
+    expect(businessLogs(ok)).toEqual(x.bound_current.logs);
+    expect(returned(ok)).toBe("0");
+  });
+});

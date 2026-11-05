@@ -40,8 +40,6 @@ export interface CustomerViewTransport {
     block: BlockRef;
     signal?: AbortSignal;
   }): Promise<{ result: string; block: BlockRef }>;
-  /** Job 003web: the protocol storage price per byte (yoctoNEAR); absent: no shell quote. */
-  storageByteCost?(network: string, signal?: AbortSignal): Promise<string>;
   /** Job 003web: one transaction's FINAL outcome, raw; null when unknown or not final. */
   txOutcome?(hash: string, sender: string, signal?: AbortSignal): Promise<unknown | null>;
 }
