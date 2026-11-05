@@ -658,6 +658,16 @@ pub struct Buy {
     pub reg_id: Option<U64>,
 }
 
+/// 003wf3: the managed-handover capabilities of THIS code (a client must not assume them).
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct HandoverTermsView {
+    /// The handover capability version (1: no new holds while closing).
+    pub version: u32,
+    /// `open_hold` refuses a new hold while the live deal is Closing (`E_CLOSING`).
+    pub closing_hold_guard: bool,
+}
+
 /// 003wec: the device-key capabilities of THIS code (a client must not assume them).
 #[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq)]
@@ -1570,6 +1580,12 @@ impl Business {
             require!(env::ed25519_verify(&sig, msg, &e.hold.pk), "E_SIG: the hold is not signed by its key");
             return "already".into();
         }
+        // 003wf3 (MANAGED_HANDOVER.md §16.1): no NEW hold while a sale is closing, by anyone (the
+        // owner's own wallet and current-generation operators included), so nothing new can be
+        // admitted between a managed handover's readiness read and the close. Existing holds keep
+        // settling, releasing and refunding as before.
+        let deal = self.deal_slot();
+        require!(!(deal.live && deal.state == DEAL_CLOSING), "E_CLOSING: no new holds while the sale is closing");
         require!(auth.hold_seq > e.hold_seq, "E_HOLD_SEQ_USED: that hold sequence was already used");
         require!(e.status == ACTIVE, "E_STATE: nothing bought yet");
         require!(!e.paused, "E_PAUSED: the customer paused new holds");
@@ -2216,6 +2232,11 @@ impl Business {
     /// 003wec: the device-key capabilities of this code (see KeyTermsView).
     pub fn get_key_terms(&self) -> KeyTermsView {
         KeyTermsView { version: 1, guarded_revoke: true }
+    }
+
+    /// 003wf3: the managed-handover capabilities of this code (see HandoverTermsView).
+    pub fn get_handover_terms(&self) -> HandoverTermsView {
+        HandoverTermsView { version: 1, closing_hold_guard: true }
     }
 
     /// 003wf2: the exact sale-path terms for proposing to `buyer` (see SaleTermsView).

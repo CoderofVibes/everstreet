@@ -3347,14 +3347,17 @@ fn c03_a_live_deal_does_not_pause_metering() {
         let u = w.uses(CARA, &k, 3, 0..1);
         all(&w.settle(CARA, 3, u, false), "charged", 1);
         let seq = if is_gated(&w) {
-            // ...and through closing, until the close order lands.
+            // ...an existing hold settles through closing; a NEW hold waits for the close
+            // (003wf3, MANAGED_HANDOVER.md §16.1: nothing new is admitted while closing).
             assert_eq!(w.accept(FOUNDER), "closing");
             assert_eq!(w.deal().state, "closing");
             let u = w.uses(CARA, &k, 3, 1..2);
             all(&w.settle(CARA, 3, u, true), "charged", 1);
-            assert_eq!(w.open(CARA, &k, 4, 1), "opened");
+            let (a, s) = w.std_auth(CARA, &k, 4, 1);
+            w.refuse(METER, 0, "E_CLOSING", |b| b.open_hold(id(CARA), 1, a, s));
             let o = w.order();
             w.neutral(CLOSER, 0, |b| b.close_sale(o));
+            assert_eq!(w.open(CARA, &k, 4, 1), "opened");
             4
         } else {
             assert_eq!(w.accept(FOUNDER), "closed");
@@ -4339,6 +4342,24 @@ fn run_sale_call(b: &mut Business, method: &str, a: &serde_json::Value) -> serde
             drop(b.claim_party_guarded(a["category"].as_u64().unwrap() as u8, amount, u64v("expected_payout_seq")));
             serde_json::Value::Null
         }
+        // 003wf3: the Gated close, its abort, and customer holds around a Closing deal.
+        "close_sale" => {
+            b.close_sale(serde_json::from_value::<CloseOrder>(a["order"].clone()).unwrap());
+            serde_json::Value::Null
+        }
+        "abort_close" => {
+            b.abort_close(u64v("deal_seq"));
+            serde_json::Value::Null
+        }
+        "open_hold" => {
+            let auth = serde_json::from_value::<HoldAuth>(a["auth"].clone()).unwrap();
+            serde_json::to_value(b.open_hold(s("customer").parse().unwrap(), a["plan_id"].as_u64().unwrap() as u32, auth, s("sig"))).unwrap()
+        }
+        "settle_hold" => {
+            let uses = serde_json::from_value::<Vec<UseInput>>(a["uses"].clone()).unwrap();
+            let r = b.settle_hold(s("customer").parse().unwrap(), a["plan_id"].as_u64().unwrap() as u32, a["hold_seq"].as_u64().unwrap() as u32, uses, a["close"].as_bool().unwrap());
+            serde_json::to_value(r).unwrap()
+        }
         other => panic!("not a scripted sale call: {other}"),
     }
 }
@@ -4583,4 +4604,203 @@ fn direct_sale_matches_server_fixture() {
     });
     let actual = serde_json::to_string_pretty(&doc).unwrap() + "\n";
     fixture("direct-sale", include_str!("../../../server/test/fixtures/v3/direct-sale.json"), actual);
+}
+
+// ---------- 003wf3: managed handover (docs/design/MANAGED_HANDOVER.md §16.1) ----------
+
+/// A Gated business, Cara with a hold of 3 units open (seq 3), and a deal entering Closing.
+fn closing_with_open_hold(grants: &[(&str, u8)]) -> (W, SigningKey) {
+    let (mut w, k) = happy_in(W::gated());
+    assert_eq!(w.open(CARA, &k, 3, 3), "opened");
+    let t = w.terms(BUYER, 100 * P, grants);
+    funded_and_buyer_accepted(&mut w, t);
+    assert_eq!(w.accept(FOUNDER), "closing");
+    (w, k)
+}
+
+#[test]
+fn h01_no_new_hold_while_closing_by_anyone_and_existing_holds_keep_their_rights() {
+    let (mut w, k) = closing_with_open_hold(&[(METER, METERING)]);
+    let control = w.b.control_seq;
+    let avail = |w: &W| w.t().available.0;
+    // The hold that was open before Closing answers "already" for its identical authorization.
+    let (a3, s3) = w.std_auth(CARA, &k, 3, 3);
+    assert_eq!(w.call(METER, 0, |b| b.open_hold(id(CARA), 1, a3, s3)), "already");
+    // No NEW hold: not by the metering operator, not by the owner's own wallet.
+    let before = w.snap();
+    let (a4, s4) = w.std_auth(CARA, &k, 4, 1);
+    w.refuse(METER, 0, "E_CLOSING", |b| b.open_hold(id(CARA), 1, a4.clone(), s4.clone()));
+    w.refuse(FOUNDER, 0, "E_CLOSING", |b| b.open_hold(id(CARA), 1, a4, s4));
+    assert_eq!(w.snap(), before, "a refused hold changed nothing");
+    // C-2: owner administration is frozen (no deal changes while live).
+    w.refuse(FOUNDER, NEAR, "E_DEAL_PENDING", |b| b.create_plan(plan_input(2 * P)));
+    w.refuse(FOUNDER, 1, "E_DEAL_PENDING", |b| b.appoint_operator(id(METER2), METERING));
+    w.refuse(FOUNDER, 1, "E_DEAL_PENDING", |b| b.revoke_operator(id(METER)));
+    w.refuse(FOUNDER, 1, "E_DEAL_PENDING", |b| b.set_manifest("44".repeat(32), U64(0)));
+    // The existing hold settles (C-3: available only rises) and closes; a refund still works.
+    let a0 = avail(&w);
+    let u = w.uses(CARA, &k, 3, 0..2);
+    all(&w.settle(CARA, 3, u, true), "charged", 2);
+    assert_eq!(avail(&w), a0 + 2 * P, "settlement adds to available while closing");
+    let a1 = avail(&w);
+    w.refund(CARA, 1);
+    assert_eq!(avail(&w), a1, "a refund doesn't touch available");
+    w.refuse(FOUNDER, 1, "E_CLOSING", |b| drop(b.withdraw_profit(U128(1))));
+    assert_eq!(w.b.control_seq, control, "C-2: customer calls never move control while closing");
+    assert_eq!(w.t().ent_held_value.0, 0, "no active hold remains");
+    // The close then lands with the unchanged closing sequence.
+    let o = w.order();
+    w.neutral(CLOSER, 0, |b| b.close_sale(o));
+    assert_eq!(w.b.get_control().owner, id(BUYER));
+}
+
+#[test]
+fn h02_after_the_close_holds_follow_the_successor_grants() {
+    // METER is not re-granted: METER2 is the successor's metering operator.
+    let (mut w, k) = closing_with_open_hold(&[(METER2, METERING)]);
+    let o = w.order();
+    w.neutral(CLOSER, 0, |b| b.close_sale(o));
+    // C-4: the hold opened before the close is settled by the successor meter, not the old one.
+    let u = w.uses(CARA, &k, 3, 0..1);
+    w.refuse(METER, 0, "E_NOT_OPERATOR", |b| b.settle_hold(id(CARA), 1, 3, u.clone(), false));
+    let r = w.call(METER2, 0, |b| b.settle_hold(id(CARA), 1, 3, u, true));
+    all(&r, "charged", 1);
+    // A new hold works again after the close, for the successor meter only.
+    let (a4, s4) = w.std_auth(CARA, &k, 4, 1);
+    w.refuse(METER, 0, "E_NOT_OPERATOR", |b| b.open_hold(id(CARA), 1, a4.clone(), s4.clone()));
+    assert_eq!(w.call(METER2, 0, |b| b.open_hold(id(CARA), 1, a4, s4)), "opened");
+    // Anyone may release it once its settle deadline has passed.
+    w.now += 20 * MIN + 10 * MIN + 1;
+    w.call(STRANGER, 0, |b| b.release_hold(id(CARA), 1, 4));
+    assert!(!w.ent(CARA).hold_active);
+}
+
+#[test]
+fn h03_after_an_abort_new_holds_work_again_and_every_order_fails() {
+    let (mut w, k) = closing_with_open_hold(&[(METER, METERING)]);
+    let d = w.deal();
+    let first = w.order();
+    w.now += MIN;
+    let second = w.order();
+    w.now = d.deadline_ms.0;
+    w.neutral(STRANGER, 0, |b| b.abort_close(d.seq));
+    // C-6: no order of the ended deal can land.
+    w.refuse(CLOSER, 0, "E_NO_DEAL", |b| b.close_sale(first));
+    w.refuse(CLOSER, 0, "E_NO_DEAL", |b| b.close_sale(second));
+    let u = w.uses(CARA, &k, 3, 0..1);
+    all(&w.settle(CARA, 3, u, true), "charged", 1);
+    assert_eq!(w.open(CARA, &k, 4, 1), "opened", "the seller's business serves again");
+}
+
+#[test]
+fn h04_two_valid_orders_close_exactly_once_and_accepting_never_blocks_holds() {
+    let (mut w, k) = happy_in(W::gated());
+    let t = w.terms(BUYER, 100 * P, &[(METER, METERING)]);
+    funded_and_buyer_accepted(&mut w, t);
+    // Accepting (one acceptance) isn't Closing: new holds still open.
+    assert_eq!(w.open(CARA, &k, 3, 1), "opened");
+    let u = w.uses(CARA, &k, 3, 0..1);
+    all(&w.settle(CARA, 3, u, true), "charged", 1);
+    assert_eq!(w.accept(FOUNDER), "closing");
+    let a = w.order();
+    w.now += MIN;
+    let b2 = w.order();
+    w.neutral(CLOSER, 0, |b| b.close_sale(b2));
+    w.refuse(CLOSER, 0, "E_NO_DEAL", |b| b.close_sale(a));
+    assert_eq!(w.b.get_outcomes()[0].status, "closed");
+    assert_eq!(w.b.get_handover_terms(), HandoverTermsView { version: 1, closing_hold_guard: true });
+}
+
+fn order_json(o: &CloseOrder) -> serde_json::Value {
+    serde_json::json!({ "order": serde_json::to_value(o).unwrap() })
+}
+
+#[test]
+fn gated_sale_matches_server_fixture() {
+    let w = fixture_world(W::gated);
+    let start = sale_views(&w);
+    w.env(STRANGER, 0);
+    let internal = serde_json::json!({
+        "payout_seq": w.b.payout_seq.to_string(), "deal_seq": w.b.deal_seq.to_string(),
+        "now_ms": w.now.to_string(), "storage_byte_cost": env::storage_byte_cost().as_yoctonear().to_string(),
+    });
+    let mut s = Script { w, out: vec![] };
+    let k = key(1);
+    let reg = s.w.b.get_entitlement(id(CARA), 2).unwrap().reg_id.0;
+    let hold = |s: &Script, seq: u32| {
+        let (a, sig) = auth_on(2, CARA, &k, reg, seq, 1, s.w.now + 20 * MIN, 0, 1);
+        serde_json::json!({ "customer": CARA, "plan_id": 2, "auth": serde_json::to_value(&a).unwrap(), "sig": sig })
+    };
+    let settle = |seq: u32| {
+        let u = use_on(2, CARA, &k, reg, 0, 1, seq, 0, fp(seq, 0, 0));
+        serde_json::json!({ "customer": CARA, "plan_id": 2, "hold_seq": seq, "uses": [serde_json::to_value(&u).unwrap()], "close": true })
+    };
+
+    // Deal 1: Gated, 30-minute close window, the platform's metering account granted.
+    let mut t1 = s.w.terms(BUYER, SALE_PRICE, &[(METER, METERING)]);
+    t1.close_window_ms = U64(30 * MIN);
+    t1.terms_hash = "c1".repeat(32);
+    let d1 = proposal_digest(&s.w, FOUNDER, &t1);
+    let q = party_quote(&s.w, BUYER);
+    let c = s.w.b.control_seq;
+    s.call("propose gated", FOUNDER, q, "propose_sale_guarded", propose_args(&t1, c, &d1), Expect::Ok);
+    let c = s.w.b.control_seq;
+    s.ft("fund", BUYER, SALE_PRICE, fund_msg_at(1, 1, SALE_PRICE, c), 0);
+    s.call("buyer accepts", BUYER, 1, "accept_sale", accept_args(1, 1, &d1), Expect::Ok);
+    let h2 = hold(&s, 2);
+    s.call("a hold while accepting", METER, 0, "open_hold", h2, Expect::Ok);
+    s.call("seller accepts: closing", FOUNDER, 1, "accept_sale", accept_args(1, 1, &d1), Expect::Ok);
+    let h3 = hold(&s, 3);
+    s.call("a new hold while closing", METER, 0, "open_hold", h3.clone(), Expect::Refused("E_CLOSING"));
+    s.call("the owner's own new hold while closing", FOUNDER, 0, "open_hold", h3, Expect::Refused("E_CLOSING"));
+    s.call("the existing hold settles while closing", METER, 0, "settle_hold", settle(2), Expect::Ok);
+    let good = s.w.order();
+    let mut bad = good.clone();
+    bad.digest = "00".repeat(32);
+    s.call("not the closer", FOUNDER, 0, "close_sale", order_json(&good), Expect::Refused("E_NOT_CLOSER"));
+    s.call("another digest", CLOSER, 0, "close_sale", order_json(&bad), Expect::Refused("E_TERMS"));
+    let mut stale = good.clone();
+    stale.closing_control_seq = U64(stale.closing_control_seq.0 - 1);
+    s.call("a stale closing sequence", CLOSER, 0, "close_sale", order_json(&stale), Expect::Refused("E_CLOSE_SEQ"));
+    s.w.now += MIN;
+    s.call("too early to abort", STRANGER, 0, "abort_close", serde_json::json!({ "deal_seq": "1" }), Expect::Refused("E_NOT_EXPIRED"));
+    s.call("the closer closes", CLOSER, 0, "close_sale", order_json(&good), Expect::Ok);
+    assert_eq!(s.w.b.get_control().owner, id(BUYER));
+    s.call("the same order again", CLOSER, 0, "close_sale", order_json(&good), Expect::Refused("E_NO_DEAL"));
+    let ps = s.w.b.payout_seq;
+    s.call("seller collects proceeds", FOUNDER, 1, "claim_party_guarded", claim_args(2, SALE_PRICE, ps), Expect::Payout(true));
+    let h4 = hold(&s, 3); // the refused 3 was never used
+    s.call("the successor meter serves", METER, 0, "open_hold", h4, Expect::Ok);
+    s.call("and settles", METER, 0, "settle_hold", settle(3), Expect::Ok);
+
+    // Deal 2: the new owner sells on; nobody closes; anyone aborts after the deadline.
+    let mut t2 = s.w.terms(STRANGER, 5 * E18, &[(METER, METERING)]);
+    t2.close_window_ms = U64(10 * MIN);
+    t2.terms_hash = "c2".repeat(32);
+    let d2 = proposal_digest(&s.w, BUYER, &t2);
+    let q = party_quote(&s.w, STRANGER);
+    let c = s.w.b.control_seq;
+    s.call("propose deal 2", BUYER, q, "propose_sale_guarded", propose_args(&t2, c, &d2), Expect::Ok);
+    let c = s.w.b.control_seq;
+    s.ft("fund deal 2", STRANGER, 5 * E18, fund_msg_at(2, 1, 5 * E18, c), 0);
+    s.call("deal 2 buyer accepts", STRANGER, 1, "accept_sale", accept_args(2, 1, &d2), Expect::Ok);
+    s.call("deal 2 closing", BUYER, 1, "accept_sale", accept_args(2, 1, &d2), Expect::Ok);
+    let late = s.w.order();
+    let d = s.w.deal();
+    s.w.now = d.deadline_ms.0;
+    s.call("the closer after the deadline", CLOSER, 0, "close_sale", order_json(&late), Expect::Refused("E_DEADLINE"));
+    s.call("anyone aborts", METER2, 0, "abort_close", serde_json::json!({ "deal_seq": "2" }), Expect::Ok);
+    s.call("an order after the abort", CLOSER, 0, "close_sale", order_json(&late), Expect::Refused("E_NO_DEAL"));
+    let ps = s.w.b.payout_seq;
+    s.call("the buyer collects returned escrow", STRANGER, 1, "claim_party_guarded", claim_args(1, 5 * E18, ps), Expect::Payout(true));
+    let h5 = hold(&s, 4);
+    s.call("holds again after the abort", METER, 0, "open_hold", h5, Expect::Ok);
+
+    let doc = serde_json::json!({
+        "note": "Produced by contracts/business-v3 tests.rs gated_sale_matches_server_fixture (job 003wf3). Test-world accounts only; synthetic payouts.",
+        "business": BIZ, "asset": TOKEN, "closer": CLOSER, "internal": internal, "start": start, "steps": s.out,
+    });
+    let actual = serde_json::to_string_pretty(&doc).unwrap() + "
+";
+    fixture("gated-sale", include_str!("../../../server/test/fixtures/v3/gated-sale.json"), actual);
 }

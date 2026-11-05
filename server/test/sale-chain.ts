@@ -124,9 +124,33 @@ const BUSINESS_ARGS: Record<string, (a: Json) => boolean> = {
     isSmall(a.category, 0xff) &&
     isUint(a.expected_amount, 128) &&
     isUint(a.expected_payout_seq, 64),
+  // 003wf3: the Gated close (CloseOrder, lib.rs) and its abort.
+  close_sale: (a) =>
+    exactly(a, ["order"]) &&
+    exactly(a.order, [
+      "deal_seq",
+      "version",
+      "digest",
+      "expected_generation",
+      "closing_control_seq",
+      "manifest",
+      "manifest_seq",
+      "issued_at_ms",
+    ]) &&
+    isUint(a.order.deal_seq, 64) &&
+    isSmall(a.order.version, 0xffff_ffff) &&
+    typeof a.order.digest === "string" &&
+    isSmall(a.order.expected_generation, 0xffff_ffff) &&
+    isUint(a.order.closing_control_seq, 64) &&
+    typeof a.order.manifest === "string" &&
+    isUint(a.order.manifest_seq, 64) &&
+    isUint(a.order.issued_at_ms, 64),
+  abort_close: (a) => exactly(a, ["deal_seq"]) && isUint(a.deal_seq, 64),
 };
 const MIN_GAS = 1_000_000_000_000n;
 const MAX_GAS = 300_000_000_000_000n;
+/** lib.rs MAX_ISSUE_AGE_MS: a close order must have been issued within 20 minutes. */
+const MAX_ISSUE_AGE_MS = 1_200_000n;
 
 /**
  * Why an envelope isn't one this double supports, or null. Checked before ANY change: a canonical
@@ -1083,9 +1107,78 @@ export class SaleChain {
           payout: { slot, id },
         };
       }
+      // 003wf3: close_sale (lib.rs), in its order. Not payable (a function-call key signs it).
+      case "close_sale": {
+        need(deposit === 0n, "Method close_sale doesn't accept deposit");
+        need(this.closeMode === "gated", "E_MODE: this business closes directly");
+        need(signer === this.closer, "E_NOT_CLOSER: only the configured closer");
+        const o = a.order as Json;
+        const d = this.liveDeal(BigInt(o.deal_seq));
+        need(d.state === 2, "E_STATE: the sale isn't closing");
+        need(o.version === d.version, "E_VERSION: not the closing version");
+        need(
+          o.expected_generation === d.expected_generation &&
+            this.generation === d.expected_generation &&
+            this.owner === d.seller,
+          "E_GENERATION: control changed",
+        );
+        need(
+          BigInt(o.closing_control_seq) === d.closing_control_seq &&
+            this.controlSeq === d.closing_control_seq,
+          "E_CLOSE_SEQ: not the closing control sequence",
+        );
+        need(/^[0-9a-fA-F]{64}$/.test(o.digest), "E_TERMS: the digest is 64 hex characters");
+        need(
+          String(o.digest).toLowerCase() === this.digestOf(d),
+          "E_TERMS: not the accepted terms",
+        );
+        need(/^[0-9a-fA-F]{64}$/.test(o.manifest), "E_MANIFEST: the manifest is 64 hex characters");
+        const m = String(o.manifest).toLowerCase();
+        need(
+          m === this.manifest &&
+            m === d.manifest &&
+            BigInt(o.manifest_seq) === this.manifestSeq &&
+            BigInt(o.manifest_seq) === d.manifest_seq,
+          "E_MANIFEST: not the manifest the terms bind",
+        );
+        const issued = BigInt(o.issued_at_ms);
+        need(issued <= this.now, "E_ISSUED_FUTURE: issued in the future");
+        need(this.now - issued <= MAX_ISSUE_AGE_MS, "E_ISSUE_AGE: the order is too old");
+        need(issued >= d.closing_started_ms, "E_ISSUED_BEFORE: issued before closing started");
+        need(this.now < d.deadline_ms, "E_DEADLINE: the close deadline has passed");
+        need(
+          this.available >= d.available_floor,
+          "E_FLOOR: available money is below the agreed floor",
+        );
+        need(d.escrow === d.price, "E_UNFUNDED: escrow doesn't match the price");
+        return {
+          value: undefined,
+          logs: this.finalize(d, this.nextControl(), this.generation + 1),
+        };
+      }
+      // 003wf3: abort_close (lib.rs): anyone, once the close deadline has passed.
+      case "abort_close": {
+        need(deposit === 0n, "Method abort_close doesn't accept deposit");
+        const d = this.liveDeal(seqOf("deal_seq"));
+        need(d.state === 2, "E_STATE: the sale isn't closing");
+        need(this.now >= d.deadline_ms, "E_NOT_EXPIRED: the closer still has time");
+        return { value: undefined, logs: this.terminate(d, 4, this.nextControl()) };
+      }
       default:
         return refuse(`MethodNotFound: ${method}`);
     }
+  }
+
+  /**
+   * 003wf3 (lib.rs open_hold, MANAGED_HANDOVER.md §16.1): no NEW hold while the live deal is
+   * Closing, for any caller. The customer double calls this after its "already" branch, exactly
+   * where the contract checks it.
+   */
+  requireNoClosingForNewHold() {
+    need(
+      !(this.deal && this.deal.state === 2),
+      "E_CLOSING: no new holds while the sale is closing",
+    );
   }
 
   /** on_payout (lib.rs): settles the slot once the transfer's outcome is known; never panics. */

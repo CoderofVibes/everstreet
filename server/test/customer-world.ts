@@ -255,7 +255,8 @@ export class FixtureChain {
   private isSaleCall(call: { receiverId: string; methodName: string; args: Json }) {
     if (call.receiverId === this.business)
       return (
-        /_guarded$|^accept_sale$/.test(call.methodName) && call.methodName !== "revoke_key_guarded"
+        /_guarded$|^accept_sale$|^close_sale$|^abort_close$/.test(call.methodName) &&
+        call.methodName !== "revoke_key_guarded"
       );
     if (call.receiverId !== TOKEN || call.methodName !== "ft_transfer_call") return false;
     try {
@@ -736,6 +737,8 @@ export class FixtureChain {
         throw new ChainRefusal("E_SIG");
       return "already";
     }
+    // 003wf3 (lib.rs open_hold): no NEW hold while the attached sale is Closing, for anyone.
+    if (this.sale?.deal?.state === 2) throw new ChainRefusal("E_CLOSING");
     if (!(auth.hold_seq > e.hold_seq)) throw new ChainRefusal("E_HOLD_SEQ_USED");
     if (e.paused) throw new ChainRefusal("E_PAUSED");
     if (e.hold_active) throw new ChainRefusal("E_HOLD_ACTIVE");

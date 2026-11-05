@@ -1,0 +1,976 @@
+{
+  "note": "Produced by contracts/business-v3 tests.rs gated_sale_matches_server_fixture (job 003wf3). Test-world accounts only; synthetic payouts.",
+  "business": "studio.biz.near",
+  "asset": "tusd.near",
+  "closer": "closer.near",
+  "internal": {
+    "payout_seq": "1",
+    "deal_seq": "0",
+    "now_ms": "1793577600000",
+    "storage_byte_cost": "10000000000000000000"
+  },
+  "start": {
+    "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"3\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":null}",
+    "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"100000000000000000000\",\"ent_free_value\":\"90000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"9000000000000000000\",\"withdrawable\":\"8999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"0\"}",
+    "get_outcomes": "[]",
+    "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+    "get_party": {
+      "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+      "buyer.near": "null",
+      "stranger.near": "null"
+    },
+    "get_sale_terms": {
+      "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"1\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"186\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+      "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"1\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+    }
+  },
+  "steps": [
+    {
+      "case": "propose gated",
+      "signer": "founder.near",
+      "receiver": "studio.biz.near",
+      "method": "propose_sale_guarded",
+      "args": {
+        "terms": {
+          "buyer": "buyer.near",
+          "price": "250000000000000000000",
+          "expires_at_ms": "1793664000000",
+          "close_window_ms": "1800000",
+          "available_floor": "0",
+          "grants": [
+            [
+              "meter.near",
+              1
+            ]
+          ],
+          "terms_hash": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"
+        },
+        "expected_control_seq": "3",
+        "digest": "79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9"
+      },
+      "deposit": "1860000000000000000000",
+      "now_ms": "1793577600000",
+      "value": "1",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_proposed\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"control_seq\":\"4\"}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"4\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"proposed\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":false,\"buyer_accepted\":false,\"escrow\":\"0\",\"deadline_ms\":\"0\",\"closing_started_ms\":\"0\",\"closing_control_seq\":\"0\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"100000000000000000000\",\"ent_free_value\":\"90000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"9000000000000000000\",\"withdrawable\":\"8999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "fund",
+      "signer": "buyer.near",
+      "receiver": "tusd.near",
+      "method": "ft_transfer_call",
+      "args": {
+        "receiver_id": "studio.biz.near",
+        "amount": "250000000000000000000",
+        "msg": "{\"fund_deal\":{\"deal_seq\":\"1\",\"version\":1,\"price\":\"250000000000000000000\",\"expected_control_seq\":\"4\"}}"
+      },
+      "deposit": "1",
+      "now_ms": "1793577600000",
+      "unused": "0",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_funded\",\"data\":[{\"deal_seq\":\"1\",\"amount\":\"250000000000000000000\"}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"5\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"proposed\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":false,\"buyer_accepted\":false,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"0\",\"closing_started_ms\":\"0\",\"closing_control_seq\":\"0\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"90000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"9000000000000000000\",\"withdrawable\":\"8999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "buyer accepts",
+      "signer": "buyer.near",
+      "receiver": "studio.biz.near",
+      "method": "accept_sale",
+      "args": {
+        "deal_seq": "1",
+        "version": 1,
+        "digest": "79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9"
+      },
+      "deposit": "1",
+      "now_ms": "1793577600000",
+      "value": "accepted",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_accepted\",\"data\":[{\"deal_seq\":\"1\",\"by\":\"buyer.near\",\"closing\":false,\"control_seq\":\"6\"}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"6\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"accepting\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":false,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"0\",\"closing_started_ms\":\"0\",\"closing_control_seq\":\"0\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"90000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"9000000000000000000\",\"withdrawable\":\"8999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "a hold while accepting",
+      "signer": "meter.near",
+      "receiver": "studio.biz.near",
+      "method": "open_hold",
+      "args": {
+        "customer": "cara.near",
+        "plan_id": 2,
+        "auth": {
+          "hold_seq": 2,
+          "units": 1,
+          "serve_until_ms": "1793578800000",
+          "key_slot": 0,
+          "key_epoch": 1
+        },
+        "sig": "4c3e32985998867c6774335ddef29f2b643e1c7db362bbf3858f15d97fccd169e60da9a3ef4ae40de118bcbf5172cdab23652b3dc9e69c1abc7e704d19990d0e"
+      },
+      "deposit": "0",
+      "now_ms": "1793577600000",
+      "value": "opened",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"hold_opened\",\"data\":[{\"customer\":\"cara.near\",\"plan_id\":2,\"hold_seq\":2,\"units\":1}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"6\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"accepting\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":false,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"0\",\"closing_started_ms\":\"0\",\"closing_control_seq\":\"0\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"1000000000000000000\",\"available\":\"9000000000000000000\",\"withdrawable\":\"8999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "seller accepts: closing",
+      "signer": "founder.near",
+      "receiver": "studio.biz.near",
+      "method": "accept_sale",
+      "args": {
+        "deal_seq": "1",
+        "version": 1,
+        "digest": "79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9"
+      },
+      "deposit": "1",
+      "now_ms": "1793577600000",
+      "value": "closing",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_accepted\",\"data\":[{\"deal_seq\":\"1\",\"by\":\"founder.near\",\"closing\":true,\"control_seq\":\"7\"}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"7\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"closing\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"1793579400000\",\"closing_started_ms\":\"1793577600000\",\"closing_control_seq\":\"7\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"1000000000000000000\",\"available\":\"9000000000000000000\",\"withdrawable\":\"8999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "a new hold while closing",
+      "signer": "meter.near",
+      "receiver": "studio.biz.near",
+      "method": "open_hold",
+      "args": {
+        "customer": "cara.near",
+        "plan_id": 2,
+        "auth": {
+          "hold_seq": 3,
+          "units": 1,
+          "serve_until_ms": "1793578800000",
+          "key_slot": 0,
+          "key_epoch": 1
+        },
+        "sig": "22311f1c3b57537cb4c4b17396e2231db3cbef9fb2ee920b3f2c252feb7359a02e851d139b26f1be52947e24d178545c3591b8bf6d1dfe0e62f16ac38b85500e"
+      },
+      "deposit": "0",
+      "now_ms": "1793577600000",
+      "refused": "E_CLOSING",
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"7\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"closing\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"1793579400000\",\"closing_started_ms\":\"1793577600000\",\"closing_control_seq\":\"7\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"1000000000000000000\",\"available\":\"9000000000000000000\",\"withdrawable\":\"8999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "the owner's own new hold while closing",
+      "signer": "founder.near",
+      "receiver": "studio.biz.near",
+      "method": "open_hold",
+      "args": {
+        "customer": "cara.near",
+        "plan_id": 2,
+        "auth": {
+          "hold_seq": 3,
+          "units": 1,
+          "serve_until_ms": "1793578800000",
+          "key_slot": 0,
+          "key_epoch": 1
+        },
+        "sig": "22311f1c3b57537cb4c4b17396e2231db3cbef9fb2ee920b3f2c252feb7359a02e851d139b26f1be52947e24d178545c3591b8bf6d1dfe0e62f16ac38b85500e"
+      },
+      "deposit": "0",
+      "now_ms": "1793577600000",
+      "refused": "E_CLOSING",
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"7\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"closing\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"1793579400000\",\"closing_started_ms\":\"1793577600000\",\"closing_control_seq\":\"7\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"1000000000000000000\",\"available\":\"9000000000000000000\",\"withdrawable\":\"8999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "the existing hold settles while closing",
+      "signer": "meter.near",
+      "receiver": "studio.biz.near",
+      "method": "settle_hold",
+      "args": {
+        "customer": "cara.near",
+        "plan_id": 2,
+        "hold_seq": 2,
+        "uses": [
+          {
+            "slot": 0,
+            "fingerprint": "02000000000000000000000000000000000000000000000000000000000000ab",
+            "sig": "99e6b1bcec1094f89aa0eac8633c5f9f6c598634ee110e1e36fa08858f72348ee15160e60cccbfacb577f9ae16be13d7bc2cf72bb43a4c646dccb4539f8c1303"
+          }
+        ],
+        "close": true
+      },
+      "deposit": "0",
+      "now_ms": "1793577600000",
+      "value": [
+        "charged"
+      ],
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"hold_settled\",\"data\":[{\"customer\":\"cara.near\",\"plan_id\":2,\"hold_seq\":2,\"charged\":1,\"closed\":true}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"7\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"closing\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"1793579400000\",\"closing_started_ms\":\"1793577600000\",\"closing_control_seq\":\"7\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"10000000000000000000\",\"withdrawable\":\"9999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "not the closer",
+      "signer": "founder.near",
+      "receiver": "studio.biz.near",
+      "method": "close_sale",
+      "args": {
+        "order": {
+          "deal_seq": "1",
+          "version": 1,
+          "digest": "79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9",
+          "expected_generation": 1,
+          "closing_control_seq": "7",
+          "manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "issued_at_ms": "1793577600000"
+        }
+      },
+      "deposit": "0",
+      "now_ms": "1793577600000",
+      "refused": "E_NOT_CLOSER",
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"7\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"closing\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"1793579400000\",\"closing_started_ms\":\"1793577600000\",\"closing_control_seq\":\"7\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"10000000000000000000\",\"withdrawable\":\"9999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "another digest",
+      "signer": "closer.near",
+      "receiver": "studio.biz.near",
+      "method": "close_sale",
+      "args": {
+        "order": {
+          "deal_seq": "1",
+          "version": 1,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "expected_generation": 1,
+          "closing_control_seq": "7",
+          "manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "issued_at_ms": "1793577600000"
+        }
+      },
+      "deposit": "0",
+      "now_ms": "1793577600000",
+      "refused": "E_TERMS",
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"7\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"closing\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"1793579400000\",\"closing_started_ms\":\"1793577600000\",\"closing_control_seq\":\"7\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"10000000000000000000\",\"withdrawable\":\"9999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "a stale closing sequence",
+      "signer": "closer.near",
+      "receiver": "studio.biz.near",
+      "method": "close_sale",
+      "args": {
+        "order": {
+          "deal_seq": "1",
+          "version": 1,
+          "digest": "79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9",
+          "expected_generation": 1,
+          "closing_control_seq": "6",
+          "manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "issued_at_ms": "1793577600000"
+        }
+      },
+      "deposit": "0",
+      "now_ms": "1793577600000",
+      "refused": "E_CLOSE_SEQ",
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"7\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"closing\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"1793579400000\",\"closing_started_ms\":\"1793577600000\",\"closing_control_seq\":\"7\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"10000000000000000000\",\"withdrawable\":\"9999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "too early to abort",
+      "signer": "stranger.near",
+      "receiver": "studio.biz.near",
+      "method": "abort_close",
+      "args": {
+        "deal_seq": "1"
+      },
+      "deposit": "0",
+      "now_ms": "1793577660000",
+      "refused": "E_NOT_EXPIRED",
+      "views": {
+        "get_control": "{\"owner\":\"founder.near\",\"generation\":1,\"control_seq\":\"7\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,1]],\"live_deal\":{\"seq\":\"1\",\"version\":1,\"state\":\"closing\",\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664000000\",\"close_window_ms\":\"1800000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1\",\"expected_generation\":1,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"250000000000000000000\",\"deadline_ms\":\"1793579400000\",\"closing_started_ms\":\"1793577600000\",\"closing_control_seq\":\"7\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"10000000000000000000\",\"withdrawable\":\"9999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"250000000000000000000\"}",
+        "get_outcomes": "[]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":true}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "the closer closes",
+      "signer": "closer.near",
+      "receiver": "studio.biz.near",
+      "method": "close_sale",
+      "args": {
+        "order": {
+          "deal_seq": "1",
+          "version": 1,
+          "digest": "79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9",
+          "expected_generation": 1,
+          "closing_control_seq": "7",
+          "manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "issued_at_ms": "1793577600000"
+        }
+      },
+      "deposit": "0",
+      "now_ms": "1793577660000",
+      "value": null,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_finalized\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"generation\":2}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"8\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":null}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"10000000000000000000\",\"withdrawable\":\"9999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"250000000000000000000\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"250000000000000000000\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":false}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "the same order again",
+      "signer": "closer.near",
+      "receiver": "studio.biz.near",
+      "method": "close_sale",
+      "args": {
+        "order": {
+          "deal_seq": "1",
+          "version": 1,
+          "digest": "79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9",
+          "expected_generation": 1,
+          "closing_control_seq": "7",
+          "manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "issued_at_ms": "1793577600000"
+        }
+      },
+      "deposit": "0",
+      "now_ms": "1793577660000",
+      "refused": "E_NO_DEAL",
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"8\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":null}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"350000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"10000000000000000000\",\"withdrawable\":\"9999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"250000000000000000000\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"250000000000000000000\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":false}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"1\"}"
+        }
+      }
+    },
+    {
+      "case": "seller collects proceeds",
+      "signer": "founder.near",
+      "receiver": "studio.biz.near",
+      "method": "claim_party_guarded",
+      "args": {
+        "category": 2,
+        "expected_amount": "250000000000000000000",
+        "expected_payout_seq": "1"
+      },
+      "deposit": "1",
+      "now_ms": "1793577660000",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_started\",\"data\":[{\"slot\":1,\"payout_id\":\"2\",\"to\":\"founder.near\",\"amount\":\"250000000000000000000\"}]}"
+      ],
+      "payout": {
+        "slot": 1,
+        "payout_id": "2",
+        "transfer_ok": true,
+        "value": true,
+        "logs": [
+          "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_settled\",\"data\":[{\"slot\":1,\"payout_id\":\"2\",\"ok\":true,\"amount\":\"250000000000000000000\"}]}"
+        ]
+      },
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"8\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":null}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"100000000000000000000\",\"ent_free_value\":\"89000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"10000000000000000000\",\"withdrawable\":\"9999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":false}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "the successor meter serves",
+      "signer": "meter.near",
+      "receiver": "studio.biz.near",
+      "method": "open_hold",
+      "args": {
+        "customer": "cara.near",
+        "plan_id": 2,
+        "auth": {
+          "hold_seq": 3,
+          "units": 1,
+          "serve_until_ms": "1793578860000",
+          "key_slot": 0,
+          "key_epoch": 1
+        },
+        "sig": "55c2bec008c6481c5bbb35c000550900bd166ff210bd434b15c608f5aff8ac455ce7e8138dd2227a8a95c4b23541115807053ea5485e790a83f63b9c64a47203"
+      },
+      "deposit": "0",
+      "now_ms": "1793577660000",
+      "value": "opened",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"hold_opened\",\"data\":[{\"customer\":\"cara.near\",\"plan_id\":2,\"hold_seq\":3,\"units\":1}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"8\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":null}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"100000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"1000000000000000000\",\"available\":\"10000000000000000000\",\"withdrawable\":\"9999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":false}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "and settles",
+      "signer": "meter.near",
+      "receiver": "studio.biz.near",
+      "method": "settle_hold",
+      "args": {
+        "customer": "cara.near",
+        "plan_id": 2,
+        "hold_seq": 3,
+        "uses": [
+          {
+            "slot": 0,
+            "fingerprint": "03000000000000000000000000000000000000000000000000000000000000ab",
+            "sig": "3dd2dcf4ff21df6c9213fec9473244800feeeaeaf37941bc4451a6ae4a97842b9b5f7470da60d360e485e776819f8fc587cb09039f2d599281e7efaec443f304"
+          }
+        ],
+        "close": true
+      },
+      "deposit": "0",
+      "now_ms": "1793577660000",
+      "value": [
+        "charged"
+      ],
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"hold_settled\",\"data\":[{\"customer\":\"cara.near\",\"plan_id\":2,\"hold_seq\":3,\"charged\":1,\"closed\":true}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"8\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":null}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"100000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":false}",
+          "stranger.near": "null"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"2\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":false,\"party_bytes\":\"189\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "propose deal 2",
+      "signer": "buyer.near",
+      "receiver": "studio.biz.near",
+      "method": "propose_sale_guarded",
+      "args": {
+        "terms": {
+          "buyer": "stranger.near",
+          "price": "5000000000000000000",
+          "expires_at_ms": "1793664060000",
+          "close_window_ms": "600000",
+          "available_floor": "0",
+          "grants": [
+            [
+              "meter.near",
+              1
+            ]
+          ],
+          "terms_hash": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"
+        },
+        "expected_control_seq": "8",
+        "digest": "f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f"
+      },
+      "deposit": "1890000000000000000000",
+      "now_ms": "1793577660000",
+      "value": "2",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_proposed\",\"data\":[{\"deal_seq\":\"2\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"control_seq\":\"9\"}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"9\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":{\"seq\":\"2\",\"version\":1,\"state\":\"proposed\",\"digest\":\"f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f\",\"seller\":\"buyer.near\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664060000\",\"close_window_ms\":\"600000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2\",\"expected_generation\":2,\"seller_accepted\":false,\"buyer_accepted\":false,\"escrow\":\"0\",\"deadline_ms\":\"0\",\"closing_started_ms\":\"0\",\"closing_control_seq\":\"0\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"100000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"buyer.near\",\"deposit\":\"1890000000000000000000\",\"pinned\":true}"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "fund deal 2",
+      "signer": "stranger.near",
+      "receiver": "tusd.near",
+      "method": "ft_transfer_call",
+      "args": {
+        "receiver_id": "studio.biz.near",
+        "amount": "5000000000000000000",
+        "msg": "{\"fund_deal\":{\"deal_seq\":\"2\",\"version\":1,\"price\":\"5000000000000000000\",\"expected_control_seq\":\"9\"}}"
+      },
+      "deposit": "1",
+      "now_ms": "1793577660000",
+      "unused": "0",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_funded\",\"data\":[{\"deal_seq\":\"2\",\"amount\":\"5000000000000000000\"}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"10\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":{\"seq\":\"2\",\"version\":1,\"state\":\"proposed\",\"digest\":\"f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f\",\"seller\":\"buyer.near\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664060000\",\"close_window_ms\":\"600000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2\",\"expected_generation\":2,\"seller_accepted\":false,\"buyer_accepted\":false,\"escrow\":\"5000000000000000000\",\"deadline_ms\":\"0\",\"closing_started_ms\":\"0\",\"closing_control_seq\":\"0\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"105000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"5000000000000000000\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"buyer.near\",\"deposit\":\"1890000000000000000000\",\"pinned\":true}"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "deal 2 buyer accepts",
+      "signer": "stranger.near",
+      "receiver": "studio.biz.near",
+      "method": "accept_sale",
+      "args": {
+        "deal_seq": "2",
+        "version": 1,
+        "digest": "f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f"
+      },
+      "deposit": "1",
+      "now_ms": "1793577660000",
+      "value": "accepted",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_accepted\",\"data\":[{\"deal_seq\":\"2\",\"by\":\"stranger.near\",\"closing\":false,\"control_seq\":\"11\"}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"11\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":{\"seq\":\"2\",\"version\":1,\"state\":\"accepting\",\"digest\":\"f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f\",\"seller\":\"buyer.near\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664060000\",\"close_window_ms\":\"600000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2\",\"expected_generation\":2,\"seller_accepted\":false,\"buyer_accepted\":true,\"escrow\":\"5000000000000000000\",\"deadline_ms\":\"0\",\"closing_started_ms\":\"0\",\"closing_control_seq\":\"0\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"105000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"5000000000000000000\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"buyer.near\",\"deposit\":\"1890000000000000000000\",\"pinned\":true}"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "deal 2 closing",
+      "signer": "buyer.near",
+      "receiver": "studio.biz.near",
+      "method": "accept_sale",
+      "args": {
+        "deal_seq": "2",
+        "version": 1,
+        "digest": "f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f"
+      },
+      "deposit": "1",
+      "now_ms": "1793577660000",
+      "value": "closing",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_accepted\",\"data\":[{\"deal_seq\":\"2\",\"by\":\"buyer.near\",\"closing\":true,\"control_seq\":\"12\"}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"12\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":{\"seq\":\"2\",\"version\":1,\"state\":\"closing\",\"digest\":\"f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f\",\"seller\":\"buyer.near\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664060000\",\"close_window_ms\":\"600000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2\",\"expected_generation\":2,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"5000000000000000000\",\"deadline_ms\":\"1793578260000\",\"closing_started_ms\":\"1793577660000\",\"closing_control_seq\":\"12\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"105000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"5000000000000000000\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"buyer.near\",\"deposit\":\"1890000000000000000000\",\"pinned\":true}"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "the closer after the deadline",
+      "signer": "closer.near",
+      "receiver": "studio.biz.near",
+      "method": "close_sale",
+      "args": {
+        "order": {
+          "deal_seq": "2",
+          "version": 1,
+          "digest": "f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f",
+          "expected_generation": 2,
+          "closing_control_seq": "12",
+          "manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "issued_at_ms": "1793577660000"
+        }
+      },
+      "deposit": "0",
+      "now_ms": "1793578260000",
+      "refused": "E_DEADLINE",
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"12\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":{\"seq\":\"2\",\"version\":1,\"state\":\"closing\",\"digest\":\"f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f\",\"seller\":\"buyer.near\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"available_floor\":\"0\",\"expires_at_ms\":\"1793664060000\",\"close_window_ms\":\"600000\",\"grants\":[{\"account\":\"meter.near\",\"caps\":1}],\"terms_hash\":\"c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2\",\"expected_generation\":2,\"seller_accepted\":true,\"buyer_accepted\":true,\"escrow\":\"5000000000000000000\",\"deadline_ms\":\"1793578260000\",\"closing_started_ms\":\"1793577660000\",\"closing_control_seq\":\"12\"}}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"105000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"5000000000000000000\"}",
+        "get_outcomes": "[{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":true}",
+          "stranger.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"buyer.near\",\"deposit\":\"1890000000000000000000\",\"pinned\":true}"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "anyone aborts",
+      "signer": "meter2.near",
+      "receiver": "studio.biz.near",
+      "method": "abort_close",
+      "args": {
+        "deal_seq": "2"
+      },
+      "deposit": "0",
+      "now_ms": "1793578260000",
+      "value": null,
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_ended\",\"data\":[{\"deal_seq\":\"2\",\"status\":4,\"escrow_returned\":\"5000000000000000000\"}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"13\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":null}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"105000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"5000000000000000000\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"aborted\",\"seq\":\"2\",\"version\":1,\"digest\":\"f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f\",\"generation_after\":2,\"control_seq\":\"13\",\"at_ms\":\"1793578260000\",\"seller\":\"buyer.near\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"escrow_returned\":\"5000000000000000000\"},{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":false}",
+          "stranger.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"5000000000000000000\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"buyer.near\",\"deposit\":\"1890000000000000000000\",\"pinned\":false}"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "an order after the abort",
+      "signer": "closer.near",
+      "receiver": "studio.biz.near",
+      "method": "close_sale",
+      "args": {
+        "order": {
+          "deal_seq": "2",
+          "version": 1,
+          "digest": "f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f",
+          "expected_generation": 2,
+          "closing_control_seq": "12",
+          "manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "issued_at_ms": "1793577660000"
+        }
+      },
+      "deposit": "0",
+      "now_ms": "1793578260000",
+      "refused": "E_NO_DEAL",
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"13\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":null}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"105000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"5000000000000000000\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"aborted\",\"seq\":\"2\",\"version\":1,\"digest\":\"f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f\",\"generation_after\":2,\"control_seq\":\"13\",\"at_ms\":\"1793578260000\",\"seller\":\"buyer.near\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"escrow_returned\":\"5000000000000000000\"},{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":false}",
+          "stranger.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"5000000000000000000\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"buyer.near\",\"deposit\":\"1890000000000000000000\",\"pinned\":false}"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"2\"}"
+        }
+      }
+    },
+    {
+      "case": "the buyer collects returned escrow",
+      "signer": "stranger.near",
+      "receiver": "studio.biz.near",
+      "method": "claim_party_guarded",
+      "args": {
+        "category": 1,
+        "expected_amount": "5000000000000000000",
+        "expected_payout_seq": "2"
+      },
+      "deposit": "1",
+      "now_ms": "1793578260000",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_started\",\"data\":[{\"slot\":1,\"payout_id\":\"3\",\"to\":\"stranger.near\",\"amount\":\"5000000000000000000\"}]}"
+      ],
+      "payout": {
+        "slot": 1,
+        "payout_id": "3",
+        "transfer_ok": true,
+        "value": true,
+        "logs": [
+          "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_settled\",\"data\":[{\"slot\":1,\"payout_id\":\"3\",\"ok\":true,\"amount\":\"5000000000000000000\"}]}"
+        ]
+      },
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"13\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":null}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"100000000000000000000\",\"ent_free_value\":\"88000000000000000000\",\"ent_held_value\":\"0\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"aborted\",\"seq\":\"2\",\"version\":1,\"digest\":\"f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f\",\"generation_after\":2,\"control_seq\":\"13\",\"at_ms\":\"1793578260000\",\"seller\":\"buyer.near\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"escrow_returned\":\"5000000000000000000\"},{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":false}",
+          "stranger.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"buyer.near\",\"deposit\":\"1890000000000000000000\",\"pinned\":false}"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"3\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"3\"}"
+        }
+      }
+    },
+    {
+      "case": "holds again after the abort",
+      "signer": "meter.near",
+      "receiver": "studio.biz.near",
+      "method": "open_hold",
+      "args": {
+        "customer": "cara.near",
+        "plan_id": 2,
+        "auth": {
+          "hold_seq": 4,
+          "units": 1,
+          "serve_until_ms": "1793579460000",
+          "key_slot": 0,
+          "key_epoch": 1
+        },
+        "sig": "40d161a4e8418138cd67a7f1b5df9b3fdb4ed58de43cbbac160cd8aa1a86928042c358ac2f7fe6fedeffcc45174f815ee82b22b4e138fbb2bf5ff1c78cd6d809"
+      },
+      "deposit": "0",
+      "now_ms": "1793578260000",
+      "value": "opened",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"hold_opened\",\"data\":[{\"customer\":\"cara.near\",\"plan_id\":2,\"hold_seq\":4,\"units\":1}]}"
+      ],
+      "views": {
+        "get_control": "{\"owner\":\"buyer.near\",\"generation\":2,\"control_seq\":\"13\",\"close_mode\":\"gated\",\"closer\":\"closer.near\",\"service_manifest\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"manifest_seq\":\"0\",\"operators\":[[\"meter.near\",1,2]],\"live_deal\":null}",
+        "get_treasury": "{\"asset\":\"tusd.near\",\"held\":\"100000000000000000000\",\"ent_free_value\":\"87000000000000000000\",\"ent_held_value\":\"1000000000000000000\",\"available\":\"11000000000000000000\",\"withdrawable\":\"10999999999999750000\",\"pending_total\":\"1000000000000000000\",\"claims_total\":\"0\",\"escrow_total\":\"0\"}",
+        "get_outcomes": "[{\"status\":\"aborted\",\"seq\":\"2\",\"version\":1,\"digest\":\"f053ec7cf2ac4d7e7772ab5c57df19cc0391bdd3ca9f0f3b86fdaf842986d39f\",\"generation_after\":2,\"control_seq\":\"13\",\"at_ms\":\"1793578260000\",\"seller\":\"buyer.near\",\"buyer\":\"stranger.near\",\"price\":\"5000000000000000000\",\"escrow_returned\":\"5000000000000000000\"},{\"status\":\"closed\",\"seq\":\"1\",\"version\":1,\"digest\":\"79663e4b803bb71bec2f7d3b69a764442e0a83e31ef8fa03c8b671921be377e9\",\"generation_after\":2,\"control_seq\":\"8\",\"at_ms\":\"1793577660000\",\"seller\":\"founder.near\",\"buyer\":\"buyer.near\",\"price\":\"250000000000000000000\",\"escrow_returned\":\"0\"}]",
+        "get_pending": "[{\"slot\":0,\"state\":\"in_flight\",\"kind\":\"profit\",\"amount\":\"1000000000000000000\",\"to\":\"founder.near\",\"plan_id\":0,\"payout_id\":\"1\",\"started_at_ms\":\"1793577600000\"}]",
+        "get_party": {
+          "founder.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":1,\"payer\":\"founder.near\",\"deposit\":\"0\",\"pinned\":false}",
+          "buyer.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"founder.near\",\"deposit\":\"1860000000000000000000\",\"pinned\":false}",
+          "stranger.near": "{\"profit_claim\":\"0\",\"escrow_return_claim\":\"0\",\"sale_proceeds_claim\":\"0\",\"pending_refs\":0,\"payer\":\"buyer.near\",\"deposit\":\"1890000000000000000000\",\"pinned\":false}"
+        },
+        "get_sale_terms": {
+          "buyer.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"3\"}",
+          "stranger.near": "{\"version\":1,\"guarded\":true,\"next_deal_seq\":\"3\",\"plan_count\":2,\"min_reserve\":\"250000\",\"party_exists\":true,\"party_bytes\":\"0\",\"storage_byte_cost\":\"10000000000000000000\",\"payout_seq\":\"3\"}"
+        }
+      }
+    }
+  ]
+}
