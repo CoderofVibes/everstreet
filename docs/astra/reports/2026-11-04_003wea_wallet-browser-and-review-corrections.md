@@ -164,3 +164,111 @@ research, deployment, spending or push. The worker stays disabled.
 - **A guarded revoke contract method** (an assessment, a follow-up).
 - **The real wallet and testnet rehearsal** (§9.10, prepared, not run).
 - **Also retained:** 002f1, 004b, 005c, 005d, 006a and all of M6. All six milestones are open.
+
+## Follow-up: Astra's WalletBrowserRepeat at `96620c1` (commit `16ec3d4`)
+
+**Astra's paths committed:**
+- `1ceaf97`: WalletBrowserRepeat and INDEX, after the check. That run had 1331 passed and
+  1 skipped, plus the known disk-bound protected-store timeout (5129 ms; 200 concurrent durable
+  writes; not weakened).
+- The final docs commit: Astra's later review updates, ACCEPTANCE, the updated revoke probe and the
+  003wec brief.
+
+### 1. The first sign-in stalled on "Loading…"
+
+**Reproduced through React's actual effect lifecycle.** `jsdom` 30.1.3 was added as a dev
+dependency for this test only. `web/test/customerProductLifecycle.test.tsx` renders the actual
+`Router`, `SessionProvider` and `App`, against the harness's real routes, with fake-indexeddb.
+- The sequence: signed out on the printed product, sign in over the routes, then the same-account
+  refreshes a sign-in triggers (each hands over a new person object).
+- **Before the fix:**
+  - with StrictMode (as `main.tsx` renders), the page stayed on **"Loading…"**, Astra's symptom;
+  - without StrictMode, the page loaded, but typing was dead (the draft read back empty).
+
+**Cause: Astra's hypothesis, proved.**
+- CustomerProduct kept one workspace in `useState`, but its start/retire effect depended on the
+  `person` **object**.
+- An equivalent refresh retired that workspace permanently (`alive = false`), then called
+  `start()` on it, which a retired workspace ignores.
+- Whether that showed as Loading or as dead input depended on whether the first load had finished.
+
+**Fixed:**
+- Each effect run owns its own workspace, keyed by strings: the person's id, the offer or use, and
+  the identity mode. StrictMode's development re-run is therefore safe too.
+- A same-person refresh changes nothing: the typed draft and the device panel stay (tested).
+- A real identity change, such as sign-out, retires the workspace and withdraws the page (tested).
+- The page stays keyed by person, as before.
+
+### 2. Phone clipping at 390px
+
+**The measurements (Astra's):** document client 375, scroll 447, cards 431 wide.
+
+**Cause:**
+- The `use-grid` tracks were `1fr`, which is `minmax(auto, 1fr)`, and the term lists' columns did
+  the same.
+- So they grew to the widest unbreakable content: `nowrap` buttons with long labels, 64-hex keys,
+  and the raw request JSON.
+
+**Fixed:**
+- The tracks may shrink (`minmax(0, 1fr)`, `min-width: 0`).
+- Buttons, mono values, paragraphs, list items and summaries on the customer page wrap, with
+  `overflow-wrap: anywhere`.
+- Result tables lay out fixed.
+- Phone buttons are full width.
+- Nothing is hidden or truncated.
+
+**Evidence:**
+- `web/test/usePhoneLayout.test.ts` is a static stylesheet check: shrinkable tracks, wrapping, and
+  no `use-` rule with `overflow: hidden` or an ellipsis.
+- It is **not** a rendered measurement, since jsdom does no layout. The 390px repeat
+  (scrollWidth equal to clientWidth, cards within the viewport, review fully readable) is Astra's
+  browser gate.
+
+### 3. Revocation reviews are immutable objects
+
+**Astra's DeviceKeyReview follow-up.** Two new probe orderings each sent one request where zero was
+expected:
+- a newer review, made before the old one was submitted;
+- the old review submitted twice.
+
+**Cause:** an observation keyed by call bytes was overwritten by another review of the same slot.
+
+**Fixed:**
+- `prepareRevoke` returns a frozen review (the call **and** the observed account, network,
+  contract, plan, registration, slot, key and epoch).
+- `revoke` checks that review's own observation against a fresh read.
+- A **bare call never sends**; it gets a fresh review back.
+- The panel confirms with the review object.
+- **My tests:** an old review twice → `changed`, nothing sent; a bare call → `changed`, nothing
+  sent; the fresh review → exactly one request.
+
+**Limit:** the on-chain slot race remains, recorded in §9.11; it is queued as **003wec**.
+
+### Checks
+
+- **`npm run check`:** one run with nothing concurrent. Exit 0, lint (391 files) and types clean.
+  1339 passed and 1 skipped (1340), across 145 passed and 1 skipped files. protected-store passed
+  in this run.
+- **`npm run web:build`:** exit 0. The main chunk is 917.28 kB; CSS is 73.02 kB.
+
+### Handoff: Astra's browser repeat (finite; nothing is running)
+
+1. **Build:** `npm run web:build`.
+2. **Ports:** check that 8814 and 8815 are free, and touch no other process.
+3. **Start:** `npx tsx scripts/wallet-harness.ts --minutes 10`. It stops by itself.
+4. **Fresh sign-in:** open the printed `/use/<offer>` **without reloading**, sign in, then confirm
+   the product appears.
+5. **Draft:** type a draft and confirm it survives the post-sign-in refreshes.
+6. **Phone:** at 390×844, check document scrollWidth equals clientWidth, cards are within the
+   viewport, and the enroll and revoke reviews and the result are fully readable and operable.
+7. **Desktop:** repeat at 1440 for visual acceptance.
+
+### Still open
+
+- 003web, the fresh-customer purchase (queued).
+- 003wec, guarded revocation (queued, registered in JOBS).
+- 003wf, after all 003we children.
+- The real wallet and testnet rehearsal (prepared, not run).
+- 002f1, 004b, 005c, 005d, 006a and all of M6.
+
+All six milestones are open, and the worker stays disabled.
