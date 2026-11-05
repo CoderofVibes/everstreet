@@ -745,14 +745,42 @@ export function openDb(path: string) {
       receiver TEXT NOT NULL, signer TEXT NOT NULL, public_key TEXT NOT NULL, nonce TEXT NOT NULL,
       block_hash TEXT NOT NULL, block_height TEXT NOT NULL, tx_hash TEXT NOT NULL UNIQUE,
       signed_tx TEXT NOT NULL, broadcasts INTEGER NOT NULL DEFAULT 0,
+      history TEXT NOT NULL DEFAULT 'uncounted' CHECK (history IN ('counted', 'uncounted')),
+      reconcile TEXT CHECK (reconcile IS NULL OR reconcile IN ('legacy_invalid')),
       state TEXT NOT NULL CHECK (state IN ('signed', 'success', 'failure', 'invalid')),
       code TEXT, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
       PRIMARY KEY (operation, attempt)
     ) STRICT;
     CREATE UNIQUE INDEX IF NOT EXISTS chain_tx_one_nonce ON chain_tx_attempts (signer, public_key, nonce);
   `);
-  if (!columns("chain_tx_attempts").has("broadcasts"))
-    db.exec("ALTER TABLE chain_tx_attempts ADD COLUMN broadcasts INTEGER NOT NULL DEFAULT 0");
+  // Job 003w-d upgrade policy (Astra's old-schema migration counterexample; APPLICATION_COMPOSITION
+  // §8). `broadcasts` proves a sole sender only for a row COUNTED from before its first send
+  // (`history = 'counted'`, written by the writer itself). Every row that exists when this runs
+  // was written before that, by code that may have sent it any number of times, so it is
+  // 'uncounted' (the default) and its count proves nothing. An earlier `invalid` classification may
+  // come from the reproduced unsafe exception, so it is not proof of rejection either: it is
+  // flagged `reconcile = 'legacy_invalid'`, and only that attempt's own exact FINAL status (or an
+  // operator's reconciliation) resolves it. Recorded success and failure stay as they are (every
+  // committed writer recorded them only from a FINAL status for the exact hash).
+  const attemptCols = columns("chain_tx_attempts");
+  if (!attemptCols.has("history")) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (!attemptCols.has("broadcasts"))
+        db.exec("ALTER TABLE chain_tx_attempts ADD COLUMN broadcasts INTEGER NOT NULL DEFAULT 0");
+      db.exec(
+        "ALTER TABLE chain_tx_attempts ADD COLUMN history TEXT NOT NULL DEFAULT 'uncounted' CHECK (history IN ('counted', 'uncounted'))",
+      );
+      db.exec(
+        "ALTER TABLE chain_tx_attempts ADD COLUMN reconcile TEXT CHECK (reconcile IS NULL OR reconcile IN ('legacy_invalid'))",
+      );
+      db.exec("UPDATE chain_tx_attempts SET reconcile = 'legacy_invalid' WHERE state = 'invalid'");
+      db.exec("COMMIT");
+    } catch (e) {
+      if (db.isTransaction) db.exec("ROLLBACK");
+      throw e;
+    }
+  }
   const requestCols003m = columns("customer_requests");
   if (!requestCols003m.has("evidence_mark"))
     db.exec("ALTER TABLE customer_requests ADD COLUMN evidence_mark TEXT");

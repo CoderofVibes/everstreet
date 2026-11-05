@@ -210,8 +210,9 @@ gate are unchanged and must keep passing.
 ## 8. The customer chain writer (sub-job 003w-d)
 
 **Design.** (Honest order: this section was appended after the first version of
-`customerWriter.ts`, then corrected twice after Astra's CustomerWriterReview counterexamples; it
-describes the final behaviour.) The callers are `CustomerUses.submit` (reservation) and the
+`customerWriter.ts`, then corrected three times after Astra's CustomerWriterReview
+counterexamples, the third being the upgrade of an earlier records file; it describes the final
+behaviour.) The callers are `CustomerUses.submit` (reservation) and the
 unit step (settle or release). They already mark intent ("unknown") under their lease before
 calling, treat the answer as an event only, and resend the **identical payload**, bounded by
 `maxSubmissions`, whenever readback shows the hold still not open. So the writer, not the
@@ -222,7 +223,8 @@ callers, must make "the same operation again" safe:
 - **One durable attempt per operation.** In `chain_tx_attempts` (the records database), each
   attempt row is written **before broadcast**. It holds the payload digest, the nonce, the block
   hash and height, the exact signed bytes and the hash. Its state is `signed` (may be in flight),
-  `success`, `failure` or `invalid` (proven unable to land).
+  `success`, `failure` or `invalid`. Its `history` is `counted` when the writer created it (every
+  send since signing is claimed), and `uncounted` for a row from before the upgrade below.
 
 **What a call does, given the newest attempt for its operation:**
 
@@ -230,7 +232,8 @@ callers, must make "the same operation again" safe:
 |---|---|
 | None | Read the key's nonce and permission and a final block. Then, in ONE `BEGIN IMMEDIATE` transaction: re-check the operation, allocate the nonce, sign and persist. Then broadcast. |
 | `signed` | Read its own **FINAL** status by hash. Final: record it. Not found and still valid: rebroadcast the **same bytes** (the same hash, so the chain includes it at most once). Otherwise it **stays unknown**: past the validity window it answers `unknown: needs_reconciliation`. **No fresh transaction is ever made after an attempt whose outcome may be unknown** (Astra's CustomerWriterReview): a missing status, an expiry or a used nonce on a rebroadcast doesn't prove it didn't execute. |
-| `invalid` | Only one thing makes an attempt `invalid`: a used-nonce or expired-hash admission refusal received by the **sole** sender of its bytes. Every send, first or repeated, by any connection or process, first durably claims it by incrementing `broadcasts` while the attempt is `signed` (a crash after the claim counts as a send). The refusal turns into `invalid` only by a compare-and-set requiring `broadcasts = 1`, made by the sender whose claim was that one. With another send claimed (Astra's overlapping retry), the refusal proves nothing about the other copy, and the attempt stays `signed`. A sender whose claim finds the attempt no longer `signed` doesn't send. Only after `invalid` is a fresh attempt (a new nonce) allowed. |
+| `invalid` | Only one thing makes an attempt `invalid`: a used-nonce or expired-hash admission refusal received by the **sole** sender of its bytes. Every send, first or repeated, by any connection or process, first durably claims it by incrementing `broadcasts` while the attempt is `signed` (a crash after the claim counts as a send). The refusal turns into `invalid` only by a compare-and-set requiring `history = counted` and `broadcasts = 1`, made by the sender whose claim was that one. With another send claimed (Astra's overlapping retry), or an uncounted row, the refusal proves nothing about another copy, and the attempt stays `signed`. A sender whose claim finds the attempt no longer `signed` doesn't send. A fresh attempt (a new nonce) is allowed only when **every** attempt of the operation is a counted `invalid`; otherwise nothing fresh is read or signed (below). |
+| `invalid`, flagged `legacy_invalid` | An earlier writer's classification, not proof (the upgrade below). Only that attempt's own **FINAL** status for its exact hash resolves it, read without sending anything: success or failure is recorded and the flag cleared. Anything else answers `unknown: needs_reconciliation`, and no fresh transaction is made. |
 | Another signer or key | `E_SIGNER_CHANGED`: never queried or rebroadcast under the new identity, so it needs explicit reconciliation. |
 | `success` | Answer `already` with no transaction. |
 | `failure` | Answer `refused` with the recorded `E_` code, and no new transaction. |
@@ -249,7 +252,20 @@ callers, must make "the same operation again" safe:
 - **Fail closed.** Identity checks fail closed: testnet and `.testnet` accounts only, and the key
   must permit the receiver and method (FullAccess, or a FunctionCall key for that contract and
   method). Otherwise `E_SIGNER_KEY`, and nothing is signed.
-- **Terminal states are final.** `success`, `failure` and `invalid` are only written over a `signed` row (a compare-and-set). A late reply to an interrupted or overlapping sender that finds a terminal state answers from that durable state, and never undoes it.
+- **Terminal states are final.** `success`, `failure` and `invalid` are only written over a `signed` row (a compare-and-set). A late reply to an interrupted or overlapping sender that finds a terminal state answers from that durable state, and never undoes it. The one exception is a `legacy_invalid` row, which only its own exact FINAL status can move to `success` or `failure` (also a compare-and-set).
+- **Upgrading an earlier records file** (`openDb`, once, in one write transaction; Astra's actual
+  old-schema counterexample). Rows written by 99cba15 (no send count) or 47649b7 (whose upgrade
+  gave every existing row a count of 0) may already have been sent any number of times.
+  - Every row present at the upgrade becomes `uncounted`: its count never proves a sole sender.
+    It is still resolved by its own status and its own bytes, never by a fresh transaction.
+  - Every `invalid` row present is flagged `reconcile = legacy_invalid`. The old classification
+    may come from the reproduced unsafe exception, so it is kept (with its code) but not trusted.
+    A flagged attempt also blocks fresh attempts for its operation, even behind a later attempt,
+    and stays flagged for the operator after that later attempt resolves.
+  - `success` and `failure` stand: every committed writer recorded them only from a FINAL status
+    for the exact hash.
+  - The policy is conservative: a 47649b7 file whose rows were in fact counted from creation is
+    still treated as uncounted. No deployed records file exists, so nothing real is affected.
 - **What counts as an outcome.** Only a reply with `final_execution_status: FINAL` and this exact transaction's hash. `SuccessValue` means success, and `Failure` or a failed receipt means failure (its `E_` code kept). An optimistic, mismatched or partial reply is unknown, and the writer asks with `wait_until: FINAL`.
 - **Answers are events.** The customer-use state machine's exact contract readback stays the only
   proof of a reservation or a charge.
@@ -293,6 +309,18 @@ disposable SQLite file over separate connections):
   first (the old code signed a third, fresh transaction). Now it stays unknown, and the next call
   finds the landed transaction (one nonce, two sends of the same bytes);
 - a late first-send answer can't undo a success recorded meanwhile;
+- **upgrading an actual earlier file** (really signed rows rewritten into the 99cba15 and 47649b7
+  schemas, closed, reopened through `openDb`). Reproduced first: the old upgrade gave
+  `broadcasts = 0`, the next InvalidNonce made it `invalid` and the next call read for a fresh
+  attempt. Now:
+  - a pending old row stays `signed` and unknown, with no fresh read, only its own bytes sent;
+    it is found when it landed;
+  - an old `invalid` row is flagged, sends nothing, reads only its own status, and is corrected
+    to `success` when that shows it executed;
+  - a later attempt behind it resolves by its own bytes while the old one stays flagged;
+  - old success and failure answer with no reads;
+  - a new row in the upgraded file keeps the sole-sender proof, and reopening doesn't upgrade
+    again;
 - optimistic and wrong-hash replies are never recorded;
 - a signer change is refused with no reads;
 - SDK byte compatibility;
@@ -304,6 +332,8 @@ status; a wrong-account key file refused with an unwind; a writer refused outsid
 **Not covered here:**
 - separate **processes** racing (connections in one process are tested);
 - the writer driven through `CustomerUses` routes against a coherent synthetic chain;
-- any real endpoint.
+- any real endpoint;
+- the operator's reconciliation procedure for `needs_reconciliation` and `legacy_invalid`
+  (there is no UI or procedure yet; the customer-use readback still decides each request).
 
-The first two are in 003w-f's integrated journey.
+The first two and the procedure are in 003w-f.

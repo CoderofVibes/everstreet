@@ -7,8 +7,9 @@
 // the exact payload digest, nonce, block hash, signed bytes and hash, written BEFORE broadcast.
 // - The same operation again never signs a fresh transaction while an earlier one could still
 //   land: it reads that transaction's status and, if unknown, rebroadcasts the SAME signed bytes
-//   (the same hash, so the chain can include it at most once). Only a transaction proven unable
-//   to land (expired past its validity, or refused as invalid) allows a fresh attempt.
+//   (the same hash, so the chain can include it at most once). Only a used-nonce or expired-hash
+//   admission refusal received by the SOLE counted sender of those bytes allows a fresh attempt
+//   (§8); an expiry, a missing status or a row from before the upgrade never does.
 // - A final outcome is recorded and answered again without a new transaction. A different
 //   payload under the same operation is refused before anything is signed.
 // - Nonces are allocated under SQLite's write lock (BEGIN IMMEDIATE) together with the attempt,
@@ -311,6 +312,10 @@ interface Attempt {
   code: string | null;
   signer: string;
   public_key: string;
+  /** 'counted': every send since signing was claimed; 'uncounted': from before the upgrade. */
+  history: "counted" | "uncounted";
+  /** 'legacy_invalid': an earlier writer's invalid classification, not proof (db.ts upgrade). */
+  reconcile: "legacy_invalid" | null;
 }
 
 export interface WriterOptions {
@@ -439,6 +444,13 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
       const resolved = await this.resolve(latest, input.signal);
       return resolved === "success" ? { status: success, tx: latest.tx_hash } : resolved;
     }
+    // An 'invalid' newest attempt allows a fresh one only if EVERY attempt of this operation was
+    // proven invalid by its sole counted sender. Otherwise (an upgraded earlier classification)
+    // nothing fresh is read or signed: only that attempt's own FINAL status can resolve it.
+    if (latest && !this.freshAllowed(op)) {
+      const resolved = await this.resolveLegacy(latest, input.signal);
+      return resolved === "success" ? { status: success, tx: latest.tx_hash } : resolved;
+    }
 
     // A fresh attempt: read the key's nonce and permission and a recent block, then allocate,
     // sign and persist in ONE write transaction, and only then broadcast.
@@ -466,6 +478,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
       block,
     );
     if (created.kind === "raced") return { status: "unknown", detail: "in_flight" }; // another caller holds it
+    if (created.kind === "blocked") return { status: "unknown", detail: "needs_reconciliation" };
     this.opts.afterPersist?.();
     return this.broadcast(created.attempt, input.signal, success);
   }
@@ -479,6 +492,40 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
         )
         .get(op) as unknown as Attempt | undefined) ?? null
     );
+  }
+
+  /** Whether a fresh attempt may follow: every attempt so far is a COUNTED, proven invalid. */
+  private freshAllowed(op: string): boolean {
+    const r = this.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM chain_tx_attempts WHERE operation = ? AND NOT (state = 'invalid' AND history = 'counted' AND reconcile IS NULL)",
+      )
+      .get(op) as { n: number };
+    return r.n === 0;
+  }
+
+  /**
+   * The newest attempt is 'invalid' but that isn't proof for the whole operation (db.ts upgrade
+   * policy). An upgraded 'legacy_invalid' attempt is resolved ONLY by its own FINAL status for its
+   * exact hash, read without sending anything; anything else needs explicit reconciliation, and
+   * no fresh transaction is ever made.
+   */
+  private async resolveLegacy(a: Attempt, signal: AbortSignal): Promise<"success" | WriterAnswer> {
+    const unresolved = {
+      status: "unknown",
+      detail: "needs_reconciliation",
+      tx: a.tx_hash,
+    } as WriterAnswer;
+    if (a.reconcile !== "legacy_invalid") return unresolved;
+    const o = await this.opts.rpc.txStatus(a.tx_hash, this.signer, signal);
+    if (o.kind !== "success" && o.kind !== "failure") return unresolved;
+    const changed = this.db
+      .prepare(
+        "UPDATE chain_tx_attempts SET state = ?, code = ?, reconcile = NULL, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'invalid' AND reconcile = 'legacy_invalid'",
+      )
+      .run(o.kind, o.kind === "failure" ? o.code : null, this.now(), a.operation, a.attempt);
+    if (changed.changes !== 1) return this.fromRow(a);
+    return o.kind === "success" ? "success" : { status: "refused", code: o.code, tx: a.tx_hash };
   }
 
   /**
@@ -533,14 +580,18 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
   /** The attempt's durable state as an answer. */
   private fromRow(a: Attempt): "success" | WriterAnswer {
     const r = this.db
-      .prepare("SELECT state, code FROM chain_tx_attempts WHERE operation = ? AND attempt = ?")
-      .get(a.operation, a.attempt) as { state: Attempt["state"]; code: string | null } | undefined;
+      .prepare(
+        "SELECT state, code, reconcile FROM chain_tx_attempts WHERE operation = ? AND attempt = ?",
+      )
+      .get(a.operation, a.attempt) as
+      | { state: Attempt["state"]; code: string | null; reconcile: string | null }
+      | undefined;
     if (r?.state === "success") return "success";
     if (r?.state === "failure")
       return { status: "refused", code: r.code ?? "E_UNRECOGNIZED", tx: a.tx_hash };
     return {
       status: "unknown",
-      detail: r?.state === "invalid" ? "invalid" : "pending",
+      detail: r?.state !== "invalid" ? "pending" : r.reconcile ? "needs_reconciliation" : "invalid",
       tx: a.tx_hash,
     } as WriterAnswer;
   }
@@ -550,30 +601,35 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
    * bytes, first or repeated, by any connection or process, is CLAIMED durably before it
    * happens, by incrementing its `broadcasts` count while it is still 'signed'. A crash after
    * the claim counts as a send. So `broadcasts = 1` at the moment of a compare-and-set proves
-   * that exactly one send of these bytes ever started: this one.
+   * that exactly one send of these bytes ever started: this one. That holds only for a row
+   * COUNTED since it was signed (`history = 'counted'`); a row from before the upgrade may have
+   * been sent any number of times by earlier code, so its count proves nothing (db.ts policy).
    * - A final status is recorded (`record`).
    * - A used-nonce or expired-hash admission refusal makes the attempt 'invalid' (and so allows
-   *   a fresh transaction later) ONLY by a CAS requiring `broadcasts = 1` and this sender to be
-   *   that one send. With any other send claimed, the refusal proves nothing about the other
-   *   copy, and the attempt stays 'signed' (unknown).
+   *   a fresh transaction later) ONLY by a CAS requiring a counted row, `broadcasts = 1` and this
+   *   sender to be that one send. Otherwise the refusal proves nothing about another copy, and
+   *   the attempt stays 'signed' (unknown).
    * - A sender whose claim finds the attempt no longer 'signed' doesn't send at all.
    */
   private async send(a: Attempt, signal: AbortSignal): Promise<"success" | WriterAnswer> {
     const claimed = this.db
       .prepare(
-        "UPDATE chain_tx_attempts SET broadcasts = broadcasts + 1, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' RETURNING broadcasts",
+        "UPDATE chain_tx_attempts SET broadcasts = broadcasts + 1, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' RETURNING broadcasts, history",
       )
-      .get(this.now(), a.operation, a.attempt) as { broadcasts: number } | undefined;
+      .get(this.now(), a.operation, a.attempt) as
+      | { broadcasts: number; history: Attempt["history"] }
+      | undefined;
     if (!claimed) return this.fromRow(a);
     const o = await this.opts.rpc.sendTx(a.signed_tx, a.tx_hash, signal);
     if (o.kind === "success" || o.kind === "failure") return this.record(a, o);
     if (
       o.kind === "invalid" &&
       (o.reason === "nonce" || o.reason === "expired") &&
+      claimed.history === "counted" &&
       claimed.broadcasts === 1 &&
       this.db
         .prepare(
-          "UPDATE chain_tx_attempts SET state = 'invalid', code = ?, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' AND broadcasts = 1",
+          "UPDATE chain_tx_attempts SET state = 'invalid', code = ?, updated_ms = ? WHERE operation = ? AND attempt = ? AND state = 'signed' AND history = 'counted' AND broadcasts = 1",
         )
         .run(o.reason, this.now(), a.operation, a.attempt).changes === 1
     )
@@ -594,7 +650,7 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
     chainNonce: bigint,
     blockHash: Buffer,
     block: { hash: string; height: bigint },
-  ): { kind: "created"; attempt: Attempt } | { kind: "raced" } {
+  ): { kind: "created"; attempt: Attempt } | { kind: "raced" } | { kind: "blocked" } {
     const db = this.db;
     db.exec("BEGIN IMMEDIATE");
     try {
@@ -603,6 +659,10 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
       if (cur && cur.state !== "invalid") {
         db.exec("COMMIT");
         return { kind: "raced" };
+      }
+      if (cur && !this.freshAllowed(op)) {
+        db.exec("COMMIT");
+        return { kind: "blocked" };
       }
       const row = db
         .prepare("SELECT next_nonce FROM chain_tx_nonces WHERE signer = ? AND public_key = ?")
@@ -639,11 +699,13 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
         code: null,
         signer: this.signer,
         public_key: this.opts.key.publicKey,
+        history: "counted",
+        reconcile: null,
       };
       db.prepare(
         `INSERT INTO chain_tx_attempts (operation, attempt, payload_digest, method, receiver, signer, public_key, nonce,
-           block_hash, block_height, tx_hash, signed_tx, state, code, created_ms, updated_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'signed', NULL, ?, ?)`,
+           block_hash, block_height, tx_hash, signed_tx, history, state, code, created_ms, updated_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'counted', 'signed', NULL, ?, ?)`,
       ).run(
         op,
         attempt.attempt,

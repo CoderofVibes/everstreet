@@ -609,6 +609,209 @@ describe("003w-d overlapping senders (Astra's first-broadcast counterexample, re
   });
 });
 
+describe("003w-d upgrading an actual earlier schema (Astra's migration counterexample)", () => {
+  // The table as the two earlier commits created it: 99cba15 had no send count; 47649b7 counted
+  // sends but its upgrade gave every existing row a count of 0.
+  const BASE = `operation TEXT NOT NULL, attempt INTEGER NOT NULL, payload_digest TEXT NOT NULL,
+      method TEXT NOT NULL CHECK (method IN ('open_hold', 'settle_hold', 'release_hold_for')),
+      receiver TEXT NOT NULL, signer TEXT NOT NULL, public_key TEXT NOT NULL, nonce TEXT NOT NULL,
+      block_hash TEXT NOT NULL, block_height TEXT NOT NULL, tx_hash TEXT NOT NULL UNIQUE,
+      signed_tx TEXT NOT NULL,`;
+  const TAIL = `state TEXT NOT NULL CHECK (state IN ('signed', 'success', 'failure', 'invalid')),
+      code TEXT, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
+      PRIMARY KEY (operation, attempt)`;
+  const SCHEMAS = {
+    "99cba15": `${BASE} ${TAIL}`,
+    "47649b7": `${BASE} broadcasts INTEGER NOT NULL DEFAULT 0, ${TAIL}`,
+  };
+  const OLD =
+    "operation, attempt, payload_digest, method, receiver, signer, public_key, nonce, block_hash, block_height, tx_hash, signed_tx, state, code, created_ms, updated_ms";
+
+  /**
+   * Really signed attempts (made by the writer with a crash before broadcast, so the synthetic
+   * chain never saw them), rewritten into an earlier schema with the given states, and the file
+   * closed. The next openDb runs the actual migration.
+   */
+  async function oldFile(
+    s: ReturnType<typeof setup>,
+    schema: keyof typeof SCHEMAS,
+    rows: { operation: string; state?: string; code?: string | null; again?: boolean }[],
+  ) {
+    const db = s.conn();
+    for (const r of rows) {
+      const crash = s.writer(db, () => {
+        throw new Error("process died");
+      });
+      if (r.again)
+        // a second attempt under the same operation (the earlier one first made invalid)
+        db.prepare(
+          "UPDATE chain_tx_attempts SET state = 'invalid', code = 'nonce', history = 'counted' WHERE operation = ?",
+        ).run(`${r.operation}|open_hold`);
+      await expect(crash.openHold(open(r.operation))).rejects.toThrow(/process died/);
+    }
+    db.exec(`ALTER TABLE chain_tx_attempts RENAME TO current_attempts;
+      CREATE TABLE chain_tx_attempts (${SCHEMAS[schema]}) STRICT;
+      INSERT INTO chain_tx_attempts (${OLD}) SELECT ${OLD} FROM current_attempts;
+      DROP TABLE current_attempts;
+      CREATE UNIQUE INDEX chain_tx_one_nonce ON chain_tx_attempts (signer, public_key, nonce);`);
+    for (const r of rows)
+      if (r.state)
+        db.prepare(
+          "UPDATE chain_tx_attempts SET state = ?, code = ? WHERE operation = ? AND attempt = (SELECT MAX(attempt) FROM chain_tx_attempts WHERE operation = ?)",
+        ).run(r.state, r.code ?? null, `${r.operation}|open_hold`, `${r.operation}|open_hold`);
+    const columns = (
+      db.prepare("PRAGMA table_info(chain_tx_attempts)").all() as { name: string }[]
+    ).map((c) => c.name);
+    const saved = db
+      .prepare(
+        "SELECT attempt, nonce, tx_hash, signed_tx FROM chain_tx_attempts ORDER BY operation, attempt",
+      )
+      .all() as { attempt: number; nonce: string; tx_hash: string; signed_tx: string }[];
+    db.close();
+    return { columns, saved };
+  }
+  const rowsOf = (db: Db) =>
+    db
+      .prepare(
+        "SELECT operation, attempt, state, code, broadcasts, history, reconcile FROM chain_tx_attempts ORDER BY operation, attempt",
+      )
+      .all();
+  const freshReads = (methods: string[], from: number) =>
+    methods.slice(from).filter((m) => m === "query:view_access_key").length;
+
+  for (const schema of ["99cba15", "47649b7"] as const)
+    it(`a pending row from ${schema}: a used nonce proves nothing, no fresh transaction, and the landed one is found`, async () => {
+      const s = setup();
+      const { chain, conn, writer } = s;
+      const { columns, saved } = await oldFile(s, schema, [{ operation: "req-1" }]);
+      expect(columns.includes("broadcasts")).toBe(schema === "47649b7");
+      expect(columns.includes("history")).toBe(false);
+      const old = saved[0] as { nonce: string; tx_hash: string; signed_tx: string };
+      // The old code may already have sent it: its nonce is used and its status isn't available.
+      chain.keyNonce = BigInt(old.nonce);
+      const mark = chain.methods.length;
+      const db = conn(); // the actual openDb migration
+      expect(rowsOf(db)).toEqual([
+        {
+          operation: "req-1|open_hold",
+          attempt: 1,
+          state: "signed",
+          code: null,
+          broadcasts: 0,
+          history: "uncounted",
+          reconcile: null,
+        },
+      ]);
+      for (let i = 0; i < 2; i++)
+        expect(await writer(conn()).openHold(open("req-1"))).toMatchObject({
+          status: "unknown",
+          detail: "invalid_unproven",
+        });
+      expect(freshReads(chain.methods, mark)).toBe(0);
+      expect(chain.sends.map((x) => x.b64)).toEqual([old.signed_tx, old.signed_tx]); // its own bytes only
+      expect(rowsOf(db)).toMatchObject([{ attempt: 1, state: "signed", history: "uncounted" }]);
+      // It had in fact landed: its own FINAL status decides, still one transaction.
+      chain.included.set(old.tx_hash, { ok: true });
+      expect((await writer(conn()).openHold(open("req-1"))).status).toBe("opened");
+      expect(rowsOf(db)).toMatchObject([{ attempt: 1, state: "success" }]);
+      // A known-new row in the upgraded file keeps the sole-sender proof.
+      chain.mode = "steal_nonce";
+      expect(await writer(conn()).openHold(open("req-2", 8))).toMatchObject({
+        status: "unknown",
+        detail: "invalid_nonce",
+      });
+      chain.mode = "land";
+      expect((await writer(conn()).openHold(open("req-2", 8))).status).toBe("opened");
+      // Reopening doesn't run the upgrade again: the new invalid row is not flagged.
+      expect(rowsOf(conn())).toMatchObject([
+        { operation: "req-1|open_hold", attempt: 1, state: "success", history: "uncounted" },
+        {
+          operation: "req-2|open_hold",
+          attempt: 1,
+          state: "invalid",
+          code: "nonce",
+          broadcasts: 1,
+          history: "counted",
+          reconcile: null,
+        },
+        { operation: "req-2|open_hold", attempt: 2, state: "success", history: "counted" },
+      ]);
+    });
+
+  it("an old 'invalid' row is not proof of rejection: flagged, no fresh transaction, resolved only by its own FINAL status", async () => {
+    const s = setup();
+    const { chain, conn, writer } = s;
+    const { saved } = await oldFile(s, "99cba15", [
+      { operation: "req-1", state: "invalid", code: "nonce" },
+    ]);
+    const old = saved[0] as { tx_hash: string };
+    const mark = chain.methods.length;
+    const db = conn();
+    expect(rowsOf(db)).toMatchObject([
+      { state: "invalid", code: "nonce", history: "uncounted", reconcile: "legacy_invalid" },
+    ]);
+    for (let i = 0; i < 2; i++)
+      expect(await writer(conn()).openHold(open("req-1"))).toMatchObject({
+        status: "unknown",
+        detail: "needs_reconciliation",
+        tx: old.tx_hash,
+      });
+    expect(freshReads(chain.methods, mark)).toBe(0);
+    expect(chain.sends).toHaveLength(0); // nothing sent, not even the old bytes
+    expect(chain.methods.slice(mark)).toEqual(["tx", "tx"]); // only its own status was read
+    // The old classification was wrong: it had executed. Its exact FINAL status corrects it.
+    chain.included.set(old.tx_hash, { ok: true });
+    expect((await writer(conn()).openHold(open("req-1"))).status).toBe("opened");
+    expect(rowsOf(db)).toMatchObject([{ state: "success", code: null, reconcile: null }]);
+    expect((await writer(conn()).openHold(open("req-1"))).status).toBe("already");
+    expect(chain.sends).toHaveLength(0);
+  });
+
+  it("a later attempt behind an old 'invalid' one is resolved by its own bytes; the old one stays flagged", async () => {
+    const s = setup();
+    const { chain, conn, writer } = s;
+    const { saved } = await oldFile(s, "99cba15", [
+      { operation: "req-1" },
+      { operation: "req-1", again: true },
+    ]);
+    const [first, second] = saved as { tx_hash: string; signed_tx: string }[];
+    const mark = chain.methods.length;
+    expect(rowsOf(conn())).toMatchObject([
+      { attempt: 1, state: "invalid", reconcile: "legacy_invalid" },
+      { attempt: 2, state: "signed", reconcile: null },
+    ]);
+    chain.mode = "land";
+    expect((await writer(conn()).openHold(open("req-1"))).status).toBe("opened");
+    expect(chain.sends.map((x) => x.b64)).toEqual([second?.signed_tx]);
+    expect(freshReads(chain.methods, mark)).toBe(0);
+    expect(rowsOf(conn())).toMatchObject([
+      { attempt: 1, state: "invalid", reconcile: "legacy_invalid" }, // still for the operator
+      { attempt: 2, state: "success" },
+    ]);
+    expect(first?.tx_hash).not.toBe(second?.tx_hash);
+  });
+
+  it("old success and failure stand, answered with no reads", async () => {
+    const s = setup();
+    const { chain, conn, writer } = s;
+    await oldFile(s, "47649b7", [
+      { operation: "req-1", state: "success" },
+      { operation: "req-2", state: "failure", code: "E_HOLD_CLOSED" },
+    ]);
+    const mark = chain.methods.length;
+    expect((await writer(conn()).openHold(open("req-1"))).status).toBe("already");
+    expect(await writer(conn()).openHold(open("req-2"))).toMatchObject({
+      status: "refused",
+      code: "E_HOLD_CLOSED",
+    });
+    expect(chain.methods.slice(mark)).toEqual([]);
+    expect(rowsOf(conn())).toMatchObject([
+      { state: "success", reconcile: null },
+      { state: "failure", code: "E_HOLD_CLOSED", reconcile: null },
+    ]);
+  });
+});
+
 describe("003w-d wire compatibility with the pinned SDK (near-api-js 7.3.1)", () => {
   it("the writer's transaction bytes equal the SDK's encoding, and the SDK decodes the signed bytes", async () => {
     const near = await import("near-api-js");
