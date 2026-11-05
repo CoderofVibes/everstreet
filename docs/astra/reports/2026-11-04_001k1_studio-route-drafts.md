@@ -165,4 +165,4 @@ Also check that 001k's composition, focus, 390 containment and generated/current
 unchanged.
 
 All six milestones remain open, as do 001k (review), 003w, 004b, 005c, 005d and 006a. Astra's
-files are untouched and uncommitted: `StudioDraftLifetimeReview.md` and the INDEX edit.
+StudioDraftLifetimeReview and INDEX edit were committed in 5363aa8 during the third-finding pass.
