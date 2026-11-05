@@ -32,7 +32,7 @@ import {
   type WriterAnswer,
 } from "../src/customerUse.ts";
 import { ManagedRuntime, type RuntimeOptions } from "../src/invocations.ts";
-import { RuntimeFailure } from "../src/runtime.ts";
+import { RuntimeFailure, type RuntimeProvider } from "../src/runtime.ts";
 import type { Store } from "../src/store.ts";
 import { V3Observations } from "../src/v3observe.ts";
 import type { BlockRef, ViewTransport } from "../src/v3read.ts";
@@ -103,6 +103,8 @@ class ChainRefusal extends Error {
 
 /** The test double of the chain: one plan, one entitlement per customer. */
 export class FixtureChain {
+  /** The business contract account its signed messages name (job 003wf1: a .testnet one). */
+  business = BUSINESS;
   height = 1_000;
   ts = T0;
   plan = view("plan_1");
@@ -521,7 +523,7 @@ export class FixtureChain {
     for (const u of uses) {
       if (u.slot >= e.hold_units) throw new ChainRefusal("E_SLOT");
       const ref = {
-        business: BUSINESS,
+        business: this.business,
         plan_id: 1,
         customer,
         reg_id: e.reg_id as string,
@@ -601,7 +603,7 @@ export class FixtureChain {
     const e = this.ent(customer);
     if (!e) throw new ChainRefusal("E_STATE");
     const ref = {
-      business: BUSINESS,
+      business: this.business,
       plan_id: 1,
       customer,
       reg_id: e.reg_id as string,
@@ -1070,19 +1072,28 @@ export async function customerWorld(
     noProvider?: boolean;
     /** A v3 view transport for owner observations and sale reconciliation (job 003o). */
     v3Transport?: ViewTransport | null;
+    /** Job 003wf1: the bound business contract account (default the fixture one). */
+    businessAccount?: string;
+    /**
+     * Job 003wf1: the runtime provider instead of the scripted extractor, e.g. the real
+     * AnthropicRuntime over a synthetic HTTP seam, so a release is evaluated on that identity.
+     */
+    runtimeProvider?: RuntimeProvider;
     /** The v3 observation clock (job 003s1: a fixture clock in the acquisition preview). */
     v3Now?: () => number;
   } = {},
 ) {
   // The scripted extractor that passes the release check (fictional documents only).
   const provider = new ScriptedRuntime(correct);
-  const rw = runtimeWorld(provider, opts.runtime ?? {}, { dbPath: opts.dbPath });
+  const runtimeProvider: RuntimeProvider = opts.runtimeProvider ?? provider;
+  const rw = runtimeWorld(runtimeProvider, opts.runtime ?? {}, { dbPath: opts.dbPath });
   const f = await rw.founder("Ava Chen");
   await rw.release(f);
   const release = rw.store.db
     .prepare("SELECT id FROM runtime_releases WHERE project_id = ? AND state = 'active'")
     .get(f.project) as { id: string };
   const chain = new FixtureChain();
+  if (opts.businessAccount) chain.business = opts.businessAccount;
   const { verifiesEd25519 } = await import("../src/customerSigning.ts");
   const reader = new FixtureReader(chain);
   const writer = new FixtureWriter(chain, verifiesEd25519);
@@ -1096,13 +1107,13 @@ export async function customerWorld(
   });
   const v3 = {
     transport: opts.v3Transport ?? null,
-    bindings: [{ business_id: f.business, network: "testnet", account: BUSINESS }],
+    bindings: [{ business_id: f.business, network: "testnet", account: chain.business }],
     ...(opts.v3Now ? { now: opts.v3Now } : {}),
   };
   /** The managed runtime for a store: the founder's own, or (a restart) a new one, recovered. */
   const runtimeFor = (store: Store) => {
     if (store === rw.store && !opts.noProvider) return rw.runtime;
-    const r = new ManagedRuntime(store.db, store, opts.noProvider ? null : provider, {
+    const r = new ManagedRuntime(store.db, store, opts.noProvider ? null : runtimeProvider, {
       ceilingCents: 1_000,
       ...opts.runtime,
     });

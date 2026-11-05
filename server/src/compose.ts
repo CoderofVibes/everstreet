@@ -462,7 +462,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   // stale sentence. Each business's own contract capability (guarded revocation) and each
   // device's readiness are observed per offer, never claimed here.
   cap(
-    signIn && signIn.callbackUrl && customer
+    signIn?.callbackUrl && customer
       ? {
           key: "customer_authorization",
           label: "Customer authorization",

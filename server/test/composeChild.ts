@@ -11,7 +11,11 @@ import { runServer } from "../src/serve.ts";
 import type { FetchLike } from "../src/v3rpc.ts";
 
 const [configFile, keysFile, portText] = process.argv.slice(2) as [string, string, string];
-const config = validateConfig(JSON.parse(readFileSync(configFile, "utf8")));
+// The port the test chose (the config file may name another): the listener uses this one.
+const config = {
+  ...validateConfig(JSON.parse(readFileSync(configFile, "utf8"))),
+  listen: { host: "127.0.0.1", port: Number(portText) },
+};
 const keys = JSON.parse(readFileSync(keysFile, "utf8")) as Record<string, string>;
 const fetch: FetchLike = async (_url, init) => {
   const req = JSON.parse(init.body) as {

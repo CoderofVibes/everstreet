@@ -38,13 +38,22 @@ export function runServer(config: AppConfig, deps: ComposeDeps, io: ServeIo) {
         io.error(
           `stop: ${ls.forced ? "the drain budget ran out" : "drained"}; ${ls.requests_running} request(s) still running; ${ls.stop_failures} stop failure(s)`,
         );
+      // The listener: no new connections; idle keep-alive ones close now; answers already being
+      // written (e.g. the 503 "stopping" the stop just gave) finish; the rest are cut at 2 s.
+      const s = server as {
+        closeIdleConnections?: () => void;
+        closeAllConnections?: () => void;
+      };
       await new Promise<void>((resolve) => {
-        const t = setTimeout(resolve, 2_000);
+        const t = setTimeout(() => {
+          s.closeAllConnections?.();
+          resolve();
+        }, 2_000);
         server.close(() => {
           clearTimeout(t);
           resolve();
         });
-        (server as { closeAllConnections?: () => void }).closeAllConnections?.();
+        s.closeIdleConnections?.();
       });
       io.exit(code);
     })());
