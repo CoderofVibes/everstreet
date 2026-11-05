@@ -54,10 +54,18 @@ const until = async (cond: () => boolean | Promise<boolean>, what: string, ms = 
  * `hold` (never answered: A is cut here), or `lose_reply` (applied by the synthetic chain, its
  * reply never sent: an accepted close whose answer is lost).
  */
-type Cut = (req: { channel: string; body: string }) => "answer" | "hold" | "lose_reply";
+type Cut = (req: {
+  channel: string;
+  body: string;
+  url?: string;
+}) => "answer" | "hold" | "lose_reply" | "defer";
 
 /** A child's barrier: `cut` is read on every request (set it when the cut should begin). */
-type Control = { cut?: Cut };
+type Control = {
+  cut?: Cut;
+  /** Requests held one by one ("defer"): each answers when called (the child keeps running). */
+  deferred?: (() => void)[];
+};
 
 function child(configFile: string, rpc: SyntheticRpc, model: SyntheticModel, ctl: Control = {}) {
   const proc: ChildProcess = fork(join("server", "test", "entryChild.ts"), [configFile], {
@@ -78,11 +86,21 @@ function child(configFile: string, rpc: SyntheticRpc, model: SyntheticModel, ctl
       void (async () => {
         const decision = state.cut
           ? "hold"
-          : (ctl.cut?.({ channel: String(m.channel), body: String(m.body) }) ?? "answer");
+          : (ctl.cut?.({
+              channel: String(m.channel),
+              body: String(m.body),
+              url: String(m.url ?? ""),
+            }) ?? "answer");
         if (decision === "hold") {
           state.cut = true;
           state.held++;
           return;
+        }
+        if (decision === "defer") {
+          await new Promise<void>((go) => {
+            ctl.deferred ??= [];
+            ctl.deferred.push(go);
+          });
         }
         const r =
           m.channel === "rpc"
@@ -389,4 +407,177 @@ describe("003wf3 P-5: a child that can't start, and stops in each phase, leave n
     await expect(fetch(`http://127.0.0.1:${i.portA}/api/me`)).rejects.toThrow();
     expect(existsSync(i.dir)).toBe(true); // removed by this test's cleanup, after the exit
   }, 120_000);
+});
+
+const isProviderCall = (r: { channel: string; url?: string; body: string }) =>
+  r.channel === "model" && String(r.url).endsWith("/v1/messages");
+const isBuild = (r: { channel: string; url?: string; body: string }) =>
+  isProviderCall(r) && r.body.includes('"examples"');
+
+describe("003wf3 P-2: a provider call running in one process while the other coordinates", () => {
+  it("A's customer use is at the provider; B coordinates and waits; when it answers, the same use is delivered and charged before the close", async () => {
+    const i = await installation();
+    const ctlA: Control = {};
+    const a = child(i.fileA, i.rpc, i.model, ctlA);
+    await a.ready();
+    const { seller, cara, use } = await upToTheSellersAcceptance(i, i.portA);
+    ctlA.cut = (r) => (isProviderCall(r) && !r.body.includes('"examples"') ? "defer" : "answer");
+    const running = cara(`/api/customer/uses/${use}/execute`, "POST", {});
+    await until(() => (ctlA.deferred?.length ?? 0) > 0, "A's provider call held");
+    ctlA.cut = undefined;
+    const b = child(i.fileB, i.rpc, i.model);
+    await b.ready();
+    const x = await act(i, seller, FOUNDER, "accept");
+    await seller(`/api/sales/actions/${x.id}/requested`, "POST", { tx_hash: x.hash });
+    await until(() => i.read("SELECT 1 FROM business_handovers").length > 0, "gated");
+    // While A's call is out: readiness waits; no order is made by either process.
+    await new Promise((r) => setTimeout(r, 4_000));
+    expect(i.read("SELECT 1 FROM close_orders")).toHaveLength(0);
+    for (const go of ctlA.deferred ?? []) go();
+    const done = await running;
+    expect(done.body.use?.execution?.fulfilled, JSON.stringify(done.body)).toBe(true);
+    await until(
+      () => i.read("SELECT state FROM business_handovers")[0]?.state === "released_to_buyer",
+      "the close after the use settled",
+      60_000,
+    );
+    const methods = i.rpc.applied.map((m) => m.method);
+    expect(methods.filter((m) => m === "settle_hold")).toHaveLength(1);
+    expect(methods.filter((m) => m === "release_hold_for")).toHaveLength(0);
+    expect(methods.indexOf("settle_hold")).toBeLessThan(methods.indexOf("close_sale"));
+    expect(methods.filter((m) => m === "close_sale")).toHaveLength(1);
+    const caraB = browser(i.portB);
+    await signInAs(caraB, CUSTOMER, i.cara);
+    expect((await caraB(`/api/customer/uses/${use}/result`)).status).toBe(200);
+    expect(await a.shutdown()).toBe(0);
+    expect(await b.shutdown()).toBe(0);
+  }, 180_000);
+});
+
+describe("003wf3 P-3: a late provider answer after its process stopped", () => {
+  it("A stops with its customer call out; the late answer reaches nobody and writes nothing; B recovers it as unknown (never re-sent, its cost not zeroed), and readiness waits for it", async () => {
+    const i = await installation();
+    const ctlA: Control = {};
+    const a = child(i.fileA, i.rpc, i.model, ctlA);
+    await a.ready();
+    const { seller, cara, use } = await upToTheSellersAcceptance(i, i.portA);
+    ctlA.cut = (r) => (isProviderCall(r) ? "defer" : "answer");
+    const running = cara(`/api/customer/uses/${use}/execute`, "POST", {}).catch(() => null);
+    await until(() => (ctlA.deferred?.length ?? 0) > 0, "A's provider call held");
+    expect(await a.shutdown()).toBe(0);
+    await running;
+    const before = i.read(
+      "SELECT state, usage_state, reserved_cents, charged_microcents FROM runtime_invocations WHERE purpose = 'customer_use'",
+    );
+    // The answer arrives now: A is gone (its IPC channel closed), so nothing is written.
+    for (const go of ctlA.deferred ?? []) go();
+    await new Promise((r) => setTimeout(r, 500));
+    // (That late answer was A's original call, answered to nobody: the baseline is taken now.)
+    const calls = i.model.calls.messages;
+    expect(
+      i.read(
+        "SELECT state, usage_state, reserved_cents, charged_microcents FROM runtime_invocations WHERE purpose = 'customer_use'",
+      ),
+    ).toEqual(before);
+    expect(
+      i.read("SELECT result_state FROM customer_executions WHERE request_id = ?", use),
+    ).not.toContainEqual({ result_state: "stored" });
+    // B recovers A's running call as unknown: never re-sent, its reserved cost kept, not zero.
+    const b = child(i.fileB, i.rpc, i.model);
+    await b.ready();
+    await until(
+      () =>
+        i.read("SELECT state FROM runtime_invocations WHERE purpose = 'customer_use'")[0]?.state !==
+        "running",
+      "B's recovery of A's call",
+      30_000,
+    );
+    const inv = i.read(
+      "SELECT state, usage_state, reserved_cents FROM runtime_invocations WHERE purpose = 'customer_use'",
+    )[0] as Json;
+    expect(inv.state).toBe("unknown");
+    expect(inv.usage_state).not.toBe("final");
+    expect(i.model.calls.messages).toBe(calls); // never re-sent
+    expect(i.rpc.applied.filter((m) => m.method === "settle_hold")).toHaveLength(0);
+    // A closing now accounts for it: its unit is decided first (an unknown provider outcome is
+    // not a delivered result, so the unit is returned, never charged), then the close.
+    void seller; // A's port is closed now: the seller continues through B
+    const sellerB = browser(i.portB);
+    await signInAs(sellerB, FOUNDER, i.ava);
+    const x = await act(i, sellerB, FOUNDER, "accept");
+    await sellerB(`/api/sales/actions/${x.id}/requested`, "POST", { tx_hash: x.hash });
+    await sellerB(`/api/sales/actions/${x.id}/check`, "POST", {});
+    await until(
+      () => i.read("SELECT state FROM business_handovers")[0]?.state === "released_to_buyer",
+      "the close after the unknown use's unit was decided",
+      60_000,
+    );
+    const methods = i.rpc.applied.map((m) => m.method);
+    expect(methods.filter((m) => m === "settle_hold")).toHaveLength(0);
+    expect(methods.filter((m) => m === "release_hold_for")).toHaveLength(1);
+    expect(methods.indexOf("release_hold_for")).toBeLessThan(methods.indexOf("close_sale"));
+    // The provider cost stays unknown on its record, never zeroed by the close.
+    const after = i.read(
+      "SELECT state, usage_state FROM runtime_invocations WHERE purpose = 'customer_use'",
+    )[0] as Json;
+    expect(after.state).toBe("unknown");
+    expect(after.usage_state).not.toBe("final");
+    expect(i.model.calls.messages).toBe(calls);
+    expect(await b.shutdown()).toBe(0);
+  }, 180_000);
+});
+
+describe("003wf3 the configured build worker across the handover (actual child process)", () => {
+  it("a build A's own worker dispatched before the closing is fenced after the close; its late answer is never applied and its usage isn't final", async () => {
+    const i = await installation();
+    const ctlA: Control = {};
+    const a = child(i.fileA, i.rpc, i.model, ctlA);
+    await a.ready();
+    const { seller } = await upToTheSellersAcceptance(i, i.portA);
+    ctlA.cut = (r) => (isBuild(r) ? "defer" : "answer");
+    const r = await seller(`/api/product-projects/${i.w.f.project}/builds`, "POST", {
+      idempotency_key: "matrix-build-0001",
+      revision: 1,
+      budget: {
+        max_input_tokens: 10_000,
+        max_output_tokens: 2_000,
+        max_seconds: 120,
+        max_cost_cents: 10,
+      },
+    });
+    expect([201, 202], JSON.stringify(r.body).slice(0, 300)).toContain(r.status);
+    const job = r.body.job.id as string;
+    await until(() => (ctlA.deferred?.length ?? 0) > 0, "A's worker dispatching the build", 30_000);
+    expect(
+      i.read("SELECT dispatched_at FROM build_jobs WHERE id = ?", job)[0]?.dispatched_at,
+    ).toBeTruthy();
+    const x = await act(i, seller, FOUNDER, "accept");
+    await seller(`/api/sales/actions/${x.id}/requested`, "POST", { tx_hash: x.hash });
+    await until(
+      () => i.read("SELECT state FROM business_handovers")[0]?.state === "released_to_buyer",
+      "the close (a dispatched build doesn't block it)",
+      60_000,
+    );
+    await until(
+      () =>
+        i.read("SELECT state FROM build_jobs WHERE id = ?", job)[0]?.state ===
+        "needs_reconciliation",
+      "A's worker fencing the build after the owner changed",
+      40_000,
+    );
+    for (const go of ctlA.deferred ?? []) go();
+    await new Promise((r2) => setTimeout(r2, 1_000));
+    expect(
+      i.read(
+        "SELECT state, failure_code, usage_final, artifact_digest FROM build_jobs WHERE id = ?",
+        job,
+      )[0],
+    ).toMatchObject({
+      state: "needs_reconciliation",
+      failure_code: "ownership_changed",
+      usage_final: 0,
+      artifact_digest: null,
+    });
+    expect(await a.shutdown()).toBe(0);
+  }, 180_000);
 });
