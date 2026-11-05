@@ -11,7 +11,12 @@
 // its ephemeral close_sale-only key; the composition's coordinator passes every second). The
 // seller's acceptance starts the closing; the coordinator checks readiness, orders the close and
 // reconciles it, and the page's handover panel follows. Extra controls:
-//   POST /hold-close | /release-close   the closer's next send waits before it lands | goes on
+//   POST /hold-close | /release-close   the closer's next close waits before it lands | goes on
+//   POST /lose-close-answer             the next close lands but its answer is lost
+//   POST /hold-provider | /release-provider   the next provider (model) answer waits | goes on
+//   POST /customer/start                Cara prepares and confirms one use (her fixture key)
+//   POST /customer/execute/<id>         runs it in the background (see it with a held provider)
+//   GET  /customer/uses | /customer/use/<id>   Cara's own view: state, pause, unit, result
 //
 // Site: http://127.0.0.1:<port>/ (default 8814). Sign in with the synthetic wallet (it starts as the
 // seller, ava-founder.near). Controls on http://127.0.0.1:<port+1>/ (a separate listener):
@@ -65,15 +70,22 @@ console.log(
 );
 console.log(`  Application child: ${h.app} (loopback; reached through the site)`);
 let ending = false;
-const end = async () => {
+const end = async (why: string) => {
   if (ending) return;
   ending = true;
-  const r = await h.stop();
-  console.log(
-    `Stopped: application child exit ${r.childExit}${r.forcedKill ? " (forced)" : ""}; temporary directory removed.`,
-  );
-  process.exit(0);
+  console.log(`Stopping (${why})…`);
+  try {
+    const r = await h.stop();
+    console.log(
+      `Stopped: application child exit ${r.childExit}${r.forcedKill ? " (forced)" : ""}; temporary directory removed.`,
+    );
+    process.exit(r.childExit === 0 && !r.forcedKill ? 0 : 1);
+  } catch (e) {
+    // Never a silent failure: what didn't stop or wasn't removed is printed.
+    console.error(`The harness didn't stop cleanly: ${(e as Error).message}`);
+    process.exit(1);
+  }
 };
-setTimeout(() => void end(), minutes * 60_000).unref();
-process.on("SIGINT", () => void end());
-process.on("SIGTERM", () => void end());
+setTimeout(() => void end("time bound"), minutes * 60_000).unref();
+process.on("SIGINT", () => void end("Ctrl+C"));
+process.on("SIGTERM", () => void end("SIGTERM"));

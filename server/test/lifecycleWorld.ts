@@ -275,6 +275,10 @@ export class SyntheticRpc {
   private snapshots = new Map<number, Json>();
   private heldSend: Barrier | null = null;
   private heldQuery: Barrier | null = null;
+  /** Job 003wf3: only a send of this method is held (null: the next send of any method). */
+  private heldSendMethod: string | null = null;
+  /** Job 003wf3: the next send of this method is applied, then its answer is lost. */
+  private loseSendMethod: string | null = null;
   constructor(readonly chain: FixtureChain) {}
 
   private snapshot(height: number) {
@@ -302,10 +306,30 @@ export class SyntheticRpc {
     return this.heldQuery;
   }
 
-  /** The next send_tx waits (before it is applied) until opened. */
-  holdNextSend() {
+  /**
+   * The next send_tx waits (before it is applied) until opened. With `method` (job 003wf3), only
+   * the next send calling that method is held; others pass.
+   */
+  holdNextSend(method: string | null = null) {
     this.heldSend = barrier();
+    this.heldSendMethod = method;
     return this.heldSend;
+  }
+
+  /**
+   * Job 003wf3: the next send calling `method` is applied by the double's rules, then its answer
+   * never reaches the caller (the transaction exists; only its own hash can show it).
+   */
+  loseNextSendAnswer(method: string) {
+    this.loseSendMethod = method;
+  }
+
+  private methodOfSend(b64: string): string | null {
+    try {
+      return decodeSigned(b64).method;
+    } catch {
+      return null;
+    }
   }
 
   private hashFor(height: number) {
@@ -383,13 +407,21 @@ export class SyntheticRpc {
     }
     if (req.method === "send_tx") {
       this.sends++;
+      const b64 = String(p.signed_tx_base64);
+      const method = this.heldSendMethod || this.loseSendMethod ? this.methodOfSend(b64) : null;
       const h = this.heldSend;
-      if (h) {
+      if (h && (this.heldSendMethod === null || this.heldSendMethod === method)) {
         this.heldSend = null;
+        this.heldSendMethod = null;
         h.arrive();
         await h.release;
       }
-      return this.apply(String(p.signed_tx_base64), ok, fail);
+      const out = this.apply(b64, ok, fail);
+      if (this.loseSendMethod !== null && this.loseSendMethod === method) {
+        this.loseSendMethod = null;
+        throw new Error("synthetic: the answer was lost after the transaction was applied");
+      }
+      return out;
     }
     if (req.method === "tx") {
       // Job 003wf2: a wallet's own transactions (applied to the double by the synthetic wallet)

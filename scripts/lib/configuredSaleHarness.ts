@@ -222,8 +222,11 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       sent: [] as Json[],
       /** Job 003wf3: the closer's next send is held (before it lands) until released. */
       closeHeld: false,
+      /** Job 003wf3: the next provider (model) answer is held until released. */
+      providerHeld: false,
     };
     let heldClose: { open: () => void } | null = null;
+    let heldProvider: { open: () => void } | null = null;
     const env: NodeJS.ProcessEnv = {
       // Only what node needs to start, plus the two named variables; nothing else is passed.
       ...Object.fromEntries(
@@ -482,6 +485,51 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       };
     };
 
+    /** Job 003wf3: background executes' final answers (bounded: the newest 20). */
+    const background = new Map<
+      string,
+      { done: boolean; status: number | null; code: string | null }
+    >();
+    const customerStart = async () => {
+      if (caraJar.size === 0) await signInAs(cara, CUSTOMER, b.cara);
+      const prep = await cara(`/api/customer/offers/${b.offer}/prepare`, "POST", {
+        idempotency_key: `configured-harness-use-${String(++uses).padStart(4, "0")}`,
+        input: INVOICE,
+      });
+      if (prep.status !== 201)
+        return {
+          status: prep.status,
+          code: prep.body?.code ?? null,
+          error: prep.body?.error ?? null,
+          use: null,
+        };
+      const id = prep.body.use.id as string;
+      const conf = await cara(
+        `/api/customer/uses/${id}/confirm`,
+        "POST",
+        b.w.signed(prep.body.use.envelope),
+      );
+      return {
+        status: conf.status,
+        code: conf.body?.code ?? null,
+        error: conf.body?.error ?? null,
+        use: id,
+        state: conf.body?.use?.state ?? null,
+      };
+    };
+    const customerExecute = (id: string) => {
+      if (background.size >= 20) background.delete(background.keys().next().value as string);
+      background.set(id, { done: false, status: null, code: null });
+      void cara(`/api/customer/uses/${id}/execute`, "POST", {})
+        .then((x) =>
+          background.set(id, { done: true, status: x.status, code: x.body?.code ?? null }),
+        )
+        .catch(() =>
+          background.set(id, { done: true, status: null, code: "harness_request_failed" }),
+        );
+      return { use: id, started: true };
+    };
+
     // ---- Listeners and the bounded stop ----
     /** Listens, or fails the start (e.g. the port is taken); a bound listener is tracked. */
     const listen = (fetch: (r: Request) => Response | Promise<Response>, port: number) =>
@@ -500,9 +548,23 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
         controls,
         gated: gated !== null,
         holdClose: () => {
-          heldClose = b.rpc.holdNextSend();
+          heldClose = b.rpc.holdNextSend("close_sale");
           controls.closeHeld = true;
         },
+        loseCloseAnswer: () => b.rpc.loseNextSendAnswer("close_sale"),
+        holdProvider: () => {
+          heldProvider = b.model.holdNextMessage();
+          controls.providerHeld = true;
+        },
+        releaseProvider: () => {
+          heldProvider?.open();
+          heldProvider = null;
+          controls.providerHeld = false;
+        },
+        cara,
+        customerStart,
+        customerExecute,
+        background,
         releaseClose: () => {
           heldClose?.open();
           heldClose = null;
@@ -521,8 +583,10 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
     const stop = () =>
       (stopping ??= (async () => {
         await Promise.all([closeListener(siteServer), closeListener(controlServer)]);
-        // A close still held is let through (to nobody) so the child's stop isn't waiting on it.
+        // A close or provider answer still held is let through (to nobody) so the child's stop
+        // isn't waiting on it.
         (heldClose as { open: () => void } | null)?.open();
+        (heldProvider as { open: () => void } | null)?.open();
         let forcedKill = false;
         if (exitCode === undefined) {
           if (child.connected) child.send({ type: "shutdown" });
@@ -533,7 +597,14 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
           await exited;
           clearTimeout(t);
         }
-        removeDir();
+        try {
+          removeDir();
+        } catch (e) {
+          // Reported, never hidden: the caller prints it (the directory is named).
+          throw new Error(
+            `the harness stopped but its temporary directory ${dir} couldn't be removed: ${(e as Error).message}`,
+          );
+        }
         return { childExit: exitCode ?? null, forcedKill };
       })());
     return {
@@ -581,10 +652,18 @@ function configuredSaleControl(h: {
     rpcDown: boolean;
     sent: Json[];
     closeHeld: boolean;
+    providerHeld: boolean;
   };
   gated: boolean;
   holdClose: () => void;
   releaseClose: () => void;
+  loseCloseAnswer: () => void;
+  holdProvider: () => void;
+  releaseProvider: () => void;
+  cara: (path: string, method?: string, body?: unknown) => Promise<{ status: number; body: Json }>;
+  customerStart: () => Promise<unknown>;
+  customerExecute: (id: string) => unknown;
+  background: Map<string, { done: boolean; status: number | null; code: string | null }>;
   app: string;
   customerUse: () => Promise<unknown>;
   accounts: readonly string[];
@@ -679,6 +758,48 @@ function configuredSaleControl(h: {
   control.post("/release-close", (c) => {
     h.releaseClose();
     return c.json({ close_held: false });
+  });
+  // The closer's next close is applied by the contract, but its answer is lost (recovered only
+  // from its own transaction).
+  control.post("/lose-close-answer", (c) => {
+    if (!h.gated) return c.json({ error: "Gated harness only (--gated)" }, 400);
+    h.loseCloseAnswer();
+    return c.json({ lose_next_close_answer: true });
+  });
+  // The next provider (model) call waits until released: a customer use in flight.
+  control.post("/hold-provider", (c) => {
+    h.holdProvider();
+    return c.json({ provider_held: true });
+  });
+  control.post("/release-provider", (c) => {
+    h.releaseProvider();
+    return c.json({ provider_held: false });
+  });
+  // Cara (the existing fixture customer; her fixture key signs, no enrollment), step by step.
+  control.post("/customer/start", async (c) => c.json(await h.customerStart()));
+  control.post("/customer/execute/:id", (c) => c.json(h.customerExecute(c.req.param("id"))));
+  control.get("/customer/uses", async (c) => {
+    const list = await h.cara("/api/customer/uses");
+    return c.json({
+      note: "Cara's own view through the composition's routes (fictional customer).",
+      status: list.status,
+      uses: list.body,
+      background: Object.fromEntries(h.background),
+    });
+  });
+  control.get("/customer/use/:id", async (c) => {
+    const id = c.req.param("id");
+    const use = await h.cara(`/api/customer/uses/${id}`);
+    const result = await h.cara(`/api/customer/uses/${id}/result`);
+    return c.json({
+      use: use.body,
+      result: {
+        status: result.status,
+        code: result.body?.code ?? null,
+        available: result.status === 200,
+      },
+      background: h.background.get(id) ?? null,
+    });
   });
   // The whole synthetic RPC endpoint fails (every read and lookup), then works again.
   control.post("/rpc/down", (c) => {
