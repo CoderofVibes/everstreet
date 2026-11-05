@@ -1295,7 +1295,9 @@ export class SaleActions {
           buyer: live.buyer,
           effects: [
             "The token moves the exact price from your account to the business's contract, where it is held as escrow for this deal only.",
-            "You can take it back (as a claim to collect) until the sale closes.",
+            s.control.close_mode === "gated"
+              ? "You can take it back (as a claim to collect) until both of you have accepted. Once the closing starts it stays in escrow until the closer closes the sale, or, after the closing deadline, either party ends the closing and it becomes your claim to collect."
+              : "You can take it back (as a claim to collect) until the sale closes.",
           ],
           conditions: [
             "If the sale changed since this review, or the offer expired, the contract returns the whole amount to you.",

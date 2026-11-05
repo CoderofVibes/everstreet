@@ -160,9 +160,19 @@ describe("003wf3 a Gated sale on the sale page over the configured composition (
     await wait(() => Boolean(fieldInput("Buyer's NEAR account")), "the terms form");
     await typeInto(fieldInput("Buyer's NEAR account") as HTMLInputElement, CONFIGURED_BUYER);
     await typeInto(fieldInput("Price in TUSD") as HTMLInputElement, "250");
+    // Astra 02:17: the checked meter keeps metering authority; service is checked separately.
+    expect(text()).toContain("It keeps its metering authority after the close.");
+    expect(text()).not.toContain("Customers' new uses continue right after the close.");
     await click("Review the exact request");
     await click("Ask my wallet for exactly this");
     await wait(() => text().includes("Deal 1, version 1"), "the proposal on the contract");
+    // The live terms and progress follow the business's close mode, never the Direct wording.
+    expect(text()).toContain("By its named closer (closer-synthetic.testnet)");
+    expect(text()).toContain("before a deadline 60 minutes after the second acceptance");
+    expect(text()).not.toContain("On the second matching acceptance");
+    expect(text()).toContain("Both accept (starts the closing)");
+    expect(text()).toContain("The named closer closes it");
+    expect(text()).not.toContain("Both accept (closes)");
     await as(CONFIGURED_BUYER);
     await wait(() => text().includes("you are the buyer"), "the buyer's page");
     for (const [label, done] of [
@@ -171,6 +181,12 @@ describe("003wf3 a Gated sale on the sale page over the configured composition (
       ["Accept version 1", "Waiting for the seller"],
     ]) {
       await click(label as string);
+      if (label === "Fund escrow") {
+        // The exact review: escrow can come back only until both accept; then close or abort.
+        await wait(() => text().includes("until both of you have accepted"), "the fund review");
+        expect(text()).toContain("after the closing deadline, either party ends the closing");
+        expect(text()).not.toContain("until the sale closes");
+      }
       await click("Ask my wallet for exactly this");
       await wait(() => text().includes(done as string), done as string);
     }
@@ -192,6 +208,8 @@ describe("003wf3 a Gated sale on the sale page over the configured composition (
     await reloadUntil(CONFIGURED_SELLER, "Handover: Handed over to the buyer");
     expect(panel()).toContain("its transaction succeeded");
     expect(text()).toContain("you are the former seller");
+    expect(text()).toContain("The named closer closes it");
+    expect(text()).not.toContain("Both accept (closes)");
   }, 120_000);
 
   it("aftercare: the new owner's first action is operating the business; resale is secondary; service eligibility is stated apart", async () => {

@@ -708,7 +708,9 @@ function TermsForm({
             <br />
             <small className="muted">
               {metering
-                ? "Customers' new uses continue right after the close."
+                ? s.control.close_mode === "gated"
+                  ? "It keeps its metering authority after the close. Whether customers can actually be served is checked separately after the handover (the runtime, release and budget)."
+                  : "Customers' new uses continue right after the close."
                 : "Without it, customers keep their units after the close, but new uses pause until the new owner appoints metering. Both of you see this in the terms."}
             </small>
           </span>
@@ -781,7 +783,24 @@ function LiveTerms({ s }: { s: SaleSetup }) {
         <dt>Offer open until</dt>
         <dd>{when(d.expires_at_ms)}</dd>
         <dt>How it closes</dt>
-        <dd>On the second matching acceptance, in that same transaction</dd>
+        <dd>
+          {s.control.close_mode === "gated" ? (
+            <>
+              By its named closer ({s.control.closer ?? "not shown"}), after both accept and
+              Everstreet's handover checks, before a deadline {Number(d.close_window_ms) / 60_000}{" "}
+              minutes after the second acceptance
+              {d.state === "closing" && d.deadline_ms !== "0" ? (
+                <>
+                  {" "}
+                  (<When ms={d.deadline_ms} />)
+                </>
+              ) : null}
+              . If it isn't closed by then, either party can end the closing.
+            </>
+          ) : (
+            "On the second matching acceptance, in that same transaction"
+          )}
+        </dd>
         <dt>Floor kept available</dt>
         <dd>
           <Amount base={d.available_floor} s={s} />

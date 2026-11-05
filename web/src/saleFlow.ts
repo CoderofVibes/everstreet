@@ -724,13 +724,33 @@ export function saleSteps(s: SaleSetup) {
   });
   if (c.kind === "none")
     return [step("terms", "Terms proposed", s.roles.seller ? "current" : "waiting")];
+  // Job 003wf3 (Astra 02:17): a Gated business closes by its named closer after both accept;
+  // the progress never says the acceptance closes it.
+  const gated = s.control.close_mode === "gated";
   if (c.kind === "live") {
     const d = c.deal;
     const funded = d.escrow !== "0";
+    const closing = d.state === "closing";
     return [
       step("terms", `Terms proposed (version ${d.version})`, "done"),
       step("escrow", "Escrow funded", funded ? "done" : "current"),
-      step("accept", "Both accept (closes)", funded ? "current" : "waiting"),
+      ...(gated
+        ? [
+            step(
+              "accept",
+              "Both accept (starts the closing)",
+              closing ? "done" : funded ? "current" : "waiting",
+            ),
+            step(
+              "close",
+              "The named closer closes it",
+              closing ? "current" : "waiting",
+              closing
+                ? "Everstreet checks the handover first; ownership changes only when the contract closes it."
+                : "",
+            ),
+          ]
+        : [step("accept", "Both accept (closes)", funded ? "current" : "waiting")]),
       step("apply", "Applied here", "waiting"),
       step("operate", "Buyer operates", "waiting"),
       step("collect", "Seller collects the proceeds", "waiting"),
@@ -769,7 +789,12 @@ export function saleSteps(s: SaleSetup) {
   return [
     step("terms", `Terms proposed (version ${o.version})`, "done"),
     step("escrow", "Escrow funded", "done"),
-    step("accept", "Both accept (closes)", "done"),
+    ...(gated
+      ? [
+          step("accept", "Both accept (starts the closing)", "done"),
+          step("close", "The named closer closes it", "done"),
+        ]
+      : [step("accept", "Both accept (closes)", "done")]),
     step("apply", "Applied here", applied ? "done" : "current"),
     step("operate", "Buyer operates", applied ? "done" : "waiting"),
     step(
