@@ -1554,11 +1554,17 @@ export function startBuildWorker(
     })();
   }, options.pollMs ?? 2000);
   timer.unref?.();
-  const wait = (ms: number) =>
-    new Promise<false>((r) => {
-      const t = setTimeout(() => r(false), ms);
-      t.unref?.();
-    });
+  /** Whether `p` settles within `ms`; the timer is cleared whichever side wins (job 003wf1). */
+  const within = (p: Promise<unknown>, ms: number) => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      p.then(() => true as const),
+      new Promise<false>((r) => {
+        t = setTimeout(() => r(false), ms);
+        t.unref?.();
+      }),
+    ]).finally(() => clearTimeout(t));
+  };
   return {
     worker,
     /** Ends admission, then drains or fences in-flight work; resolves when nothing is running. */
@@ -1567,10 +1573,10 @@ export function startBuildWorker(
       clearInterval(timer);
       const running = pass as Promise<void> | null;
       if (!running || !busy) return { drained: true };
-      const drained = await Promise.race([running.then(() => true as const), wait(drainMs)]);
+      const drained = await within(running, drainMs);
       if (!drained) {
         for (const fence of builds.active.values()) fence("fenced");
-        await Promise.race([running, wait(2_000)]);
+        await within(running, 2_000);
       }
       return { drained };
     },

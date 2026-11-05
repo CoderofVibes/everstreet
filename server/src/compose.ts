@@ -106,7 +106,9 @@ export interface Composed {
     forced: boolean;
     requests_running: number;
     stop_failures: number;
-    /** Provider requests this process still had running after the gates closed (should be 0). */
+    /** Owner stoppers (build worker, maintenance) still unsettled at the deadline. */
+    owners_running: number;
+    /** The runtime's owned work (runs, evaluation loops) still unsettled at the deadline. */
     work_running: number;
   } | null;
 }
@@ -616,6 +618,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     forced: boolean;
     requests_running: number;
     stop_failures: number;
+    owners_running: number;
     work_running: number;
   } | null = null;
   /** Resolves true when `p` settles within `ms`, false at the deadline (the timer is cleared). */
@@ -678,22 +681,34 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       // Cleanup always runs; a forced or failed drain is recorded, not hidden.
       admitting = false;
       stopping = (async () => {
+        // §12.10: ONE exact deadline D. A cleanup reserve R is held back inside it: owners and
+        // requests drain until D - R; after the gates close, owner stoppers still pending and the
+        // runtime's owned work are awaited together until D. Nothing waits past D.
+        const deadline = Date.now() + stopTimeout;
+        const reserve = Math.min(250, Math.floor(stopTimeout / 4));
+        const until = (t: number) => Math.max(0, t - Date.now());
         let failures = 0;
-        const owners = stoppers.splice(0).map((s) =>
-          Promise.resolve()
+        const owners = stoppers.splice(0).map((s) => {
+          const o = { done: false, p: Promise.resolve() as Promise<unknown> };
+          o.p = Promise.resolve()
             .then(s)
             .catch(() => {
               failures++;
-            }),
+            })
+            .finally(() => {
+              o.done = true;
+            });
+          return o;
+        });
+        const ownersDone = await within(
+          Promise.all(owners.map((o) => o.p)),
+          until(deadline - reserve),
         );
-        // ONE shared deadline for all of it: the owners, then the requests' grace from what's left.
-        const deadline = Date.now() + stopTimeout;
-        const ownersDone = await within(Promise.all(owners), stopTimeout);
-        const left = Math.max(0, deadline - Date.now());
         const requestsDone = await within(
           Promise.allSettled([...inflight]),
-          Math.min(requestGrace, left),
+          Math.min(requestGrace, until(deadline - reserve)),
         );
+        const requestsRunning = inflight.size;
         // No longer present: a peer may now recover whatever this process left running.
         if (presenceTimer) clearInterval(presenceTimer);
         try {
@@ -701,21 +716,26 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         } catch {
           // the database is already unusable; the presence lapses by itself
         }
-        last = {
-          forced: !ownersDone || !requestsDone,
-          requests_running: inflight.size,
-          stop_failures: failures,
-          work_running: 0,
-        };
         // The gates close first, so a cut request's handler can never reach storage; then every
-        // admitted request still running is answered 503 now, and resources close.
+        // admitted request still running is answered 503 now.
         fence.close();
         gate.closed = true;
         for (const cut of [...cutoffs]) cut();
-        // Owned work (runtime runs, evaluation loops) refused at the gates is awaited, under what
-        // is left of the shared deadline; whatever is still unsettled then is reported, not hidden.
-        await within(runtime.settledAll(), Math.max(250, deadline - Date.now()));
-        last.work_running = runtime.ownedCount();
+        // Owners still stopping and the runtime's owned work (runs, evaluation loops), refused at
+        // the gates, are awaited until D; whatever is still unsettled then is reported.
+        await within(
+          Promise.all([...owners.filter((o) => !o.done).map((o) => o.p), runtime.settledAll()]),
+          until(deadline),
+        );
+        const ownersRunning = owners.filter((o) => !o.done).length;
+        const workRunning = runtime.ownedCount();
+        last = {
+          forced: !ownersDone || !requestsDone || ownersRunning > 0 || workRunning > 0,
+          requests_running: requestsRunning,
+          stop_failures: failures,
+          owners_running: ownersRunning,
+          work_running: workRunning,
+        };
         closeAll(opened);
       })();
       return stopping;
