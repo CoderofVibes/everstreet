@@ -269,3 +269,57 @@ describe("003wf1 start and stop", () => {
     expect(sessions.n).toBe(0);
   });
 });
+
+describe("003wf1 the provider timeout on the production adapters (adapter-level evidence)", () => {
+  it("the runtime's generation that never answers ends as a timeout through httpsTransport's own limit", async () => {
+    const { parseAiConfig } = await import("../src/ai-config.ts");
+    const { httpsTransport } = await import("../src/anthropic.ts");
+    const { AnthropicRuntime } = await import("../src/runtime.ts");
+    const { INVOICE_SPEC } = await import("./runtime-world.ts");
+    const ai = parseAiConfig(
+      JSON.stringify({
+        config_version: "lifecycle-test-1",
+        provider: "anthropic",
+        model: "claude-haiku-5-5",
+        pricing_version: "2026-11-02",
+        operator_ceiling_cents: 100,
+        runtime_operator_ceiling_cents: 100,
+      }),
+      "synthetic-test-key-not-a-credential-0001",
+    );
+    if (!ai.ok) throw new Error(ai.reason);
+    const seen: string[] = [];
+    // The count answers; the generation never does. Like real fetch, it honours its abort
+    // signal (a transport that ignores it is the shutdown fence's case, tested elsewhere).
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.endsWith("/count_tokens")) return new Response(JSON.stringify({ input_tokens: 900 }));
+      return new Promise<Response>((_, reject) =>
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        ),
+      );
+    }) as typeof fetch;
+    const rt = new AnthropicRuntime(
+      ai.config,
+      httpsTransport(ai.apiKey, { fetchImpl, timeoutMs: 100 }),
+    );
+    const err = await rt
+      .extract(
+        {
+          invocationId: "lifecycle-timeout",
+          spec: INVOICE_SPEC,
+          document: "Fictional invoice SH-1042",
+          limits: { maxInputTokens: 30_000, maxOutputTokens: 2_000 },
+        },
+        new AbortController().signal,
+      )
+      .catch((e: unknown) => e as { failureClass?: string; usage?: unknown });
+    expect(err).toMatchObject({ failureClass: "timeout", usage: null }); // sent: its cost unknown
+    expect(seen).toEqual([
+      "https://api.anthropic.com/v1/messages/count_tokens",
+      "https://api.anthropic.com/v1/messages",
+    ]);
+  });
+});

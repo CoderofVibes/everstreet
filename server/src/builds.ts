@@ -1542,6 +1542,9 @@ export function startBuildWorker(
     busy = true;
     pass = (async () => {
       try {
+        // Job 003wf1: with peers ("expired"), a dead peer's job is noticed when its lease lapses
+        // and recovered here by the existing rules (never re-sent if it may have been sent).
+        if (options.recoverAtStart === "expired") worker.recover();
         while (!stopped && (await worker.runNext())) {}
       } catch {
         console.error("Build worker: a job could not be processed; it will be recovered");

@@ -32,7 +32,7 @@ import { base58Encode } from "../src/customerWriter.ts";
 import { nep413Digest } from "../src/identity.ts";
 import { AnthropicRuntime } from "../src/runtime.ts";
 import { CUSTOMER, customerWorld, type FixtureChain, type Json } from "./customer-world.ts";
-import { correct } from "./runtime-world.ts";
+import { correct, INVOICE_SPEC } from "./runtime-world.ts";
 
 export const RPC = "https://synthetic-testnet-rpc.example";
 export const MODEL = "https://api.anthropic.com";
@@ -74,7 +74,7 @@ export function nearKey() {
 
 /** The Anthropic HTTP API's two paths, fictional answers with usage. */
 export class SyntheticModel {
-  calls = { count_tokens: 0, messages: 0 };
+  calls = { count_tokens: 0, messages: 0, builds: 0 };
   /** The next messages call answers this HTTP error instead (e.g. 529 overloaded). */
   failNext: number | null = null;
   private held: Barrier | null = null;
@@ -103,6 +103,26 @@ export class SyntheticModel {
         body: JSON.stringify({
           type: "error",
           error: { type: "overloaded_error", message: "Overloaded" },
+        }),
+      };
+    }
+    // A build (its structured output asks for a spec with examples): the fixture invoice spec,
+    // examples as key/value pairs, as the production provider reshapes them.
+    if (JSON.stringify(body.output_config ?? {}).includes("\"examples\"")) {
+      this.calls.builds++;
+      const spec = {
+        ...INVOICE_SPEC,
+        examples: INVOICE_SPEC.examples.map((e) => ({
+          input: e.input,
+          values: Object.entries(e.output).map(([key, value]) => ({ key, value })),
+        })),
+      };
+      return {
+        status: 200,
+        body: JSON.stringify({
+          content: [{ type: "text", text: JSON.stringify(spec) }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1500, output_tokens: 800 },
         }),
       };
     }
