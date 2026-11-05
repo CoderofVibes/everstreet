@@ -35,6 +35,8 @@ visual direction), then Opus builds.
 
 ## Now
 
+- Showcase: corrected spec docs/design/SHOWCASE_SPEC.md; stage A (6ab958f, 5052685) and stage B (e1e5848) built and checked (1685/12/66). Live on the scratch preview (everstreet-scratch, port 8811): homepage rail sample panel, Example businesses, /example/ledgerline. NEXT per Astra: stage C needs the Relaydesk and Signalwatch engines (product-type framework), then 006a, team/co-op + 006c, then stage D (demo account; Fable for its visual design).
+
 - **ALL FOUR business-v3 examples VERIFIED ON NEAR TESTNET** (Nov 5 evening): Direct (6a4d8c8),
   Gated (aee32f1), lost purchase response + failed token payout (344ca90); README d40134f. Spend
   16.73 of 20 testnet NEAR (root everstreet.testnet ~6.2 NEAR left). Evidence data/evidence/
