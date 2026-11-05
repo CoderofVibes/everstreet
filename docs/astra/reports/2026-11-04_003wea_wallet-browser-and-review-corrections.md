@@ -125,6 +125,13 @@ regression. It is not a browser reproduction: there is no DOM here.
 - **`npm run check`:** exit 0. Lint (389 files) is clean, with no warnings: the BigInt min carries
   a `biome-ignore`, not the invalid `Math.min` autofix. Types pass. 1332 passed and 1 skipped
   (1333), across 143 passed and 1 skipped files.
+- **Later full runs (docs-only changes since, with 25 node processes on the machine)** failed
+  only on 5-second timeouts:
+  - once, the two harness-flow tests (10–12 s). Run alone, 6/6 pass in 1.77 s;
+  - twice, `protected-store` "concurrent and repeated writes" (5.08 and 5.25 s), a 003v test
+    this job doesn't touch. Run alone, 12/12 pass in 4.29 s.
+
+  No timeout was raised. A clean full repeat on a quiet machine is part of the review.
 - **`npm run web:build`:** exit 0. The main chunk is 916.97 kB (it was 911.63 kB), with the wallet
   chunks lazy as before.
 
