@@ -150,8 +150,18 @@ Who can do what, and what the sale does and does not cover: [docs/AUTHORITY.md](
 ### Business v3 handover and recovery examples
 
 The testnet records above cover the earlier contracts. All four examples below have local test
-coverage. **The Direct sale has now been verified on NEAR testnet**; the other three testnet
-runs are pending.
+coverage, and **all four have been verified on NEAR testnet (Nov 5 2026)**. Each ran on its
+own born-locked business-v3 contract (code hash `HMGhGxrpnKJfxBSwovHmvd1zoKv5nw4hSGp3s6qhxM7C`)
+through the app's normal routes. They used fictional script-held accounts and a labelled
+stand-in AI model. Every write's outcome was read from its own finalized transaction.
+Total spend was 16.73 of a 20 testnet NEAR ceiling; testnet NEAR has no value.
+
+Two faults came from the public RPC, and both are recorded in the evidence:
+- **Rate limit:** FastNEAR's free tier rate-limited the runs (HTTP 429). Later runs read
+  through dRPC, NEAR's listed public testnet endpoint.
+- **Lost charge:** one platform charge couldn't be confirmed and was never re-sent. The chain
+  showed it never executed, and the customer released that hold after the contract's
+  deadline, so that use was delivered and not charged.
 
 **Direct sale: verified on NEAR testnet (Nov 5 2026).**
 - **Setup:** contract `ledgerline-v3-1.everstreet.testnet` was deployed born locked (no access
@@ -182,12 +192,44 @@ runs are pending.
 | Example | What the local check covers | Reproduce locally |
 |---|---|---|
 | Direct sale (also verified on testnet, above) | A customer buys 100 uses, consumes 20 and retains 80 at close. The seller loses control, the buyer serves the next use, and the customer has 79 left. | `npx vitest run server/test/flagship-journey-process.test.ts`; the rehearsal driver's dry run: `npx vitest run server/test/rehearsal-driver.test.ts` |
-| Gated sale | The closer returns one outstanding reservation, closes once and reopens service under the buyer. The customer retains 95 unused units and access to earlier results. | `npx vitest run server/test/flagship-gated-journey.test.ts` |
-| Lost purchase response | The payment lands in the chain fixture before the app loses its readback. Rechecking the original transaction confirms one purchase without adding units twice. | `npx vitest run server/test/flagship-restart-matrix.test.ts` |
-| Failed token payout | Contract tests simulate a failed transfer callback, check that the claim keeps its category and beneficiary, and exercise a successful retry and duplicate callback. The testnet rehearsal will exercise the downstream token receipt and check the recipient's actual test-token balance. | `cargo test --manifest-path contracts/business-v3/Cargo.toml payouts_keep_their_category_through_failures_claims_and_duplicates` |
+| Gated sale (also verified on testnet, below) | The closer returns one outstanding reservation, closes once and reopens service under the buyer. The customer retains 95 unused units and access to earlier results. | `npx vitest run server/test/flagship-gated-journey.test.ts`; dry run `npx vitest run server/test/rehearsal-examples.test.ts` |
+| Lost purchase response (also verified on testnet, below) | The payment lands in the chain fixture before the app loses its readback. Rechecking the original transaction confirms one purchase without adding units twice. | `npx vitest run server/test/flagship-restart-matrix.test.ts` |
+| Failed token payout (also verified on testnet, below) | Contract tests simulate a failed transfer callback, check that the claim keeps its category and beneficiary, and exercise a successful retry and duplicate callback. | `cargo test --manifest-path contracts/business-v3/Cargo.toml payouts_keep_their_category_through_failures_claims_and_duplicates` |
 
-For each completed testnet run, this section will link the tested commit, finalized transaction
-receipts, observed balances and verification steps.
+**Gated sale: verified on NEAR testnet.**
+- **Setup:** contract `ledgerline-gated-v3-1.everstreet.testnet`, in Gated mode. Its closer
+  account holds only a function-call key for `close_sale` on that contract.
+- **At the seller's acceptance (final views):** 94 free, 1 reserved and 5 consumed. A second
+  customer's fresh request during the gate was refused by the app (`handover_pause`): no hold,
+  no charge.
+- **After the managed close:** the reservation was returned once, leaving 95 free, 0 reserved and
+  5 consumed. The buyer is at generation 2, the earlier result is unchanged and the former owner
+  is refused.
+- **Under the buyer:** the next use left 94 free and 6 consumed.
+- **Evidence:** [data/evidence/v3-gated-testnet.json](data/evidence/v3-gated-testnet.json) (with
+  the writer-history check and the operator's notes);
+  [setup](data/evidence/v3-gated-setup-testnet.json).
+
+**Lost purchase response and failed token payout: verified on NEAR testnet.**
+- **Setup:** contract `ledgerline-payout-v3-1.everstreet.testnet`.
+- **Lost purchase response, real fault:** the provider answered 500 to the wallet's send, so the
+  app never learned the transaction ID. A check without it answered "unknown" (the contract
+  shows a purchase, but it can't be shown to be this one). With the customer's original ID, the
+  purchase was confirmed once: 10 units for exactly 1.5 tUSD.
+- **Lost purchase response, controlled fault:** a test-only drop of the app's readback answer.
+  The app answered "unknown", then the recheck confirmed 5 units for exactly 0.75 tUSD.
+- **Failed token payout, after a small Direct sale:**
+  - The seller was owed 10 tUSD and unregistered from the token after the app's review: the
+    deliberate fault.
+  - The claim's downstream token transfer failed, and the contract restored the same 10 tUSD sale
+    proceeds claim to the same seller. The buyer's attempt to claim was refused (nothing owed).
+  - The seller registered again and collected exactly 10 tUSD.
+  - A replay was refused by both the app and the contract, so nothing more was paid.
+- **Evidence:** [data/evidence/v3-recovery-testnet.json](data/evidence/v3-recovery-testnet.json);
+  [setup](data/evidence/v3-recovery-setup-testnet.json).
+
+Verify any record offline with `npx tsx scripts/verify-rehearsal.ts <file>`, then follow its
+explorer links.
 
 ## Run it
 
