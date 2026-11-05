@@ -156,3 +156,34 @@ unknown ones. Review old invalid rows too: the previous code's invalid classific
 from the reproduced unsafe exception; it is not automatically proof of rejection. Document
 the upgrade policy and preserve confirmed success/failure. Temporary probe DB/directory was
 closed and removed; no existing database/credentials were read or modified.
+
+### Independent migration correction repeat
+
+Astra repeated the actual old-schema close/reopen probe against the migration correction.
+The fixture removes the new `history` and `reconcile` columns as well as `broadcasts`, so it
+really represents the earlier schema. The pending row now remains `signed`, with
+`freshAttemptReads=0`. A second fixture starting from an old `invalid` row also produces
+`freshAttemptReads=0`; that classification no longer authorizes a replacement transaction.
+Both use dummy transaction bytes and a key whose sign method throws: zero actual signatures
+and zero network calls. Each disposable database was closed and its own temporary folder removed.
+
+The overlapping-send probe was also repeated with an explicitly `counted` new row, rather than
+relying on the conservative legacy default. It still returns unknown, leaves the row signed,
+and produces zero fresh-attempt reads (three synthetic sends of the same dummy bytes).
+
+Source review confirms the sole-send invalidation CAS requires counted history, new attempts
+explicitly set counted history, and fresh-attempt permission is rechecked inside the write
+transaction. Legacy invalid classifications are flagged for exact-hash reconciliation;
+recorded success/failure are preserved. Independent `npm run check` (98518) passed: lint and
+types clean, 1,266 tests passed and one platform-specific test skipped. Claude's final report
+remains pending at this observation. This is adapter/migration evidence, not a live NEAR transaction or the
+full configured customer journey; 003we and 003wf remain required.
+
+### Bounded handoff accepted
+
+Claude finished with code `373a17c` and report/JOBS `cc4aa9f`; process 45099 exited 0.
+The report now records the actual migration policy, passing checks and remaining gaps.
+Astra accepts this adapter correction for the next 003we implementation handoff. This does
+not close 003w or M3: separate-process contention, the real CustomerUses route/restart journey,
+operator reconciliation and external testnet evidence remain explicit 003wf requirements.
+The sign-in modal correction was already checked in the actual browser; no UI changed here.
