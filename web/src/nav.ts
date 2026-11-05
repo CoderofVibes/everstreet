@@ -33,6 +33,7 @@ export const SUBNAV: Record<Destination, { label: string; to: string }[]> = {
   acquire: [
     { label: "Acquisitions", to: "/acquire" },
     { label: "Handovers", to: "/handovers" },
+    { label: "Portfolio", to: "/portfolio" },
   ],
 };
 
@@ -52,7 +53,12 @@ export function destinationOf(rawPath: string): Destination | null {
   const path = rawPath.split(/[?#]/)[0] ?? "/";
   // A business's sale and handover are acquisition work, even though they live under /desk.
   if (/^\/desk\/[^/]+\/(sale|handover)(\/|$)/.test(path)) return "acquire";
-  if (under(path, "/acquire") || under(path, "/deal") || under(path, "/handovers"))
+  if (
+    under(path, "/acquire") ||
+    under(path, "/deal") ||
+    under(path, "/handovers") ||
+    under(path, "/portfolio")
+  )
     return "acquire";
   if (
     under(path, "/desk") ||

@@ -12,6 +12,7 @@ import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
 import { BuildHome } from "./pages/Build.tsx";
 import { Continuity } from "./pages/Continuity.tsx";
+import { ControlSheetPage, VerifyRecordPage } from "./pages/ControlSheet.tsx";
 import { CustomerProduct } from "./pages/CustomerProduct.tsx";
 import { DealPage } from "./pages/Deal.tsx";
 import { DeskList, DeskPage } from "./pages/Desk.tsx";
@@ -31,6 +32,7 @@ import { ImportHome, ImportWorkspace } from "./pages/Import.tsx";
 import { Inbox } from "./pages/Inbox.tsx";
 import { Opportunities, OpportunityReview } from "./pages/Opportunities.tsx";
 import { Person } from "./pages/Person.tsx";
+import { PortfolioPage } from "./pages/Portfolio.tsx";
 import { ProductStudio } from "./pages/ProductStudio.tsx";
 import { Profile } from "./pages/Profile.tsx";
 import { PublicPage } from "./pages/PublicPage.tsx";
@@ -321,6 +323,12 @@ function Routes() {
   const room = match("/acquire/room/:id", path);
   if (room) return <AcquireRoom id={room.id as string} />;
   if (path === "/profile") return <Profile />;
+  // Job 003x: the control sheet (current owner) and the record verifier (anyone).
+  const sheet = match("/acquire/control/:id", path);
+  if (sheet?.id) return <ControlSheetPage key={sheet.id} businessId={sheet.id} />;
+  if (path === "/acquire/verify-record") return <VerifyRecordPage />;
+  // Job 005d: the viewer's portfolio.
+  if (path === "/portfolio") return <PortfolioPage />;
   // Job 005c: expert help (directory, a profile and its request form, my requests, a thread).
   if (path === "/experts") return <ExpertsDirectory />;
   const expert = match("/experts/:id", path);

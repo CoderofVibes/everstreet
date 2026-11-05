@@ -68,6 +68,10 @@ const CLASS: Record<string, Class> = {
   // 005c: a person's own expert profile and private help requests (a business link is checked
   // and refused while it changes hands inside the service; the request itself isn't owner state)
   "PUT /api/me/expert-profile": "not_business",
+  // 003x: verifies supplied text only (reads and changes nothing)
+  "POST /api/handover-records/verify": "not_business",
+  // 005d: the viewer's own private portfolio note (never business state)
+  "PUT /api/me/portfolio/:businessId/note": "not_business",
   "POST /api/me/expert-profile/publish": "not_business",
   "POST /api/me/expert-profile/unpublish": "not_business",
   "POST /api/help-requests/preview": "not_business",

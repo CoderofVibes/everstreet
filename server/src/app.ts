@@ -23,12 +23,15 @@ import { economics } from "./economics.ts";
 import { Evaluations } from "./evaluations.ts";
 import { ExpertHelp } from "./expertHelp.ts";
 import { StoppedError } from "./fence.ts";
+import { HandoverRecords } from "./handoverRecord.ts";
+import { verifyRecord } from "./handoverVerify.ts";
 import type { AccountSignIn } from "./identity.ts";
 import { type ImportInspector, type ImportSourceOptions, Imports } from "./imports.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { customerOperations } from "./operations.ts";
 import { Opportunities } from "./opportunities.ts";
 import { Payments } from "./payments.ts";
+import { Portfolio } from "./portfolio.ts";
 import { Products } from "./products.ts";
 import { Publications } from "./publication.ts";
 import { Releases } from "./releases.ts";
@@ -129,6 +132,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
     proposalBudget(builds.provider),
   );
   const expertHelp = new ExpertHelp(store.db, store);
+  const portfolio = new Portfolio(store.db, store);
+  const handoverRecords = new HandoverRecords(store.db, store, (id) => {
+    const b = v3.bindingFor(id);
+    return b ? { network: b.network, account: b.account } : null;
+  });
   const imports = new Imports(
     store.db,
     store,
@@ -1000,6 +1008,30 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
 
   // ---------- books and value (owner only) ----------
+
+  // ---------- job 003x: the buyer's control sheet, the portable record and its verifier ----------
+  app.get("/api/businesses/:id/control-sheet", (c) =>
+    c.json(handoverRecords.sheet(me(c), c.req.param("id"))),
+  );
+  app.get("/api/businesses/:id/handover-record", (c) => {
+    const r = handoverRecords.record(me(c), c.req.param("id"));
+    c.header(
+      "content-disposition",
+      `attachment; filename="handover-record-${c.req.param("id").slice(0, 8)}.json"`,
+    );
+    return c.json(r);
+  });
+  // Pure: verifies supplied text; reads nothing from this server's records.
+  app.post("/api/handover-records/verify", async (c) => {
+    const text = await c.req.text();
+    return c.json(verifyRecord(text));
+  });
+
+  // ---------- job 005d: the viewer's portfolio (owned, considering, former; private notes) ----------
+  app.get("/api/me/portfolio", (c) => c.json(portfolio.view(me(c))));
+  app.put("/api/me/portfolio/:businessId/note", async (c) =>
+    c.json(portfolio.setNote(me(c), c.req.param("businessId"), await body(c))),
+  );
 
   // ---------- job 005c: expert help (personal profiles, private requests; no authority) ----------
   app.get("/api/me/expert-profile", (c) => c.json(expertHelp.myProfile(me(c))));

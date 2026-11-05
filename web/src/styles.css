@@ -1364,3 +1364,12 @@ ul.plain { margin: 0; padding-left: 18px; }
 .help-list li { padding: 6px 0; }
 .expert-filters { align-items: center; }
 .expert-filters .input { width: auto; flex: 1 1 220px; max-width: 360px; }
+
+/* Job 005d: portfolio (comparison grid of owned businesses; rows for the rest). */
+.pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.pf-card h3 a { color: inherit; }
+.pf-row { padding: 14px 16px; margin-bottom: 10px; }
+.pf-note { margin-top: 10px; }
+.pf-note[open] { display: grid; gap: 6px; }
+.cs-list li { padding: 8px 0; border-bottom: 1px solid var(--line, #eef1f7); }
+.cs-list li { padding: 8px 0; border-bottom: 1px solid var(--line, #eef1f7); }
