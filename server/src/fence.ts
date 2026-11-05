@@ -90,10 +90,44 @@ export class Fence {
     });
   }
 
-  /** A fetch-like function through the fence. */
+  /**
+   * A fetch-like function through the fence, for the WHOLE response lifetime (Astra's handoff
+   * review): the headers arrive through the fence, and so does every read of the body. At close
+   * a pending body read is rejected at once (StoppedError) and the underlying reader is
+   * cancelled, so a transport that holds its body can't keep an owned run, its timer or its
+   * caller waiting. The response's url and redirect flag are kept for the caller's own checks.
+   */
   wrap<F extends AnyFn>(f: F): F {
     return ((...args: Parameters<F>) =>
-      this.pass(() => Promise.resolve(f(...args) as ReturnType<F>))) as unknown as F;
+      this.pass(() => Promise.resolve(f(...args) as ReturnType<F>)).then((r) =>
+        this.response(r),
+      )) as unknown as F;
+  }
+
+  private response<T>(r: T): T {
+    if (!(r instanceof Response) || !r.body) return r;
+    const reader = r.body.getReader();
+    const body = new ReadableStream<Uint8Array>({
+      pull: async (c) => {
+        try {
+          const { done, value } = await this.pass(() => reader.read());
+          if (done) c.close();
+          else c.enqueue(value);
+        } catch (e) {
+          reader.cancel().catch(() => {});
+          c.error(e);
+        }
+      },
+      cancel: (why) => reader.cancel(why).catch(() => {}),
+    });
+    const out = new Response(body, {
+      status: r.status,
+      statusText: r.statusText,
+      headers: r.headers,
+    });
+    Object.defineProperty(out, "url", { value: r.url });
+    Object.defineProperty(out, "redirected", { value: r.redirected });
+    return out as T;
   }
 
   /**

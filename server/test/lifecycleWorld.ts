@@ -25,8 +25,11 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseAiConfig } from "../src/ai-config.ts";
 import { httpsTransport } from "../src/anthropic.ts";
+import { validateConfig } from "../src/appConfig.ts";
+import { composeApplication } from "../src/compose.ts";
 import { verifiesEd25519 } from "../src/customerSigning.ts";
 import { base58Encode } from "../src/customerWriter.ts";
+import { nep413Digest } from "../src/identity.ts";
 import { AnthropicRuntime } from "../src/runtime.ts";
 import { CUSTOMER, customerWorld, type FixtureChain, type Json } from "./customer-world.ts";
 import { correct } from "./runtime-world.ts";
@@ -34,6 +37,8 @@ import { correct } from "./runtime-world.ts";
 export const RPC = "https://synthetic-testnet-rpc.example";
 export const MODEL = "https://api.anthropic.com";
 export const OP = "meter.testnet";
+/** The fictional founder's account (bound to the bootstrap's founder for verified sign-in). */
+export const FOUNDER = "ava-founder.near";
 /** The fictional business contract (a .testnet account, as the configured app requires). */
 export const BIZ = "studio-synthetic.testnet";
 export const API_KEY_ENV = "EVERSTREET_SYNTHETIC_MODEL_KEY";
@@ -112,13 +117,46 @@ export class SyntheticModel {
       }),
     };
   }
-  /** As a fetch, for the in-process bootstrap: the two paths only, never a real fetch. */
+  /**
+   * The next messages answer sends its headers at once and holds its BODY until opened; a
+   * non-cooperating transport: it ignores cancellation (it never ends the held read itself).
+   */
+  holdNextBody() {
+    this.heldBody = { ...barrier(), cancelled: false };
+    return this.heldBody;
+  }
+  private heldBody: (Barrier & { cancelled: boolean }) | null = null;
+  /** As a fetch, for in-process compositions: the two paths only, never a real fetch. */
   fetch(): typeof fetch {
     return (async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "object" && "url" in input ? input.url : String(input);
       const r = await this.answer(url, JSON.parse(String(init?.body ?? "{}")));
-      return new Response(r.body, { status: r.status });
+      const h = url.endsWith("/v1/messages") ? this.heldBody : null;
+      if (!h) return new Response(r.body, { status: r.status });
+      this.heldBody = null;
+      const bytes = new TextEncoder().encode(r.body);
+      let sent = false;
+      const body = new ReadableStream<Uint8Array>({
+        async pull(c) {
+          if (sent) return c.close();
+          h.arrive();
+          await h.release; // headers are out; the body waits
+          sent = true;
+          c.enqueue(bytes);
+        },
+        cancel() {
+          h.cancelled = true; // noted, but the held read is not ended by the transport
+        },
+      });
+      return new Response(body, { status: r.status });
     }) as typeof fetch;
+  }
+  /** The test RPC as an in-process fetch (the configured endpoint only). */
+  static rpcFetch(rpc: SyntheticRpc) {
+    return async (url: string, init: { body: string }) => {
+      if (url !== RPC) throw new Error(`synthetic RPC: refused ${url}`);
+      return new Response(await rpc.answer(init.body), { status: 200 });
+    };
   }
 }
 
@@ -431,11 +469,19 @@ export async function bootstrap(dir: string, port: number, maintenance: Json) {
       "INSERT INTO person_accounts (account_id, person_id, network, created_at) VALUES (?, ?, 'testnet', ?) ON CONFLICT DO NOTHING",
     )
     .run(CUSTOMER, w.cara.id, new Date().toISOString());
+  w.state.store.db
+    .prepare(
+      "INSERT INTO person_accounts (account_id, person_id, network, created_at) VALUES (?, ?, 'testnet', ?) ON CONFLICT DO NOTHING",
+    )
+    .run(FOUNDER, w.f.ava.id, new Date().toISOString());
   w.rw.store.db.close();
   const rpc = new SyntheticRpc(w.chain);
   rpc.keys.set(`${OP}|${op.id}`, 0n);
   const cara = nearKey();
   rpc.keys.set(`${CUSTOMER}|${cara.id}`, 0n);
+  // The founder signs in too (evaluations, builds), with her own ephemeral key.
+  const ava = nearKey();
+  rpc.keys.set(`${FOUNDER}|${ava.id}`, 0n);
   const config = {
     config_version: 1,
     mode: "configured",
@@ -452,5 +498,69 @@ export async function bootstrap(dir: string, port: number, maintenance: Json) {
   };
   const configFile = join(dir, "config.json");
   writeFileSync(configFile, JSON.stringify(config));
-  return { w, offer, rpc, model, cara, configFile, config, db, sign };
+  return { w, offer, rpc, model, cara, ava, configFile, config, db, sign };
+}
+
+/**
+ * The same installation composed IN THIS PROCESS (the production composition; only the two
+ * transports and the named key variable injected), for evidence that needs the composition's
+ * own state after stop (running work, fence waiters). Child-process evidence is separate.
+ */
+export function composeIn(
+  b: Awaited<ReturnType<typeof bootstrap>>,
+  extra: { now?: () => number; config?: Json } = {},
+) {
+  return composeApplication(validateConfig({ ...b.config, ...extra.config }), {
+    fetch: SyntheticModel.rpcFetch(b.rpc) as never,
+    fetchLabel: "synthetic RPC (lifecycle test)",
+    modelFetch: b.model.fetch(),
+    modelFetchLabel: "synthetic model HTTP (lifecycle test)",
+    envVar: (name) => (name === API_KEY_ENV ? FICTIONAL_KEY : undefined),
+    now: extra.now,
+  });
+}
+
+/** One browser over a composition's app (no listener): its own cookie jar. */
+export function appBrowser(app: {
+  request: (path: string, init?: RequestInit) => Response | Promise<Response>;
+}) {
+  const jar = new Map<string, string>();
+  return async (path: string, method = "GET", body?: unknown) => {
+    const cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+    const res = await app.request(path, {
+      method,
+      headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    for (const set of res.headers.getSetCookie()) {
+      const [pair, ...attrs] = set.split(";");
+      const [name, ...rest] = (pair as string).split("=");
+      const value = rest.join("=");
+      if (!value || attrs.some((x) => /^max-age=0$/i.test(x.trim()))) jar.delete(name as string);
+      else jar.set(name as string, value);
+    }
+    return { status: res.status, body: (await res.json().catch(() => null)) as Json };
+  };
+}
+
+/** NEP-413 sign-in through the real routes, with an ephemeral full-access key. */
+export async function signInAs(
+  call: (path: string, method?: string, body?: unknown) => Promise<{ status: number; body: Json }>,
+  account: string,
+  key: ReturnType<typeof nearKey>,
+) {
+  const ch = (await call("/api/session/challenge", "POST")).body.challenge as Json;
+  const digest = nep413Digest({
+    message: ch.message,
+    nonce: Buffer.from(ch.nonce, "base64"),
+    recipient: ch.recipient,
+  });
+  const r = await call("/api/session/verify", "POST", {
+    account_id: account,
+    public_key: key.id,
+    signature: sign(null, digest, key.privateKey).toString("base64"),
+    nonce: ch.nonce,
+  });
+  if (r.status !== 200 && r.status !== 201)
+    throw new Error(`sign-in ${r.status} ${JSON.stringify(r.body)}`);
 }

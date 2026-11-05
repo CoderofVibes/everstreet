@@ -731,6 +731,10 @@ export function openDb(path: string) {
     ),
   );
   if (!invCols.has("runner")) db.exec("ALTER TABLE runtime_invocations ADD COLUMN runner TEXT");
+  const evalCols = new Set(
+    (db.prepare("PRAGMA table_info(eval_runs)").all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!evalCols.has("runner")) db.exec("ALTER TABLE eval_runs ADD COLUMN runner TEXT");
   if (!sessionCols.has("account_id")) db.exec("ALTER TABLE sessions ADD COLUMN account_id TEXT");
   db.exec(`
     CREATE TABLE IF NOT EXISTS sign_in_challenges (

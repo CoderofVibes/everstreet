@@ -150,6 +150,10 @@ export class ManagedRuntime {
   readonly timeoutMs: number;
   /** Abort functions of requests running in this process. */
   private readonly active = new Map<string, (why: "cancelled" | "timeout") => void>();
+  /** Job 003wf1: provider requests this process is running now (a stop reports any left). */
+  activeCount() {
+    return this.active.size;
+  }
 
   constructor(
     readonly db: Db,
@@ -164,7 +168,8 @@ export class ManagedRuntime {
     this.timeoutMs = options.timeoutMs ?? RUNTIME_LIMITS.maxSeconds * 1000;
     this.runner = options.runner ?? null;
   }
-  private readonly runner: string | null;
+  /** Job 003wf1: this process's presence holder (null outside a configured composition). */
+  readonly runner: string | null;
 
   iso(offset = 0) {
     return new Date(this.now() + offset).toISOString();

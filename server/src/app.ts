@@ -18,6 +18,7 @@ import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
 import { Deals } from "./deals.ts";
 import { digitalDesk } from "./digitalDesk.ts";
 import { Evaluations } from "./evaluations.ts";
+import { StoppedError } from "./fence.ts";
 import type { AccountSignIn } from "./identity.ts";
 import { type ImportInspector, Imports } from "./imports.ts";
 import { ManagedRuntime } from "./invocations.ts";
@@ -647,7 +648,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/product-projects/:id/evaluations", async (c) => {
     const { run, done } = evaluations.start(me(c), c.req.param("id"), await body(c));
     // Runs in the background; the page follows it. Failures are recorded on the run.
-    done.catch((e) => console.error("evaluation run failed", (e as Error).message));
+    // A stop ending the loop (StoppedError) is not a failure; the next process recovers it.
+    done.catch((e) => {
+      if (!(e instanceof StoppedError))
+        console.error("evaluation run failed", (e as Error).message);
+    });
     return c.json({ run }, 202);
   });
   app.get("/api/evaluations/:id", (c) =>

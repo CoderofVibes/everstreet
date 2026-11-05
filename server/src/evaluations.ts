@@ -341,12 +341,24 @@ export class Evaluations {
    * process). It is marked stopped; finished cases keep their results, and an unfinished
    * request was already marked unknown by the runtime's own recovery. Nothing is re-run.
    */
-  recover() {
-    return Number(
-      this.db
-        .prepare("UPDATE eval_runs SET state = 'stopped', finished_at = ? WHERE state = 'running'")
-        .run(this.runtime.iso()).changes,
-    );
+  recover(options: { isLive?: (runner: string) => boolean } = {}) {
+    // Job 003wf1: with `isLive`, a check whose runner process is still alive is a peer's live
+    // loop and is left alone; one with no runner (from before) or a gone runner is stopped.
+    const running = this.db
+      .prepare("SELECT id, runner FROM eval_runs WHERE state = 'running'")
+      .all() as { id: string; runner: string | null }[];
+    let stopped = 0;
+    for (const r of running) {
+      if (r.runner && options.isLive?.(r.runner)) continue;
+      stopped += Number(
+        this.db
+          .prepare(
+            "UPDATE eval_runs SET state = 'stopped', finished_at = ? WHERE id = ? AND state = 'running'",
+          )
+          .run(this.runtime.iso(), r.id).changes,
+      );
+    }
+    return stopped;
   }
 
   latest(projectId: string) {
@@ -449,8 +461,8 @@ export class Evaluations {
     const id = randomUUID();
     this.db
       .prepare(
-        `INSERT INTO eval_runs (id, project_id, business_id, artifact_job, artifact_digest, fixture_version, policy, validator, provider_config, requested_by, state, total, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
+        `INSERT INTO eval_runs (id, project_id, business_id, artifact_job, artifact_digest, fixture_version, policy, validator, provider_config, requested_by, state, total, created_at, runner)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
       )
       .run(
         id,
@@ -465,6 +477,7 @@ export class Evaluations {
         viewer.id,
         cases.length,
         this.runtime.iso(),
+        this.runtime.runner,
       );
     const declared = new Map(artifact.spec.fields.map((f) => [f.key, f.type as string]));
     const done = this.execute(viewer, id, p.id, artifact.job_id, cases, declared);

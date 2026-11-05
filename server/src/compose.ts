@@ -102,7 +102,13 @@ export interface Composed {
    * before every owner finished (forced), how many admitted requests were still running then,
    * and how many owners' stops failed. Null until a stop finished.
    */
-  lastStop(): { forced: boolean; requests_running: number; stop_failures: number } | null;
+  lastStop(): {
+    forced: boolean;
+    requests_running: number;
+    stop_failures: number;
+    /** Provider requests this process still had running after the gates closed (should be 0). */
+    work_running: number;
+  } | null;
 }
 
 const TYPES: Record<string, string> = {
@@ -598,12 +604,6 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         .prepare("SELECT 1 FROM process_presence WHERE holder = ? AND until_ms > ?")
         .get(runner, nowMs()),
     );
-  const peersAlive = () =>
-    Boolean(
-      store.db
-        .prepare("SELECT 1 FROM process_presence WHERE holder != ? AND until_ms > ? LIMIT 1")
-        .get(holder, nowMs()),
-    );
   let presenceTimer: ReturnType<typeof setInterval> | null = null;
   const stoppers: (() => Promise<unknown>)[] = [];
   let stopping: Promise<void> | null = null;
@@ -612,7 +612,12 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   const stopTimeout = config.maintenance?.stop_timeout_ms ?? 30_000;
   /** Admitted requests get this long to finish; after it the gates answer them 503. */
   const requestGrace = Math.min(stopTimeout, 2_000);
-  let last: { forced: boolean; requests_running: number; stop_failures: number } | null = null;
+  let last: {
+    forced: boolean;
+    requests_running: number;
+    stop_failures: number;
+    work_running: number;
+  } | null = null;
   /** Resolves true when `p` settles within `ms`, false at the deadline (the timer is cleared). */
   const within = (p: Promise<unknown>, ms: number) => {
     let t: ReturnType<typeof setTimeout> | undefined;
@@ -638,12 +643,12 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       // Restart recovery, through the existing state machines: unknown dispatch is marked
       // unknown, never re-sent as a fresh provider request. Once per process, before
       // maintenance starts (the supervisor itself never recovers). Job 003wf1: only what no
-      // LIVE process runs: a request whose runner is present is a peer's live work; an
-      // evaluation loop has no runner, so they are stopped only when no peer is alive; build
-      // jobs are recovered once their lease has lapsed.
+      // LIVE process runs: a request or an evaluation whose runner is present is a peer's live
+      // work; build jobs are recovered once their lease has lapsed.
       present();
+      const evaluations = new Evaluations(store.db, store, runtime);
       runtime.recover({ isLive });
-      if (!peersAlive()) new Evaluations(store.db, store, runtime).recover();
+      evaluations.recover({ isLive });
       if (buildProvider)
         stoppers.push(startBuildWorker(builds, buildProvider, { recoverAtStart: "expired" }).stop);
       // Renewed while running; a peer that died is noticed when its presence lapses, and its
@@ -652,6 +657,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         try {
           present();
           runtime.recover({ isLive });
+          evaluations.recover({ isLive });
         } catch {
           // stopping, or a busy database: the next tick tries again
         }
@@ -699,12 +705,17 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
           forced: !ownersDone || !requestsDone,
           requests_running: inflight.size,
           stop_failures: failures,
+          work_running: 0,
         };
         // The gates close first, so a cut request's handler can never reach storage; then every
         // admitted request still running is answered 503 now, and resources close.
         fence.close();
         gate.closed = true;
         for (const cut of [...cutoffs]) cut();
+        // Owned continuations refused at the gates settle within a turn; what is still running
+        // after that is reported, not hidden.
+        await new Promise((r) => setTimeout(r, 20));
+        last.work_running = runtime.activeCount();
         closeAll(opened);
       })();
       return stopping;
