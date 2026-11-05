@@ -20,6 +20,7 @@ import { Link, useRouter } from "../router.tsx";
 import { FAMILY_LABEL, OfferCard } from "../ui.tsx";
 import { type BooksHandle, BooksNotice, BooksPanel, useBooks } from "./DeskBooks.tsx";
 import { ProductCards, ProductLines, WorkList } from "./DeskDigital.tsx";
+import { DeskEconomics } from "./DeskEconomics.tsx";
 import { DeskGrowth, DeskShare, DeskTeamIfPaid } from "./DeskGrowth.tsx";
 import { OpsTiles, UsageChart } from "./DeskOperations.tsx";
 import { DeskSelling } from "./DeskSale.tsx";
@@ -317,6 +318,7 @@ export function DigitalWorkspace({
       {/* Performance: the books and digital operations, every figure with its source. */}
       <section {...panel("performance")} className="ws-panel">
         <BooksPanel books={books} deliberate />
+        <DeskEconomics businessId={b.id} />
       </section>
 
       {/* Products: identity (released apart from draft), status, offers, every product action. */}

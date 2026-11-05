@@ -19,6 +19,7 @@ import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
 import { HANDOVER_REFUSAL } from "./db.ts";
 import { Deals } from "./deals.ts";
 import { digitalDesk } from "./digitalDesk.ts";
+import { economics } from "./economics.ts";
 import { Evaluations } from "./evaluations.ts";
 import { StoppedError } from "./fence.ts";
 import type { AccountSignIn } from "./identity.ts";
@@ -998,6 +999,16 @@ export function everstreetApi(store: Store, options: AppOptions) {
 
   // ---------- books and value (owner only) ----------
 
+  // Job 005e: operating economics (per asset, no conversion, no profit) and recovery, owner only.
+  app.get("/api/businesses/:id/economics", (c) => {
+    const p = me(c);
+    const id = c.req.param("id");
+    const epoch = store.controlEpoch(p, id);
+    const n = Math.min(24, Math.max(1, Math.round(Number(c.req.query("months") ?? 6)) || 6));
+    const out = economics(store.db, id, n);
+    store.stillControls(p, epoch, { handover: "allow" });
+    return c.json(out);
+  });
   app.get("/api/businesses/:id/books", async (c) => {
     const p = me(c);
     const id = c.req.param("id");

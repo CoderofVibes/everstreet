@@ -438,6 +438,33 @@ describe("003wf parent: the flagship journey in one configured child (SYNTHETIC 
     expect(BigInt(now.cost.customers.microcents)).toBeGreaterThan(0n);
     expect(now.cost.founder).toMatchObject({ unknown_cost_calls: 0 });
     expect(desk.current).toMatchObject({ needs_attention: 0, reserved_not_settled: 0 });
+    // 005e: economics in the offer's own asset, exact base units, no conversion or profit.
+    const eco = ok(await ava(`/api/businesses/${biz}/economics?months=1`), 200, "economics");
+    const tusd = eco.months[0].by_asset["tusd.near"];
+    expect(tusd).toMatchObject({
+      earned: "3000000", // 20 x 150000
+      earned_units: 20,
+      prepaid_in: "15000000",
+      prepaid_units: 100,
+      pending_units: 0,
+      returned_purchases: "0",
+    });
+    expect(eco.months[0].successful_uses).toBe(20);
+    expect(eco.months[0].compute).toMatchObject({ calls: 20, unknown_cost_calls: 0 });
+    expect(BigInt(eco.months[0].cost_per_success_microcents)).toBe(
+      BigInt(now.cost.customers.microcents) / 20n,
+    );
+    expect(eco.obligations).toEqual([
+      expect.objectContaining({
+        asset: "tusd.near",
+        outstanding_units: 80,
+        outstanding_value: "12000000",
+      }),
+    ]);
+    expect(eco.definitions.no_profit).toMatch(/aren't converted/);
+    expect(eco.recovery.items).toEqual([]);
+    // The buyer can't read the seller's economics before the sale; a stranger never can.
+    expect((await browser(port)(`/api/businesses/${biz}/economics`)).status).not.toBe(200);
 
     // ---- 5. The Direct sale: proposal with the metering grant in the reviewed terms, the buyer's
     // registration, funding and acceptance, then the seller's close and the reconciliation.
