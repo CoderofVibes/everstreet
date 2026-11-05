@@ -44,9 +44,11 @@ import {
 /** lib.rs MAX_ISSUE_AGE_MS: a close order must land within 20 minutes of its issue time. */
 export const MAX_ISSUE_AGE_MS = 1_200_000;
 /**
- * Astra 04:06: the history recovery's local bounds: at most `page` finished handovers are read
- * per pass per business (one keyset query), and the cursor and backoff maps keep at most `cap`
- * entries (the oldest dropped: at worst one status read happens earlier than its minute).
+ * Astra 04:06, 04:31: the history recovery's local bounds: at most `page` finished handovers are
+ * read per pass per business (one keyset query); the per-business cursor is durable (one row per
+ * business with history); the in-memory backoff keeps at most `cap` entries (the oldest dropped:
+ * at worst one status read happens earlier than its minute; after a restart the backoff is empty,
+ * so the once-a-minute spacing is not durable).
  */
 const HISTORY = { page: 16, cap: 512 };
 /** A finished handover's aged attempts are read by status at most this often. */
@@ -119,13 +121,7 @@ export class HandoverCoordinator {
    * skipped, never stepped twice at once.
    */
   private readonly ops = new Map<string, { gen: number; dead: boolean; done: Promise<unknown> }>();
-  /**
-   * Astra 04:06: per business, the keyset position (created_ms, id) after the last finished
-   * handover a history page looked at; the next page starts after it, and wraps after the end.
-   * Coordinator memory, bounded (HISTORY.cap entries, oldest dropped): not durable across a
-   * restart, where the scan simply starts again from the oldest.
-   */
-  private readonly historyCursor = new Map<string, { created: number; id: string }>();
+
   /** When each finished handover's aged attempts were last read by status only. */
   private readonly statusReadAt = new Map<string, number>();
   /** The last business a pass visited (the next pass starts after it). */
@@ -147,7 +143,17 @@ export class HandoverCoordinator {
     this.now = opts.now ?? Date.now;
     this.leaseMs = opts.leaseMs ?? 3 * Math.max(opts.intervalMs, opts.passBudgetMs);
     this.caps = opts.journal ?? DEFAULT_JOURNAL;
-    this.history = { ...HISTORY, ...(opts.history ?? {}) };
+    // Astra 04:31: the bounds must be positive integers (a negative cap would never stop
+    // evicting; a negative LIMIT is no limit). An option left undefined takes its default.
+    const page = opts.history?.page ?? HISTORY.page;
+    const cap = opts.history?.cap ?? HISTORY.cap;
+    for (const [name, v] of [
+      ["page", page],
+      ["cap", cap],
+    ] as const)
+      if (!Number.isSafeInteger(v) || v < 1)
+        throw new Error(`handover: history.${name} must be a positive whole number`);
+    this.history = { page, cap };
     if (this.caps.reserve < 3 * opts.maxOrders + 8)
       throw new Error("handover: the journal reserve must fit every order's entries (D2)");
   }
@@ -784,7 +790,13 @@ export class HandoverCoordinator {
    * and the next pass starts again from the oldest. Returns null when this page has nothing due.
    */
   pickHistory(businessId: string, blockMs: bigint): HandoverRow | null {
-    const cur = this.historyCursor.get(businessId) ?? null;
+    // Astra 04:31: the cursor is durable (handover_history_cursor), so neither the number of
+    // businesses nor a restart can reset any business's progress and starve its later rows.
+    const cur = (this.db
+      .prepare(
+        "SELECT created_ms AS created, handover_id AS id FROM handover_history_cursor WHERE business_id = ?",
+      )
+      .get(businessId) ?? null) as { created: number; id: string } | null;
     const rows = this.db
       .prepare(
         `SELECT h.id, h.created_ms,
@@ -805,7 +817,11 @@ export class HandoverCoordinator {
       ) as { id: string; created_ms: number; youngest: string | null }[];
     this.historyScanned += rows.length;
     for (const row of rows) {
-      this.remember(this.historyCursor, businessId, { created: row.created_ms, id: row.id });
+      this.db
+        .prepare(
+          "INSERT INTO handover_history_cursor (business_id, created_ms, handover_id) VALUES (?, ?, ?) ON CONFLICT(business_id) DO UPDATE SET created_ms = excluded.created_ms, handover_id = excluded.handover_id",
+        )
+        .run(businessId, row.created_ms, row.id);
       const aged =
         row.youngest === null || blockMs - BigInt(row.youngest) > BigInt(MAX_ISSUE_AGE_MS);
       if (!aged) continue; // an older handover's young order: resolved by its own rules
@@ -815,7 +831,8 @@ export class HandoverCoordinator {
         .prepare("SELECT * FROM business_handovers WHERE id = ?")
         .get(row.id) as unknown as HandoverRow;
     }
-    if (rows.length < this.history.page) this.historyCursor.delete(businessId); // wrap
+    if (rows.length < this.history.page)
+      this.db.prepare("DELETE FROM handover_history_cursor WHERE business_id = ?").run(businessId); // wrap
     return null;
   }
 
@@ -823,7 +840,10 @@ export class HandoverCoordinator {
   historyScanned = 0;
   /** The current sizes of the bounded history bookkeeping. */
   historyBookkeeping() {
-    return { cursors: this.historyCursor.size, backoff: this.statusReadAt.size };
+    const cursors = (
+      this.db.prepare("SELECT COUNT(*) AS n FROM handover_history_cursor").get() as { n: number }
+    ).n;
+    return { cursors, backoff: this.statusReadAt.size };
   }
 
   /** Sends one admitted order. The writer persists the signed attempt before broadcasting. */

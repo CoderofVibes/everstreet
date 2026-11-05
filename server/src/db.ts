@@ -998,6 +998,12 @@ function migrateHandover(db: DatabaseSync, columns: (t: string) => Set<string>) 
     CREATE TABLE IF NOT EXISTS handover_lease (
       business_id TEXT PRIMARY KEY, holder TEXT NOT NULL, gen INTEGER NOT NULL, until_ms INTEGER NOT NULL
     ) STRICT;
+    -- Job 003wf3 (Astra 04:31): the history recovery's per-business progress, durable: one row
+    -- per business with unresolved history, so no cache pressure or restart resets it.
+    -- Bookkeeping only (never authority over a handover).
+    CREATE TABLE IF NOT EXISTS handover_history_cursor (
+      business_id TEXT PRIMARY KEY, created_ms INTEGER NOT NULL, handover_id TEXT NOT NULL
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS close_orders (
       handover_id TEXT NOT NULL REFERENCES business_handovers(id), n INTEGER NOT NULL CHECK (n >= 1),
       order_json TEXT NOT NULL, order_digest TEXT NOT NULL, read_height TEXT NOT NULL, read_hash TEXT NOT NULL,

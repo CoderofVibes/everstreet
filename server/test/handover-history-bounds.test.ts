@@ -100,7 +100,7 @@ describe("003wf3 history recovery: bounded local work, fair over any backlog", (
     expect(again[0]).toBe(ids[0]);
   });
 
-  it("an older handover whose order is still young is passed over (the cursor advances); a resolved one leaves the backlog; a restart starts from the oldest, still bounded", () => {
+  it("an older handover whose order is still young is passed over (the cursor advances); a resolved one leaves the backlog; a restart continues from the durable cursor (Astra 04:31), still bounded", () => {
     const { db, ids, clock, make } = world(9, [2]);
     const c = make();
     const picked: string[] = [];
@@ -115,11 +115,17 @@ describe("003wf3 history recovery: bounded local work, fair over any backlog", (
       `tx-${ids[0]}`,
     );
     clock.now += 61_000;
-    const restarted = make(); // no memory: cursor and backoff start empty
+    const restarted = make(); // a new process: its backoff is empty, the cursor is durable
     const before = restarted.historyScanned;
-    const first = restarted.pickHistory("b", BLOCK);
-    expect(first?.id).toBe(ids[2]); // the oldest still unknown and aged
-    expect(restarted.historyScanned - before).toBeLessThanOrEqual(4);
+    const seen: string[] = [];
+    for (let k = 0; k < 9; k++) {
+      const h = restarted.pickHistory("b", BLOCK);
+      if (h) seen.push(h.id);
+    }
+    expect(restarted.historyScanned - before).toBeLessThanOrEqual(9 * 4);
+    expect(seen).not.toContain(ids[0]); // resolved: out of the backlog
+    expect(seen).not.toContain(ids[1]); // its order is young
+    expect(new Set(seen)).toEqual(new Set(ids.slice(2))); // every other one, once
   });
 
   it("the cursor and backoff bookkeeping stay within their cap over a backlog larger than it", () => {
@@ -129,5 +135,37 @@ describe("003wf3 history recovery: bounded local work, fair over any backlog", (
     const sizes = c.historyBookkeeping();
     expect(sizes.backoff).toBeLessThanOrEqual(6);
     expect(sizes.cursors).toBeLessThanOrEqual(6);
+  });
+
+  it("the bounds are validated: a non-positive or non-integer page or cap is refused; left undefined, the defaults apply", () => {
+    const make = (history: { page?: number; cap?: number }) =>
+      new HandoverCoordinator(
+        openDb(":memory:"),
+        {} as never,
+        {} as never,
+        null,
+        {} as never,
+        new Map(),
+        {
+          holder: "h",
+          intervalMs: 1_000,
+          batch: 1,
+          passBudgetMs: 1_000,
+          opDeadlineMs: 500,
+          dispatchMarginMs: 60_000,
+          maxOrders: 2,
+          history,
+        },
+      );
+    for (const bad of [
+      { page: 0 },
+      { page: -1 },
+      { page: 1.5 },
+      { page: Number.NaN },
+      { cap: -1 },
+      { cap: 0 },
+    ])
+      expect(() => make(bad), JSON.stringify(bad)).toThrow(/positive whole number/);
+    expect(() => make({ page: undefined, cap: undefined })).not.toThrow();
   });
 });
