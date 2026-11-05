@@ -43,6 +43,8 @@ import {
 
 /** lib.rs MAX_ISSUE_AGE_MS: a close order must land within 20 minutes of its issue time. */
 export const MAX_ISSUE_AGE_MS = 1_200_000;
+/** A finished handover's aged attempts are read by status at most this often. */
+const STATUS_EVERY_MS = 60_000;
 
 export interface CloserKey {
   /** The closer account the contract names (configured). */
@@ -97,6 +99,8 @@ export class HandoverCoordinator {
    * skipped, never stepped twice at once.
    */
   private readonly ops = new Map<string, { gen: number; dead: boolean; done: Promise<unknown> }>();
+  /** When each finished handover's aged attempts were last read by status only. */
+  private readonly statusReadAt = new Map<string, number>();
   /** The last business a pass visited (the next pass starts after it). */
   private cursor: string | null = null;
   private readonly now: () => number;
@@ -439,8 +443,17 @@ export class HandoverCoordinator {
       if (
         youngest.t === null ||
         BigInt(r.block.timestamp_ms) - BigInt(youngest.t) > BigInt(MAX_ISSUE_AGE_MS)
-      )
-        return "idle";
+      ) {
+        // Astra 03:30: past the contract's limit none can execute any more, so nothing is sent;
+        // but the ORIGINAL transaction's own final result can still become readable. A bounded
+        // status-only read (its own hash; at most once a minute per handover) records it; a
+        // missing status proves nothing, and nothing here moves the finished handover.
+        const due = (this.statusReadAt.get(last.id) ?? 0) + STATUS_EVERY_MS <= this.now();
+        if (!due) return "idle";
+        this.statusReadAt.set(last.id, this.now());
+        if (!alive()) return "stopped";
+        return this.statusOnly(last, gen);
+      }
       if (!alive()) return "stopped";
       await this.resolveAttempts(last, binding.account, gen);
       return "attempts_resolved";
@@ -687,6 +700,46 @@ export class HandoverCoordinator {
       )
       .get(`${this.op(h, n)}|close_sale`) as { state: string } | undefined;
     return r?.state ?? null;
+  }
+
+  /**
+   * Astra 03:30: each of a finished handover's still-unknown attempts is read by its own hash
+   * only (never sent). A final result is recorded on the attempt and journaled once.
+   */
+  private async statusOnly(h: HandoverRow, gen: number): Promise<string> {
+    const key = this.keys.get(h.business_id);
+    if (!key) return "no_closer_key";
+    const orders = this.db
+      .prepare("SELECT n FROM close_orders WHERE handover_id = ? ORDER BY n")
+      .all(h.id) as { n: number }[];
+    let resolved = 0;
+    for (const o of orders) {
+      if (this.attemptState(h, o.n) !== "signed") continue;
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), this.opts.opDeadlineMs);
+      try {
+        const a = await key.writer.statusOnly(this.op(h, o.n), "close_sale", ctl.signal);
+        const state = this.attemptState(h, o.n);
+        if (state === "success" || state === "failure") {
+          resolved++;
+          try {
+            this.tx(() => {
+              this.requireLease(h.business_id, gen);
+              journal(this.db, h, "attempt_final", `${o.n}:${state}:status_only`, {
+                caps: this.caps,
+                now: this.now(),
+              });
+            });
+          } catch (e) {
+            if (!(e instanceof LeaseLost)) throw e;
+          }
+        }
+        void a;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    return resolved > 0 ? "attempts_status_resolved" : "attempts_status_unknown";
   }
 
   /** Sends one admitted order. The writer persists the signed attempt before broadcasting. */

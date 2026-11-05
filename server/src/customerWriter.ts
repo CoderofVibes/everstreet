@@ -597,6 +597,29 @@ export class TestnetCustomerWriter implements CustomerChainWriter {
     return o.kind === "success" ? "success" : { status: "refused", code: o.code, tx: a.tx_hash };
   }
 
+  /**
+   * Job 003wf3 (Astra 03:30): reads the newest attempt of `operation|method` by its OWN hash and
+   * records its FINAL outcome if the network shows one. It never sends, rebroadcasts or makes a
+   * fresh transaction, and a missing status proves nothing (the attempt stays unknown).
+   */
+  async statusOnly(
+    operation: string,
+    method: string,
+    signal: AbortSignal,
+  ): Promise<"success" | WriterAnswer> {
+    const a = this.latest(`${operation}|${method}`);
+    if (!a) return { status: "unknown", detail: "no_attempt" } as WriterAnswer;
+    if (a.state !== "signed") return this.fromRow(a);
+    let o: TxOutcome;
+    try {
+      o = await this.opts.rpc.txStatus(a.tx_hash, this.signer, signal);
+    } catch {
+      return { status: "unknown", detail: "read_failed", tx: a.tx_hash } as WriterAnswer;
+    }
+    if (o.kind === "success" || o.kind === "failure") return this.record(a, o);
+    return { status: "unknown", detail: "no_final_status", tx: a.tx_hash } as WriterAnswer;
+  }
+
   /** Moves a 'signed' attempt to a terminal state; false if it was no longer 'signed'. */
   private mark(a: Attempt, state: Attempt["state"], code: string | null): boolean {
     return (

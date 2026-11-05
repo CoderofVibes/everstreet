@@ -201,11 +201,14 @@ describe("003wf3 S-12: an aged order is replaced; the late original can't close"
     expect(["signed", "invalid"]).toContain(attempt1()?.state);
     expect(after.every((r) => r === "attempts_resolved")).toBe(true);
     // Bounded: once every order is past the contract's 20-minute limit none can execute, so the
-    // coordinator stops sending; the attempt stays unknown on its own record.
+    // coordinator stops sending. It only reads the original's own status (Astra 03:30), at most
+    // once a minute; with no final status shown, the attempt stays unknown on its own record.
     w.b.w.chain.tick(21n * 60_000n);
     const sends = w.b.rpc.sends;
-    expect((await w.coordinator.pass())[w.biz]).toBe("idle");
+    expect((await w.coordinator.pass())[w.biz]).toBe("attempts_status_unknown");
+    expect((await w.coordinator.pass())[w.biz]).toBe("idle"); // not again within the minute
     expect(w.b.rpc.sends).toBe(sends);
+    expect(["signed", "invalid"]).toContain(attempt1()?.state);
     expect(w.rows("SELECT 1 FROM ownership WHERE business_id = ?", w.biz)).toHaveLength(1);
   }, 120_000);
 });

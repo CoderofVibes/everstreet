@@ -274,14 +274,45 @@ const methodOf = (body: string) => {
   }
 };
 /** The cut points: each the first request A makes after the named durable step committed. */
-const CUTS: [string, (i: Installation) => Cut][] = [
+/** The state that must hold AT the cut, before B starts (Astra 03:34). */
+type At = (i: Installation) => void;
+const count = (i: Installation, sql: string) => i.read(sql).length;
+const closesOnChain = (i: Installation) =>
+  i.rpc.applied.filter((x) => x.method === "close_sale").length;
+const AT = {
+  gate: (i) => {
+    expect(count(i, "SELECT 1 FROM business_handovers")).toBe(1);
+    expect(count(i, "SELECT 1 FROM close_orders")).toBe(0);
+    expect(count(i, "SELECT 1 FROM closer_tx_attempts")).toBe(0);
+  },
+  order: (i) => {
+    expect(count(i, "SELECT 1 FROM close_orders")).toBe(1);
+    expect(count(i, "SELECT 1 FROM closer_tx_attempts")).toBe(0);
+  },
+  signed: (i) => {
+    expect(count(i, "SELECT 1 FROM closer_tx_attempts WHERE state = 'signed'")).toBe(1);
+    expect(closesOnChain(i)).toBe(0);
+  },
+  lost: (i) => {
+    expect(closesOnChain(i)).toBe(1);
+    expect(count(i, "SELECT 1 FROM ownership")).toBe(0);
+  },
+  observed: (i) => {
+    expect(i.read("SELECT state FROM business_handovers")[0]?.state).toBe("closed_observed");
+    expect(closesOnChain(i)).toBe(1);
+    expect(count(i, "SELECT 1 FROM ownership")).toBe(0);
+  },
+} satisfies Record<string, At>;
+const CUTS: [string, (i: Installation) => Cut, At][] = [
   [
     "the local gate committed (armed), before any order",
     (i) => () => (i.read("SELECT 1 FROM business_handovers").length > 0 ? "hold" : "answer"),
+    AT.gate,
   ],
   [
     "the order committed (readiness accepted; there is no persisted ready state), before the writer runs",
     (i) => () => (i.read("SELECT 1 FROM close_orders").length > 0 ? "hold" : "answer"),
+    AT.order,
   ],
   [
     "the signed attempt committed, before its broadcast reaches the chain",
@@ -291,6 +322,7 @@ const CUTS: [string, (i: Installation) => Cut][] = [
       i.read("SELECT 1 FROM closer_tx_attempts").length > 0
         ? "hold"
         : "answer",
+    AT.signed,
   ],
   [
     "the close accepted by the chain, its reply lost",
@@ -300,6 +332,7 @@ const CUTS: [string, (i: Installation) => Cut][] = [
       i.read("SELECT 1 FROM closer_tx_attempts").length > 0
         ? "lose_reply"
         : "answer",
+    AT.lost,
   ],
   [
     "closed observed, before the reconciliation applies it",
@@ -307,11 +340,12 @@ const CUTS: [string, (i: Installation) => Cut][] = [
       i.read("SELECT 1 FROM business_handovers WHERE state = 'closed_observed'").length > 0
         ? "hold"
         : "answer",
+    AT.observed,
   ],
 ];
 
 describe("003wf3 P-1: the coordinating process is killed at each durable boundary; the other takes over", () => {
-  for (const [name, makeCut] of CUTS)
+  for (const [name, makeCut, at] of CUTS)
     it(`killed after ${name}: one order kept, one close, one reconciliation, the reserved use returned once, the seller not revived`, async () => {
       const i = await installation();
       const ctlA: Control = {};
@@ -327,6 +361,8 @@ describe("003wf3 P-1: the coordinating process is killed at each durable boundar
       );
       await until(() => a.state.cut, `A reaching the cut (${name})`, 60_000);
       const killed = await a.kill();
+      // The exact boundary was reached, not merely some later takeover.
+      at(i);
       expect(killed.exitCode === null ? killed.signal : "exited").toBeTruthy();
       await accepted.catch(() => null);
       const ordersBefore = i.read("SELECT n, order_json FROM close_orders ORDER BY n");
@@ -374,7 +410,7 @@ describe("003wf3 P-1: the coordinating process is killed at each durable boundar
 });
 
 describe("003wf3 P-5: a child that can't start, and stops in each phase, leave nothing behind", () => {
-  it("a startup failure (a closer key file that isn't the closer's) exits non-zero before listening; a stop while gated exits 0; the directory is removable", async () => {
+  it("a startup failure (a closer key file that isn't the closer's) exits non-zero before listening; a stop while gated exits 0 with no listener left (other stop phases are retained, not exercised here)", async () => {
     const i = await installation();
     const bad = JSON.parse(readFileSync(i.fileA, "utf8")) as Json;
     const keyFile = String(bad.handover.closer.keys[0].key_file);
