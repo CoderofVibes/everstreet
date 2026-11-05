@@ -720,6 +720,17 @@ export function openDb(path: string) {
   if (!sessionCols.has("mode"))
     db.exec("ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'preview'");
   if (!sessionCols.has("expires_ms")) db.exec("ALTER TABLE sessions ADD COLUMN expires_ms INTEGER");
+  // Job 003wf1: which process runs a provider request, and which processes are alive, so a
+  // process starting up recovers only work whose process is gone (never a live peer's).
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS process_presence (holder TEXT PRIMARY KEY, until_ms INTEGER NOT NULL) STRICT",
+  );
+  const invCols = new Set(
+    (db.prepare("PRAGMA table_info(runtime_invocations)").all() as { name: string }[]).map(
+      (c) => c.name,
+    ),
+  );
+  if (!invCols.has("runner")) db.exec("ALTER TABLE runtime_invocations ADD COLUMN runner TEXT");
   if (!sessionCols.has("account_id")) db.exec("ALTER TABLE sessions ADD COLUMN account_id TEXT");
   db.exec(`
     CREATE TABLE IF NOT EXISTS sign_in_challenges (

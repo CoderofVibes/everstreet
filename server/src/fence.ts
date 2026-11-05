@@ -29,39 +29,62 @@ export class Fence {
   private shut = false;
   /** Calls refused or answers withheld after close (tests observe it). */
   held = 0;
+  /** The fence's own outstanding waiters: each is finished at close (Astra's fence probe). */
+  private readonly waiting = new Set<(e: StoppedError) => void>();
 
   get closed() {
     return this.shut;
   }
 
+  /**
+   * Closes the fence: every call still outstanding through it gets StoppedError NOW, whether
+   * or not its raw adapter ever answers (a non-cooperating adapter can't keep a caller waiting);
+   * a late raw answer is then ignored.
+   */
   close() {
+    if (this.shut) return;
     this.shut = true;
+    for (const stop of [...this.waiting]) stop(new StoppedError());
+    this.waiting.clear();
   }
 
-  /** Runs `start` while open; an answer arriving after close is withheld (StoppedError). */
+  /** Runs `start` while open; after close its caller gets StoppedError, its late answer is dropped. */
   pass<T>(start: () => Promise<T>): Promise<T> {
     if (this.shut) {
       this.held++;
       return Promise.reject(new StoppedError());
     }
     return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const stop = (e: StoppedError) => {
+        if (settled) return;
+        settled = true;
+        this.held++;
+        reject(e);
+      };
+      this.waiting.add(stop);
+      const end = () => {
+        settled = true;
+        this.waiting.delete(stop);
+      };
       let p: Promise<T>;
       try {
         p = start();
       } catch (e) {
+        end();
         reject(e);
         return;
       }
       p.then(
         (v) => {
-          if (!this.shut) return resolve(v);
-          this.held++;
-          reject(new StoppedError());
+          if (settled) return; // already finished by close: the late answer goes nowhere
+          end();
+          resolve(v);
         },
         (e) => {
-          if (!this.shut) return reject(e);
-          this.held++;
-          reject(new StoppedError());
+          if (settled) return;
+          end();
+          reject(e);
         },
       );
     });

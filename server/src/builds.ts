@@ -1516,10 +1516,18 @@ export class BuildWorker {
 export function startBuildWorker(
   builds: Builds,
   provider: BuildProvider,
-  options: WorkerOptions & { pollMs?: number } = {},
+  options: WorkerOptions & {
+    pollMs?: number;
+    /**
+     * Job 003wf1: "expired" when other configured processes may share this database: at start
+     * only jobs whose lease has lapsed are recovered (a live peer's leased job is never an
+     * orphan). The default "all" keeps the single-process behaviour.
+     */
+    recoverAtStart?: "all" | "expired";
+  } = {},
 ) {
   const worker = new BuildWorker(builds, provider, options);
-  worker.recover({ orphanAll: true });
+  worker.recover({ orphanAll: options.recoverAtStart !== "expired" });
   let busy = false;
   // Job 003w (Astra's CompositionDesignReview): stop() used to clear only the timer, so a pass
   // already draining the queue kept dispatching jobs after stop. Now admission ends at once (the

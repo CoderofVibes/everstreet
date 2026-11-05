@@ -93,6 +93,8 @@ export interface RuntimeOptions {
   admission?: Admission;
   /** Override the per-request time limit (tests). */
   timeoutMs?: number;
+  /** Job 003wf1: this process's presence holder, recorded on every request it runs. */
+  runner?: string;
 }
 
 const KEY = /^[A-Za-z0-9_-]{8,80}$/;
@@ -160,7 +162,9 @@ export class ManagedRuntime {
     this.ceilingCents = typeof c === "number" && Number.isSafeInteger(c) && c >= 0 ? c : null;
     this.admission = options.admission ?? ownerOnly;
     this.timeoutMs = options.timeoutMs ?? RUNTIME_LIMITS.maxSeconds * 1000;
+    this.runner = options.runner ?? null;
   }
+  private readonly runner: string | null;
 
   iso(offset = 0) {
     return new Date(this.now() + offset).toISOString();
@@ -199,11 +203,18 @@ export class ManagedRuntime {
     );
   }
 
-  /** After a restart: anything that was running may have been billed; it is never re-run. */
-  recover() {
-    const running = this.db
-      .prepare("SELECT * FROM runtime_invocations WHERE state = 'running'")
-      .all() as unknown as InvocationRow[];
+  /**
+   * After a restart: anything that was running may have been billed; it is never re-run.
+   * Job 003wf1: with `isLive`, a request whose runner process is still alive is left alone (a
+   * peer's live work is never an orphan); one with no runner (from before) or a gone runner is
+   * recovered.
+   */
+  recover(options: { isLive?: (runner: string) => boolean } = {}) {
+    const running = (
+      this.db
+        .prepare("SELECT * FROM runtime_invocations WHERE state = 'running'")
+        .all() as unknown as (InvocationRow & { runner?: string | null })[]
+    ).filter((r) => !(r.runner && options.isLive?.(r.runner)));
     for (const r of running)
       this.store.tx(() =>
         this.finish(r, "unknown", null, {
@@ -553,8 +564,8 @@ export class ManagedRuntime {
     const t = this.iso();
     this.db
       .prepare(
-        `INSERT INTO runtime_invocations (id, business_id, project_id, artifact_job, artifact_digest, release_id, purpose, eval_run, eval_case, requested_by, owner_id, owner_generation, idempotency_key, fingerprint, input_sha, input_chars, provider, provider_config, validator, pricing, state, reserved_cents, dispatched_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
+        `INSERT INTO runtime_invocations (id, business_id, project_id, artifact_job, artifact_digest, release_id, purpose, eval_run, eval_case, requested_by, owner_id, owner_generation, idempotency_key, fingerprint, input_sha, input_chars, provider, provider_config, validator, pricing, state, reserved_cents, dispatched_at, created_at, runner)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)`,
       )
       .run(
         v.id,
@@ -580,6 +591,7 @@ export class ManagedRuntime {
         v.worst,
         t,
         t,
+        this.runner,
       );
     this.ledger(v.id, "reservation", v.worst, "Worst case at the fixed runtime limits");
   }
@@ -814,22 +826,13 @@ export class ManagedRuntime {
     if (u) {
       micro = costMicroCents(pricing, u.inputTokens, u.outputTokens);
       usageState = u.final ? "final" : "partial";
-      this.ledger(
-        row.id,
-        "actual",
-        ceilCents(micro),
-        u.final ? "Final usage" : "At least this much; full cost unknown",
-        {
-          micro,
-          input: u.inputTokens,
-          output: u.outputTokens,
-        },
-      );
-    } else this.ledger(row.id, "unknown", null, "Sent, but no usage was reported");
+    }
     const charged = u ? ceilCents(micro) : 0;
     const release = usageState === "final";
-    if (release) this.ledger(row.id, "release", row.reserved_cents, "Settled by the final receipt");
-    this.db
+    // Job 003wf1 (Astra's runtime-recovery probe): the conditional update is the claim. Only the
+    // call that moves this row out of 'running' writes its ledger and settles its admission, so
+    // two recoverers (or a late finish racing a recovery) never account one request twice.
+    const moved = this.db
       .prepare(
         `UPDATE runtime_invocations SET state = ?, outcome = ?, failure_class = ?, failure_detail = ?, output = ?,
            usage_state = ?, input_tokens = ?, output_tokens = ?, charged_microcents = ?, charged_cents = ?,
@@ -858,6 +861,17 @@ export class ManagedRuntime {
         info.elapsed ?? null,
         row.id,
       );
+    if (Number(moved.changes) !== 1) return;
+    if (u)
+      this.ledger(
+        row.id,
+        "actual",
+        ceilCents(micro),
+        u.final ? "Final usage" : "At least this much; full cost unknown",
+        { micro, input: u.inputTokens, output: u.outputTokens },
+      );
+    else this.ledger(row.id, "unknown", null, "Sent, but no usage was reported");
+    if (release) this.ledger(row.id, "release", row.reserved_cents, "Settled by the final receipt");
     this.admission.settle(row, state === "completed" && result?.outcome === "extracted");
   }
 

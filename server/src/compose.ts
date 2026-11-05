@@ -149,6 +149,10 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   // and every records access passes the database gate; both close together at stop.
   const fence = new Fence();
   const gate = { closed: false };
+  // Job 003wf1: this process's identity: its maintenance holder, the runner it records on every
+  // provider request, and its durable presence (so a peer starting up never treats its live work
+  // as an orphan).
+  const holder = `proc-${randomUUID()}`;
   // Records first: everything else is built over them.
   const store = new Store(gateDb(openDb(config.database), gate));
   opened.push({ close: () => store.db.close() });
@@ -300,6 +304,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   const builds = new Builds(store.db, store, buildProvider, { operatorCeilingCents });
   const runtime = new ManagedRuntime(store.db, store, runtimeProvider, {
     ceilingCents: runtimeCeilingCents ?? (runtimeProvider ? 1_000 : null),
+    runner: holder,
   });
 
   // Isolated logic checks: the worker engine stays off (002f is partial; 002f1 is queued).
@@ -427,7 +432,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       store.db,
       uses,
       {
-        holder: `proc-${randomUUID()}`,
+        holder,
         intervalMs: m.interval_ms,
         batch: m.batch,
         passBudgetMs: m.pass_budget_ms,
@@ -576,6 +581,30 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       return c.html(readFileSync(join(dist, "index.html"), "utf8"));
     });
 
+  // Job 003wf1: durable presence, renewed while this process runs and removed when it stops.
+  const PRESENCE_MS = 30_000;
+  const nowMs = () => (deps.now ?? Date.now)();
+  const present = () =>
+    store.db
+      .prepare(
+        `INSERT INTO process_presence (holder, until_ms) VALUES (?, ?)
+         ON CONFLICT(holder) DO UPDATE SET until_ms = excluded.until_ms`,
+      )
+      .run(holder, nowMs() + PRESENCE_MS);
+  const isLive = (runner: string) =>
+    runner === holder ||
+    Boolean(
+      store.db
+        .prepare("SELECT 1 FROM process_presence WHERE holder = ? AND until_ms > ?")
+        .get(runner, nowMs()),
+    );
+  const peersAlive = () =>
+    Boolean(
+      store.db
+        .prepare("SELECT 1 FROM process_presence WHERE holder != ? AND until_ms > ? LIMIT 1")
+        .get(holder, nowMs()),
+    );
+  let presenceTimer: ReturnType<typeof setInterval> | null = null;
   const stoppers: (() => Promise<unknown>)[] = [];
   let stopping: Promise<void> | null = null;
   let started = false;
@@ -608,10 +637,26 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       started = true;
       // Restart recovery, through the existing state machines: unknown dispatch is marked
       // unknown, never re-sent as a fresh provider request. Once per process, before
-      // maintenance starts (the supervisor itself never recovers).
-      runtime.recover();
-      new Evaluations(store.db, store, runtime).recover();
-      if (buildProvider) stoppers.push(startBuildWorker(builds, buildProvider).stop);
+      // maintenance starts (the supervisor itself never recovers). Job 003wf1: only what no
+      // LIVE process runs: a request whose runner is present is a peer's live work; an
+      // evaluation loop has no runner, so they are stopped only when no peer is alive; build
+      // jobs are recovered once their lease has lapsed.
+      present();
+      runtime.recover({ isLive });
+      if (!peersAlive()) new Evaluations(store.db, store, runtime).recover();
+      if (buildProvider)
+        stoppers.push(startBuildWorker(builds, buildProvider, { recoverAtStart: "expired" }).stop);
+      // Renewed while running; a peer that died is noticed when its presence lapses, and its
+      // running requests are then recovered here (never re-sent).
+      presenceTimer = setInterval(() => {
+        try {
+          present();
+          runtime.recover({ isLive });
+        } catch {
+          // stopping, or a busy database: the next tick tries again
+        }
+      }, PRESENCE_MS / 3);
+      presenceTimer.unref?.();
       if (supervisor) {
         const sv = supervisor;
         sv.start();
@@ -635,8 +680,21 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
               failures++;
             }),
         );
+        // ONE shared deadline for all of it: the owners, then the requests' grace from what's left.
+        const deadline = Date.now() + stopTimeout;
         const ownersDone = await within(Promise.all(owners), stopTimeout);
-        const requestsDone = await within(Promise.allSettled([...inflight]), requestGrace);
+        const left = Math.max(0, deadline - Date.now());
+        const requestsDone = await within(
+          Promise.allSettled([...inflight]),
+          Math.min(requestGrace, left),
+        );
+        // No longer present: a peer may now recover whatever this process left running.
+        if (presenceTimer) clearInterval(presenceTimer);
+        try {
+          store.db.prepare("DELETE FROM process_presence WHERE holder = ?").run(holder);
+        } catch {
+          // the database is already unusable; the presence lapses by itself
+        }
         last = {
           forced: !ownersDone || !requestsDone,
           requests_running: inflight.size,

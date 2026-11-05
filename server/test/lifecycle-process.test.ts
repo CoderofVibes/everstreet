@@ -394,6 +394,39 @@ describe("003wf1 two processes on one database, and a listen failure", () => {
     expect(await b.shutdown()).toBe(0);
   }, 120_000);
 
+  it("a process starting while a peer holds a live provider request leaves that request alone; it completes", async () => {
+    const t = await installation();
+    const a = child(t.configFile, t.rpc, t.model);
+    await a.ready();
+    const call = browser(t.port);
+    await signIn(call, t.cara as never);
+    const id = await t.use(call, "lifecycle-use-0501");
+    const held = t.model.holdNextMessage();
+    const executing = call(`/api/customer/uses/${id}/execute`, "POST", {});
+    await held.entered; // A's provider request is in flight
+    const port2 = await freePort();
+    const cfg2 = join(t.dir, "config-peer.json");
+    writeFileSync(
+      cfg2,
+      JSON.stringify({ ...t.config, listen: { host: "127.0.0.1", port: port2 } }),
+    );
+    const b = child(cfg2, t.rpc, t.model);
+    await b.ready(); // B ran its start-up recovery
+    expect(
+      t.dbRead<Json>("SELECT state FROM runtime_invocations WHERE purpose = 'customer_use'")[0]
+        ?.state,
+    ).toBe("running"); // not marked unknown: its runner, A, is alive
+    held.open();
+    const done = await executing;
+    expect(done.body.use?.execution?.fulfilled, JSON.stringify(done.body)).toBe(true);
+    expect(
+      t.dbRead<Json>("SELECT state FROM runtime_invocations WHERE purpose = 'customer_use'")[0]
+        ?.state,
+    ).toBe("completed");
+    expect(await a.shutdown()).toBe(0);
+    expect(await b.shutdown()).toBe(0);
+  }, 120_000);
+
   it("a listen failure exits 1 with nothing started (no maintenance pass, no lease)", async () => {
     const t = await installation();
     const busy = createServer();
