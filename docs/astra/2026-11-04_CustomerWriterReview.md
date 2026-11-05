@@ -96,3 +96,36 @@ from actual identity/authorizer/contract source. It preserves real wallet sign-i
 binding, separate customer device-use authority, registration/revocation/recovery and fresh-
 customer prerequisites. It is not dispatched; register its JOBS row at the safe handoff after
 003wd acceptance, as JOBS remains Claude-owned. No account or wallet operation was performed.
+
+## Additional overlapping first-broadcast counterexample at99cba15
+
+The correction's broadcast comment says "first broadcast (nothing else ever had them)".
+That premise is false under shared durable-store concurrency: the attempt is already visible
+as signed before the first caller awaits sendTx. A second caller can read it, get not_found and
+rebroadcast identical bytes while the first send is still awaiting a reply. If the second send
+lands but loses its answer, the first's later InvalidNonce still marks the row invalid and
+permits a new transaction. The uncertainty has returned through another path.
+
+Astra reproduced that continuation without generating any signature: seeded the same pending
+row/throwing-sign fake-key fixture; invoked the actual first broadcast continuation with its
+send deferred; concurrent public openHold performed status-not_found and a synthetic rebroadcast
+returning unknown. Released first send with invalid/nonce, then called openHold again
+(accessKey returns null to stop before signing). Output:
+
+```
+concurrentRetry=unknown
+persistedAfterFirstReply=invalid
+freshAttemptReads=1
+syntheticSendCalls=2
+actualSignatures=0, networkCalls=0
+```
+
+The probe calls the TypeScript-private broadcast continuation from JS on a seeded row; it is
+not a live transaction or full public-route journey. All called code is the actual writer and
+public retry path, with a deterministic two-sender interleaving. The case models a second
+accepted-but-unanswered submission; neither reply proves it did not execute.
+
+Correct with a durable invariant that survives concurrent connections/processes and crashes,
+or preserve uncertainty whenever an exclusivity proof is absent. A process-local "first"
+parameter is insufficient. Add this overlapping retry to maintained regressions before
+claiming the fresh-attempt exception safe. Retain the previous no-new-attempt corrections.
