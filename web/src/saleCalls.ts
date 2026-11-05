@@ -73,10 +73,14 @@ export interface DigestInput {
   manifest_seq: string;
   plan_count: number;
   min_reserve: string;
+  /** Job 003wf3: the business's fixed close mode and closer (Direct: "direct", null). */
+  close_mode?: "direct" | "gated";
+  closer?: string | null;
 }
 
-/** lib.rs digest_of for a Direct business (close mode 0, no closer). */
+/** lib.rs digest_of: Direct (close mode 0, no closer) or Gated (1, the configured closer). */
 export async function dealDigest(d: DigestInput) {
+  const gatedMode = d.close_mode === "gated";
   const grants = concat([
     le(BigInt(d.grants.length), 4),
     ...d.grants.map((g) => concat([str(g.account), le(BigInt(g.caps), 1)])),
@@ -101,8 +105,8 @@ export async function dealDigest(d: DigestInput) {
       le(BigInt(d.manifest_seq), 8),
       le(BigInt(d.plan_count), 4),
       le(BigInt(d.min_reserve), 16),
-      le(0n, 1),
-      str(""),
+      le(gatedMode ? 1n : 0n, 1),
+      str(gatedMode ? (d.closer ?? "") : ""),
     ]),
   );
 }
@@ -123,7 +127,7 @@ export function expectedCall(p: SalePreview): WalletFunctionCall | null {
         buyer: s(v.buyer),
         price: s(v.price),
         expires_at_ms: s(v.expires_at_ms),
-        close_window_ms: "0",
+        close_window_ms: v.close_window_ms === undefined ? "0" : s(v.close_window_ms),
         available_floor: s(v.available_floor),
         grants: (v.grants as { account: string; caps: number }[]).map((g) => [g.account, g.caps]),
         terms_hash: s(v.terms_hash),
@@ -209,6 +213,14 @@ export function expectedCall(p: SalePreview): WalletFunctionCall | null {
         gas: GAS.call,
         deposit: s(v.deposit),
       };
+    case "abort":
+      return {
+        receiverId: p.contract,
+        methodName: "abort_close",
+        args: { deal_seq: s(v.deal_seq) },
+        gas: GAS.call,
+        deposit: "0",
+      };
   }
   return null;
 }
@@ -265,7 +277,7 @@ export async function verifyPreview(
       asset: s(basis.asset),
       price: s(v.price),
       expires_at_ms: s(v.expires_at_ms),
-      close_window_ms: "0",
+      close_window_ms: v.close_window_ms === undefined ? "0" : s(v.close_window_ms),
       available_floor: s(v.available_floor),
       grants: v.grants as { account: string; caps: number }[],
       terms_hash: h,
@@ -274,7 +286,16 @@ export async function verifyPreview(
       manifest_seq: s(basis.manifest_seq),
       plan_count: Number(basis.plan_count),
       min_reserve: s(basis.min_reserve),
+      // Job 003wf3: the close mode and closer come from THIS page's own reading of the
+      // contract, never from the preview alone.
+      close_mode: setup.control.close_mode,
+      closer: setup.control.closer,
     });
+    if (
+      (basis.close_mode ?? "direct") !== setup.control.close_mode ||
+      (basis.closer ?? null) !== setup.control.closer
+    )
+      return "The request names another close mode or closer than the contract shows; nothing was sent.";
     if (digest !== s(v.digest))
       return "The contract digest doesn't recompute from these terms; nothing was sent.";
     if (s(basis.business) !== setup.contract || s(basis.asset) !== setup.token.account)
@@ -329,6 +350,7 @@ export const KIND_LABEL: Record<SaleKind, string> = {
   expire: "End the expired offer",
   claim: "Collect",
   appoint: "Appoint metering",
+  abort: "End the closing",
   register: "Register with the token",
 };
 
@@ -352,4 +374,5 @@ export const EXCLUSIVE: SaleKind[] = [
   "expire",
   "appoint",
   "claim",
+  "abort",
 ];

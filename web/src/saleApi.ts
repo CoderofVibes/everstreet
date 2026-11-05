@@ -14,7 +14,8 @@ export type SaleKind =
   | "expire"
   | "claim"
   | "appoint"
-  | "register";
+  | "register"
+  | "abort";
 
 export type ActionState =
   | "prepared"
@@ -72,6 +73,10 @@ export interface LiveDeal {
   seller_accepted: boolean;
   buyer_accepted: boolean;
   escrow: string;
+  /** Job 003wf3: a Gated closing's timing (zero until both accept). */
+  deadline_ms: string;
+  closing_started_ms: string;
+  closing_control_seq: string;
 }
 
 export interface SaleSetup {
@@ -95,6 +100,7 @@ export interface SaleSetup {
     generation: number;
     control_seq: string;
     close_mode: "direct" | "gated";
+    closer: string | null;
     service_manifest: string;
     manifest_seq: string;
     operators: { account: string; caps: number; generation: number }[];

@@ -275,7 +275,8 @@ export interface DealTermsArg {
   buyer: string;
   price: string;
   expires_at_ms: string;
-  close_window_ms: "0";
+  /** "0" in Direct mode; 10 minutes to 24 hours in Gated mode (job 003wf3). */
+  close_window_ms: string;
   available_floor: string;
   grants: [string, number][];
   terms_hash: string;
@@ -288,11 +289,12 @@ export const termsArg = (t: {
   available_floor: string;
   grants: { account: string; caps: number }[];
   terms_hash: string;
+  close_window_ms?: string;
 }): DealTermsArg => ({
   buyer: t.buyer,
   price: t.price,
   expires_at_ms: t.expires_at_ms,
-  close_window_ms: "0",
+  close_window_ms: t.close_window_ms ?? "0",
   available_floor: t.available_floor,
   grants: t.grants.map((g) => [g.account, g.caps]),
   terms_hash: t.terms_hash,
@@ -424,7 +426,17 @@ export type SaleKind =
   | "expire"
   | "claim"
   | "appoint"
-  | "register";
+  | "register"
+  | "abort";
+/** Job 003wf3: a party ends a Gated closing whose deadline passed (anyone may, on chain). */
+export const abortCall = (contract: string, dealSeq: string): WalletCall => ({
+  receiverId: contract,
+  methodName: "abort_close",
+  args: { deal_seq: dealSeq },
+  gas: GAS.call,
+  deposit: "0",
+});
+
 export const SALE_KINDS: SaleKind[] = [
   "propose",
   "revise",
@@ -436,6 +448,7 @@ export const SALE_KINDS: SaleKind[] = [
   "claim",
   "appoint",
   "register",
+  "abort",
 ];
 
 /**
@@ -463,6 +476,8 @@ export function exclusivity(kind: SaleKind, call: WalletCall, actor: string): st
       return `claim:${String(a.category)}:${String(a.expected_payout_seq)}`;
     case "register":
       return `register:${call.receiverId}:${String(a.account_id)}`;
+    case "abort":
+      return `abort:${String(a.deal_seq)}`;
   }
 }
 

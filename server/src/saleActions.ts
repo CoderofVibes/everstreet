@@ -25,6 +25,7 @@ import {
 import type { CustomerViewTransport, PinnedBlock } from "./customerRead.ts";
 import type { Db } from "./db.ts";
 import {
+  abortCall,
   acceptCall,
   appointCall,
   CLAIM_ESCROW_RETURN,
@@ -109,6 +110,7 @@ const EXCLUSIVE = new Set<SaleKind>([
   "expire",
   "appoint",
   "claim",
+  "abort",
 ]);
 /** States a check may still resolve by the action's own transaction. */
 const CHECKABLE: State[] = ["prepared", "requested", "unknown", "no_longer_possible"];
@@ -146,7 +148,30 @@ export interface SaleActionRow {
 }
 
 export function migrateSaleActions(db: Db) {
-  db.exec(`
+  const existing = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sale_actions'")
+    .get() as { sql: string } | undefined;
+  if (existing && !existing.sql.includes("'abort'")) {
+    // Job 003wf3: a new kind. SQLite can't alter a CHECK, so the table is copied once.
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("ALTER TABLE sale_actions RENAME TO sale_actions_before_abort");
+      db.exec("DROP INDEX IF EXISTS sale_actions_by_business");
+      db.exec(saleActionsTable());
+      db.exec("INSERT INTO sale_actions SELECT * FROM sale_actions_before_abort");
+      db.exec("DROP TABLE sale_actions_before_abort");
+      db.exec("COMMIT");
+    } catch (e) {
+      if (db.isTransaction) db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+  db.exec(saleActionsTable());
+  db.exec(saleTermsDocsTable());
+}
+
+function saleActionsTable() {
+  return `
     CREATE TABLE IF NOT EXISTS sale_actions (
       id TEXT PRIMARY KEY, business_id TEXT NOT NULL, person_id TEXT NOT NULL, account TEXT NOT NULL,
       network TEXT NOT NULL, contract TEXT NOT NULL, asset TEXT NOT NULL,
@@ -161,13 +186,18 @@ export function migrateSaleActions(db: Db) {
       UNIQUE (person_id, idempotency_key)
     ) STRICT;
     CREATE INDEX IF NOT EXISTS sale_actions_by_business ON sale_actions (business_id, account, state);
+  `;
+}
+
+function saleTermsDocsTable() {
+  return `
     CREATE TABLE IF NOT EXISTS sale_terms_docs (
       id TEXT PRIMARY KEY, business_id TEXT NOT NULL, hash TEXT NOT NULL, text TEXT NOT NULL,
       seller_person_id TEXT NOT NULL, buyer_person_id TEXT NOT NULL, buyer_account TEXT NOT NULL,
       created_at TEXT NOT NULL,
       UNIQUE (business_id, hash)
     ) STRICT;
-  `);
+  `;
 }
 
 // ---------- one pinned reading ----------
@@ -441,6 +471,18 @@ export function resolveSaleTx(
           message: "Your acceptance of this exact version is recorded on the contract.",
         };
       if (
+        v === "closing" &&
+        eventsOf(first, "sale_accepted").some(
+          (d) => d.deal_seq === seq && d.by === p.account && d.closing === true,
+        )
+      )
+        return {
+          kind: "confirmed",
+          result: "closing",
+          message:
+            "Both acceptances matched: the sale is closing. Everstreet is checking the handover; ownership changes only when the contract closes it.",
+        };
+      if (
         v === "closed" &&
         eventsOf(first, "sale_finalized").some(
           (d) => d.deal_seq === seq && d.buyer === review.buyer && d.price === review.price,
@@ -475,6 +517,14 @@ export function resolveSaleTx(
           }
         : null;
     }
+    case "abort":
+      return eventsOf(first, "sale_ended").some((d) => d.deal_seq === seq && d.status === 4)
+        ? {
+            kind: "confirmed",
+            result: "aborted",
+            message: `Deal ${seq}'s closing ended (aborted). The seller keeps the business; the buyer's escrow is their claim to collect.`,
+          }
+        : null;
     case "appoint":
       return eventsOf(first, "operator_appointed").some(
         (d) => d.account === review.operator && d.caps === METERING,
@@ -580,6 +630,12 @@ const CATEGORY_NAMES: Record<number, string> = {
 export interface SaleOptions {
   /** The platform's metering account (operatorAccount): named in terms by default. */
   platformOperator?: string | null;
+  /**
+   * Job 003wf3 (MANAGED_HANDOVER.md §16.3): whether this installation can manage a Gated close
+   * for the business now (a validated closer key, the contract's guard, no incompatible peer).
+   * Absent: never (a Gated acceptance that would enter Closing is refused).
+   */
+  handover?: (businessId: string) => Promise<{ ready: boolean; reason: string | null }>;
   readTimeoutMs?: number;
   now?: () => number;
 }
@@ -809,10 +865,7 @@ export class SaleActions {
       local_owner: localOwner,
       roles,
       capability: s.terms
-        ? {
-            supported: s.control.close_mode === "direct",
-            reason: s.control.close_mode === "gated" ? "gated" : null,
-          }
+        ? { supported: true, reason: null }
         : { supported: false, reason: "contract_upgrade" },
       block: s.block,
       control: s.control,
@@ -885,7 +938,12 @@ export class SaleActions {
         ? input.buyer_account
         : g.account;
     const s = await this.read(g.binding, g.account, termsFor);
-    return this.previewFrom(viewer, g, s, kind as SaleKind, input);
+    // Job 003wf3: the managed-handover capability, read once for this preview.
+    const managed =
+      s.control.close_mode === "gated" && kind === "accept"
+        ? ((await this.opts.handover?.(businessId)) ?? { ready: false, reason: "not_configured" })
+        : null;
+    return this.previewFrom(viewer, g, s, kind as SaleKind, input, managed);
   }
 
   private previewFrom(
@@ -898,8 +956,10 @@ export class SaleActions {
     s: SaleReading,
     kind: SaleKind,
     input: Record<string, unknown>,
+    managed: { ready: boolean; reason: string | null } | null = null,
   ) {
     const no = (code: string, message: string): never => bad(409, message, code);
+    const gated = s.control.close_mode === "gated";
     const localOwner = g.business.owner_id === viewer.id;
     const roles = this.roles(s, g.account, localOwner);
     const contract = g.binding.account;
@@ -910,11 +970,7 @@ export class SaleActions {
         "This business's contract predates reviewed wallet sales here (it doesn't state its sale terms). It needs new contract code, as a new business account, before a wallet sale.",
       );
     const terms = s.terms as SaleTermsV3;
-    if (s.control.close_mode !== "direct" && kind !== "claim" && kind !== "register")
-      no(
-        "gated",
-        "This business closes through a named closer (Gated). Its close needs the closer's own integration; it can't be closed by wallet acceptances here.",
-      );
+    if (kind === "abort" && !gated) no("not_gated", "Only a Gated sale has a closing to end.");
     if (!s.token.meta)
       no("token_malformed", "The business's token didn't answer with valid metadata.");
     const meta = s.token.meta as TokenMeta;
@@ -926,7 +982,7 @@ export class SaleActions {
     let doc: { text: string; hash: string; buyer_person: string } | null = null;
     const needDeal = () => {
       if (!d) no("no_live_deal", "No sale is in progress on the contract at this reading.");
-      if (d?.state === "closing")
+      if (d?.state === "closing" && kind !== "abort")
         no("closing", "This sale is closing; nothing about it can change now.");
       return d as NonNullable<typeof d>;
     };
@@ -1011,6 +1067,20 @@ export class SaleActions {
         const meteringGranted =
           platform !== null &&
           grants.some((x) => x.account === platform && (x.caps & METERING) !== 0);
+        // Job 003wf3 (Q1): a managed (Gated) handover promises continuity, so its terms must
+        // grant metering to this platform's own operator. The mode is fixed by the contract.
+        if (gated && !meteringGranted)
+          no(
+            "managed_meter_required",
+            `A managed handover keeps customers served only if the terms grant metering to ${platform ?? "this platform's operator"}. Add that grant.`,
+          );
+        let closeWindow = "0";
+        if (gated) {
+          const m = input.close_window_minutes ?? 60;
+          if (!Number.isInteger(m) || (m as number) < 10 || (m as number) > 1440)
+            no("bad_close_window", "The close window is 10 minutes to 24 hours.");
+          closeWindow = String((m as number) * 60_000);
+        }
         const termsDoc: TermsDoc = {
           schema: "sale-terms/1",
           business: { id: g.business.id, name: g.business.name },
@@ -1046,7 +1116,7 @@ export class SaleActions {
           asset,
           price: price as string,
           expires_at_ms: String(expires),
-          close_window_ms: "0",
+          close_window_ms: closeWindow,
           available_floor: floor as string,
           grants,
           terms_hash: termsHash,
@@ -1055,8 +1125,8 @@ export class SaleActions {
           manifest_seq: s.control.manifest_seq,
           plan_count: terms.plan_count,
           min_reserve: terms.min_reserve,
-          close_mode: "direct",
-          closer: null,
+          close_mode: s.control.close_mode,
+          closer: s.control.closer,
         });
         const newRecord = !terms.party_exists && (!live || live.buyer !== buyerAcct);
         const deposit = newRecord
@@ -1069,6 +1139,7 @@ export class SaleActions {
           available_floor: floor as string,
           grants,
           terms_hash: termsHash,
+          close_window_ms: closeWindow,
         });
         call = live
           ? reviseCall(contract, live.seq, cs, arg, digest, deposit)
@@ -1082,6 +1153,7 @@ export class SaleActions {
           buyer: buyerAcct,
           price,
           expires_at_ms: String(expires),
+          close_window_ms: closeWindow,
           available_floor: floor,
           grants,
           metering_granted: meteringGranted,
@@ -1096,6 +1168,8 @@ export class SaleActions {
             manifest_seq: s.control.manifest_seq,
             plan_count: terms.plan_count,
             min_reserve: terms.min_reserve,
+            close_mode: s.control.close_mode,
+            closer: s.control.closer,
           },
           deposit,
           deposit_basis: newRecord
@@ -1117,6 +1191,11 @@ export class SaleActions {
             meteringGranted
               ? "The platform's metering account is named in the terms, so customers' new uses continue right after the close."
               : "No metering account is named: after the close, customers keep their units but new uses pause until the new owner appoints metering.",
+            ...(gated
+              ? [
+                  `This business closes through its named closer: once both parties accept, Everstreet checks the handover (new customer uses pause for this business; uses already running finish and settle), then the closer closes it within ${Number(closeWindow) / 60_000} minutes, or anyone may end the closing after that.`,
+                ]
+              : []),
           ],
           conditions: [
             "Refused without any change if anything about the sale changes before it lands (the control sequence you reviewed).",
@@ -1171,6 +1250,13 @@ export class SaleActions {
           no("unfunded", "Fund the escrow before accepting.");
         call = acceptCall(contract, live.seq, live.version, live.digest);
         const other = asSeller ? live.buyer_accepted : live.seller_accepted;
+        // Job 003wf3 (Q2): the acceptance that starts a Gated closing is refused unless this
+        // installation can manage that close (else the deal could only abort at its deadline).
+        if (gated && other && !managed?.ready)
+          no(
+            "handover_unavailable",
+            `This acceptance would start the closing, but the managed handover isn't available here now (${managed?.reason ?? "not_configured"}). Nothing was sent.`,
+          );
         review = {
           deal_seq: live.seq,
           version: live.version,
@@ -1181,10 +1267,16 @@ export class SaleActions {
           other_accepted: other,
           escrow: live.escrow,
           effects: other
-            ? [
-                "The other party has accepted these exact terms: your acceptance closes the sale in the same transaction.",
-                "The buyer becomes the contract's owner at the next generation; the seller's management ends; the price becomes the seller's sale-proceeds claim.",
-              ]
+            ? gated
+              ? [
+                  "The other party has accepted these exact terms: your acceptance starts the closing.",
+                  `Everstreet then checks the handover: new customer uses pause for this business while uses already running finish and settle; then the closer closes the sale within ${Number(live.close_window_ms) / 60_000} minutes. Nothing about the deal can change meanwhile.`,
+                  "If it isn't closed by then, either party can end the closing: the buyer's escrow becomes their claim and the seller keeps the business.",
+                ]
+              : [
+                  "The other party has accepted these exact terms: your acceptance closes the sale in the same transaction.",
+                  "The buyer becomes the contract's owner at the next generation; the seller's management ends; the price becomes the seller's sale-proceeds claim.",
+                ]
             : [
                 "Records your acceptance of this exact version.",
                 `If the ${asSeller ? "buyer" : "seller"} accepts these same terms afterwards, that acceptance closes the sale.`,
@@ -1193,6 +1285,31 @@ export class SaleActions {
             `If the ${asSeller ? "buyer" : "seller"} accepts first, your acceptance closes the sale instead of waiting.`,
             "Refused if the terms are revised (a new version), the offer expires, or the floor isn't met when it lands.",
           ],
+        };
+        break;
+      }
+      case "abort": {
+        const live = needDeal();
+        if (!roles.buyer && !(roles.seller && live.seller === g.account) && !roles.former_seller)
+          no("not_party", "Only the seller or the buyer ends this closing here.");
+        if (live.state !== "closing") no("not_closing", "This sale isn't closing.");
+        if (now < BigInt(live.deadline_ms))
+          no(
+            "not_expired",
+            "The closer still has time: the closing can be ended only after its deadline.",
+          );
+        call = abortCall(contract, live.seq);
+        review = {
+          deal_seq: live.seq,
+          version: live.version,
+          digest: live.digest,
+          deadline_ms: live.deadline_ms,
+          escrow: live.escrow,
+          effects: [
+            `Ends deal ${live.seq}'s closing on the contract: nothing changes hands; the seller keeps the business.`,
+            "The buyer's escrow becomes their returned-escrow claim to collect (owed until its payout is proven).",
+          ],
+          conditions: ["Refused if the sale was closed or ended first."],
         };
         break;
       }
