@@ -6,8 +6,10 @@ Builder: Claude Code, claude-opus-5-5, high, subscription. Astra's automatic goa
 ## Now
 
 - Phases done this session: A (flagship journey, writer history, rehearsal packet), B (Checks
-  evidence + manual checks; 002f1 stage 1), C (004b connected source), D part 1 (005e economics).
-  Next: 005c expert help (none exists), 005d portfolio, then E (006a), F (003x, 006b, 006c), G.
+  evidence + manual checks; 002f1 stage 1), C (004b), D (005e economics, 005c expert help,
+  005d portfolio), F part (003x control sheet + record + verifier).
+  Next: Phase G polish (findings below), then 006b (agent API/MCP), 006a, 006c, M6 team/co-op;
+  final packet docs/astra/reports/2026-11-05_bulk-build-review.md.
 - Scratch preview `everstreet-scratch` (port 8811, data/runtime/scratch-review*.db) may be running.
 - Running: the sale review harness in the preview pane (`sale-harness`, ports 8814/8815, 90-min
   self-stop). Stop it with preview_stop when browser work ends.
@@ -26,12 +28,16 @@ Builder: Claude Code, claude-opus-5-5, high, subscription. Astra's automatic goa
 | 7fa6deb | 004b connected source inspection (read-only, pinned commit, immutable reports, compare) |
 | 7641da5 | Gate new owner routes during a managed handover; classify every new mutation route |
 | 41223ba | 005e operating economics + recovery in Operate (per asset, no conversion or profit) |
+| 20d8a56, 291388c | 005c expert help (profiles, directory with stated reasons, private requests) |
+| d7cd760 | 005d portfolio; 003x control sheet, portable record (v1, digests), offline verifier |
 
 ## Evidence (builder-verified; independent review pending)
 
 - Full `npm run check` at ac6831e: exit 0; 1606 passed / 1 skipped; protected 12; process 60.
 - Full check at 7fa6deb: 1 failure (route guard: 5 new mutation routes unclassified) -> fixed
-  in 7641da5 (gated + exercised during an actual closing); focused suites since. Full check due.
+  in 7641da5 (gated + exercised during an actual closing).
+- Full check on the portfolio tree (just before d7cd760): exit 0; 1653 passed / 1 skipped;
+  protected 12; process 60. 003x added after: its tests + route guard pass (11).
 - Flagship journey (`flagship-journey-process.test.ts`, ~10 s, SYNTHETIC chain/wallet/model):
   founder build/eval/release/plan/grant/offer; fresh customer buys 100, 20 delivered+charged
   (ops 20/20, compute recorded); Direct sale closes with reconcile; 80 at close; result 1 same;
@@ -57,8 +63,8 @@ Builder: Claude Code, claude-opus-5-5, high, subscription. Astra's automatic goa
 
 - M2: only AI API and web-app bundles execute; no shared functional/prototype label; web-app
   bundles have no customer release (006a).
-- 004b GitHub adapter; 005c expert help; 005d portfolio; 006a; 003x sheet/record/verifier;
-  005e economics view; 006b machine API/MCP; 006c rehearsal records; M6 team/co-op.
+- 006a web-app customer release; 006b machine API/MCP; 006c rehearsal records; M6 team/co-op.
+- Live GitHub connection (needs Tony's authorization + a read-only token).
 - 002f1 stage 2 (host) needs Astra dispatch; VMM pressure method needs review.
 
 ## Decisions for Tony (batched at the end)

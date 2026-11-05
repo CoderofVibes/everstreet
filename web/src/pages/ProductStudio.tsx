@@ -973,6 +973,18 @@ export function ProductStudio({ id }: { id: string }) {
   const [appOpened, setAppOpened] = useState(false);
   if (tab === "app" && !appOpened) setAppOpened(true);
   const [serviceTask, setServiceTask] = useState<ServiceTask>(taskFromQuery);
+  // 2026-11-05 browser review: the open view (and Service task) are kept in the address, so a
+  // reload or a shared link returns to the same place. replaceState: no extra history entries.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (tab === "preview") q.delete("view");
+    else q.set("view", tab);
+    if (tab === "service" && serviceTask !== "try") q.set("task", serviceTask);
+    else q.delete("task");
+    const next = `${window.location.pathname}${q.toString() ? `?${q}` : ""}${window.location.hash}`;
+    if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`)
+      window.history.replaceState(window.history.state, "", next);
+  }, [tab, serviceTask]);
   /** Job 001b: on operating tabs the editor is shown only on request. */
   const [editorOpen, setEditorOpen] = useState(false);
   /** Job 001b: the records the status is derived from (never a single boolean). */

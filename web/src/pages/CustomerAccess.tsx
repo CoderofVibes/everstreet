@@ -19,6 +19,7 @@ import type { SaleAction } from "../saleApi.ts";
 import { saleHttp } from "../saleApi.ts";
 import { STATE_LABEL, tokenAmount } from "../saleCalls.ts";
 import { SaleFlow, type SaleFlowState } from "../saleFlow.ts";
+import { serviceWord } from "../serviceWords.ts";
 import { useSession } from "../session.tsx";
 
 const STATE_WORDS: Record<StepState, { label: string; tone: string }> = {
@@ -65,10 +66,13 @@ function OpenRequest({
   a,
   flow,
   busy,
+  notice,
 }: {
   a: SaleAction;
   flow: CustomerAccessFlow;
   busy: boolean;
+  /** The latest answer about this request, shown beside its ID field (also announced below). */
+  notice?: { tone: string; text: string } | null;
 }) {
   const [tx, setTx] = useState("");
   return (
@@ -99,14 +103,7 @@ function OpenRequest({
           </>
         ) : (
           <>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={busy}
-              onClick={() => void flow.check(a.id)}
-            >
-              Check it
-            </button>
+            {/* 2026-11-05 browser review: the ID field leads; checking without one comes after. */}
             <label className="field" style={{ minWidth: 260 }}>
               <span>Its transaction ID, from your wallet's activity</span>
               <input
@@ -118,15 +115,31 @@ function OpenRequest({
             </label>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className="btn btn-primary btn-sm"
               disabled={busy || tx.trim() === ""}
               onClick={() => void flow.check(a.id, tx)}
             >
               Check with this ID
             </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={busy}
+              onClick={() => void flow.check(a.id)}
+            >
+              Check again without an ID
+            </button>
           </>
         )}
       </div>
+      {notice && (
+        <p
+          className={`notice ${notice.tone === "warn" ? "error" : notice.tone === "ok" ? "ok" : ""}`}
+          style={{ marginTop: 8 }}
+        >
+          {notice.text}
+        </p>
+      )}
       <details className="advanced">
         <summary>Technical details</summary>
         <p className="mono" style={{ fontSize: 12 }}>
@@ -381,7 +394,7 @@ function StepBody({
     if (step.action && step.action.state === "no_longer_possible" && reviewing !== "create_plan")
       return (
         <>
-          <OpenRequest a={step.action} flow={flow} busy={busy} />
+          <OpenRequest a={step.action} flow={flow} busy={busy} notice={sale.notice} />
           <details className="advanced">
             <summary>It never landed? Review a new plan instead</summary>
             <p className="notice" style={{ fontSize: 13 }}>
@@ -399,7 +412,7 @@ function StepBody({
         </>
       );
     if (step.action && step.action.state !== "refused" && reviewing !== "create_plan")
-      return <OpenRequest a={step.action} flow={flow} busy={busy} />;
+      return <OpenRequest a={step.action} flow={flow} busy={busy} notice={sale.notice} />;
     if (step.state === "confirmed") {
       const p = v.plans[0];
       return p ? (
@@ -427,7 +440,7 @@ function StepBody({
   }
   if (step.key === "permissions") {
     if (step.action && step.action.state !== "refused")
-      return <OpenRequest a={step.action} flow={flow} busy={busy} />;
+      return <OpenRequest a={step.action} flow={flow} busy={busy} notice={sale.notice} />;
     const o = v.operator;
     if ((step.state !== "needs_input" && step.state !== "refused") || !o) return null;
     if (reviewing === "appoint") return <Review sale={sale} flow={flow} busy={busy} />;
@@ -472,7 +485,7 @@ function StepBody({
         <p style={{ fontSize: 14 }}>
           {v.service.eligible
             ? "Service checks pass here now."
-            : `Service checks not yet passing: ${v.service.reasons.join(", ")}.`}{" "}
+            : `Not serving customers yet: ${v.service.reasons.map(serviceWord).join("; ")}.`}{" "}
           <span className="muted">{v.service.note}</span>
         </p>
         {planId !== undefined && onOffer && (
