@@ -809,7 +809,9 @@ for the record; where they differ, this section is the behaviour.
   to unidentified code.
 
 **Resolution:** only this purchase's own transaction can resolve it, and that transaction must:
-- be FINAL and not failed at the top level;
+- be FINAL, with an **affirmative** top-level status: exactly `{ SuccessValue }`, whose value
+  equals the token resolution's (the amount used). A status that merely lacks `Failure` (say
+  `{}`) is no proof (Astra's handoff review);
 - have `transaction_outcome.id` equal to its hash;
 - carry exactly one action, the complete reviewed call (method, deposit, gas, arguments);
 - have a receipt graph of the token's transfer (succeeded), with the business's receiver outcome
@@ -829,8 +831,22 @@ What follows from the graph:
   aside or replaced. The ask is recorded durably before each wallet request.
 - **No time window closes it:** the wallet chooses its reference block when it signs, which can
   be long after it was asked.
-- **The only closure without its transaction** is `not_accepted` when its registration was
-  replaced, because the contract refuses it then.
+- **A readback never closes a purchase as not accepted.** A registration read now as absent or
+  replaced proves only that reading. The contract's own test (`history` in the fixture) shows a
+  purchase that **was** accepted, whose registration was then validly emptied (the contract's
+  refund payout, its callback succeeding) and removed, after which the same request is returned:
+  future refusal is not historical non-acceptance (Astra's handoff review). So:
+  - a request that **names** its registration becomes `registration_replaced`: the contract can't
+    accept it from then on, so it no longer blocks a purchase for a new registration (listed as
+    an earlier purchase with an unknown outcome), and it stays checkable by its own transaction,
+    which can still confirm it or show it returned;
+  - a request that names **no** registration (prepared before the binding) never inherits that:
+    a later registration could still accept it, so it stays open and blocking;
+  - an earlier version's `not_accepted` record is kept as it is and checkable; it blocks unless
+    its request names its registration. A check without its transaction leaves it unchanged, and
+    a proof keeps the old reading alongside as `evidence.earlier`;
+  - an unknown check never moves a historical row (`legacy_abandoned`, `not_accepted`,
+    `registration_replaced`) back into the open states.
 - **The recovery path** is the reviewed, identical resend, with its own consent: the same
   sequence and registration, so at most one is ever accepted. A duplicate is returned whole by the
   contract, but its gas is spent.
@@ -842,3 +858,5 @@ What follows from the graph:
 - Open rows' asks were uncounted, so they become 2 (a return seen is never definitive).
 - An `abandoned` row may still execute, so it becomes `legacy_abandoned`: checkable, and blocking
   a fresh payment like any open purchase.
+- The table with asks but without `registration_replaced` (9138fe1–6aa4979) is rebuilt the same
+  way to admit the new state; every row, state, count and evidence is kept as it is.

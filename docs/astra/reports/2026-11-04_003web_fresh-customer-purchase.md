@@ -23,6 +23,10 @@ children.
 | `b1a2cf3` | The actual page buying through the real Wallet Selector path; prices in tokens |
 | `4ed1417` | The resolver binds the whole transaction; a legacy set-aside blocks a fresh payment |
 | `4aa5963` | Astra's design review, four probes, capability extensions and queued 003x, 005e, 006b, 006c |
+| `6aa4979` | Design §10.7, this report and JOBS (handoff) |
+| `4786023` | Astra's handoff review, browser review and INDEX |
+| `627946d` | **Contract test:** accepted, validly emptied and removed, then the same request returned |
+| `d858a3c` | Affirmative transaction success; a replaced registration never closes a purchase as not accepted |
 | Final | Design §10.7, this report and JOBS |
 
 ## The brief, item by item
@@ -79,7 +83,14 @@ terms only.
 - **No sequence increment is taken as this purchase.**
 - **A requested purchase is never set aside or replaced**, and no time window closes it (Astra's
   probe: the wallet picks the reference block when it signs).
-- **The only closure without a transaction** is a replaced registration, giving `not_accepted`.
+- **A readback never closes a purchase as not accepted** (Astra's handoff review). The contract's
+  own test shows a purchase that was accepted, then its registration validly emptied and
+  removed, after which the same request is returned. So a request that names its registration
+  becomes `registration_replaced` when that registration reads as gone: it no longer blocks a
+  purchase for a new registration, and it stays checkable by its own transaction. A request that
+  names no registration (from before the binding) stays open and blocking. An earlier version's
+  `not_accepted` record is kept as it is and checkable, with its old reading kept as
+  `evidence.earlier` once proven.
 - **The bounded explicit check:** "a purchase with this sequence is recorded, but it can't be
   shown to be this one", or "not recorded yet".
 - **The identical resend** is its own reviewed consent (`RESEND_CONSENT`: at most one is
@@ -89,7 +100,8 @@ terms only.
 **6. Wallet evidence.**
 - **The transaction hash comes only from the pinned adapter's answer**
   (`FinalExecutionOutcome.transaction.hash`); otherwise it is null and the outcome unknown.
-- **The resolver** needs FINAL, no top-level failure, `transaction_outcome.id` equal to the hash,
+- **The resolver** needs FINAL, an affirmative top-level `SuccessValue` equal to the token
+  resolution's value (no `Failure` field alone is not proof), `transaction_outcome.id` equal to the hash,
   one action with the complete reviewed call (method, deposit, gas, arguments), and the receipt
   graph: transfer → receiver and resolution, each succeeded.
 - **Confirmed** needs `units_bought` with 0 unused and the whole amount used. **Returned** needs
@@ -122,7 +134,13 @@ Also covered:
 - an unrelated transaction hash;
 - malformed metadata;
 - the business unregistered with its token;
-- a replaced registration;
+- a replaced registration (`registration_replaced`: not blocking, still checkable, returned if
+  it executes);
+- an unbound earlier request (stays open and blocking; the new registration accepts it);
+- an earlier `not_accepted` record (checkable and confirmed by its own transaction; unbound
+  ones block);
+- on the actual page, a lost answer and then a replaced registration: listed as an earlier
+  purchase with an unknown outcome, and a new purchase offered;
 - an older contract without the view;
 - concurrent tabs (one intent);
 - another person (404);
@@ -144,19 +162,22 @@ Also covered:
 
 | Probe | Coverage |
 |---|---|
-| `astra-purchase-resolution-review` | 8 cases: optimistic status, failed receiver, failed resolution, a disconnected receipt, another transaction's graph, gas, top-level failure |
-| `astra-purchase-recovery-review` | 3 cases: set-aside then late inclusion; no replacement; no expiry before the wallet signs |
+| `astra-purchase-resolution-review` | 9 cases: optimistic status, failed receiver, failed resolution, a disconnected receipt, another transaction's graph, gas, top-level failure, a status of `{}` |
+| `astra-purchase-recovery-review` | 4 cases: set-aside then late inclusion; no replacement; no expiry before the wallet signs; recovery after a later missing registration |
 | `astra-purchase-consent-review` | 4 cases: the create answer changing recipient, deposit or customer sends nothing |
 | `astra-purchase-migration-review` | 2 cases: an old unknown row recovers; an old abandoned row blocks a fresh payment |
 
 ## Checks
 
 - **Contract** (WSL Ubuntu, `CARGO_TARGET_DIR=~/everstreet-target`, local tests only): 74
-  passed, and the wasm build succeeds. Nothing was deployed.
-- **`npm run check`:** one run with nothing concurrent, at `4ed1417`. Exit 0, lint (402 files)
-  and types clean. 1388 passed and 1 skipped (1389), across 153 passed and 1 skipped files.
-- **`npm run web:build`:** exit 0. The main chunk is 935.68 kB (it was 917.28 kB; the purchase
-  flow and panel). CSS is 73.02 kB.
+  passed (the fixture test now records the history case), and the wasm build exits 0. Nothing
+  was deployed.
+- **`npm run check`:** one run with nothing concurrent, on the final code (`d858a3c`'s tree).
+  Exit 0, lint (402 files) and types clean. **1396 passed and 1 skipped (1397)**, across 153
+  passed and 1 skipped files. The two failures in Astra's independent run (1388 passed, 2
+  failed) were reproduced first, then corrected; both probes pass.
+- **`npm run web:build`:** exit 0. The main chunk is 936.83 kB, CSS 73.02 kB. The direct-eval
+  warning is from a dependency and isn't new.
 - **Bounded harness smoke:** the ports were free, and the fresh account `dana.near` was served.
   The published offer answered and the page carried the CSP `connect-src 'self'`. It stopped
   itself after one minute, and the ports were free afterwards.
@@ -170,6 +191,11 @@ Also covered:
 The worker stays disabled.
 
 ## Remaining gates (stated)
+
+- **Astra's browser review** (`2026-11-04_PurchaseBrowserReview.md`) lists four corrections as a
+  separate, later 003web continuation, not started here: refreshing the device panel after a
+  check, entering an original transaction id, simpler setup copy, and the setup's place in the
+  workflow. That run predates these corrections, which aren't browser-verified yet.
 
 - **Astra's actual browser pass on the harness:**
   - the fresh customer at 390 and 1440, keyboard and focus;
