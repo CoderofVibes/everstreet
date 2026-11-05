@@ -33,6 +33,7 @@ Nothing below is independently accepted. No milestone is complete.
 | d7cd760 | 005d portfolio; **Phase F:** 003x control sheet, portable handover record, offline verifier |
 | 729a4d5 | **Phase G:** polish from the real-browser review |
 | 4a9300e, 2234ca0 | 006b agent access: customer-granted narrow access, plain API and MCP 2026-07-28 |
+| 13b2c8c | **Hardening (Tony's agreed plan, item 1):** restart/concurrency matrix around the whole journey; Gated close inside the journey; agent access across a sale with the owner's per-offer switch (off by default); Fable's showcase design proposal (docs only) |
 
 ## Checks (exact)
 
@@ -51,8 +52,9 @@ Nothing below is independently accepted. No milestone is complete.
     protected 12; process 60.
   - 006b was added after that check: agent-access 3 + the route guard pass, plus tsc, biome and
     the web build.
-  - **The last full check, at aebf78d (everything above included): exit 0; main 1659 passed /
-    1 skipped; protected 12; process 60.**
+  - The full check at aebf78d: exit 0; main 1659 passed / 1 skipped; protected 12; process 60.
+  - **The last full check, on the tree committed as 13b2c8c (everything above included): exit 0;
+    main 1660 passed / 1 skipped; protected 12; process 63.**
 - Real browser: Claude's built-in browser pane, Chromium, mostly 1280x800, two at 390, against
   synthetic harnesses only. No 1440 pass, keyboard-only traversal, zoom, reduced motion or screen
   reader pass was done; those stay unverified.
@@ -71,7 +73,8 @@ Nothing below is independently accepted. No milestone is complete.
 | Economics agree (earned 3 000 000, prepaid 15 000 000, 80 owed = 12 000 000) | builder-verified | Same test (005e) |
 | Writer-history operator workflow | implemented, builder-verified | `writer-history*.test.ts` (unit + production composition) |
 | 003wf4 browser repeat: lost answer → wrong ID refused → reload → original ID → offer handoff | builder-verified in a real browser | Resume note; the recovery panel was then reordered (Phase G) |
-| Restart/concurrency matrix around the whole journey; Gated close inside the journey | **open** | Existing 003wf2/3/4 process matrices only |
+| Restart/concurrency matrix around the whole journey | builder-verified | `flagship-restart-matrix.test.ts`: SIGKILL at K1 purchase check, K2 hold applied/answer lost, K3 charge applied/answer lost, K4 close check, K5 model call in flight; live concurrency (one key prepared 4x, one use confirmed/run 3x, a purchase checked 3x). One purchase each, one hold per use, one charge per delivered use, the interrupted run dispatched once and its unit returned (after the delivery timeout, via a labelled test clock matched on the child AND the chain double), one close, seller not revived |
+| Gated close inside the journey | builder-verified | `flagship-gated-journey.test.ts`: fresh product, 100 bought, 5 used, 1 reserved at acceptance; coordinator gates, returns that unit once, one close order and close, reconciles, releases to the buyer; 95 kept; results kept; buyer serves and ships an update |
 | External testnet rehearsal | prepared only, external integration pending | `docs/design/EXTERNAL_REHEARSAL_PACKET.md` |
 
 Everything in this phase is synthetic chain, wallet and model. It is not live NEAR or provider
@@ -110,7 +113,8 @@ evidence.
 |---|---|---|
 | 003x control sheet (current / as recorded / history / pending external, each with basis and time), portable record v1 with digests, offline verifier | implemented, builder-verified (browser: sheet) | `handover-record.test.ts` (3), including the offline script |
 | 006b agent access: narrow customer grant (one offer, the agent's own key slot, cap, expiry; hashed token), same customer path, MCP 2026-07-28 Streamable HTTP | implemented, builder-verified | `agent-access.test.ts` (3): an independent client's full flow, refusals before dispatch, protocol conformance; spec checked against modelcontextprotocol.io on Nov 5; `docs/design/AGENT_ACCESS.md` |
-| 006b inside the configured child across a sale; founder enablement switch; browser pass | **open** | |
+| 006b inside the configured child across a sale; owner's per-offer switch | implemented, builder-verified | `flagship-agent-sale.test.ts` (MCP over real HTTP, the agent's own key installed by a purchase, grant survives the sale, buyer serves it, seller can't flip the switch, buyer turns it off and only the agent is refused before anything is prepared); `agent-access.test.ts` switch test (off by default, non-owner refused, history append-only); route classified gated_owner |
+| 006b browser pass of `/agent-access` and the Agent use switch | **open** | |
 | 006c successor rehearsal records | **open** | |
 
 ### Phase E: M6
