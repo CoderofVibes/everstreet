@@ -998,3 +998,104 @@ later, separately authorized rehearsal, not part of this job.
   send; lost-answer recovery. The earlier Astra revoke probe stays.
 - `cargo test`, `cargo clippy`, the wasm build, `npm run check` and the web build, once, on the
   final code.
+
+## 12. Configured maintenance and the provider transport lifecycle (job 003wf1)
+
+**Design.** Written before this job's code. The brief is
+`docs/astra/jobs/2026-11-04_003wf1_configured-maintenance-lifecycle.md`, the first child of 003wf
+(whose later children keep every other requirement). Grounded at `b537e06`:
+- `compose.ts` starts the build worker and recovers runtime and evaluations, but never builds the
+  `MaintenanceSupervisor` (§002d's "what remains to wire live").
+- Its model adapters call `httpsTransport(key)` without the supported `fetchImpl` option, so a
+  configured composition can't be exercised without the real network.
+- `entry.ts` starts the composition before listening, closes the listener before stopping, and
+  has a 10 s fallback; the composition has no request-admission boundary, and nothing stops a
+  late adapter answer from resuming against a closed database.
+
+### 12.1 Configuration (explicit, validated, off by default)
+
+```json
+"maintenance": {
+  "enabled": true,
+  "interval_ms": 30000,      // 1000..3600000
+  "batch": 10,               // 1..25
+  "pass_budget_ms": 20000,   // 100..120000
+  "op_deadline_ms": 15000,   // 100..120000, at most the pass budget
+  "stop_timeout_ms": 30000   // 100..120000: the longest stop waits for a pass to end
+}
+```
+- Every field is required when the section is present (no hidden defaults in a configured
+  process); unknown fields are refused; `enabled: false` is the same as absent.
+- It needs customer use (`customer`, `rpc`, `protected_storage`), checked at validation.
+- The lease is derived as now (3 × max(interval, budget)); the holder is a fresh opaque id per
+  process (`proc-<uuid>`). Several processes on one database coordinate through the existing
+  durable lease, never through uncoordinated loops; at most one supervisor per process.
+- Absent: the capability is unavailable, nothing is scheduled, and health reads `not_started`.
+
+### 12.2 Composition
+
+- One `MaintenanceSupervisor`, over its OWN `CustomerUses` (as the preview does), sharing the
+  store, the v3 observations and the managed runtime, with `guardAdapters(options, 4)`.
+- It never calls `ManagedRuntime.recover()` (that stays in `start()`, once per process, before
+  maintenance starts).
+- **Capability, not health.** `maintenance` in `/api/system/capabilities` says only what is
+  configured ("passes every 30 s; which tasks can progress"). Without the writer it says so:
+  expiry and cleanup can progress; reservations and settlements wait (backed off as
+  `writer_unavailable`). Observed health is separate: the same endpoint adds
+  `maintenance_observed` (the platform worker's state, last pass time and outcome, in flight),
+  from `maintenance_status`, with no holder id, business, count or customer material; owners
+  keep their per-business counts through the existing fenced readiness.
+
+### 12.3 Start and stop
+
+- `start()`: runtime and evaluation recovery, the build worker, then `supervisor.start()`.
+  Idempotent; a no-op after `stop()`.
+- `stop()`, idempotent (also before `start()` and after a failed composition), in order:
+  1. **Admission ends:** every new HTTP request gets 503 `stopping` (with `Connection: close`).
+  2. **Scheduling ends and in-flight work drains:** `supervisor.stop()` and the build worker's
+     stop, each raced against `stop_timeout_ms` (the supervisor's own pass is already bounded by
+     its budget plus one operation deadline).
+  3. **The fence closes:** every injected network call (RPC, writer, model) and every protected
+     storage call made through the composition passes a fence. After it closes, an answer that
+     arrives late never resumes its caller (it stays pending), so no handler or pass continues
+     into a closed database, and nothing is recorded as done that wasn't. Unknown dispatch stays
+     unknown and is recovered by the next process's `start()`.
+  4. **Resources close**, newest first.
+- The fence never answers for an adapter and never fabricates an outcome.
+
+### 12.4 The provider network seam
+
+`ComposeDeps` gains `modelFetch` and `modelFetchLabel` (labelled, like `fetch`). The real
+`AnthropicProvider` and `AnthropicRuntime` are built over `httpsTransport(key, { fetchImpl })`,
+so budgets, counting, parsing, accounting, provider errors, timeouts and cancellation are the
+production code. The capability's provenance names the label. No application service is
+replaced and no global is patched. Test transports refuse every destination but the exact
+configured RPC endpoint and the two Anthropic paths, and never fall through to a real fetch.
+
+### 12.5 The entry
+
+`server/src/serve.ts` holds the entry's logic, used by `entry.ts` and, with only labelled
+network transports injected, by the test child:
+- validate, compose, **listen, and only then start** (a listen failure stops and exits 1 with
+  nothing started);
+- on SIGINT/SIGTERM (or the test child's IPC request), stop the composition (bounded), then close
+  the listener and its connections, then exit 0.
+
+### 12.6 Evidence plan
+
+- **In process:** config validation; capability truth with and without the writer; observed
+  health only after a holder's pass; stop before start, twice, and after a composition failure;
+  admission refusal while stopping; a hung adapter bounded by `stop_timeout_ms` with no late DB
+  access; the real Anthropic adapters over a synthetic HTTP seam (success with accounting, a
+  provider error, a timeout, a refused destination).
+- **Actual child processes** (`server/test/entryChild.ts` over `serve.ts`; disposable DB and
+  protected store; the chain double and a JSON-RPC answering from the TEST process over IPC, so
+  its state survives restarts and barriers are deterministic; small heap, deadlines, exact
+  cleanup):
+  - maintenance settles a reserved, executed use through the real writer and RPC transports;
+  - stop during a held settlement, then restart: one settlement, no duplicate charge;
+  - a forced kill mid-settlement, then restart: recovered once;
+  - two children on one database: one holder works; after the holder stops, the other takes over;
+  - a late answer after stop resumes nothing; a listen failure exits 1 with the DB closed.
+- **Left for later 003wf children:** the purchase/provider/close restart and nonce/migration
+  matrix, the full journey through normal APIs, browser review, and the rehearsal packet.
