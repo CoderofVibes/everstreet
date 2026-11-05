@@ -122,6 +122,8 @@ export interface Composed {
     owners_running: number;
     /** The runtime's owned work (runs, evaluation loops) still unsettled at the deadline. */
     work_running: number;
+    /** Job 003wf3: managed-handover steps still running at the deadline (their writes refused). */
+    handover_running: number;
   } | null;
 }
 
@@ -709,6 +711,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     stop_failures: number;
     owners_running: number;
     work_running: number;
+    handover_running: number;
   } | null = null;
   /** Resolves true when `p` settles within `ms`, false at the deadline (the timer is cleared). */
   const within = (p: Promise<unknown>, ms: number) => {
@@ -761,11 +764,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         sv.start();
         stoppers.unshift(() => sv.stop());
       }
-      if (coordinator) {
-        const hc = coordinator;
-        hc.start();
-        stoppers.unshift(() => hc.stop());
-      }
+      coordinator?.start();
     },
     stop() {
       if (stopping) return stopping;
@@ -775,6 +774,13 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       // The gates close (late answers and accesses get StoppedError), then resources close.
       // Cleanup always runs; a forced or failed drain is recorded, not hidden.
       admitting = false;
+      // Astra 01:47: the coordinator is always stopped here, even when its passes were driven by
+      // the caller (never started): a step blocked in a read or a send keeps this owner unsettled,
+      // awaited under the shared deadline and then reported, never marked done by a raced timer.
+      if (coordinator) {
+        const hc = coordinator;
+        stoppers.unshift(() => hc.stop().then((r) => (r.quiescent ? r : hc.settled())));
+      }
       stopping = (async () => {
         // §12.10: ONE exact deadline D. A cleanup reserve R is held back inside it: owners and
         // requests drain until D - R; after the gates close, owner stoppers still pending and the
@@ -824,12 +830,19 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         );
         const ownersRunning = owners.filter((o) => !o.done).length;
         const workRunning = runtime.ownedCount();
+        const handoverRunning = coordinator?.running() ?? 0;
         last = {
-          forced: !ownersDone || !requestsDone || ownersRunning > 0 || workRunning > 0,
+          forced:
+            !ownersDone ||
+            !requestsDone ||
+            ownersRunning > 0 ||
+            workRunning > 0 ||
+            handoverRunning > 0,
           requests_running: requestsRunning,
           stop_failures: failures,
           owners_running: ownersRunning,
           work_running: workRunning,
+          handover_running: handoverRunning,
         };
         closeAll(opened);
       })();

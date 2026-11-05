@@ -156,6 +156,16 @@ export class HandoverCoordinator {
     return { quiescent: finished, running: finished ? 0 : this.ops.size };
   }
 
+  /** Steps still running (each one's token is dead once stopped). */
+  running(): number {
+    return this.ops.size;
+  }
+
+  /** Settles when every step in flight has actually finished (unbounded: the caller bounds it). */
+  settled(): Promise<unknown> {
+    return Promise.allSettled([this.passing, ...[...this.ops.values()].map((o) => o.done)]);
+  }
+
   // ---------- capability (§16.3) ----------
 
   /** Whether this installation can manage a Gated close for the business now. */
@@ -369,11 +379,10 @@ export class HandoverCoordinator {
 
   // ---------- one business ----------
 
-  async step(businessId: string, op?: { gen: number; dead: boolean }): Promise<string> {
+  async step(businessId: string, op: { gen: number; dead: boolean }): Promise<string> {
     const gen = this.claim(businessId);
     if (gen === null) return "standby";
-    if (op) op.gen = gen;
-    else this.ops.set(businessId, { gen, dead: false, done: Promise.resolve() });
+    op.gen = gen;
     const alive = () => {
       const o = this.ops.get(businessId);
       return !this.stopped && o !== undefined && !o.dead && o.gen === gen;
@@ -410,6 +419,7 @@ export class HandoverCoordinator {
       if (!alive()) return "stopped";
       const rec = await this.intents.reconcile(null, businessId, h.intent_id, {
         handoverId: h.id,
+        fence: () => this.requireLease(businessId, gen),
       });
       if (rec.state === "conflict") this.attention(h, gen, `reconcile_${rec.code}`, r.block);
       return `reconcile_${rec.state}`;

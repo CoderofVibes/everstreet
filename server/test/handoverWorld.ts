@@ -220,6 +220,9 @@ export async function handoverWorld(o: HandoverWorldOptions = {}) {
     cleanup,
     closerKey: ck,
     closerKeyId: k,
+    /** The buyer's sign-in key and the handover config, for a restarted composition. */
+    noah,
+    handoverConfig: handover,
   };
 }
 

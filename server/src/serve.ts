@@ -36,7 +36,7 @@ export function runServer(config: AppConfig, deps: ComposeDeps, io: ServeIo) {
       const ls = composed.lastStop();
       if (ls?.forced || ls?.stop_failures)
         io.error(
-          `stop: ${ls.forced ? "the drain budget ran out" : "drained"}; ${ls.requests_running} request(s) still running; ${ls.stop_failures} stop failure(s)`,
+          `stop: ${ls.forced ? "the drain budget ran out" : "drained"}; ${ls.requests_running} request(s) still running; ${ls.handover_running} handover step(s) still running; ${ls.stop_failures} stop failure(s)`,
         );
       // The listener: no new connections; idle keep-alive ones close now; answers already being
       // written (e.g. the 503 "stopping" the stop just gave) finish; the rest are cut at 2 s.

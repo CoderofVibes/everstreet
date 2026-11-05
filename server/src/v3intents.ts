@@ -322,13 +322,16 @@ export class V3Intents {
    * `system` (job 003wf3, Q9): the managed handover's own entry, never a route. It must name the
    * stored handover whose intent, deal, version and digest are exactly this intent's; it runs the
    * same decide/apply code with every monotonic check, and is attributed to `system:handover`.
+   * `fence` (Astra 01:47) runs first inside each of its write transactions: a coordinator whose
+   * lease or operation lapsed during the awaited read throws there, and nothing is written.
    */
   async reconcile(
     viewer: Person | null,
     businessId: string,
     intentId: string,
-    system?: { handoverId: string },
+    system?: { handoverId: string; fence?: () => void },
   ) {
+    const fence = () => system?.fence?.();
     const first = this.row(businessId, intentId);
     const allowed =
       first &&
@@ -363,7 +366,10 @@ export class V3Intents {
     }
     if (!snap) return answer("unavailable", "no_transport");
     const s = snap;
-    const recorded = this.store.tx(() => this.obs.record(businessId, s)).outcome;
+    const recorded = this.store.tx(() => {
+      fence();
+      return this.obs.record(businessId, s);
+    }).outcome;
     if (recorded === "stale") return answer("unavailable", "evidence_stale");
     if (recorded !== "accepted" && recorded !== "duplicate")
       return answer("conflict", `evidence_${recorded}`);
@@ -375,13 +381,14 @@ export class V3Intents {
     const decision = this.decide(first, s);
     if (decision.state === "ended" || decision.state === "superseded") {
       const status = decision.state;
-      this.store.tx(() =>
+      this.store.tx(() => {
+        fence();
         this.db
           .prepare(
             "UPDATE v3_intents SET status = ?, result = ?, updated_at = ? WHERE id = ? AND status = 'recorded'",
           )
-          .run(status, JSON.stringify({ outcome: decision.code, block: s.block }), now(), first.id),
-      );
+          .run(status, JSON.stringify({ outcome: decision.code, block: s.block }), now(), first.id);
+      });
       // The answer follows what is actually stored, whichever call reached it first.
       const stored = (this.row(businessId, intentId) as IntentRow).status;
       const state: ReconcileState =
@@ -396,6 +403,7 @@ export class V3Intents {
     const t = now();
     try {
       const won = this.store.tx(() => {
+        fence();
         const cas = this.db
           .prepare(
             "UPDATE v3_intents SET status = 'applied', result = ?, updated_at = ? WHERE id = ? AND status = 'recorded'",
