@@ -12,6 +12,7 @@ import {
   type CustomerStep,
   customerSteps,
   endedNeutrally,
+  sentWord,
   WONT_RUN_RESULT,
   wontRun,
 } from "../customerView.ts";
@@ -99,7 +100,7 @@ function Consent({
         <dd>
           {use.offer.product.name} · <span className="muted">{use.offer.business.name}</span>
         </dd>
-        <dt>Your document</dt>
+        <dt>Your {sentWord(use.offer.product.kind)}</dt>
         <dd>
           {use.input.chars.toLocaleString()} characters, bound to this request by its fingerprint
           (under Technical details)
@@ -132,7 +133,7 @@ function Consent({
       {check && (
         <p className={`use-check ${check.ok ? "ok" : "bad"}`}>
           {check.ok
-            ? "Checked by your browser: every byte you'd authorize matches these details and your document."
+            ? `Checked by your browser: every byte you'd authorize matches these details and your ${sentWord(use.offer.product.kind)}.`
             : check.problem}
         </p>
       )}
@@ -421,7 +422,13 @@ export function StepHeading({ s }: { s: WorkspaceState }) {
   return (
     <>
       <h2 id="use-compose-title">
-        {use ? use.headline.title : s.unanswered ? "Request not answered" : "Your document"}
+        {use
+          ? use.headline.title
+          : s.unanswered
+            ? "Request not answered"
+            : s.offer && s.offer.product.kind !== "extraction"
+              ? "Your request"
+              : "Your document"}
       </h2>
       {use && <p className="muted">{use.headline.detail}</p>}
     </>
@@ -472,7 +479,7 @@ export function ResultArea({
   const stopped = x.state !== "running" && x.result !== "available" && x.result !== "pending";
   const text =
     x.state === "running"
-      ? "Running on your document…"
+      ? `Running on your ${sentWord(use?.offer.product.kind)}…`
       : x.result === "available"
         ? "Your result is ready. Show it when you like: only you can read it."
         : x.result === "pending"
@@ -639,7 +646,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
     return (
       <div className="page empty">
         <h2>Sign in to use this product</h2>
-        <p>Your documents and results are private to you.</p>
+        <p>What you send and the results are private to you.</p>
         <button
           type="button"
           className="btn btn-primary"
@@ -802,7 +809,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
           <p className="muted use-setup-why">
             {readiness?.kind === "ready"
               ? "This device is enrolled. Buy more uses or manage its key here."
-              : "Buy uses with your own wallet, then enroll this device so it can authorize one use at a time. You can write your document below meanwhile; it's kept on this page."}
+              : "Buy uses with your own wallet, then enroll this device so it can authorize one use at a time. You can fill in what you'll send below meanwhile; it's kept on this page."}
           </p>
           {/* Hidden, never unmounted: a wallet request in progress isn't torn down. */}
           <div id="use-setup-panels" className="use-setup-panels" hidden={!setupShown}>

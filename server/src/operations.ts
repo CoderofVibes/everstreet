@@ -175,8 +175,9 @@ export function customerOperations(
           CASE
             WHEN i.state = 'unknown' THEN 'unknown'
             WHEN i.state = 'running' OR (i.state = 'completed' AND (x.delivery IS NULL OR x.delivery = 'protecting')) THEN 'undecided'
-            WHEN x.delivery = 'delivered' AND x.delivered_at IS NOT NULL AND x.result_outcome = 'extracted'
-                 AND i.state = 'completed' AND i.outcome = 'extracted' THEN 'usable_result'
+            WHEN x.delivery = 'delivered' AND x.delivered_at IS NOT NULL
+                 AND x.result_outcome IN ('extracted','accepted','analyzed')
+                 AND i.state = 'completed' AND i.outcome = x.result_outcome THEN 'usable_result'
             ELSE 'not_usable'
           END AS bucket,
           COUNT(*) AS n
@@ -315,7 +316,7 @@ export function customerOperations(
       usage:
         "Each use is counted in the UTC month it was requested; its status is its current recorded outcome (charged and returned are exact contract readbacks). A month's split can change as outcomes resolve; its total can't.",
       execution:
-        "A usable result is one delivered to the customer as a complete extraction (the same rule that allows a charge).",
+        "A usable result is one delivered to the customer as a complete extraction, an accepted request or a delivered analysis (the same rule that allows a charge).",
       cost: "Computed from the provider's reported tokens at the declared prices, exact to a millionth of a cent; not an invoice or proof of payment. Calls without full usage are counted as unknown cost, never zero. Building the product is a separate ledger.",
       value:
         "No money value is shown for customer uses: charged counts are units, and the per-use price evidence needed to value them exactly isn't recorded here. Earned revenue above comes only from the business's other records.",

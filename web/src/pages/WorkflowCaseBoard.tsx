@@ -5,7 +5,7 @@
 // sale the buyer works the cases and the seller no longer sees them. Cases opened under an earlier
 // release keep that release's stages and are shown in their own board (Relaydesk correction).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useActorRead } from "../actorRead.ts";
 import { useSession } from "../session.tsx";
 import { ago } from "../via.ts";
@@ -14,7 +14,7 @@ import { type CaseDetail, type CaseView, workflowApi } from "../workflowApi.ts";
 const WHO: Record<CaseView["history"][number]["actor_kind"], string> = {
   customer: "Customer",
   staff: "Your team",
-  system: "Received",
+  system: "Opened by the customer's request",
 };
 
 /** Cases grouped by the stages of the release each was opened under (newest group first). */
@@ -137,6 +137,7 @@ function CaseDetailPanel({
   const [d, setD] = useState<CaseDetail | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     workflowApi
@@ -145,12 +146,14 @@ function CaseDetailPanel({
       .catch((e: Error) => setError(e.message));
   }, [businessId, requestId]);
   const move = async () => {
-    if (!d?.case.next) return;
+    if (busy || !d?.case.next) return;
     setBusy(true);
     setError(null);
     try {
       const c = await workflowApi.advance(businessId, requestId, d.case.next.key, note);
       setD({ ...d, case: c });
+      // The final stage replaces the Move button: focus goes to the case, not to the page.
+      if (!c.next) requestAnimationFrame(() => heading.current?.focus());
       setNote("");
       onMoved();
     } catch (e) {
@@ -165,7 +168,7 @@ function CaseDetailPanel({
   return (
     <section className="wf-detail" aria-label="Request details">
       <div className="row">
-        <h3 style={{ margin: 0 }}>
+        <h3 style={{ margin: 0 }} ref={heading} tabIndex={-1}>
           Request <span className="mono">{requestId.slice(0, 8)}</span>
         </h3>
         <span className="spacer" />
@@ -203,7 +206,7 @@ function CaseDetailPanel({
                   <span className="muted">
                     · {WHO[e.actor_kind]} · {ago(e.at)}
                   </span>
-                  {e.note && <div className="wf-note">{e.note}</div>}
+                  {e.note && e.actor_kind !== "system" && <div className="wf-note">{e.note}</div>}
                 </li>
               ))}
             </ol>
@@ -218,7 +221,13 @@ function CaseDetailPanel({
                     onChange={(e) => setNote(e.target.value)}
                   />
                 </label>
-                <button type="button" className="btn btn-primary" disabled={busy} onClick={move}>
+                {/* Never disabled under the user's focus: aria-disabled while saving (focus stays). */}
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  aria-disabled={busy}
+                  onClick={move}
+                >
                   {busy ? "Moving…" : `Move to ${d.case.next.label}`}
                 </button>
               </div>
@@ -262,7 +271,7 @@ export function CustomerCaseTrack({ requestId }: { requestId: string }) {
           <li key={`${e.at}-${e.to_stage}`}>
             {c.stages.find((s) => s.key === e.to_stage)?.label ?? e.to_stage}{" "}
             <span className="muted">· {new Date(e.at).toLocaleString()}</span>
-            {e.note && <div className="wf-note">{e.note}</div>}
+            {e.note && e.actor_kind !== "system" && <div className="wf-note">{e.note}</div>}
           </li>
         ))}
       </ul>

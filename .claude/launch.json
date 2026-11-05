@@ -48,6 +48,19 @@
         "EVERSTREET_DB": "data/runtime/scratch-review.db",
         "OPENSEAT_DB": "data/runtime/scratch-review-openseat.db"
       }
+    },
+    {
+      "name": "relaydesk-harness",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "scripts/sale-harness.ts",
+        "--minutes",
+        "90",
+        "--product",
+        "relaydesk"
+      ],
+      "port": 8814
     }
   ]
 }

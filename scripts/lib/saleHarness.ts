@@ -16,7 +16,7 @@ import { base58Encode } from "../../server/src/customerWriter.ts";
 import { AccountSignIn, nep413Digest } from "../../server/src/identity.ts";
 import type { Store } from "../../server/src/store.ts";
 import { CUSTOMER, type Json, OPERATOR } from "../../server/test/customer-world.ts";
-import { BUYER, SELLER, saleWorld } from "../../server/test/sale-world.ts";
+import { BUYER, RELAYDESK_REQUEST, SELLER, saleWorld } from "../../server/test/sale-world.ts";
 import { labelScript } from "./customerPreview.ts";
 import { HARNESS_CSP, HARNESS_LABEL, WALLET_SCRIPT, walletHistory } from "./walletHarness.ts";
 
@@ -48,8 +48,10 @@ export const HARNESS_BUDGET = {
 export async function saleHarness(opts: {
   origin: string;
   budget?: Partial<typeof HARNESS_BUDGET>;
+  /** Relaydesk correction: the business sells Relaydesk (the workflow engine) instead. */
+  product?: "ledgerline" | "relaydesk";
 }) {
-  const s = await saleWorld();
+  const s = await saleWorld({ product: opts.product });
   const { w } = s;
   const budget = { ...HARNESS_BUDGET, ...opts.budget };
   for (const [k, v] of Object.entries(budget))
@@ -259,11 +261,18 @@ export async function saleHarness(opts: {
     };
     const supported =
       (call.receiverId === s.BUSINESS &&
-        (/_guarded$/.test(call.methodName) || call.methodName === "accept_sale")) ||
+        (/_guarded$/.test(call.methodName) ||
+          call.methodName === "accept_sale" ||
+          // A customer's own requests (Stage C browser pass): enroll a device key, open a shell.
+          call.methodName === "install_key" ||
+          call.methodName === "sponsor_shell")) ||
       (call.receiverId === s.TOKEN &&
         (call.methodName === "ft_transfer_call" || call.methodName === "storage_deposit"));
     if (!supported)
-      return c.json({ error: "The synthetic wallet only sends the sale's own requests." }, 400);
+      return c.json(
+        { error: "The synthetic wallet only sends the sale's and a customer's own requests." },
+        400,
+      );
     controls.sent.push({ signer: controls.account, ...call });
     let outcome: Json;
     try {
@@ -318,7 +327,10 @@ export async function saleHarness(opts: {
     sync();
     const prep = await cara(`/api/customer/offers/${s.offerId}/prepare`, "POST", {
       idempotency_key: `harness-use-${String(++uses).padStart(4, "0")}`,
-      input: "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD",
+      input:
+        opts.product === "relaydesk"
+          ? RELAYDESK_REQUEST
+          : "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD",
     });
     if (prep.status !== 201)
       return { status: prep.status, code: prep.body?.code ?? null, unit: null };
@@ -355,6 +367,7 @@ export function saleControl(h: Awaited<ReturnType<typeof saleHarness>>) {
       controls: h.controls,
       business: s.biz,
       sale_page: `/sales/${s.biz}`,
+      customer_page: `/use/${s.offerId}`,
       contract: s.sale.controlView(),
       treasury: s.sale.treasuryView(),
       owner_here: (

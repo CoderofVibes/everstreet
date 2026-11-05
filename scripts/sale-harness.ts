@@ -2,7 +2,7 @@
 // through each participant's own (synthetic) wallet, in the normal app composition.
 //
 //   npm run web:build
-//   npx tsx scripts/sale-harness.ts [--minutes 30]
+//   npx tsx scripts/sale-harness.ts [--minutes 30] [--product relaydesk]
 //
 // Site: http://127.0.0.1:8814/ . Sign in with the synthetic wallet (it starts as the seller,
 // founder.near); the sale page is printed below. Controls on http://127.0.0.1:8815/ (a separate
@@ -42,7 +42,15 @@ if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 120) {
   console.error("--minutes must be 1 to 120");
   process.exit(2);
 }
-const h = await saleHarness({ origin: `http://${HOST}:${PORT}` });
+// Relaydesk correction (Stage C browser pass): `--product relaydesk` sells Relaydesk instead.
+const product = process.argv.includes("--product")
+  ? process.argv[process.argv.indexOf("--product") + 1]
+  : "ledgerline";
+if (product !== "ledgerline" && product !== "relaydesk") {
+  console.error("--product must be ledgerline or relaydesk");
+  process.exit(2);
+}
+const h = await saleHarness({ origin: `http://${HOST}:${PORT}`, product });
 const dist = "web/dist";
 const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -71,6 +79,7 @@ const app = serve({ fetch: site.fetch, port: PORT, hostname: HOST });
 const ctl = serve({ fetch: saleControl(h).fetch, port: PORT + 1, hostname: HOST });
 console.log(`Sale review harness (SYNTHETIC wallet and chain, fictional): http://${HOST}:${PORT}/`);
 console.log(`  Sale page: http://${HOST}:${PORT}/sales/${h.world.biz}`);
+console.log(`  Customer page: http://${HOST}:${PORT}/use/${h.world.offerId}`);
 console.log(
   `  Set up customer access (job 003wf4): http://${HOST}:${PORT}${customerAccessPath(h)} (Service, Customer access)`,
 );

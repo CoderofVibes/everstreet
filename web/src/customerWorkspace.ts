@@ -30,6 +30,7 @@ import {
 } from "./customerApi.ts";
 import { AUTHORIZATION_UNAVAILABLE, type CustomerAuthorizer } from "./customerAuthorizer.ts";
 import { sha256Hex, verifyEnvelope } from "./customerEnvelope.ts";
+import { sentWord } from "./customerView.ts";
 
 export interface Notice {
   tone: "info" | "ok" | "warn" | "error";
@@ -381,7 +382,7 @@ export class CustomerWorkspace {
         notice: {
           tone: "warn",
           code: "input_too_long",
-          message: `This product reads up to ${offer.product.max_chars} characters; this document has ${text.length}.`,
+          message: `This product reads up to ${offer.product.max_chars} characters; this ${sentWord(offer.product.kind)} has ${text.length}.`,
         },
       });
       return;
@@ -454,7 +455,9 @@ export class CustomerWorkspace {
         check: {
           ok: false,
           problem:
-            "To check this request before authorizing it, paste the same document again: it isn't kept on this page after a reload.",
+            use.offer.product.kind !== "extraction"
+              ? "To check this request before authorizing it, fill in the same request again: it isn't kept on this page after a reload."
+              : "To check this request before authorizing it, paste the same document again: it isn't kept on this page after a reload.",
         },
       });
     }
@@ -692,19 +695,28 @@ export function nextStep(s: WorkspaceState): Next {
             label: "Review one use",
             why: "Nothing is reserved or charged by reviewing.",
           }
-      : {
-          action: null,
-          label: "Add your document",
-          why: "Paste the document you want turned into data.",
-        };
+      : s.offer && s.offer.product.kind !== "extraction"
+        ? {
+            action: null,
+            label: "Fill in your request",
+            why: "Fill in the form: every field marked required.",
+          }
+        : {
+            action: null,
+            label: "Add your document",
+            why: "Paste the document you want turned into data.",
+          };
   const x = u.execution;
   switch (u.state) {
     case "prepared":
       if (s.accepted === null)
         return {
           action: "match_document",
-          label: "Check it's the same document",
-          why: "Paste the same document to check the request before authorizing.",
+          label: `Check it's the same ${sentWord(u.offer.product.kind)}`,
+          why:
+            u.offer.product.kind !== "extraction"
+              ? "Fill in the same request to check it before authorizing."
+              : "Paste the same document to check the request before authorizing.",
         };
       if (!s.check?.ok)
         return {
@@ -716,7 +728,7 @@ export function nextStep(s: WorkspaceState): Next {
         ? {
             action: "authorize",
             label: "Authorize this one use",
-            why: "Reserves one unit for this document. It's charged only if you get a result.",
+            why: `Reserves one unit for this ${sentWord(s.offer?.product.kind)}. It's charged only if you get a result.`,
           }
         : {
             action: null,
@@ -747,8 +759,11 @@ export function nextStep(s: WorkspaceState): Next {
       return unitStep(u.units.unit, u.units.retryable);
     return {
       action: "run",
-      label: "Run it on my document",
-      why: "One run of the released product on this document.",
+      label:
+        s.offer && s.offer.product.kind !== "extraction"
+          ? "Send my request"
+          : "Run it on my document",
+      why: `One run of the released product on this ${sentWord(s.offer?.product.kind)}.`,
     };
   }
   if (x.state === "running")

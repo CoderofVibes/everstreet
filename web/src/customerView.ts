@@ -33,7 +33,19 @@ export const CUSTOMER_STEP_WORD: Record<CustomerStepStatus, string> = {
   attention: "Needs checking",
 };
 
-type View = Pick<WorkspaceState, "use" | "result" | "check" | "unanswered" | "draft" | "inDoubt">;
+type View = Pick<WorkspaceState, "use" | "result" | "check" | "unanswered" | "draft" | "inDoubt"> &
+  Partial<Pick<WorkspaceState, "offer">>;
+
+/**
+ * Relaydesk/Signalwatch browser pass: the product's kind decides the words. A workflow or an
+ * analysis takes a filled-in form (a request), not a pasted document.
+ */
+export const productKind = (s: Partial<Pick<WorkspaceState, "offer">>) =>
+  s.offer?.product.kind ?? "extraction";
+const isForm = (s: Partial<Pick<WorkspaceState, "offer">>) => productKind(s) !== "extraction";
+/** What the customer sends, in words: a document (extraction) or a request (a form). */
+export const sentWord = (kind: string | undefined) =>
+  kind && kind !== "extraction" ? "request" : "document";
 
 const ENDED: UseView["state"][] = ["refused", "unresolved", "cancelled", "expired"];
 const is = (status: CustomerStepStatus, detail: string) => ({ status, detail });
@@ -65,8 +77,9 @@ export const WONT_RUN_RESULT: Record<"returned" | "returning" | "ended", string>
 };
 
 /** Whether the shown result is a complete extraction (every required field found). */
+/** A delivered result: a complete extraction, an accepted request or a delivered analysis. */
 export const completeResult = (s: Pick<WorkspaceState, "result">) =>
-  s.result?.result.outcome === "extracted";
+  ["extracted", "accepted", "analyzed"].includes(s.result?.result.outcome ?? "");
 
 function documentStep(s: View) {
   const u = s.use;
@@ -80,6 +93,10 @@ function documentStep(s: View) {
       "current",
       "Your last request wasn't answered. Recover it first; it is never made twice.",
     );
+  if (isForm(s))
+    return s.draft.trim()
+      ? is("current", "Your request is filled in and ready to review.")
+      : is("current", "Fill in the form: every field marked required.");
   return s.draft.trim()
     ? is("current", `${s.draft.length.toLocaleString()} characters ready to review.`)
     : is("current", "Paste the document you want turned into data.");
@@ -125,7 +142,12 @@ function runStep(s: View) {
         )
       : u.units.unit === "returned"
         ? is("ended", "Not run: the contract confirmed your unit returned.")
-        : is("current", "One run of the released product on this document.");
+        : is(
+            "current",
+            isForm(s)
+              ? "One run of the released product on your request."
+              : "One run of the released product on this document.",
+          );
   if (x.state === "running")
     return is("current", "Running. Checking progress never runs it again.");
   if (x.state === "completed") return is("completed", "The run finished.");
@@ -144,8 +166,17 @@ function resultStep(s: View) {
   const x = s.use?.execution ?? null;
   if (s.result)
     return completeResult(s)
-      ? is("completed", "Every required field was found. Compare it with your document.")
-      : is("attention", "Not a complete extraction. Read what's missing before you use it.");
+      ? is(
+          "completed",
+          productKind(s) === "workflow"
+            ? "Your request was received. Follow it below."
+            : productKind(s) === "analysis"
+              ? "Your analysis is ready. Each flag quotes your text."
+              : "Every required field was found. Compare it with your document.",
+        )
+      : isForm(s)
+        ? is("attention", "Not accepted. Nothing is charged for it; read why below.")
+        : is("attention", "Not a complete extraction. Read what's missing before you use it.");
   const ended = wontRun(s.use);
   if (ended) return is(endedNeutrally(s.use) ? "ended" : "stopped", WONT_RUN_RESULT[ended]);
   if (!x || x.state === "running") return is("waiting", "Appears here after the run.");
@@ -189,9 +220,13 @@ export function customerSteps(s: View): CustomerStep[] {
 
 function baseSteps(s: View): CustomerStep[] {
   return [
-    { key: "document", title: "Your document", ...documentStep(s) },
+    { key: "document", title: isForm(s) ? "Your request" : "Your document", ...documentStep(s) },
     { key: "authorize", title: "Review and authorize one use", ...authorizeStep(s) },
-    { key: "run", title: "Run it on your document", ...runStep(s) },
+    {
+      key: "run",
+      title: isForm(s) ? "Send your request" : "Run it on your document",
+      ...runStep(s),
+    },
     { key: "result", title: "Your result", ...resultStep(s) },
   ];
 }

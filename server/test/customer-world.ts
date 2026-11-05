@@ -570,6 +570,40 @@ export class FixtureChain {
               }
             : ok(TOKEN, [], b64(String(amount - r.unused)), rid("resolution")),
         );
+      } else if (call.receiverId === this.business && call.methodName === "install_key") {
+        // A customer's own device key, enrolled on its own: the contract's install_key
+        // (contracts/business-v3 lib.rs), its checks and refusal codes (Stage C browser pass).
+        if (deposit !== 1n) throw new ChainRefusal("E_DEPOSIT: attach exactly 1 yoctoNEAR");
+        const a = call.args;
+        if (a.plan_id !== 1) throw new ChainRefusal("E_PLAN: no such plan");
+        const e = this.ents.get(signer);
+        if (!e) throw new ChainRefusal("E_NO_ENTITLEMENT: sponsor a shell first");
+        const k = e.keys[Number(a.slot)] as Json | undefined;
+        if (!k) throw new ChainRefusal("E_ARGS: key slot 0-3");
+        if (k.state === "active") throw new ChainRefusal("E_KEY: that key slot is in use");
+        if (!/^[0-9a-f]{64}$/.test(String(a.pk)))
+          throw new ChainRefusal("E_KEY_INVALID: public key is 64 hex characters");
+        const hold = Number(a.max_hold_units);
+        const day = Number(a.max_units_per_day);
+        if (!(hold >= 1 && hold <= this.plan.max_hold_units && day >= 1))
+          throw new ChainRefusal("E_ARGS: hold units outside the plan");
+        Object.assign(k, {
+          state: "active",
+          epoch: k.epoch + 1,
+          public_key: a.pk,
+          max_hold_units: hold,
+          max_units_per_day: day,
+        });
+        e.key_states = e.keys.map(
+          (x: Json) => ({ empty: 0, active: 1, revoked: 2 })[x.state as string],
+        );
+        e.key_epochs = e.keys.map((x: Json) => x.epoch);
+        this.nextBlock();
+        receipts.push(
+          ok(this.business, [
+            event("key_installed", { plan_id: 1, slot: Number(a.slot), epoch: k.epoch }),
+          ]),
+        );
       } else throw new ChainRefusal("E_ARGS: not a purchase-path call");
     } catch (err) {
       if (!(err instanceof ChainRefusal)) throw err;

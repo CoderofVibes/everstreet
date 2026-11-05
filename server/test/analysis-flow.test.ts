@@ -113,6 +113,9 @@ describe("Signalwatch: the analysis engine through the real routes", () => {
     const r = answer.result;
     // The browser's strict parser accepts the real answer, flags and all.
     expect(parseResult(answer).result.findings).toHaveLength(1);
+    // The desk's operations count a delivered analysis as a usable result.
+    const ops = (await w.owner(`/api/businesses/${w.f.business}/books?months=1`)).body.operations;
+    expect(ops.totals.execution).toMatchObject({ usable_result: 1, not_usable: 0 });
     expect(r.findings).toEqual([
       expect.objectContaining({
         severity: "high",

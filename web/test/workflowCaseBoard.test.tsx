@@ -109,8 +109,12 @@ describe("the owner's case board", () => {
     const move = [...document.querySelectorAll("button")].find((x) =>
       /Move to Assigned/.test(x.textContent ?? ""),
     ) as HTMLButtonElement;
+    move.focus();
     await act(async () => move.click());
+    // Keyboard focus stays on the button through the save (never disabled under focus).
+    expect(move.disabled).toBe(false);
     await settle();
+    expect(document.activeElement).toBe(move);
     const post = calls.find((c) => c.method === "POST");
     expect(post?.url).toBe("/api/businesses/biz-1/workflow-cases/req-aaaa1111/advance");
     expect(post?.body).toEqual({ to_stage: "assigned", note: "" });

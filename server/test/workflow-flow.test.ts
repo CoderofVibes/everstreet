@@ -155,6 +155,9 @@ describe("Relaydesk: the workflow engine through the real routes", () => {
       rows(w, "SELECT * FROM customer_requests"),
     ]);
     expect(dump).not.toContain("Export button");
+    // The desk's operations count it as a usable result (the same rule that allows a charge).
+    const ops = (await w.owner(`/api/businesses/${w.f.business}/books?months=1`)).body.operations;
+    expect(ops.totals.execution).toMatchObject({ ran: 1, usable_result: 1, not_usable: 0 });
   });
 
   it("needs no AI model: with no runtime provider it checks, releases, accepts and charges one unit", async () => {

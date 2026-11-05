@@ -13,6 +13,7 @@ import {
   SyntheticProtection,
   TOKEN,
 } from "./customer-world.ts";
+import { RELAYDESK_PROTOTYPE } from "./relaydesk.ts";
 
 export const SELLER = "founder.near";
 export const BUYER = "buyer.near";
@@ -28,11 +29,26 @@ type Caller = ((
   id: string;
 };
 
-export async function saleWorld(opts: { dbPath?: string } = {}) {
+/** A Relaydesk request a customer sends in the harness (fictional). */
+export const RELAYDESK_REQUEST = JSON.stringify({
+  details: "FICTIONAL. Export on the Reports page spins, then nothing.",
+  subject: "Export button does nothing",
+  urgency: "high",
+});
+
+export async function saleWorld(
+  opts: {
+    dbPath?: string;
+    /** Relaydesk correction (Stage C browser pass): the business sells Relaydesk instead. */
+    product?: "ledgerline" | "relaydesk";
+  } = {},
+) {
   const protection = new SyntheticProtection();
+  const relaydesk = opts.product === "relaydesk";
   const w = await customerWorld({
     dbPath: opts.dbPath,
     customer: { protection },
+    ...(relaydesk ? { bare: true, foundation: "saas_workflow" } : {}),
   });
   const sale = w.chain.attachSale();
   // The observation transport reads the same state (v3 intents and reconciliation).
@@ -43,7 +59,7 @@ export async function saleWorld(opts: { dbPath?: string } = {}) {
   w.link(noah.id, BUYER);
   // Noah holds his own fictional test tokens; neither he nor Ava is registered with the token yet.
   w.chain.balances.set(BUYER, 1_000_000_000n);
-  const offerId = await w.offer();
+  const offerId = relaydesk ? await foundRelaydesk(w) : await w.offer();
   const biz = w.f.business;
   const ava = w.owner as Caller;
   const stranger = w.person("Sam Okoro") as Caller;
@@ -102,7 +118,7 @@ export async function saleWorld(opts: { dbPath?: string } = {}) {
     w.clock.now = Number(w.chain.ts);
     const prep = await w.cara(`/api/customer/offers/${offerId}/prepare`, "POST", {
       idempotency_key: `sale-world-use-${String(++uses).padStart(4, "0")}`,
-      input: INVOICE,
+      input: relaydesk ? RELAYDESK_REQUEST : INVOICE,
     });
     if (prep.status !== 201)
       return { status: prep.status, code: prep.body.code as string, unit: null };
@@ -139,6 +155,57 @@ export async function saleWorld(opts: { dbPath?: string } = {}) {
 }
 
 export type SaleWorld = Awaited<ReturnType<typeof saleWorld>>;
+
+/** Relaydesk founded through the real owner routes: revision, compile, checks, release, offer. */
+async function foundRelaydesk(w: Awaited<ReturnType<typeof customerWorld>>) {
+  const { owner, f } = w;
+  const fail = (what: string, r: { status: number; body: Json }) => {
+    throw new Error(`relaydesk ${what}: ${r.status} ${JSON.stringify(r.body)}`);
+  };
+  await owner(`/api/businesses/${f.business}`, "PATCH", { name: "Relaydesk" });
+  const head = (await owner(`/api/product-projects/${f.project}`)).body.head?.number ?? 1;
+  const saved = await owner(`/api/product-projects/${f.project}/revisions`, "POST", {
+    base_revision: head,
+    brief: {
+      name: "Relaydesk support desk",
+      audience: "Small fictional software teams",
+      problem: "Support requests arrive everywhere and get lost",
+      promise: "Every request is received, assigned and resolved in one place",
+      features: ["A request form", "A board with stages"],
+      price: { model: "per_use", amount_cents: 15 },
+    },
+    prototype: RELAYDESK_PROTOTYPE,
+  });
+  if (saved.status !== 201) fail("revision", saved);
+  const build = await owner(`/api/product-projects/${f.project}/builds`, "POST", {
+    idempotency_key: "harness-relaydesk-build",
+    revision: head + 1,
+  });
+  if (build.status !== 201) fail("compile", build);
+  const started = await owner(`/api/product-projects/${f.project}/evaluations`, "POST", {
+    artifact_job: build.body.job.id,
+  });
+  if (started.status !== 202) fail("checks", started);
+  let run: Json = started.body.run;
+  for (let i = 0; i < 300 && run.state === "running"; i++) {
+    await new Promise((ok) => setTimeout(ok, 2));
+    run = (await owner(`/api/evaluations/${run.id}`)).body.run;
+  }
+  const released = await owner(`/api/product-projects/${f.project}/releases`, "POST", {
+    artifact_job: build.body.job.id,
+    eval_run: run.id,
+  });
+  if (released.status !== 201) fail("release", released);
+  const terms = { release_id: released.body.active.id, plan_id: 1, retention_days: 30 };
+  const digest = await w.reviewed(terms);
+  const made = await owner(`/api/businesses/${f.business}/customer-offers`, "POST", {
+    ...terms,
+    idempotency_key: "harness-relaydesk-offer",
+    reviewed_terms: digest,
+  });
+  if (made.status !== 201) fail("offer", made);
+  return made.body.offer.id as string;
+}
 
 /** Terms a seller proposes (the platform's metering account named unless `metering: false`). */
 export const proposal = (
