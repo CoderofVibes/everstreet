@@ -4804,3 +4804,103 @@ fn gated_sale_matches_server_fixture() {
 ";
     fixture("gated-sale", include_str!("../../../server/test/fixtures/v3/gated-sale.json"), actual);
 }
+
+// ---------- 003wf4: guarded plan creation and the measured quote ----------
+
+#[test]
+fn p01_plan_terms_quote_is_the_measured_growth() {
+    let mut w = W::new();
+    w.env(FOUNDER, 0);
+    let before = w.b.get_plan_terms();
+    assert_eq!(before.version, 1);
+    assert!(before.guarded);
+    assert_eq!(before.next_plan_id, w.b.plan_count + 1);
+    assert_eq!(before.max_plans, 32);
+    assert!(!before.live_deal);
+    // The largest field values: the growth is the same constant (fixed-size fields).
+    let big = PlanInput {
+        unit_price: U128(u128::MAX),
+        max_units_per_purchase: u32::MAX,
+        max_units_outstanding: u32::MAX,
+        max_hold_units: 10,
+        hold_ttl_ms: U64(60 * MIN),
+        settle_grace_ms: U64(60 * MIN),
+    };
+    let cs = U64(w.b.control_seq);
+    let id = before.next_plan_id;
+    let (got, grew) = w.measured(FOUNDER, NEAR, |b| b.create_plan_guarded(big, cs, id));
+    assert_eq!(got, id);
+    assert_eq!(grew as u64, PLAN_BYTES, "PLAN_BYTES must be the measured growth: {grew}");
+    let cs = U64(w.b.control_seq);
+    let id = w.b.get_plan_terms().next_plan_id;
+    let (_, grew2) = w.measured(FOUNDER, NEAR, |b| b.create_plan_guarded(plan_input(1), cs, id));
+    assert_eq!(grew2 as u64, PLAN_BYTES);
+    w.invariants();
+}
+
+#[test]
+fn p02_guarded_plan_refusals_change_nothing() {
+    let mut w = W::new();
+    let cs = U64(w.b.control_seq);
+    let id = w.b.get_plan_terms().next_plan_id;
+    w.refuse(FOUNDER, NEAR, "E_REVIEWED", |b| b.create_plan_guarded(plan_input(P), U64(cs.0 + 1), id));
+    w.refuse(FOUNDER, NEAR, "E_REVIEWED_PLAN", |b| b.create_plan_guarded(plan_input(P), cs, id + 1));
+    w.refuse(STRANGER, NEAR, "E_NOT_OWNER", |b| b.create_plan_guarded(plan_input(P), cs, id));
+    w.refuse(FOUNDER, NEAR, "E_ARGS", |b| b.create_plan_guarded(plan_input(0), cs, id));
+    // Under-attached: the measured quote less one yoctoNEAR is refused, nothing created.
+    let quote = PLAN_BYTES as u128 * env::storage_byte_cost().as_yoctonear();
+    w.refuse(FOUNDER, quote - 1, "E_STORAGE", |b| b.create_plan_guarded(plan_input(P), cs, id));
+    // Exactly the quote succeeds; the returned id is the reviewed one; full readback.
+    let (got, _) = w.measured(FOUNDER, quote, |b| b.create_plan_guarded(plan_input(P), cs, id));
+    w.invariants();
+    assert_eq!(got, id);
+    let plan = w.b.get_plan(id).expect("the plan");
+    let want = plan_input(P);
+    assert_eq!(plan.unit_price, want.unit_price);
+    assert_eq!(plan.max_units_per_purchase, want.max_units_per_purchase);
+    assert_eq!(plan.max_units_outstanding, want.max_units_outstanding);
+    assert_eq!(plan.max_hold_units, want.max_hold_units);
+    assert_eq!(plan.hold_ttl_ms, want.hold_ttl_ms);
+    assert_eq!(plan.settle_grace_ms, want.settle_grace_ms);
+    assert_eq!(plan.created_generation, w.b.generation);
+    // The same review again is now stale: control moved and the id is taken.
+    w.refuse(FOUNDER, quote, "E_REVIEWED", |b| b.create_plan_guarded(plan_input(P), cs, id));
+    w.invariants();
+}
+
+#[test]
+fn p03_no_guarded_plan_while_a_deal_is_live_or_at_the_cap() {
+    let mut w = W::new();
+    let t = w.terms(BUYER, 10 * P, &[]);
+    w.propose(FOUNDER, t);
+    let cs = U64(w.b.control_seq);
+    let id = w.b.get_plan_terms().next_plan_id;
+    assert!(w.b.get_plan_terms().live_deal);
+    w.refuse(FOUNDER, NEAR, "E_DEAL_PENDING", |b| b.create_plan_guarded(plan_input(P), cs, id));
+    let mut w = W::new();
+    while w.b.plan_count < MAX_PLANS {
+        let cs = U64(w.b.control_seq);
+        let id = w.b.get_plan_terms().next_plan_id;
+        w.measured(FOUNDER, NEAR, |b| b.create_plan_guarded(plan_input(P), cs, id));
+    }
+    let cs = U64(w.b.control_seq);
+    w.refuse(FOUNDER, NEAR, "E_LIMIT", |b| b.create_plan_guarded(plan_input(P), cs, MAX_PLANS + 1));
+}
+
+#[test]
+fn p04_appoint_replaces_the_mask_and_renews_the_generation() {
+    let mut w = W::new();
+    let cs = U64(w.b.control_seq);
+    w.call(FOUNDER, 1, |b| b.appoint_operator_guarded(id(STRANGER), SUPPORT, cs));
+    let slot = |w: &W| w.b.get_control().operators.iter().find(|o| o.0.as_str() == STRANGER).map(|o| (o.1, o.2));
+    assert_eq!(slot(&w), Some((SUPPORT, w.b.generation)));
+    // Naming METERING alone REPLACES the mask: support is gone (the review must say so).
+    let cs = U64(w.b.control_seq);
+    w.call(FOUNDER, 1, |b| b.appoint_operator_guarded(id(STRANGER), METERING, cs));
+    assert_eq!(slot(&w), Some((METERING, w.b.generation)));
+    // The reviewed combined mask keeps both.
+    let cs = U64(w.b.control_seq);
+    w.call(FOUNDER, 1, |b| b.appoint_operator_guarded(id(STRANGER), METERING | SUPPORT, cs));
+    assert_eq!(slot(&w), Some((METERING | SUPPORT, w.b.generation)));
+    w.invariants();
+}

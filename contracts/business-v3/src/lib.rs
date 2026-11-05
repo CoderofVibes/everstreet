@@ -701,6 +701,32 @@ pub const SHELL_BASE_BYTES: u64 = 811;
 /// by exactly this plus the buyer account's length.
 pub const PARTY_BASE_BYTES: u64 = 176;
 
+/// 003wf4: the storage one plan adds: every field is fixed-size and the map key a u32, so it is the
+/// same for every plan (measured: tests.rs `p01_plan_terms_quote_is_the_measured_growth`).
+pub const PLAN_BYTES: u64 = 90;
+
+/// 003wf4: what a founder's wallet needs to prepare a guarded plan against THIS code.
+#[near(serializers = [json])]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlanTermsView {
+    /// The plan-creation capability version (1: guarded creation and this measured quote).
+    pub version: u32,
+    /// `create_plan_guarded` exists.
+    pub guarded: bool,
+    /// The id the next plan gets (`create_plan_guarded` refuses any other).
+    pub next_plan_id: u32,
+    pub plan_count: u32,
+    pub max_plans: u32,
+    /// The exact storage growth of one plan; the deposit is this times the byte cost.
+    pub plan_bytes: U64,
+    pub storage_byte_cost: U128,
+    pub control_seq: U64,
+    pub generation: u32,
+    /// A plan can't be created while a sale is live.
+    pub live_deal: bool,
+    pub rules: RulesView,
+}
+
 /// 003wf2: what a wallet needs to prepare a sale against THIS code (a client must not assume it).
 #[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq)]
@@ -1289,6 +1315,30 @@ impl Business {
         self.control_seq = control;
         emit("plan_created", serde_json::json!({ "plan_id": id, "unit_price": input.unit_price }));
         id
+    }
+
+    /// 003wf4: `create_plan`, only if control is exactly as reviewed (`E_REVIEWED`) and the plan
+    /// would get exactly the reviewed id (`E_REVIEWED_PLAN`); both checked before any write.
+    #[payable]
+    pub fn create_plan_guarded(&mut self, input: PlanInput, expected_control_seq: U64, expected_plan_id: u32) -> u32 {
+        self.require_owner();
+        self.require_no_deal();
+        require!(
+            expected_control_seq.0 == self.control_seq,
+            "E_REVIEWED: control changed since you reviewed this plan; review it again"
+        );
+        require!(
+            self.plan_count.checked_add(1) == Some(expected_plan_id),
+            "E_REVIEWED_PLAN: another plan was created since you reviewed this one; review it again"
+        );
+        // The quoted deposit is checked before anything is written; the measured charge after the
+        // insert still enforces the actual growth (and refunds any excess).
+        let quote = PLAN_BYTES as u128 * env::storage_byte_cost().as_yoctonear();
+        require!(
+            env::attached_deposit().as_yoctonear() >= quote,
+            format!("E_STORAGE: attach at least {quote} yoctoNEAR for {PLAN_BYTES} bytes")
+        );
+        self.create_plan(input)
     }
 
     /// Grants capabilities to an operator for the current generation (owner only; not while a
@@ -2232,6 +2282,23 @@ impl Business {
     /// 003wec: the device-key capabilities of this code (see KeyTermsView).
     pub fn get_key_terms(&self) -> KeyTermsView {
         KeyTermsView { version: 1, guarded_revoke: true }
+    }
+
+    /// 003wf4: the guarded plan-creation terms and the measured quote (see PlanTermsView).
+    pub fn get_plan_terms(&self) -> PlanTermsView {
+        PlanTermsView {
+            version: 1,
+            guarded: true,
+            next_plan_id: self.plan_count.saturating_add(1),
+            plan_count: self.plan_count,
+            max_plans: MAX_PLANS,
+            plan_bytes: U64(PLAN_BYTES),
+            storage_byte_cost: U128(env::storage_byte_cost().as_yoctonear()),
+            control_seq: U64(self.control_seq),
+            generation: self.generation,
+            live_deal: self.deal_slot().live,
+            rules: self.get_rules(),
+        }
     }
 
     /// 003wf3: the managed-handover capabilities of this code (see HandoverTermsView).
