@@ -10,7 +10,7 @@
 
 import { type ChildProcess, execFileSync, fork } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { baseEncode } from "near-api-js";
 import { validateConfig } from "../server/src/appConfig.ts";
@@ -1278,6 +1278,19 @@ async function resumeGated(ex: Example, port: number) {
       if (!ins.ok) throw new StopRun(`installing ${acct}'s new key failed: ${ins.error}`);
       return { key, slot: 1 };
     };
+    // Notes written by the operator between attempts (e.g. a hold released after its deadline),
+    // added to the record as they are, then set aside so they're never added twice.
+    const notesFile = join(dir, "operator-notes.json");
+    if (existsSync(notesFile)) {
+      for (const n of JSON.parse(readFileSync(notesFile, "utf8")) as Json[])
+        rec.app("operator_note", n);
+      renameSync(notesFile, `${notesFile}.recorded-${Date.now()}`);
+    }
+    // A resume after the proposal: the use already reserved for the gate stays reserved.
+    const control = await view<Json>(ex.business, "get_control");
+    const reservedId = control.live_deal ? pending[pending.length - 1] : undefined;
+    const firstUse = ((await cara("/api/customer/requests/by-key/gated-use-00001")).body as Json)
+      .use?.id as string | undefined;
     const c = await keyFor("customer", ex.customer, "device-key-customer.pem");
     const p = await keyFor("prober", ex.prober as string, "device-key-prober.pem");
     await rec.checkpoint("resumed_keys_ready", await env.views());
@@ -1292,6 +1305,8 @@ async function resumeGated(ex: Example, port: number) {
         probeSlot: p.slot,
         pending,
         nextN,
+        reservedId,
+        firstUse,
       },
       { signedIn: true, settleWaitMs: 180_000, closeWaitMs: 1_200_000 },
     );

@@ -62,6 +62,12 @@ export interface GatedContext {
   pending?: string[];
   /** The next use number to prepare. */
   nextN: number;
+  /**
+   * A resume after the proposal: the use already reserved for the gate (kept as it is, never
+   * re-decided first), and the earlier result to compare against.
+   */
+  reservedId?: string;
+  firstUse?: string;
 }
 
 export async function runGated(
@@ -113,7 +119,7 @@ export async function continueGated(
   const { id: biz } = env.business;
   const { offer, key, slot } = ctx;
   // A resume: each earlier request's unit is decided by the contract first (charged or returned).
-  for (const id of ctx.pending ?? []) {
+  for (const id of (ctx.pending ?? []).filter((x) => x !== ctx.reservedId)) {
     const v = await until(
       async () => {
         await cara(`/api/customer/uses/${id}/units/reconcile`, "POST");
@@ -134,42 +140,47 @@ export async function continueGated(
   }
   let n = ctx.nextN;
   const uses: string[] = [];
-  while (ent(await env.views())?.consumed !== "5")
+  while (!ctx.reservedId && ent(await env.views())?.consumed !== "5")
     uses.push(await s.serve(offer, n++, key, slot, "customer", "gated-use"));
   const firstUse =
-    uses[0] ?? ((await cara("/api/customer/requests/by-key/gated-use-00001")).body as Json).use?.id;
+    ctx.firstUse ??
+    uses[0] ??
+    ((await cara("/api/customer/requests/by-key/gated-use-00001")).body as Json).use?.id;
   const first = ok(await cara(`/api/customer/uses/${firstUse}/result`), 200, "an earlier result");
-  // One use reserved, not run, when the seller accepts.
-  const prep = ok(
-    await readAgain(() =>
-      cara(`/api/customer/offers/${offer}/prepare`, "POST", {
-        idempotency_key: `gated-use-${String(n).padStart(5, "0")}`,
-        input: `Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD (copy ${n})`,
-        key_slot: slot,
-      }),
-    ),
-    [200, 201],
-    "prepare the reserved use",
-  );
-  n++;
-  const reservedId = prep.use.id as string;
-  const e6 = prep.use.envelope as Json;
-  const conf = ok(
-    await cara(`/api/customer/uses/${reservedId}/confirm`, "POST", {
-      envelope_digest: e6.envelope_digest,
-      hold_signature: key.sign(e6.hold.message_hex),
-      use_signature: key.sign(e6.use.message_hex),
-    }),
-    200,
-    "confirm the reserved use",
-  );
-  if (conf.use?.state !== "reserved")
-    await until(
-      async () => (await cara(`/api/customer/uses/${reservedId}/reconcile`, "POST")).body,
-      (v) => v.use?.state === "reserved",
-      "the use reserved",
-      settleMs,
+  // One use reserved, not run, when the seller accepts (a resume keeps the one already reserved).
+  let reservedId = ctx.reservedId ?? "";
+  if (!reservedId) {
+    const prep = ok(
+      await readAgain(() =>
+        cara(`/api/customer/offers/${offer}/prepare`, "POST", {
+          idempotency_key: `gated-use-${String(n).padStart(5, "0")}`,
+          input: `Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD (copy ${n})`,
+          key_slot: slot,
+        }),
+      ),
+      [200, 201],
+      "prepare the reserved use",
     );
+    n++;
+    reservedId = prep.use.id as string;
+    const e6 = prep.use.envelope as Json;
+    const conf = ok(
+      await cara(`/api/customer/uses/${reservedId}/confirm`, "POST", {
+        envelope_digest: e6.envelope_digest,
+        hold_signature: key.sign(e6.hold.message_hex),
+        use_signature: key.sign(e6.use.message_hex),
+      }),
+      200,
+      "confirm the reserved use",
+    );
+    if (conf.use?.state !== "reserved")
+      await until(
+        async () => (await cara(`/api/customer/uses/${reservedId}/reconcile`, "POST")).body,
+        (v) => v.use?.state === "reserved",
+        "the use reserved",
+        settleMs,
+      );
+  }
   rec.app("reserved_not_run", { use: reservedId });
   const before = await env.views();
   await rec.checkpoint("reserved_before_close", before);
@@ -187,7 +198,7 @@ export async function continueGated(
     exclusions: ["The ledgerline.example domain and its DNS account"],
     note: "Fictional terms for the business-v3 Gated rehearsal.",
   };
-  await s.act("founder", ava, "propose", terms, "gated-propose-01");
+  await s.act("founder", ava, "propose", terms, "gated-propose-01", { satisfiedBy: "deal_live" });
   await s.act("buyer", noah, "register", {}, "gated-register-0001", { satisfiedBy: "registered" });
   await s.act("buyer", noah, "fund", {}, "gated-fund-0001", { satisfiedBy: "funded" });
   await s.act("buyer", noah, "accept", {}, "gated-accept-0001", {
