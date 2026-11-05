@@ -293,7 +293,13 @@ export class SyntheticRpc {
   readonly permissions = new Map<string, Json>();
   readonly outcomes = new Map<string, Json>();
   /** Every distinct signed transaction applied (method, args). */
-  readonly applied: { method: string; args: Json; receiver?: string }[] = [];
+  readonly applied: {
+    method: string;
+    args: Json;
+    receiver?: string;
+    signer?: string;
+    nonce?: bigint;
+  }[] = [];
   /**
    * Job 003wf3 (P-4): further business contracts on the SAME network: one block sequence and
    * clock (the primary's), one access-key nonce map, one transaction-outcome map and one token
@@ -595,7 +601,13 @@ export class SyntheticRpc {
         this.chain.tick(1_000n);
         this.align();
       }
-      this.applied.push({ method: t.method, args: a, receiver: t.receiver });
+      this.applied.push({
+        method: t.method,
+        args: a,
+        receiver: t.receiver,
+        signer: t.signer,
+        nonce: t.nonce,
+      });
       status = { SuccessValue: "" };
     } catch (e) {
       const code = (e as { code?: string }).code;

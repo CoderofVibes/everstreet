@@ -741,6 +741,9 @@ describe("003wf3 P-4: a second genuinely bound business serves its customers thr
     });
     expect([200, 201], JSON.stringify(made.body).slice(0, 400)).toContain(made.status);
     const offer2 = made.body.offer.id as string;
+    // Cara's entitlements on the two contracts before anything (Astra 04:01: exact balances).
+    const free1 = BigInt(String((i.w.chain.ent(CUSTOMER) as Json).free));
+    const free2 = BigInt(String((second.chain.ent(CUSTOMER) as Json).free));
     // Business 1 reaches its closing; its close transaction is held before it lands.
     const { seller, cara } = await upToTheSellersAcceptance(i, i.portA);
     ctlA.cut = (r) =>
@@ -807,10 +810,29 @@ describe("003wf3 P-4: a second genuinely bound business serves its customers thr
       i.rpc.applied.filter((y) => y.receiver === BIZ && y.method === "settle_hold"),
     ).toHaveLength(0);
     expect(on2("settle_hold")).toBe(1);
-    // One network: the metering account's single nonce sequence covered both contracts.
-    const opKey = [...i.rpc.keys.keys()].find((k) => k.startsWith(`${OP}|`)) as string;
-    const opSent = i.rpc.applied.filter((y) => y.method !== "close_sale").length;
-    expect(Number(i.rpc.keys.get(opKey))).toBeGreaterThanOrEqual(opSent);
+    // Exact balances: business 1's held unit came back (unchanged), business 2's use consumed one.
+    expect(BigInt(String((i.w.chain.ent(CUSTOMER) as Json).free))).toBe(free1);
+    expect(BigInt(String((second.chain.ent(CUSTOMER) as Json).free))).toBe(free2 - 1n);
+    // The provider cost is attributed to business 2's run only, with its own final usage.
+    const runs = i.read(
+      "SELECT business_id, usage_state, charged_microcents FROM runtime_invocations WHERE purpose = 'customer_use'",
+    );
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ business_id: biz2 });
+    expect(Number(runs[0]?.charged_microcents)).toBeGreaterThan(0);
+    expect(
+      i.read(
+        "SELECT 1 FROM runtime_usage u JOIN runtime_invocations x ON x.id = u.invocation_id WHERE x.business_id = ? AND x.purpose = 'customer_use' AND u.kind = 'actual'",
+        i.biz,
+      ),
+    ).toHaveLength(0);
+    // One network: the metering account's ONE key signed for both contracts with strictly
+    // increasing, distinct nonces, in the order the network accepted them.
+    const metered = i.rpc.applied.filter((y) => y.signer === OP);
+    expect(new Set(metered.map((y) => y.receiver))).toEqual(new Set([BIZ, BIZ2]));
+    const nonces = metered.map((y) => y.nonce as bigint);
+    for (let n = 1; n < nonces.length; n++)
+      expect((nonces[n] as bigint) > (nonces[n - 1] as bigint)).toBe(true);
     expect(await a.shutdown()).toBe(0);
   }, 240_000);
 });
