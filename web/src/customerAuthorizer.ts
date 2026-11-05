@@ -9,6 +9,8 @@ export interface CustomerAuthorizer {
   readonly label: string;
   /** True when this is a test/preview authorizer (shown prominently). */
   readonly synthetic: boolean;
+  /** Job 003w-e2: the contract key slot this authorizer's key is enrolled in (default 0). */
+  readonly slot?: number;
   /** This authorizer's public key (hex), so the page can check the envelope names it. */
   publicKey(): Promise<string | null>;
   sign(input: {

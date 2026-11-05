@@ -434,7 +434,10 @@ export interface CustomerPort {
   uses(): Promise<unknown>;
   /** 003q1: the caller's own request under an exact opaque key (reload recovery). */
   byKey(key: string): Promise<unknown>;
-  prepare(offerId: string, body: { idempotency_key: string; input: string }): Promise<unknown>;
+  prepare(
+    offerId: string,
+    body: { idempotency_key: string; input: string; key_slot?: number },
+  ): Promise<unknown>;
   confirm(
     id: string,
     body: { envelope_digest: string; hold_signature: string; use_signature: string },

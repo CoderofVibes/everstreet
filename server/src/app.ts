@@ -389,6 +389,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/businesses/:id/customer-offer-inspections", async (c) =>
     c.json(await customerUses.inspectOffer(me(c), c.req.param("id"), await body(c))),
   );
+  // Job 003w-e2: a fresh readback of the caller's own key slots for an offer (device readiness).
+  app.get("/api/customer/offers/:offer/keys", async (c) =>
+    c.json(await customerUses.deviceKeys(me(c), c.req.param("offer"))),
+  );
   app.post("/api/customer/offers/:offer/prepare", async (c) => {
     const r = await customerUses.prepare(me(c), c.req.param("offer"), await body(c));
     return c.json(r, r.created ? 201 : 200);

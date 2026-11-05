@@ -162,7 +162,7 @@ export class CustomerWorkspace {
   /** Bumped by "start another" and retirement: older answers land nowhere. */
   private generation = 0;
   /** A prepare whose answer was lost: its key and exact document, to retry the same request. */
-  private pending: { key: string; text: string } | null = null;
+  private pending: { key: string; text: string; slot?: number } | null = null;
 
   constructor(
     private readonly port: CustomerPort,
@@ -377,7 +377,9 @@ export class CustomerWorkspace {
       return;
     }
     const key = (this.opts.makeKey ?? (() => `use-${crypto.randomUUID()}`))();
-    this.pending = { key, text };
+    // 003w-e2: the slot of the key that will authorize it, fixed with the request (a retry of the
+    // same key must name the same slot).
+    this.pending = { key, text, slot: this.opts.authorizer()?.slot };
     this.remember(offer.offer_id, { key });
     return this.act("prepare", (gen) => this.send(offer.offer_id, gen));
   }
@@ -391,9 +393,13 @@ export class CustomerWorkspace {
 
   /** Sends the pending attempt; an unanswered outcome keeps it, a definite one ends it. */
   private async send(offerId: string, gen: number) {
-    const p = this.pending as { key: string; text: string };
+    const p = this.pending as { key: string; text: string; slot?: number };
     try {
-      const raw = await this.port.prepare(offerId, { idempotency_key: p.key, input: p.text });
+      const raw = await this.port.prepare(offerId, {
+        idempotency_key: p.key,
+        input: p.text,
+        ...(p.slot === undefined ? {} : { key_slot: p.slot }),
+      });
       if (!this.applyUse(raw, gen)) return;
     } catch (e) {
       // Unanswered: no answer, a gateway failure, or an answer we couldn't read. The server may

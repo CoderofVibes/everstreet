@@ -1436,6 +1436,46 @@ export class CustomerUses {
     });
   }
 
+  /**
+   * Job 003w-e2 (APPLICATION_COMPOSITION §9.4): a FRESH readback of the caller's own entitlement
+   * key slots for an offer, at one final block. The browser's device key is ready only when this
+   * shows its slot active with its public key; nothing here is cached or optimistic. Public keys
+   * only: the server never holds a customer's private key.
+   */
+  async deviceKeys(viewer: Person, offerId: string) {
+    if (!this.reader) unavailable();
+    const o = this.offer(offerId);
+    if (!o) bad(404, "No such offer");
+    const customer = this.accountOf(viewer.id);
+    if (!customer) bad(409, "You have no NEAR account linked here", "no_chain_account");
+    const read = await readCustomerViews(
+      this.reader,
+      o,
+      { plan: o.plan_id, entitlement: { customer, plan_id: o.plan_id } },
+      this.readTimeoutMs,
+    ).catch(readFailed);
+    const e = read.entitlement as EntitlementV3 | null;
+    return {
+      network: o.network,
+      contract: o.account,
+      plan_id: o.plan_id,
+      customer,
+      plan_max_hold_units: read.plan ? read.plan.max_hold_units : null,
+      block: read.block,
+      registered: Boolean(e),
+      active: Boolean(e?.active),
+      reg_id: e?.reg_id ?? null,
+      keys: (e?.keys ?? []).map((k) => ({
+        slot: k.slot,
+        state: k.state,
+        epoch: k.epoch,
+        public_key: k.public_key,
+        max_hold_units: k.max_hold_units,
+        max_units_per_day: k.max_units_per_day,
+      })),
+    };
+  }
+
   async prepare(viewer: Person, offerId: string, input: Record<string, unknown>) {
     if (!this.reader || !this.operator) unavailable();
     const key = typeof input.idempotency_key === "string" ? input.idempotency_key : "";
