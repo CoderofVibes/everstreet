@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Direct sale recovery addendum](2026-11-04_DirectSaleRecoveryAddendum.md) | Read latest committed review before implementing replacement admission: acceptance and registration state are reversible | Outstanding design corrections during active003wf2; full three-phase check reported green at604d889 |
 | 2026-11-04 | [Direct sale design review](2026-11-04_DirectSaleDesignReview.md) |155b636 review: unknown-action retries need identity, coherent customer/sale economics, post-close and claim actions | Corrections requested within active003wf2; no new writer or external scope |
 | 2026-11-04 | [Check scheduling review](2026-11-04_CheckSchedulingReview.md) | Recurring protected-store timeout under suite load; isolate the required file without weakening assertions | Baseline1439+1skip/1timeout; isolated12/12 and lifecycle21/21 reported; production unchanged |
 | 2026-11-04 | [Configured lifecycle accepted](2026-11-04_ConfiguredLifecycleAccepted.md) | Narrow003wf1 acceptance and immediate Direct sale dispatch | Final cleanup independently5/5; prior full1440+1skip/19; builder final21 lifecycle; all parent/milestone gates retained |
