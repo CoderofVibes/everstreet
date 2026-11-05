@@ -16,11 +16,7 @@ import { BUYER, PRICE, proposal, type SaleWorld, SELLER, saleWorld } from "./sal
 type Caller = SaleWorld["ava"];
 
 /** The real routes, as the browser's port reaches them. */
-function port(
-  s: SaleWorld,
-  who: Caller,
-  tamper?: (p: Json) => void,
-): SalePort & { creates: number } {
+function port(who: Caller, tamper?: (p: Json) => void): SalePort & { creates: number } {
   const go = async (path: string, method = "GET", body?: unknown) => {
     const r = await who(path, method, body);
     if (r.status >= 400)
@@ -83,7 +79,7 @@ function wallet(s: SaleWorld, account: string) {
 }
 
 const flowFor = (s: SaleWorld, who: Caller, account: string, tamper?: (p: Json) => void) => {
-  const p = port(s, who, tamper);
+  const p = port(who, tamper);
   const wl = wallet(s, account);
   const f = new SaleFlow(p, () => Promise.resolve(wl.w), { businessId: s.biz, account });
   return { f, p, wl };

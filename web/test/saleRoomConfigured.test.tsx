@@ -236,5 +236,15 @@ describe("003wf2 the sale page over the configured composition (actual child pro
     expect(aside.textContent).not.toContain("No sale is proposed");
     expect(aside.textContent).toContain("Sale proceeds owed (not paid yet)");
     expect(h.sale.controlView()).toMatchObject({ owner: CONFIGURED_BUYER, generation: 2 });
+    expect(text()).toContain("you are the former seller");
+    // Astra 00:21: the buyer revisits after the close. He is the closed deal's buyer and the new
+    // owner, not "the seller"; his permission to propose a resale is unchanged.
+    await as(CONFIGURED_BUYER);
+    await wait(
+      () => text().includes("you are the new owner (buyer in deal 1)"),
+      "the new owner's header",
+    );
+    expect(text()).not.toContain("you are the seller");
+    expect(button("Prepare terms")).toBeTruthy();
   }, 60_000);
 });

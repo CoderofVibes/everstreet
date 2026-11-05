@@ -1543,7 +1543,9 @@ export class SaleActions {
    * `tx_hash`, it records the wallet's returned hash only and grants nothing.
    */
   requested(viewer: Viewer, id: string, input: Record<string, unknown>) {
-    const p = this.own(viewer, id);
+    // Authorization first: only this viewer's own action (404 otherwise). What follows acts
+    // through updates conditional on the stored row.
+    this.own(viewer, id);
     if (input.tx_hash !== undefined) {
       if (typeof input.tx_hash !== "string" || !TX_HASH.test(input.tx_hash))
         bad(400, "That isn't a NEAR transaction ID", "bad_tx_hash");

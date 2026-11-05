@@ -27,6 +27,7 @@ import {
   SaleFlow,
   type SaleFlowState,
   saleNext,
+  saleRoleWords,
   saleSentence,
   saleSteps,
 } from "../saleFlow.ts";
@@ -62,18 +63,6 @@ function Amount({ base, s }: { base: string; s: SaleSetup }) {
     </strong>
   ) : (
     <span className="mono">{base} base units</span>
-  );
-}
-
-function roleWords(s: SaleSetup) {
-  const r = s.roles;
-  return (
-    [
-      r.seller && "the seller",
-      r.buyer && "the buyer",
-      r.former_seller && "the former seller",
-      r.new_owner && !r.seller && "the new owner",
-    ].filter(Boolean)[0] ?? "a participant"
   );
 }
 
@@ -1060,7 +1049,7 @@ export function SaleRoom({ id }: { id: string }) {
       </div>
       <header className="sale-head">
         <div className="eyebrow">
-          Business sale · business contract on NEAR {s.network} · you are {roleWords(s)}
+          Business sale · business contract on NEAR {s.network} · you are {saleRoleWords(s)}
         </div>
         <div className="sale-title-row">
           <h1 className="display sale-title">{s.business.name}</h1>

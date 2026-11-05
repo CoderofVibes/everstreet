@@ -644,6 +644,33 @@ export function currentSale(
   return newest ? { kind: "ended", outcome: newest } : { kind: "none" };
 }
 
+/**
+ * Who this person is IN THE DEAL THE PAGE SHOWS (Astra's 00:21 review), not what they may do
+ * next: after a close, the buyer who now owns the business may propose a resale (`roles.seller`,
+ * a permission, unchanged), but in the closed deal shown they are its buyer and the new owner.
+ * "The seller" is said only when they are the named seller of the live deal, or the owner with no
+ * live or closed deal shown (a sale they may start or one that ended without a change).
+ */
+export function saleRoleWords(s: SaleSetup): string {
+  const r = s.roles;
+  const me = s.account;
+  const c = currentSale(s);
+  if (c.kind === "live") {
+    if (c.deal.seller === me) return "the seller";
+    if (c.deal.buyer === me) return "the buyer";
+  } else if (c.kind === "ended" && c.outcome.status === "closed") {
+    if (c.outcome.buyer === me) return `the new owner (buyer in deal ${c.outcome.seq})`;
+    if (c.outcome.seller === me) return "the former seller";
+  } else if (c.kind === "ended" && c.outcome.buyer === me && !r.seller) {
+    return `the buyer in deal ${c.outcome.seq} (it ${c.outcome.status === "aborted" ? "was aborted" : `was ${c.outcome.status}`})`;
+  }
+  if (r.former_seller) return "the former seller";
+  if (r.new_owner) return "the new owner";
+  if (r.seller && c.kind !== "live") return "the seller";
+  if (r.buyer) return "the buyer";
+  return "a participant";
+}
+
 /** One sentence from the reading (never more than it shows). */
 export function saleSentence(s: SaleSetup): string {
   const at = `Read at block ${s.block.height}.`;

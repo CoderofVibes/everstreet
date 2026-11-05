@@ -21,6 +21,7 @@ import { App } from "../src/App.tsx";
 import { Continuity } from "../src/pages/SaleRoom.tsx";
 import { Router } from "../src/router.tsx";
 import type { SaleSetup } from "../src/saleApi.ts";
+import { saleRoleWords } from "../src/saleFlow.ts";
 import { SessionProvider } from "../src/session.tsx";
 
 const ORIGIN = "http://127.0.0.1:8814";
@@ -424,5 +425,61 @@ describe("003wf2 the authority panel follows the CURRENT reading (Astra 23:42)",
     expect(aside(later)).toContain("Authority the buyer receives");
     expect(aside(later)).toContain("From deal 2, version 1");
     expect(aside(later)).not.toContain("Authority after deal 1 closed");
+  });
+});
+
+describe("003wf2 who you are IN THE DEAL SHOWN, apart from what you may do next (Astra 00:21)", () => {
+  it("the closed deal's buyer is its new owner (and may still propose); in a later live sale the named seller is the seller; the former seller stays the former seller", async () => {
+    const s = await saleWorld();
+    const words = async (who: typeof s.ava) => {
+      const setup = (await s.setup(who)).body as SaleSetup;
+      return { setup, words: saleRoleWords(setup) };
+    };
+    expect((await words(s.ava)).words).toBe("the seller"); // owner, nothing proposed yet
+    await s.act(s.ava, SELLER, "propose", proposal());
+    expect((await words(s.ava)).words).toBe("the seller");
+    expect((await words(s.noah)).words).toBe("the buyer");
+    await s.act(s.noah, BUYER, "register");
+    await s.act(s.noah, BUYER, "fund");
+    await s.act(s.noah, BUYER, "accept");
+    await s.act(s.ava, SELLER, "accept");
+
+    // After the close: Noah is the closed deal's buyer and the new owner, NOT "the seller",
+    // although his permission to propose a resale is unchanged.
+    const noah = await words(s.noah);
+    expect(noah.words).toBe("the new owner (buyer in deal 1)");
+    expect(noah.setup.roles).toMatchObject({ seller: true, new_owner: true, buyer: false });
+    const ava = await words(s.ava);
+    expect(ava.words).toBe("the former seller");
+    expect(ava.setup.roles).toMatchObject({ seller: false, former_seller: true });
+
+    // A later live sale: Noah proposes deal 2 to another account. Now he IS its named seller;
+    // Ava is still the former seller of deal 1; the new buyer is the buyer.
+    const later = await s.act(s.noah, BUYER, "propose", {
+      ...proposal(),
+      buyer_account: "stranger.near",
+    });
+    expect(later.check?.body.resolution, JSON.stringify(later.check?.body)).toMatchObject({
+      kind: "confirmed",
+    });
+    expect((await words(s.noah)).words).toBe("the seller");
+    expect((await words(s.ava)).words).toBe("the former seller");
+    expect((await words(s.stranger)).words).toBe("the buyer");
+  });
+
+  it("the page header says it, and the new owner keeps the Prepare terms action", async () => {
+    const h = await signedIn(BUYER, async (x) => {
+      await (await apiAs(x, SELLER)).act("propose", proposal());
+      const b = await apiAs(x, BUYER);
+      await b.act("register");
+      await b.act("fund");
+      await b.act("accept");
+      await (await apiAs(x, SELLER)).act("accept");
+    });
+    await wait(() => text().includes("you are the new owner (buyer in deal 1)"), "the header");
+    expect(text()).not.toContain("you are the seller");
+    expect(h.world.control()).toMatchObject({ owner: BUYER, generation: 2 });
+    // The permission to start a resale is unchanged: the action is still offered.
+    expect(button("Prepare terms")).toBeTruthy();
   });
 });
