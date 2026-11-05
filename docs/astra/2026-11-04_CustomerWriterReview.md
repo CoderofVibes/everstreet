@@ -129,3 +129,30 @@ Correct with a durable invariant that survives concurrent connections/processes 
 or preserve uncertainty whenever an exclusivity proof is absent. A process-local "first"
 parameter is insufficient. Add this overlapping retry to maintained regressions before
 claiming the fresh-attempt exception safe. Retain the previous no-new-attempt corrections.
+
+### Overlap correction repeat and actual old-schema migration
+
+The new durable broadcasts counter fixes the seeded overlap interleaving: Astra's exact repeat
+now leaves the row signed and freshAttemptReads0. Good; the same call may safely resend the
+saved dummy bytes (three synthetic sends across the complete probe), never a fresh transaction.
+
+However db.ts migrates old attempts with broadcasts DEFAULT0. An old signed row may already
+have been broadcast, so0 falsely asserts exclusive first submission after upgrade. Astra made
+a disposable database with the old chain_tx_attempts schema (no broadcasts column), seeded
+a pending operation, closed it and reopened via actual openDb migration. No real key/signature.
+Two public openHold calls use status-not-found and invalid-nonce replies; accessKey returns
+null to stop any fresh signing. Observed:
+
+```
+migratedBroadcasts=0
+persisted=invalid
+freshAttemptReads=1
+actualSignatures=0, networkCalls=0
+```
+
+Preserve uncertainty for legacy rows instead of inventing a zero-send history. Include a real
+old-schema close/reopen migration regression and distinguish known-new unsent rows from old
+unknown ones. Review old invalid rows too: the previous code's invalid classification can come
+from the reproduced unsafe exception; it is not automatically proof of rejection. Document
+the upgrade policy and preserve confirmed success/failure. Temporary probe DB/directory was
+closed and removed; no existing database/credentials were read or modified.
