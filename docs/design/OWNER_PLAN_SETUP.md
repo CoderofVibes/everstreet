@@ -124,69 +124,92 @@ the alternative is a separate `owner_setup_actions` table with the same code.
   `handover_in_progress`. A check of an earlier request is allowed (allowed participant recovery,
   as today).
 
-## 5. Timing that this server can actually serve (one policy, used everywhere)
+## 5. Timing that this server can actually serve (revised for Astra's D1/D2, 04:56)
 
-Astra's review (`2026-11-05_OwnerPlanReviewNotes.md`) reproduced two failures through the real
-routes:
-- a contract-valid short plan is accepted as an offer but can't be signed;
-- **even the default 30-minute plan** lets a customer sign at the permitted latest moment (420 s
-  into the 600 s window) and the submission use its 120 s margin, which leaves 60 s when
-  execution needs 120 s. The unit is reserved but can't run.
+Two kinds of deadline exist, and they are never merged:
 
-So usable timing must hold at the **latest permitted signature**, not only for an immediate
-confirm.
+- **Contract expiry**, unchanged: `accept_by_ms = serve_until − MIN_SERVE_MS`, the last block time
+  at which the signed hold can still open on the contract. `decideReservation` uses it as proof
+  that an unknown hold can no longer open (`expired_unopened`), and allocation, sequence and
+  recovery rely on it. **An operational target never shortens it.** Astra's counterexample: a
+  shortened copy says expired at T+500 000 while the original signed hold still opens.
+- **Operational cutoffs**: when THIS server can still serve the hold. They are absolute times
+  counted back from the signed `serve_until`. They use the same conservative clock rule as
+  `timeLeft` (the later of the local clock and the block time) and the `fresh` bounds (a block
+  at most `maxBlockAgeMs` old, at most `maxFutureSkewMs` ahead):
+  - `reserve = max(MIN_SERVE_MS, runtime.timeoutMs + executionMarginMs)`: serve time that must
+    remain when execution starts.
+  - `execute_by = serve_until − reserve`: execution can still pass its existing `timeLeft` check
+    (unchanged; not weakened).
+  - `submit_by = execute_by − submitMarginMs`: the last moment a FIRST submission may start.
+  - `sign_by = submit_by − maxFutureSkewMs`, in local time. A local clock behind NEAR's by up to
+    the accepted skew can't push the signature past `submit_by`. An old block at prepare already
+    moved `serve_until` earlier, so every cutoff moves earlier with it: an aged block can't make
+    the execution reserve look larger than it is.
+- **Usable** (one function, `servePolicy`) iff at prepare `sign_by − now ≥ minSignMs` (60 000, the
+  server's existing rule). For inspection and offer creation, which have no prepare, it is
+  evaluated against the worst accepted block: `window − maxBlockAgeMs − reserve −
+  submitMarginMs − maxFutureSkewMs ≥ minSignMs`. With defaults: 600 000 − 120 000 − 120 000 −
+  120 000 − 30 000 = 210 000 ≥ 60 000, so usable. **The minimum usable hold is 450 000 ms**; the
+  **guided default is 600 000 ms** (Q2) when the rules allow it. Rules that can't fit the
+  configured margins make guided creation unavailable, naming the margin and rule; the margins
+  are never squeezed.
+- **Settlement grace**, from the actual deadlines (Q3). A use may start execution as late as
+  `execute_by`. Its result is decided within `runtime.timeoutMs`, then delivery within
+  `deliveryTimeoutMs` (recovery finalizes `not_delivered` after that). The settle then needs one
+  submission window (`submitMarginMs`, which covers the writer's timeout and the readback).
+  `settle_until = serve_until + grace` must cover `execute_by + timeoutMs + deliveryTimeoutMs +
+  submitMarginMs`. So `grace ≥ timeoutMs + deliveryTimeoutMs + submitMarginMs − reserve`; with
+  defaults that is 60 000 + 300 000 + 120 000 − 120 000 = **360 000 ms**, and the maintenance
+  interval is added when maintenance drives settlement. Below it, a delivered result could go
+  unpaid (the customer then keeps the unit): **guided creation refuses** it, and an existing plan
+  shows the warning. The plan stays usable for service: it isn't a safety failure.
 
-**One policy function, `servePolicy(config, plan)`**, used by guided creation, existing-plan
-inspection, offer creation, customer prepare and the readiness reading. It is evaluated at each
-read against the current configuration, so a configuration change re-evaluates every offer and a
-cached review can't keep an old offer usable.
-- `window = min(serveWindowMs, plan.hold_ttl_ms)`.
-- `reserve = max(MIN_SERVE_MS, runtime.timeoutMs + executionMarginMs)`: the serve time that must
-  remain when the hold is accepted.
-- `signWithin = window − reserve − submitMarginMs`: how long after prepare the customer may
-  sign.
-- **Usable** iff `signWithin ≥ minSignMs` (60 000: the server's existing "a minute to sign" rule).
-  Defaults: 600 000 − 120 000 − 120 000 = **360 000 ms** to sign. The **minimum usable hold is
-  300 000 ms**.
-- **Settlement:** usable iff `settle_grace_ms ≥ deliveryTimeoutMs + submitMarginMs` (420 000 ms
-  with defaults), within `rules.max_settle_grace_ms`.
+**Effects, protected throughout (D1):**
+- **Prepare** stores `sign_by` (as today, now execution-aware) and `submit_by`, alongside the
+  unchanged `accept_by`.
+- **Confirm after `sign_by`:** refused, as today. Nothing is signed or held.
+- **First submission:** none after `submit_by`. A confirmed request with NO writer attempt at that
+  point is cancelled unsent; nothing can land, so its allocation is freed (the existing
+  `cancelUnsentInTx` rule).
+- **An attempt that already exists** (signed or submitted, outcome unknown) is **never released,
+  replaced or called failed because `submit_by` passed**. It stays unknown until contract evidence
+  proves its outcome or its impossibility (`accept_by`, the existing proof). Its allocation is
+  kept. A resend of the same bytes still happens only while they are valid (the writer's rule).
+- **The original arriving between `submit_by` and `accept_by`:** the hold opens; readback
+  reconciles it to the original request (the same identity). If it can no longer run (time left
+  below `reserve`), the server **returns it uncharged**: an automatic release intent on the
+  reconciled reservation, the existing release path, no execution. The customer sees "it was
+  confirmed too late to run; your unit came back".
+- **Execution's `not_enough_time` refusal and every margin are unchanged.**
 
-**Changes this requires (Phase B):**
-- **Prepare** sets `sign_by = now + signWithin` and `accept_by = serve_until − reserve`. Today
-  these reserve only `MIN_SERVE_MS`: this is the fix for the late-authorization path.
-  - A signature at the latest moment, submitted within its margin, is accepted with at least
-    `reserve` left, so execution passes its existing `timeLeft` check unchanged.
-  - The existing execution refusal (`not_enough_time`) and every margin stay as they are; none is
-    weakened.
-- **A submission slower than its margin** makes the hold accepted after `accept_by`. Prepare
-  doesn't hide this: execution still refuses `not_enough_time`, and the reserved unit follows
-  the established recovery (the customer's "Don't run it: return my unit", or settlement after
-  the deadline). The customer page says the hold came too late to run, with nothing charged.
-- **Inspection** of a plan the policy rejects shows its contents with "not usable by this server:
-  customers need at least N s to sign and M s to run; this plan's hold is K s; create a new plan".
-  **Offer creation refuses** it (`plan_unusable`). An existing offer whose plan stops being usable
-  after a configuration change shows *unavailable (plan_unusable)* in readiness and is never
-  presented as ready. Customer prepare refuses it before anything is signed.
-- **Guided creation** suggests `hold = min(serveWindowMs, rules.max_hold_ttl_ms)` (600 000) and
-  `grace = max(420 000, …)`, both within the rules. Advanced edits are validated by the same
-  policy. If the rules can't fit the configured margins, guided creation is unavailable and names
-  the conflicting margin and rule.
+**Isolated build worker (Q3):** serving an extraction offer doesn't need the isolated app-check
+worker. Its unavailability never makes an extraction offer or a plan step unavailable. Only the
+real service checks apply (the D4 readiness: release, runtime, budget, protection, writer, metering).
 
-**Tests (durable regressions for each reproduced case):**
-- Defaults, against Astra's table:
-  - 60 000, 180 000 and 180 001: offer refused `plan_unusable` (no customer row);
-  - 299 999: unusable; 300 000: usable;
-  - 600 000 and the 1 800 000 default: usable.
-- **The late-but-permitted path:** confirm 1 ms before `sign_by`; the submission held at the
-  writer barrier for `submitMarginMs − 1`; the execute then succeeds (fulfilled, charged once).
-  Too late: the submission past its margin refuses `not_enough_time`, with no provider call, no
-  charge, no extra hold, and the unit recoverable through the existing path.
-- **A non-default supported configuration**, its own boundaries: submit 30 000, serve 240 000,
-  runtime timeout 60 000; and runtime timeout 300 000 with submit 120 000.
-- **A configuration change:** an offer usable under one configuration is shown unavailable after a
-  restart with longer margins, and its plan stays inspectable.
-- Every refusal asserts: no provider invocation, no charge, no additional hold, no duplicate
-  creation. Existing tests are reused where they already prove the exact claim.
+**Tests** (actual admission and recovery effects, not arithmetic only):
+- The reproduced plans: defaults with 60 000, 180 000, 180 001 and 449 999 are unusable for an
+  offer; 450 000 and 600 000 are usable.
+- A non-default supported configuration with its boundary.
+- **False early expiry regression:** a request whose `submit_by` passed with its attempt unknown
+  is never `expired_unopened` before `accept_by`. Its allocation is kept and no second hold is
+  made.
+- **Delayed original in the gap:** it opens, reconciles to the original identity, and is returned
+  uncharged. No provider call, no charge, no duplicate.
+- **Lost reply in the gap:** readback finds the hold, then the same return.
+- **Late-but-permitted signature:** confirm just before `sign_by`, the submission within its
+  margin, then execution succeeds.
+- **An old block still accepted** (maxBlockAgeMs − 1) and **future skew** (maxFutureSkewMs − 1) at
+  prepare: the cutoffs move accordingly and the late-but-permitted path still executes.
+
+## 5a. Conflicting plan requests (two tabs)
+
+The `create_plan` exclusivity identity is `control:<seq>`. Creating a request whose digest
+differs from an open row under the same identity is refused `request_conflict` (409), with that
+row's readable terms. The founder then explicitly recovers it (check), abandons it (if never
+asked), or replaces it (an asked one: only with `replaces`, which is itself safe because the
+original can't land after control moves). New terms are never silently adopted, and the old row is
+never silently returned as if it were the new request.
 
 ## 6. Service permissions: an explicit replacement mask
 
@@ -197,6 +220,8 @@ The appoint kind's review carries the **current slot** and the **resulting mask*
 | none | METERING | "Adds metering." |
 | METERING, older generation | METERING, this generation | "Renews metering for this owner." |
 | SUPPORT only, this generation | **METERING\|SUPPORT** (default) or METERING (explicit choice) | "Adds metering and keeps support." Or: "Replaces support with metering: support is removed." |
+| SUPPORT only, older generation | METERING\|SUPPORT for this generation (default) or METERING (explicit) | "Renews support for this owner and adds metering." Or: "Adds metering; support isn't renewed." |
+| METERING\|SUPPORT, older generation | METERING\|SUPPORT for this generation (default) or METERING (explicit) | "Renews metering and support for this owner." Or: "Renews metering; support is removed." |
 | METERING\|SUPPORT or METERING, this generation | nothing to do | "Already appointed." |
 
 - The call carries the exact resulting `caps` and `expected_control_seq`. The review digest binds
@@ -286,7 +311,8 @@ Further rules:
   refused while the first is open; a reload or restart gives the same row.
 - S-3: a stale quote (`E_STORAGE`), stale control (`E_REVIEWED`), a concurrent plan
   (`E_REVIEWED_PLAN`), cap 32, a live deal, a handover gate.
-- S-4: `servePolicy` everywhere (§5): the reproduced short plans, the 300 000/299 999 boundary, the late-but-permitted signature that now executes, a submission past its margin, a non-default configuration, and a configuration change that makes an offer unavailable.
+- S-4: `servePolicy` everywhere (§5): the reproduced short plans, the 450 000/449 999 boundary; the false-early-expiry regression; a delayed original and a lost reply in the gap, each returned uncharged; the late-but-permitted signature; an old block and future skew; a non-default configuration; a configuration change that makes an offer unavailable.
+- S-9: conflicting plan requests under one control identity (§5a).
 - S-5: appoint masks, as in §6, through the real route.
 - S-6: an older contract (no `get_plan_terms`): guided creation unavailable, existing plan
   inspectable.
@@ -336,7 +362,14 @@ timeouts, disposable directories, no listener left running.
 5. **Measured `plan_bytes` as a code constant, versioned through the view (recommended).** The
    alternative, a dry-run quote, is unavailable on NEAR views for state writes.
 
-## 12. Open questions for Astra
+## 12. Decisions taken (Astra 04:56)
+
+- Q1: SUPPORT is kept by default only as the explicitly reviewed resulting mask; deliberate
+  removal stays available. Older-generation SUPPORT and combined slots are included.
+- Q2: the guided hold is 600 000 ms when supported.
+- D1/D2: §5 (contract expiry separate from operational cutoffs; conservative absolute cutoffs).
+
+## 12a. Previously open questions
 
 - Is SUPPORT retention as the default (§6) acceptable as the product wording?
 - The minimum usable hold under defaults is 300 s, and the guided default is 600 s. Should the
