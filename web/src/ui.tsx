@@ -1,8 +1,9 @@
 // Shared pieces: avatar, money, the offer card (the same card in the studio, the preview, the
 // public page and search), and the sign-in dialog.
 
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { type Action, api, type Offer, type Person } from "./api.ts";
+import { useModalFocus } from "./modal.ts";
 import { useSession } from "./session.tsx";
 
 export function initials(name: string) {
@@ -138,9 +139,31 @@ export function OfferCard({
  * account through a wallet (NEP-413); this version has no wallet connection yet (sub-job
  * 003w-e), so it says so plainly instead of offering a form that can't work.
  */
+/**
+ * Job 003w-d first correction (CompositionFirstSliceReview): a real modal. Focus moves inside on
+ * open, Tab stays inside, Escape closes, and focus returns to the opener (web/src/modal.ts).
+ */
+export function Modal({
+  labelledBy,
+  onClose,
+  children,
+}: {
+  labelledBy: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useModalFocus(ref, onClose);
+  return (
+    <div ref={ref} className="overlay" role="dialog" aria-modal="true" aria-labelledby={labelledBy}>
+      {children}
+    </div>
+  );
+}
+
 export function VerifiedSignInNotice({ reason, onClose }: { reason: string; onClose: () => void }) {
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="signin-title">
+    <Modal labelledBy="signin-title" onClose={onClose}>
       <div className="dialog">
         <h2 id="signin-title">Sign in with your NEAR account</h2>
         <p className="muted">{reason}</p>
@@ -150,12 +173,12 @@ export function VerifiedSignInNotice({ reason, onClose }: { reason: string; onCl
           available here.
         </p>
         <div className="row">
-          <button className="btn btn-quiet" type="button" onClick={onClose}>
+          <button className="btn btn-quiet" type="button" data-autofocus onClick={onClose}>
             Not now
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -186,7 +209,7 @@ export function SignInDialog() {
   };
   const actAs = async (id: string) => finishSignIn((await api.actAs(id)).person as Person);
   return (
-    <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="signin-title">
+    <Modal labelledBy="signin-title" onClose={() => finishSignIn(null)}>
       <form className="dialog" onSubmit={submit}>
         <h2 id="signin-title">Join Everstreet</h2>
         <p className="muted">{signInReason}</p>
@@ -194,8 +217,7 @@ export function SignInDialog() {
           <span>What should we call you?</span>
           <input
             className="input"
-            // biome-ignore lint/a11y/noAutofocus: first field of a dialog the person opened
-            autoFocus
+            data-autofocus
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Your name"
@@ -230,6 +252,6 @@ export function SignInDialog() {
           </div>
         )}
       </form>
-    </div>
+    </Modal>
   );
 }
