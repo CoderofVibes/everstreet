@@ -8,8 +8,10 @@ Builder: Claude Code, claude-opus-5-5, high, subscription. Astra's automatic goa
 - Phases done this session: A (flagship journey, writer history, rehearsal packet), B (Checks
   evidence + manual checks; 002f1 stage 1), C (004b), D (005e economics, 005c expert help,
   005d portfolio), F part (003x control sheet + record + verifier).
-  Next: Phase G polish (findings below), then 006b (agent API/MCP), 006a, 006c, M6 team/co-op;
-  final packet docs/astra/reports/2026-11-05_bulk-build-review.md.
+  Then Phase G polish (729a4d5) and 006b agent access + MCP 2026-07-28 (4a9300e).
+  Remaining: 006a web-app customer release, 006c rehearsal records, M6 team/co-op, the restart
+  matrix around the whole journey, readable token amounts on offer pages.
+  Review packet: docs/astra/reports/2026-11-05_bulk-build-review.md.
 - Scratch preview `everstreet-scratch` (port 8811, data/runtime/scratch-review*.db) may be running.
 - Running: the sale review harness in the preview pane (`sale-harness`, ports 8814/8815, 90-min
   self-stop). Stop it with preview_stop when browser work ends.

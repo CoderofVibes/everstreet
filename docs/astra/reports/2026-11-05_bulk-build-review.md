@@ -32,6 +32,7 @@ Nothing below is independently accepted. No milestone is complete.
 | 20d8a56, 291388c | 005c expert help |
 | d7cd760 | 005d portfolio; **Phase F:** 003x control sheet, portable handover record, offline verifier |
 | 729a4d5 | **Phase G:** polish from the real-browser review |
+| 4a9300e, 2234ca0 | 006b agent access: customer-granted narrow access, plain API and MCP 2026-07-28 |
 
 ## Checks (exact)
 
@@ -46,7 +47,10 @@ Nothing below is independently accepted. No milestone is complete.
     expert-help 3, handover-routes, and all 65 web test files (539 tests);
   - tsc, biome (only the known `useMathMinMax` warning in handoverCoordinator.ts) and the web
     build pass.
-  - **A final full check after 729a4d5 is still to run.**
+  - The full check after the packet commit: exit 0; main 1656 passed / 1 skipped;
+    protected 12; process 60.
+  - 006b was added after that check: agent-access 3 + the route guard pass, plus tsc, biome and
+    the web build. **A last full check runs at the end (result below).**
 - Real browser: Claude's built-in browser pane, Chromium, mostly 1280x800, two at 390, against
   synthetic harnesses only. No 1440 pass, keyboard-only traversal, zoom, reduced motion or screen
   reader pass was done; those stay unverified.
@@ -103,7 +107,9 @@ evidence.
 | Requirement | Status | Evidence |
 |---|---|---|
 | 003x control sheet (current / as recorded / history / pending external, each with basis and time), portable record v1 with digests, offline verifier | implemented, builder-verified (browser: sheet) | `handover-record.test.ts` (3), including the offline script |
-| 006b agent-accessible API/MCP; 006c successor rehearsal records | **open** | |
+| 006b agent access: narrow customer grant (one offer, the agent's own key slot, cap, expiry; hashed token), same customer path, MCP 2026-07-28 Streamable HTTP | implemented, builder-verified | `agent-access.test.ts` (3): an independent client's full flow, refusals before dispatch, protocol conformance; spec checked against modelcontextprotocol.io on Nov 5; `docs/design/AGENT_ACCESS.md` |
+| 006b inside the configured child across a sale; founder enablement switch; browser pass | **open** | |
+| 006c successor rehearsal records | **open** | |
 
 ### Phase E: M6
 
