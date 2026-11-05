@@ -77,7 +77,9 @@ export async function saleWorld(opts: { dbPath?: string } = {}) {
     });
     if (c.status !== 201) return { p, created: c, outcome: null, check: null };
     const action = c.body.action as Json;
-    await who(`/api/sales/actions/${action.id}/requested`, "POST", {});
+    // The ask is claimed before the wallet; only a granted claim invokes it.
+    const ask = await who(`/api/sales/actions/${action.id}/requested`, "POST", {});
+    if (ask.body.ask !== "granted") throw new Error(`the ask wasn't granted: ${ask.body.ask}`);
     let outcome: Json | null = null;
     if (o.send !== false) {
       outcome = wallet(account, action.call);

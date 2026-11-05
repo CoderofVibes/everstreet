@@ -51,6 +51,143 @@ const ACCOUNT = /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/;
 
 /** A contract refusal: the receipt fails with this message and nothing changes. */
 export class Refusal extends Error {}
+
+// ---------- the supported envelopes (Astra's DirectSaleRecoveryAddendum) ----------
+
+const CANON = /^(0|[1-9][0-9]*)$/;
+/** A canonical U64/U128 decimal string, as the contract's JSON takes it (never coerced). */
+export const isUint = (v: unknown, bits: 64 | 128) =>
+  typeof v === "string" && CANON.test(v) && v.length <= 39 && BigInt(v) < 1n << BigInt(bits);
+const isSmall = (v: unknown, max: number) =>
+  typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max;
+const isAccount = (v: unknown) =>
+  typeof v === "string" && v.length >= 2 && v.length <= 64 && ACCOUNT.test(v);
+const isHex = (v: unknown) => typeof v === "string";
+const exactly = (o: unknown, keys: string[], optional: string[] = []): o is Json =>
+  typeof o === "object" &&
+  o !== null &&
+  !Array.isArray(o) &&
+  keys.every((k) => k in o) &&
+  Object.keys(o).every((k) => keys.includes(k) || optional.includes(k));
+const TERMS_KEYS = [
+  "buyer",
+  "price",
+  "expires_at_ms",
+  "close_window_ms",
+  "available_floor",
+  "grants",
+  "terms_hash",
+];
+const validTermsArg = (t: unknown) =>
+  exactly(t, TERMS_KEYS) &&
+  isAccount(t.buyer) &&
+  isUint(t.price, 128) &&
+  isUint(t.expires_at_ms, 64) &&
+  isUint(t.close_window_ms, 64) &&
+  isUint(t.available_floor, 128) &&
+  Array.isArray(t.grants) &&
+  t.grants.every(
+    (g: unknown) => Array.isArray(g) && g.length === 2 && isAccount(g[0]) && isSmall(g[1], 0xff),
+  ) &&
+  isHex(t.terms_hash);
+/** Each business method's arguments, exactly (JSON as the contract deserializes them). */
+const BUSINESS_ARGS: Record<string, (a: Json) => boolean> = {
+  propose_sale_guarded: (a) =>
+    exactly(a, ["terms", "expected_control_seq", "digest"]) &&
+    validTermsArg(a.terms) &&
+    isUint(a.expected_control_seq, 64) &&
+    isHex(a.digest),
+  revise_sale_guarded: (a) =>
+    exactly(a, ["deal_seq", "expected_control_seq", "terms", "digest"]) &&
+    isUint(a.deal_seq, 64) &&
+    isUint(a.expected_control_seq, 64) &&
+    validTermsArg(a.terms) &&
+    isHex(a.digest),
+  accept_sale: (a) =>
+    exactly(a, ["deal_seq", "version", "digest"]) &&
+    isUint(a.deal_seq, 64) &&
+    isSmall(a.version, 0xffff_ffff) &&
+    isHex(a.digest),
+  unfund_deal_guarded: (a) =>
+    exactly(a, ["deal_seq", "expected_control_seq"]) &&
+    isUint(a.deal_seq, 64) &&
+    isUint(a.expected_control_seq, 64),
+  cancel_sale_guarded: (a) => BUSINESS_ARGS.unfund_deal_guarded?.(a) === true,
+  expire_sale_guarded: (a) => BUSINESS_ARGS.unfund_deal_guarded?.(a) === true,
+  appoint_operator_guarded: (a) =>
+    exactly(a, ["account", "caps", "expected_control_seq"]) &&
+    isAccount(a.account) &&
+    isSmall(a.caps, 0xff) &&
+    isUint(a.expected_control_seq, 64),
+  claim_party_guarded: (a) =>
+    exactly(a, ["category", "expected_amount", "expected_payout_seq"]) &&
+    isSmall(a.category, 0xff) &&
+    isUint(a.expected_amount, 128) &&
+    isUint(a.expected_payout_seq, 64),
+};
+const MIN_GAS = 1_000_000_000_000n;
+const MAX_GAS = 300_000_000_000_000n;
+
+/**
+ * Why an envelope isn't one this double supports, or null. Checked before ANY change: a canonical
+ * deposit and gas in range, a supported receiver/method, exactly the method's JSON arguments.
+ */
+export function envelopeProblem(
+  call: { receiverId: string; methodName: string; args: unknown; deposit: unknown; gas: unknown },
+  business: string,
+  asset: string,
+): string | null {
+  if (call.receiverId !== business && call.receiverId !== asset) return "not a sale-path call";
+  if (!isUint(call.deposit, 128)) return "Invalid deposit: not a canonical yoctoNEAR amount";
+  if (
+    !isUint(call.gas, 64) ||
+    BigInt(call.gas as string) < MIN_GAS ||
+    BigInt(call.gas as string) > MAX_GAS
+  )
+    return "Invalid gas: outside 1 to 300 Tgas";
+  if (typeof call.args !== "object" || call.args === null || Array.isArray(call.args))
+    return "Failed to deserialize input from JSON.";
+  const a = call.args as Json;
+  if (call.receiverId === business) {
+    const check = BUSINESS_ARGS[call.methodName];
+    if (!check) return `MethodNotFound: ${call.methodName}`;
+    return check(a) ? null : "Failed to deserialize input from JSON.";
+  }
+  if (call.receiverId === asset) {
+    if (call.methodName !== "ft_transfer_call") return `MethodNotFound: ${call.methodName}`;
+    if (!exactly(a, ["receiver_id", "amount", "msg"], ["memo"]) || !isAccount(a.receiver_id))
+      return "Failed to deserialize input from JSON.";
+    if (!isUint(a.amount, 128) || a.amount === "0") return "The amount should be a positive number";
+    if (typeof a.msg !== "string") return "Failed to deserialize input from JSON.";
+    return null;
+  }
+  return "not a sale-path call";
+}
+
+/** A fund_deal message's fields, as lib.rs's FundDeal deserializes them; null if it wouldn't. */
+function fundDealOf(msg: string): Json | null {
+  let m: unknown;
+  try {
+    m = JSON.parse(msg);
+  } catch {
+    return null;
+  }
+  if (!exactly(m, ["fund_deal"])) return null;
+  const f = m.fund_deal;
+  if (
+    !exactly(f, ["deal_seq", "version", "price"], ["expected_control_seq"]) ||
+    !isUint(f.deal_seq, 64) ||
+    !isSmall(f.version, 0xffff_ffff) ||
+    !isUint(f.price, 128) ||
+    !(
+      f.expected_control_seq === undefined ||
+      f.expected_control_seq === null ||
+      isUint(f.expected_control_seq, 64)
+    )
+  )
+    return null;
+  return f;
+}
 const refuse = (m: string): never => {
   throw new Refusal(m);
 };
@@ -1084,10 +1221,16 @@ export class SaleChain {
         },
       },
     });
-    const deposit = BigInt(call.deposit);
     const receipts: Json[] = [];
     let status: Json;
-    if (call.receiverId === this.business) {
+    const problem = envelopeProblem(call, this.business, this.asset);
+    if (problem === "not a sale-path call") throw new Error("not a sale-path call");
+    if (problem) {
+      // Refused before anything runs: nothing changes, on the token or the business.
+      receipts.push(failed(call.receiverId, rid("call"), problem));
+      status = (receipts[0] as Json).outcome.status;
+    } else if (call.receiverId === this.business) {
+      const deposit = BigInt(call.deposit);
       // Snapshot so a refusal changes nothing (a failed receipt rolls back on chain).
       const before = this.snapshot();
       try {
@@ -1103,9 +1246,17 @@ export class SaleChain {
             this.balances.set(to, (this.balances.get(to) ?? 0n) + amount);
           }
           const cb = this.onPayout(r.payout.slot, r.payout.id, transferOk);
-          receipts.push(
-            ok(this.business, r.logs, "", rid("claim"), [rid("transfer"), rid("callback")]),
-          );
+          // claim_party returns `ft_transfer.then(on_payout)`: its result is the callback's
+          // (SuccessReceiptId naming it), as the runtime reports a returned promise.
+          receipts.push({
+            id: rid("claim"),
+            outcome: {
+              executor_id: this.business,
+              logs: r.logs,
+              receipt_ids: [rid("transfer"), rid("callback")],
+              status: { SuccessReceiptId: rid("callback") },
+            },
+          });
           receipts.push(
             transferOk
               ? ok(this.asset, [], "", rid("transfer"))
@@ -1123,17 +1274,15 @@ export class SaleChain {
         receipts.push(failed(this.business, rid("call"), e.message));
         status = (receipts[0] as Json).outcome.status;
       }
-    } else if (call.receiverId === this.asset && call.methodName === "ft_transfer_call") {
-      const amount = BigInt(String(call.args.amount));
-      const receiver = String(call.args.receiver_id);
-      let fund: Json | null = null;
-      try {
-        fund = (JSON.parse(String(call.args.msg)) as Json).fund_deal ?? null;
-      } catch {}
+    } else {
+      const deposit = BigInt(call.deposit);
+      const amount = BigInt(call.args.amount as string);
+      const receiver = call.args.receiver_id as string;
+      const msg = call.args.msg as string;
       const refusal =
         deposit !== 1n
           ? "Requires attached deposit of exactly 1 yoctoNEAR"
-          : receiver !== this.business || !fund
+          : receiver !== this.business || !msg.includes("fund_deal")
             ? "The sale double only carries fund_deal transfers to the business"
             : !this.registered.has(signer)
               ? `The account ${signer} is not registered`
@@ -1148,7 +1297,20 @@ export class SaleChain {
       } else {
         this.balances.set(signer, (this.balances.get(signer) ?? 0n) - amount);
         this.balances.set(receiver, (this.balances.get(receiver) ?? 0n) + amount);
-        const r = this.onFund(signer, amount, fund as Json);
+        const fund = fundDealOf(msg);
+        // A message lib.rs can't read as a fund_deal is returned whole ("malformed message").
+        const r = fund
+          ? this.onFund(signer, amount, fund)
+          : {
+              unused: amount,
+              logs: [
+                event("purchase_returned", {
+                  customer: signer,
+                  amount: String(amount),
+                  reason: "malformed message",
+                }),
+              ],
+            };
         if (r.unused > 0n) {
           this.balances.set(receiver, (this.balances.get(receiver) ?? 0n) - r.unused);
           this.balances.set(signer, (this.balances.get(signer) ?? 0n) + r.unused);
@@ -1167,7 +1329,7 @@ export class SaleChain {
         receipts.push(ok(this.asset, [], used, rid("resolution")));
         status = { SuccessValue: used };
       }
-    } else throw new Error("not a sale-path call");
+    }
     return {
       final_execution_status: "FINAL",
       transaction: {

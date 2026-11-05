@@ -51,6 +51,119 @@ function viewsOf(c: SaleChain, expected: Json) {
   };
 }
 
+describe("003wf2 sale double: only supported, well-formed envelopes change anything", () => {
+  const fund = (amount: unknown, price: unknown, extra: Json = {}) => ({
+    receiverId: DOC.asset as string,
+    methodName: "ft_transfer_call",
+    args: {
+      receiver_id: DOC.business,
+      amount,
+      msg: JSON.stringify({
+        fund_deal: { deal_seq: "1", version: 1, price, expected_control_seq: "4" },
+      }),
+      ...extra,
+    },
+    deposit: "1",
+    gas: "100000000000000",
+  });
+  /** A world with deal 1 proposed (the fixture's own first proposal), the buyer holding 100. */
+  function proposed() {
+    const c = world();
+    const p = (DOC.steps as Json[]).find((s) => s.case === "propose") as Json;
+    c.now = BigInt(p.now_ms);
+    c.walletCall(p.signer, {
+      receiverId: p.receiver,
+      methodName: p.method,
+      args: p.args,
+      deposit: p.deposit,
+      gas: "50000000000000",
+    });
+    c.balances.set("buyer.near", 100n);
+    return c;
+  }
+  const snapshot = (c: SaleChain) =>
+    JSON.stringify([
+      ...[...c.balances].map(([a, v]) => [a, String(v)]),
+      c.view("get_control", {}),
+      c.view("get_treasury", {}),
+    ]);
+
+  it("Astra's negative-amount probe: refused before any ledger or business change", () => {
+    const c = proposed();
+    const before = snapshot(c);
+    const out = c.walletCall("buyer.near", fund("-1", "-1"));
+    expect(JSON.stringify(out.status)).toContain("Failure");
+    expect(snapshot(c)).toBe(before);
+    expect(c.balances.get("buyer.near")).toBe(100n);
+  });
+
+  it("refuses every malformed or unsupported envelope with nothing changed", () => {
+    const c = proposed();
+    const before = snapshot(c);
+    const bad: Json[] = [
+      fund("01", "01"), // a leading zero
+      fund(5, "5"), // a JSON number where the contract takes a U128 string
+      fund("0", "0"), // NEP-141: the amount must be positive
+      fund("340282366920938463463374607431768211456", "1"), // 2^128
+      fund("1", "1", { surprise: true }), // an argument the method doesn't take
+      { ...fund("1", "1"), deposit: "1.5" },
+      { ...fund("1", "1"), deposit: "-1" },
+      { ...fund("1", "1"), gas: "0" },
+      { ...fund("1", "1"), gas: "300000000000001" },
+      { ...fund("1", "1"), args: [] },
+      { ...fund("1", "1"), methodName: "ft_transfer" },
+      {
+        receiverId: DOC.business,
+        methodName: "accept_sale",
+        args: { deal_seq: 1, version: 1, digest: "00" },
+        deposit: "1",
+        gas: "30000000000000",
+      },
+      {
+        receiverId: DOC.business,
+        methodName: "claim_party_guarded",
+        args: { category: "1", expected_amount: "1", expected_payout_seq: "1" },
+        deposit: "1",
+        gas: "30000000000000",
+      },
+      {
+        receiverId: DOC.business,
+        methodName: "unfund_deal_guarded",
+        args: { deal_seq: "1" },
+        deposit: "1",
+        gas: "30000000000000",
+      },
+      {
+        receiverId: DOC.business,
+        methodName: "propose_sale",
+        args: {},
+        deposit: "1",
+        gas: "30000000000000",
+      },
+    ];
+    for (const call of bad) {
+      const out = c.walletCall("buyer.near", call as never);
+      expect(JSON.stringify(out.status), JSON.stringify(call)).toContain("Failure");
+      expect(snapshot(c), JSON.stringify(call)).toBe(before);
+    }
+  });
+
+  it("a fund_deal message the contract can't read is returned whole by the business (its own rule)", () => {
+    const c = proposed();
+    c.registered.add("buyer.near");
+    const before = snapshot(c);
+    const call = fund("1", "1");
+    call.args.msg = JSON.stringify({ fund_deal: { deal_seq: 1, version: "1", price: "1" } });
+    const out = c.walletCall("buyer.near", call);
+    const receiver = (out.receipts_outcome as Json[]).find((r) =>
+      r.id.endsWith("receiver"),
+    )?.outcome;
+    expect(JSON.parse(decode(receiver.status.SuccessValue))).toBe("1");
+    expect(receiver.logs[0]).toContain('"reason":"malformed message"');
+    expect(snapshot(c)).toBe(before);
+  });
+});
+
 describe("003wf2 sale double against the contract's scripted history", () => {
   it("starts from exactly the contract's views", () => {
     const c = world();
@@ -181,7 +294,7 @@ describe("003wf2 sale double against the contract's scripted history", () => {
         methodName: "ft_transfer_call",
         args: {},
         deposit: "1",
-        gas: "1",
+        gas: "30000000000000",
       }),
     ).toThrow(/not a sale-path call/);
     const out = c.walletCall("buyer.near", {
@@ -189,7 +302,7 @@ describe("003wf2 sale double against the contract's scripted history", () => {
       methodName: "withdraw_profit",
       args: {},
       deposit: "1",
-      gas: "1",
+      gas: "30000000000000",
     });
     expect(JSON.stringify(out.status)).toContain("MethodNotFound");
     const paid = c.walletCall("buyer.near", {
@@ -197,7 +310,7 @@ describe("003wf2 sale double against the contract's scripted history", () => {
       methodName: "expire_sale_guarded",
       args: { deal_seq: "1", expected_control_seq: "3" },
       deposit: "1",
-      gas: "1",
+      gas: "30000000000000",
     });
     expect(JSON.stringify(paid.status)).toContain("doesn't accept deposit");
   });

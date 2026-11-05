@@ -159,28 +159,40 @@ transaction (the wallet's hash, or the ID the person copies from the wallet's ac
 wallet gave no hash, the stored request is kept and the page explains how to find the original;
 a new transaction is never taken as proof of what the old one did.
 
-**Each guard gives an exclusivity identity.** Every action this page prepares carries one:
+**Which requests are exclusive, and what makes one permanently inapplicable** (corrected by
+Astra's DirectSaleRecoveryAddendum: only irreversible evidence counts):
 
-| Kinds | Identity | Why at most one action with it can ever take effect |
-|---|---|---|
-| propose, revise, unfund, cancel, expire, appoint, fund | `control:<expected_control_seq>` | the first success raises control_seq; every other call guarded on that value is refused (funding: returned whole) |
-| accept | `accept:<deal_seq>:<version>:<account>` | a party's second acceptance of a version is refused (`E_ALREADY_ACCEPTED`), and only a revision (a new version) clears it |
-| claim | `claim:<category>:<payout_seq>` | the first payout raises payout_seq |
-| register | `register:<token>:<account>` | NEP-145 requires `registration_only: true` to refund the whole deposit when the account is already registered (the double implements and tests it; another token's conformance isn't verified here) |
+| Kinds | Guard | At most one success among identical requests? | Permanently inapplicable when (irreversible) |
+|---|---|---|---|
+| propose, revise, unfund, cancel, expire, appoint, fund | `expected_control_seq` | yes: the first success raises control_seq (it only rises); every other call naming that value is refused (funding: returned whole) | control_seq read above the expected value |
+| claim | `expected_payout_seq` (+ amount) | yes: the first payout raises payout_seq (it only rises) | payout_seq read above the expected value |
+| accept | deal, version, digest | **no**: unfund clears an acceptance without a new version, so after funding again the same acceptance can succeed again | the deal number is no longer live (numbers never repeat), or its version moved on (versions only rise). Never the accepted flag |
+| register | none | **no**: the token implements `storage_unregister`, so registration is reversible; `registration_only` only makes a repeat refund while registered | never from a reading |
 
-**"Can no longer take effect"** is provable from one fresh final read, per identity: control_seq
-moved past the expected value; the deal number isn't live, its version moved on, or this party's
-acceptance is recorded; payout_seq moved; the account is registered. The row then becomes
-`no_longer_possible`: whether it took effect is still unknown, and it stays checkable by its own
-transaction, but it no longer blocks a new action.
+**Replacement while an asked request is unknown.** Only for the exclusive kinds, and only as the
+EXACT same immutable request: a fresh preview must reproduce the open row's `action_digest`
+(same call, same reviewed state), so if both transactions ever land, the contract accepts at most
+one. The person is told exactly that before their wallet is asked. No replacement at all for
+accept or register: they are recovered by their own transaction only. A new action of another kind
+is never blocked by an unknown one (it can't duplicate it); a new action of the same kind waits for
+the open one to be resolved or proven inapplicable. Each row keeps its own result: an original's
+receipt arriving after its replacement (or after a local reconcile) settles that original row with
+what its own transaction shows.
 
-**A replacement while an action is unknown** is offered only when a fresh preview has the SAME
-identity as the open one (the state hasn't moved): at most one of the two can take effect, and the
-person is told exactly that before their wallet is asked. A preview with another identity is
-admitted only once the open action is no longer possible. A new action after a definitive refusal
-or a restored claim is simply a new action. Admission (in one `BEGIN IMMEDIATE` transaction): an
-open `prepared` row is returned for recovery; an open asked row admits a new one only with the same
-identity and an explicit `replaces` naming it; otherwise `action_open` with that row.
+**Admission** (one `BEGIN IMMEDIATE` transaction): an open `prepared` row of this person and
+business is returned for recovery or set-aside; an asked row of the same kind admits a new one only
+as an exact replacement (`replaces` naming it, equal `action_digest`, exclusive kind); otherwise
+`action_open` with that row.
+
+**One ask per row.** Recording the ask is a conditional `prepared → requested` claim with one
+winner across tabs and processes; its answer (`ask: "granted"` or `"already_asked"`) is obeyed
+before the wallet is invoked, and only `granted` invokes it. Recording a returned hash is separate
+and never grants an ask. A lost answer after the claim stays recoverable as unknown.
+
+**Committing a result.** A check commits the transaction identity, its evidence and the state
+together with a compare-and-set on the row as read; if another check settled it first, the stored
+outcome is returned instead. Local effects follow only the stored confirmed result, and repeat
+safely when an earlier attempt didn't finish.
 
 1. **Prepare** (no row): one pinned read, the exact call and an `action_digest` =
    sha256 of [kind, network, contract, actor account, receiver, method, args, deposit, gas,
@@ -220,11 +232,15 @@ receipt rolled back), and the wallet was asked exactly once.
   returned `"0"` unused, the resolution used the whole price, and the transaction's own value equals
   it. Returned: `funding_returned` with the whole amount unused, the resolution used `"0"` (one ask
   only, else unknown). A successful token transfer alone is never proof escrow was retained.
-- **Claims**: the claim receipt logged `payout_started` to the actor for exactly the reviewed amount;
-  the callback receipt `on_payout` for that payout id returned `true` and logged
-  `payout_settled` ok → **paid**; returned `false` → **failed, restored as a claim** (the contract
-  put it back in the same category); no callback outcome → **pending** (unknown; the contract's
-  `get_pending` lists it).
+- **Claims**: `claim_party_guarded` returns its `ft_transfer.then(on_payout)` promise, so the claim
+  receipt's status is `SuccessReceiptId` naming the callback receipt (Astra's addendum), which
+  must be one of the receipts it created; the receipt ids are distinct. The claim receipt logged
+  `payout_started` to the actor for exactly the reviewed amount; the callback (executed by the
+  business) settled that same slot and payout id: returned `true` with `payout_settled` ok and the
+  token's transfer receipt succeeded → **paid**; returned `false` with ok false and the transfer
+  failed → **failed, restored as a claim** (same category); the transaction's own value equals the
+  callback's. No callback outcome → **pending** (unknown; `get_pending` lists it); a missing,
+  disconnected or contradictory graph proves nothing.
 
 ### 5.2 Three different facts, never merged
 
@@ -247,8 +263,12 @@ by this module.
 chain double: control, operators, deal slot, party records, payout slots, outcome ring, the
 treasury buckets and the token ledger. It applies the actual encoded calls a wallet sends
 (receiver, method, JSON args, deposit, signer) by the contract's rules, and answers every view and
-each transaction's FINAL outcome with its receipt graph and logs. It refuses unexpected receivers,
-methods, multiple actions and malformed arguments. No real fetch exists in it or in the harness.
+each transaction's FINAL outcome with its receipt graph and logs. Before ANY token or business
+change it validates the envelope (Astra's addendum): receiver and method supported, an object of
+exactly the method's arguments, canonical U128/U64 decimal strings (no sign, no leading zeros, in
+range) and u8/u32 JSON numbers as the contract's JSON takes them, a canonical deposit, gas within
+1-300 Tgas. Anything else fails with nothing changed. Gas use itself is not modelled. No real fetch
+exists in it or in the harness.
 
 **One economic state (Astra's review 2).** The customer double's purchases, holds, settlements
 and releases move the same treasury buckets the sale reads (`held`, `ent_free_value`,

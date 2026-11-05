@@ -94,6 +94,22 @@ type State =
   | "no_longer_possible"
   | "set_aside";
 const OPEN: State[] = ["prepared", "requested", "unknown"];
+/**
+ * Kinds whose guard admits at most one success among identical requests (DIRECT_SALE.md §5):
+ * control_seq and payout_seq only rise. Not accept (unfund clears an acceptance without a new
+ * version) and not register (the token can unregister): those are recovered by their own
+ * transaction only.
+ */
+const EXCLUSIVE = new Set<SaleKind>([
+  "propose",
+  "revise",
+  "fund",
+  "unfund",
+  "cancel",
+  "expire",
+  "appoint",
+  "claim",
+]);
 /** States a check may still resolve by the action's own transaction. */
 const CHECKABLE: State[] = ["prepared", "requested", "unknown", "no_longer_possible"];
 const CHECKABLE_SQL = `state IN (${CHECKABLE.map((s) => `'${s}'`).join(",")})`;
@@ -121,6 +137,8 @@ export interface SaleActionRow {
   asks: number;
   evidence: string | null;
   effects: string | null;
+  /** Rises with every update: a compare-and-set names the revision it read. */
+  rev: number;
   created_at: string;
   updated_at: string;
 }
@@ -136,6 +154,7 @@ export function migrateSaleActions(db: Db) {
       terms_id TEXT, replaces TEXT, idempotency_key TEXT NOT NULL,
       state TEXT NOT NULL CHECK (state IN ('prepared','requested','unknown','confirmed','refused','no_longer_possible','set_aside')),
       tx_hash TEXT, asks INTEGER NOT NULL DEFAULT 0, evidence TEXT, effects TEXT,
+      rev INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE (person_id, idempotency_key)
     ) STRICT;
@@ -259,8 +278,12 @@ export function resolveSaleTx(
   if (JSON.stringify(args) !== JSON.stringify(call.args)) return null;
   if (o.transaction_outcome?.id !== hash) return null;
   const byId = new Map<string, Receipt>();
-  for (const x of o.receipts_outcome ?? [])
-    if (typeof x.id === "string" && x.outcome) byId.set(x.id, x.outcome);
+  for (const x of o.receipts_outcome ?? []) {
+    if (typeof x.id !== "string" || !x.outcome) return null;
+    // A receipt id appearing twice makes the graph ambiguous: no evidence.
+    if (byId.has(x.id)) return null;
+    byId.set(x.id, x.outcome);
+  }
   const firstIds = o.transaction_outcome?.outcome?.receipt_ids;
   if (!Array.isArray(firstIds) || firstIds.length !== 1) return null;
   const first = byId.get(String(firstIds[0]));
@@ -273,14 +296,9 @@ export function resolveSaleTx(
     Object.keys(top).length === 1 &&
     typeof top.SuccessValue === "string";
   const refused = (why: string | null): SaleResolution | null => {
-    // A contract refusal rolls the receipt back: definitive for a request asked exactly once.
+    // A contract refusal rolls the receipt back: definitive for this transaction (each row is
+    // asked at most once; another request is another row with its own transaction).
     if (!top || !("Failure" in top) || !why) return null;
-    if (p.asks > 1)
-      return {
-        kind: "unknown",
-        message:
-          "This transaction was refused, but your wallet was asked more than once for this request, so whether another attempt took effect is shown only by that attempt's own transaction.",
-      };
     const code = REASON.exec(why)?.[0] ?? "refused";
     return {
       kind: "refused",
@@ -321,12 +339,6 @@ export function resolveSaleTx(
       (d) => d.sender === p.account && d.amount === price,
     );
     if (back && unused === price && used === "0") {
-      if (p.asks > 1)
-        return {
-          kind: "unknown",
-          message:
-            "This attempt came back in full, but your wallet was asked more than once, so another attempt may have funded escrow; its own transaction shows it.",
-        };
       return {
         kind: "refused",
         reason: String(back.reason ?? "returned"),
@@ -335,6 +347,9 @@ export function resolveSaleTx(
     }
     return null;
   }
+
+  // A claim returns its transfer.then(on_payout) promise: its own result is the callback's.
+  if (p.kind === "claim") return resolveClaim(p, review, first, byId, top, refused);
 
   // The business's own methods.
   if (!succeeded(first)) return refused(failureText(first));
@@ -423,40 +438,73 @@ export function resolveSaleTx(
               "Metering is appointed for this generation: customers' new uses can be served.",
           }
         : null;
-    case "claim": {
-      const started = eventsOf(first, "payout_started").find(
-        (d) => d.to === p.account && d.amount === review.amount,
-      );
-      if (!started) return null;
-      const kids = (first.receipt_ids ?? []).map((id) => byId.get(String(id)));
-      const cb = kids.find((k) => k?.executor_id === p.contract);
-      const settled = cb
-        ? eventsOf(cb, "payout_settled").find((d) => d.payout_id === started.payout_id)
-        : undefined;
-      if (!cb || !settled || !succeeded(cb))
-        return {
-          kind: "unknown",
-          message:
-            "The payout started, but its outcome isn't in this transaction yet. The contract lists it as in flight; nothing is called paid until its callback is seen.",
-        };
-      const paid = receiptValue(cb);
-      if (paid === true && settled.ok === true && receiptValue({ status: top }) === true)
-        return {
-          kind: "confirmed",
-          result: "paid",
-          message:
-            "Paid: the token transferred it to your account and the contract settled the payout.",
-        };
-      if (paid === false && settled.ok === false)
-        return {
-          kind: "confirmed",
-          result: "restored",
-          message:
-            "The transfer failed, so nothing was paid: the contract put the amount back as your claim, in the same category.",
-        };
-      return null;
-    }
   }
+  return null;
+}
+
+/**
+ * A claim's receipt graph (DIRECT_SALE.md §5.1): the claim receipt's status names the callback
+ * receipt it created (SuccessReceiptId); it started a payout to this account for exactly the
+ * reviewed amount; the callback (the business) settled that same slot and payout id; the token's
+ * transfer receipt agrees with the callback's result; the transaction's own value is the
+ * callback's. A missing callback is pending (unknown); anything contradictory is no evidence.
+ */
+function resolveClaim(
+  p: SaleActionRow,
+  review: Record<string, unknown>,
+  first: Receipt,
+  byId: Map<string, Receipt>,
+  top: Record<string, unknown> | undefined,
+  refused: (why: string | null) => SaleResolution | null,
+): SaleResolution | null {
+  if (first.status && "Failure" in first.status) return refused(failureText(first));
+  const st = first.status;
+  if (!st || Object.keys(st).length !== 1 || typeof st.SuccessReceiptId !== "string") return null;
+  const cbId = st.SuccessReceiptId;
+  const kids = (first.receipt_ids ?? []).map(String);
+  if (new Set(kids).size !== kids.length || kids.length !== 2 || !kids.includes(cbId)) return null;
+  const transferId = kids.find((k) => k !== cbId) as string;
+  const started = eventsOf(first, "payout_started").filter(
+    (d) => d.to === p.account && d.amount === review.amount,
+  );
+  if (started.length !== 1) return null;
+  const s0 = started[0] as Record<string, unknown>;
+  const cb = byId.get(cbId);
+  const transfer = byId.get(transferId);
+  if (!cb)
+    return {
+      kind: "unknown",
+      message:
+        "The payout started, but its outcome isn't in this transaction yet. The contract lists it as in flight; nothing is called paid until its callback is seen.",
+    };
+  if (cb.executor_id !== p.contract || !succeeded(cb)) return null;
+  if (!transfer || transfer.executor_id !== p.asset || !transfer.status) return null;
+  const settled = eventsOf(cb, "payout_settled").filter(
+    (d) => d.payout_id === s0.payout_id && d.slot === s0.slot && d.amount === s0.amount,
+  );
+  if (settled.length !== 1) return null;
+  const ok = (settled[0] as Record<string, unknown>).ok;
+  const value = receiptValue(cb);
+  const topValue =
+    top && Object.keys(top).length === 1 && typeof top.SuccessValue === "string"
+      ? receiptValue({ status: top })
+      : Symbol("no value");
+  const transferOk = !("Failure" in transfer.status);
+  if (value !== ok || topValue !== value) return null;
+  if (value === true && transferOk)
+    return {
+      kind: "confirmed",
+      result: "paid",
+      message:
+        "Paid: the token transferred it to your account and the contract settled the payout.",
+    };
+  if (value === false && !transferOk)
+    return {
+      kind: "confirmed",
+      result: "restored",
+      message:
+        "The transfer failed, so nothing was paid: the contract put the amount back as your claim, in the same category.",
+    };
   return null;
 }
 
@@ -1295,19 +1343,19 @@ export class SaleActions {
             action: view(prepared),
           },
         );
-      const named = open.some((r) => r.id === replaces);
-      for (const r of open) {
-        // An asked action admits another only under the same identity (at most one of them can
-        // take effect) and only when the person named one of them as replaced.
-        if (r.identity !== p.identity || !named)
+      // An asked request of ANOTHER kind can't be duplicated by this one, so it never blocks it.
+      // One of the SAME kind admits a new one only as its exact replacement: an exclusive kind,
+      // the identical immutable request (equal action digest), named in `replaces` (DIRECT_SALE §5).
+      const same = open.filter((r) => r.kind === p.kind);
+      const named = same.some((r) => r.id === replaces);
+      for (const r of same) {
+        const replaceable = EXCLUSIVE.has(p.kind) && r.action_digest === p.action_digest;
+        if (!replaceable || !named)
           bad(
             409,
-            "A request your wallet was asked for is still unresolved; check it first.",
+            "A request of this kind your wallet was asked for is still unresolved; check it first.",
             "action_open",
-            {
-              action: view(r),
-              same_identity: r.identity === p.identity,
-            },
+            { action: view(r), replaceable },
           );
       }
       let termsId: string | null = null;
@@ -1398,33 +1446,78 @@ export class SaleActions {
     }
   }
 
-  /** Called with no hash just BEFORE the wallet is asked (durable), and with the hash after. */
+  /**
+   * The wallet ask, recorded durably BEFORE the wallet is invoked: one conditional
+   * prepared -> requested claim with a single winner across tabs and processes. Only
+   * `ask: "granted"` permits invoking the wallet; `"already_asked"` never does (a lost answer to
+   * the winning claim leaves the row requested: recover it, never send it again). With a
+   * `tx_hash`, it records the wallet's returned hash only and grants nothing.
+   */
   requested(viewer: Viewer, id: string, input: Record<string, unknown>) {
     const p = this.own(viewer, id);
-    if (!OPEN.includes(p.state)) return { action: view(p) };
-    const hash =
-      typeof input.tx_hash === "string" && TX_HASH.test(input.tx_hash) ? input.tx_hash : null;
-    this.db
+    if (input.tx_hash !== undefined) {
+      if (typeof input.tx_hash !== "string" || !TX_HASH.test(input.tx_hash))
+        bad(400, "That isn't a NEAR transaction ID", "bad_tx_hash");
+      this.db
+        .prepare(
+          "UPDATE sale_actions SET tx_hash = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND tx_hash IS NULL AND state IN ('requested','unknown','no_longer_possible')",
+        )
+        .run(input.tx_hash as string, this.stamp(), id);
+      return { action: view(this.own(viewer, id)), ask: null };
+    }
+    const won = this.db
       .prepare(
-        "UPDATE sale_actions SET state = CASE WHEN state = 'prepared' THEN 'requested' ELSE state END, tx_hash = COALESCE(tx_hash, ?), asks = asks + ?, updated_at = ? WHERE id = ?",
+        "UPDATE sale_actions SET state = 'requested', asks = asks + 1, rev = rev + 1, updated_at = ? WHERE id = ? AND state = 'prepared'",
       )
-      .run(hash, hash ? 0 : 1, this.stamp(), id);
-    return { action: view(this.own(viewer, id)) };
+      .run(this.stamp(), id);
+    return {
+      action: view(this.own(viewer, id)),
+      ask: won.changes === 1 ? ("granted" as const) : ("already_asked" as const),
+    };
   }
 
-  private settle(p: SaleActionRow, state: State, res: SaleResolution) {
-    this.db
+  /**
+   * Commits a result with its transaction identity and state together, only on the row as read
+   * (its revision): if another check settled it meanwhile, nothing is written and false returns.
+   */
+  private commit(p: SaleActionRow, state: State, res: SaleResolution, hash: string | null) {
+    const r = this.db
       .prepare(
-        `UPDATE sale_actions SET state = ?, evidence = ?, updated_at = ? WHERE id = ? AND ${CHECKABLE_SQL}`,
+        `UPDATE sale_actions SET state = ?, evidence = ?, tx_hash = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND rev = ? AND ${CHECKABLE_SQL}`,
       )
-      .run(state, JSON.stringify(res), this.stamp(), p.id);
+      .run(state, JSON.stringify(res), hash, this.stamp(), p.id, p.rev);
+    return r.changes === 1;
+  }
+
+  /** The stored, coherent outcome of a row (another check settled it first). */
+  private async stored(
+    viewer: Viewer,
+    id: string,
+    transaction: { hash: string; matched: boolean } | null,
+  ) {
+    let row = this.own(viewer, id);
+    let effects = row.effects ? (JSON.parse(row.effects) as Record<string, unknown>) : null;
+    // A confirmed row whose local follow-up never finished: repeat it (it is idempotent).
+    if (row.state === "confirmed" && !effects && row.evidence) {
+      effects = await this.effects(viewer, row, JSON.parse(row.evidence) as SaleResolution);
+      row = this.own(viewer, id);
+    }
+    return {
+      action: view(row),
+      resolution: row.evidence ? (JSON.parse(row.evidence) as SaleResolution) : null,
+      transaction,
+      effects,
+    };
   }
 
   /** Bounded, explicit resolution by this action's own transaction; a readback only informs. */
   async check(viewer: Viewer, id: string, input: Record<string, unknown> = {}) {
     const p = this.own(viewer, id);
-    if (!CHECKABLE.includes(p.state))
-      return { action: view(p), resolution: null, transaction: null, effects: null };
+    if (!CHECKABLE.includes(p.state)) {
+      // Already settled: its stored result (and a follow-up that never finished, repeated).
+      const s = await this.stored(viewer, id, null);
+      return { ...s, resolution: null };
+    }
     if (!this.reader) bad(503, "Wallet sales aren't connected on this server.", "sale_unavailable");
     const reader = this.reader as CustomerViewTransport;
     if (
@@ -1440,17 +1533,12 @@ export class SaleActions {
       const res = r ? resolveSaleTx(p, r, which) : null;
       if (named) transaction = { hash: named, matched: res !== null };
       if (res) {
-        if (which !== p.tx_hash && (res.kind === "confirmed" || !p.tx_hash))
-          this.db.prepare("UPDATE sale_actions SET tx_hash = ? WHERE id = ?").run(which, id);
-        this.settle(
-          p,
-          res.kind === "unknown"
-            ? "unknown"
-            : res.kind === "no_longer_possible"
-              ? "no_longer_possible"
-              : res.kind,
-          res,
-        );
+        // This transaction is exactly this request. A definitive result is committed with this
+        // hash; a pending one (a claim without its callback yet) keeps the row checkable.
+        const state: State =
+          res.kind === "confirmed" || res.kind === "refused" ? res.kind : "unknown";
+        const hash = state === "unknown" ? (p.tx_hash ?? which) : which;
+        if (!this.commit(p, state, res, hash)) return this.stored(viewer, id, transaction);
         const effects =
           res.kind === "confirmed" ? await this.effects(viewer, this.own(viewer, id), res) : null;
         return { action: view(this.own(viewer, id)), resolution: res, transaction, effects };
@@ -1468,32 +1556,38 @@ export class SaleActions {
       };
     // No proof from this action's own transaction: can it still take effect?
     const res = await this.stillPossible(p);
-    this.settle(p, res.kind === "no_longer_possible" ? "no_longer_possible" : "unknown", res);
+    const state: State = res.kind === "no_longer_possible" ? "no_longer_possible" : "unknown";
+    if (!this.commit(p, state, res, p.tx_hash)) return this.stored(viewer, id, transaction);
     return { action: view(this.own(viewer, id)), resolution: res, transaction, effects: null };
   }
 
-  /** From one fresh final read: whether this request could still take effect (§5). */
+  /**
+   * From one fresh final read: whether this request could still take effect (§5). Only
+   * irreversible evidence marks it inapplicable: control_seq and payout_seq only rise; deal
+   * numbers never repeat and versions only rise. Never an acceptance flag (unfund clears it) and
+   * never a registration (the token can unregister).
+   */
   private async stillPossible(p: SaleActionRow): Promise<SaleResolution> {
     const s = await this.read({ network: p.network, account: p.contract }, p.account, p.account);
-    const [kind, a, b, c] = p.identity.split(":");
+    const [kind, a, b] = p.identity.split(":");
     let gone = false;
-    if (kind === "control") gone = s.control.control_seq !== a;
+    if (kind === "control") gone = BigInt(s.control.control_seq) > BigInt(a as string);
     else if (kind === "accept") {
       const d = s.control.live_deal;
-      gone =
-        !d ||
-        d.seq !== a ||
-        String(d.version) !== b ||
-        (d.seller === c ? d.seller_accepted : d.buyer === c ? d.buyer_accepted : true);
-    } else if (kind === "claim") gone = s.terms === null || s.terms.payout_seq !== b;
-    else if (kind === "register") gone = s.token.registered;
+      gone = !d || d.seq !== a || BigInt(d.version) > BigInt(b as string);
+    } else if (kind === "claim")
+      gone = s.terms !== null && BigInt(s.terms.payout_seq) > BigInt(b as string);
     if (gone)
       return {
         kind: "no_longer_possible",
         message:
-          p.kind === "register"
-            ? "Your account is registered with the token now, so this request is no longer needed. Whether this request did it is shown only by its own transaction."
-            : "The sale has moved on since this request was reviewed, so the contract can no longer accept it. Whether it took effect before is shown only by its own transaction: if your wallet's activity lists it, enter its ID.",
+          "The sale has moved on since this request was reviewed, so the contract can never accept it from now on. Whether it took effect before is shown only by its own transaction: if your wallet's activity lists it, enter its ID.",
+      };
+    if (p.kind === "register" || p.kind === "accept")
+      return {
+        kind: "unknown",
+        message:
+          "This request isn't shown to have landed yet, and it can't be replaced by another one: it is recovered by its own transaction. If your wallet's activity lists it, enter its ID.",
       };
     return {
       kind: "unknown",
@@ -1543,9 +1637,12 @@ export class SaleActions {
             : "The local follow-up didn't complete; it can be repeated safely.",
       };
     }
-    if (out)
+    // Kept only once the follow-up finished (an error is retried by the next check).
+    if (out && !("error" in out))
       this.db
-        .prepare("UPDATE sale_actions SET effects = ?, updated_at = ? WHERE id = ?")
+        .prepare(
+          "UPDATE sale_actions SET effects = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND state = 'confirmed'",
+        )
         .run(JSON.stringify(out), this.stamp(), p.id);
     return out;
   }
@@ -1563,7 +1660,7 @@ export class SaleActions {
       );
     this.db
       .prepare(
-        "UPDATE sale_actions SET state = 'set_aside', updated_at = ? WHERE id = ? AND state = 'prepared'",
+        "UPDATE sale_actions SET state = 'set_aside', rev = rev + 1, updated_at = ? WHERE id = ? AND state = 'prepared'",
       )
       .run(this.stamp(), id);
     return { action: view(this.own(viewer, id)) };

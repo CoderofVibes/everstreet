@@ -261,6 +261,77 @@ describe("003wf2 revision, cancel, expiry, unfund and claims", () => {
   });
 });
 
+describe("003wf2 claim receipts: the returned promise is the evidence", () => {
+  it("paid and restored only through the connected callback; old shapes, wrong pointers, pending and contradictions prove nothing", async () => {
+    const s = await saleWorld();
+    await s.act(s.ava, SELLER, "propose", proposal());
+    await s.act(s.noah, BUYER, "register");
+    await s.act(s.noah, BUYER, "fund");
+    await s.act(s.noah, BUYER, "cancel");
+    const claim = async (fail: boolean) => {
+      s.sale.failPayouts = fail ? 1 : 0;
+      const r = await s.act(s.noah, BUYER, "claim", { category: 1 }, { send: false });
+      const row = s.w.state.store.db
+        .prepare("SELECT * FROM sale_actions WHERE id = ?")
+        .get(r.action?.id) as unknown as SaleActionRow;
+      return { row, out: s.wallet(BUYER, r.action?.call), id: r.action?.id as string };
+    };
+    const first = await claim(true);
+    const real = first.out;
+    const rs = real.receipts_outcome as Json[];
+    expect((rs[0] as Json).outcome.status).toEqual({ SuccessReceiptId: (rs[2] as Json).id });
+    expect(resolveSaleTx(first.row, real, real.transaction.hash)).toMatchObject({
+      kind: "confirmed",
+      result: "restored",
+    });
+    const h = real.transaction.hash as string;
+    const edit = (f: (o: Json) => void) => {
+      const o = structuredClone(real);
+      f(o);
+      return resolveSaleTx(first.row, o, h);
+    };
+    // The old fabricated shape: an immediate empty value on the claim receipt.
+    expect(edit((o) => (o.receipts_outcome[0].outcome.status = { SuccessValue: "" }))).toBeNull();
+    // A pointer to the transfer receipt, or to a receipt it didn't create.
+    expect(
+      edit(
+        (o) => (o.receipts_outcome[0].outcome.status = { SuccessReceiptId: (rs[1] as Json).id }),
+      ),
+    ).toBeNull();
+    expect(
+      edit((o) => (o.receipts_outcome[0].outcome.status = { SuccessReceiptId: "elsewhere" })),
+    ).toBeNull();
+    // The callback missing: pending, never paid.
+    expect(edit((o) => o.receipts_outcome.splice(2, 1))).toMatchObject({ kind: "unknown" });
+    // Duplicate receipt ids make the graph ambiguous.
+    expect(edit((o) => o.receipts_outcome.push(structuredClone(o.receipts_outcome[2])))).toBeNull();
+    // Contradictions: the transfer succeeded but the callback says it failed; the final value differs;
+    // another payout id settled; the callback ran elsewhere.
+    expect(edit((o) => (o.receipts_outcome[1].outcome.status = { SuccessValue: "" }))).toBeNull();
+    expect(
+      edit((o) => (o.status = { SuccessValue: Buffer.from("true").toString("base64") })),
+    ).toBeNull();
+    expect(
+      edit((o) => {
+        o.receipts_outcome[2].outcome.logs = [
+          o.receipts_outcome[2].outcome.logs[0].replace(/"payout_id":"\d+"/, '"payout_id":"999"'),
+        ];
+      }),
+    ).toBeNull();
+    expect(edit((o) => (o.receipts_outcome[2].outcome.executor_id = s.TOKEN))).toBeNull();
+    // Through the route: restored, then a fresh review collects it, paid.
+    expect(
+      (await s.noah(`/api/sales/actions/${first.id}/check`, "POST", { tx_hash: h })).body.resolution
+        .result,
+    ).toBe("restored");
+    const second = await claim(false);
+    expect(resolveSaleTx(second.row, second.out, second.out.transaction.hash)).toMatchObject({
+      kind: "confirmed",
+      result: "paid",
+    });
+  });
+});
+
 describe("003wf2 wallet loss, recovery and admission", () => {
   it("a lost answer stays unknown until this action's own transaction shows it; lookalikes and other IDs prove nothing", async () => {
     const s = await saleWorld();
@@ -312,12 +383,12 @@ describe("003wf2 wallet loss, recovery and admission", () => {
       action_digest: p.body.action_digest,
       idempotency_key: "fund-replace-0001",
     });
-    expect([blocked.status, blocked.body.code, blocked.body.detail?.same_identity]).toEqual([
+    expect([blocked.status, blocked.body.code, blocked.body.detail?.replaceable]).toEqual([
       409,
       "action_open",
       true,
     ]);
-    // Named as a replacement under the same identity: admitted.
+    // Named as the replacement, and the identical immutable request (same digest): admitted.
     const rep = await s.act(s.noah, BUYER, "fund", {}, { replaces: lost.action?.id });
     expect(rep.check?.body.resolution.result).toBe("funded");
     // The original, arriving late: the contract returns it whole; its own transaction shows it.
@@ -329,21 +400,167 @@ describe("003wf2 wallet loss, recovery and admission", () => {
     expect(lc.body.resolution.message).toContain("returned the whole amount");
     expect((s.control().live_deal as Json).escrow).toBe(PRICE);
     expect(s.w.chain.balances.get(BUYER)).toBe(1_000_000_000n - BigInt(PRICE));
-    // A different identity while an asked request is open: refused.
+    // An unknown request never blocks another KIND (it can't duplicate it)...
     const open = await s.act(s.noah, BUYER, "unfund", {}, { send: false });
-    const accept = await s.prepare(s.noah, "accept");
+    const accept = await s.act(s.noah, BUYER, "accept");
+    expect(accept.check?.body.resolution.result).toBe("accepted");
+    // ...but the same kind waits: the state moved, so another unfund isn't the identical request.
+    const again = await s.prepare(s.noah, "unfund");
     const diff = await s.noah(`/api/sales/${s.biz}/actions`, "POST", {
-      kind: "accept",
+      kind: "unfund",
       input: {},
-      action_digest: accept.body.action_digest,
-      idempotency_key: "accept-while-open-0001",
+      action_digest: again.body.action_digest,
+      idempotency_key: "unfund-while-open-0001",
       replaces: open.action?.id,
     });
-    expect([diff.status, diff.body.code, diff.body.detail?.same_identity]).toEqual([
+    expect([diff.status, diff.body.code, diff.body.detail?.replaceable]).toEqual([
       409,
       "action_open",
       false,
     ]);
+    // The open unfund can never land now (control moved): proven inapplicable, it stops blocking.
+    const gone = await s.noah(`/api/sales/actions/${open.action?.id}/check`, "POST", {});
+    expect(gone.body.resolution.kind).toBe("no_longer_possible");
+    expect((await s.act(s.noah, BUYER, "unfund")).check?.body.resolution.result).toBe("unfunded");
+  });
+
+  it("acceptance and registration are never replaced, and never declared inapplicable from reversible state", async () => {
+    const s = await saleWorld();
+    await s.act(s.ava, SELLER, "propose", proposal());
+    await s.act(s.noah, BUYER, "register");
+    await s.act(s.noah, BUYER, "fund");
+    // The buyer's acceptance was asked for and never sent (as far as anyone here knows).
+    const acc = await s.act(s.noah, BUYER, "accept", {}, { send: false });
+    expect(
+      (await s.noah(`/api/sales/actions/${acc.action?.id}/check`, "POST", {})).body.resolution.kind,
+    ).toBe("unknown");
+    // Not replaceable, even as the identical request: two acceptances could both take effect.
+    const p = await s.prepare(s.noah, "accept");
+    expect(p.body.action_digest).toBe(acc.action?.action_digest);
+    const rep = await s.noah(`/api/sales/${s.biz}/actions`, "POST", {
+      kind: "accept",
+      input: {},
+      action_digest: p.body.action_digest,
+      idempotency_key: "accept-replace-0001",
+      replaces: acc.action?.id,
+    });
+    expect([rep.status, rep.body.code, rep.body.detail?.replaceable]).toEqual([
+      409,
+      "action_open",
+      false,
+    ]);
+    // Unfund and fund again clear and restore what an acceptance needs without a new version:
+    // the open acceptance stays possible (an accepted flag is reversible).
+    await s.act(s.noah, BUYER, "unfund");
+    await s.act(s.noah, BUYER, "fund");
+    expect(
+      (await s.noah(`/api/sales/actions/${acc.action?.id}/check`, "POST", {})).body.resolution.kind,
+    ).toBe("unknown");
+    // It finally lands, and its own transaction settles it (a result of its own).
+    const late = s.wallet(BUYER, acc.action?.call);
+    const lc = await s.noah(`/api/sales/actions/${acc.action?.id}/check`, "POST", {
+      tx_hash: late.transaction.hash,
+    });
+    expect(lc.body.resolution).toMatchObject({ kind: "confirmed", result: "accepted" });
+    // Registration: the token says registered (done elsewhere, synthetic), yet the open request
+    // stays unknown: registered state can be undone (storage_unregister).
+    const reg = await s.act(s.ava, SELLER, "register", {}, { send: false });
+    s.w.chain.tokenRegistered.add(SELLER);
+    const rc = await s.ava(`/api/sales/actions/${reg.action?.id}/check`, "POST", {});
+    expect([rc.body.resolution.kind, rc.body.action.state]).toEqual(["unknown", "unknown"]);
+    // A revision (a new version) is irreversible: an open acceptance of the old one is then inapplicable.
+    const acc2 = await s.act(s.ava, SELLER, "accept", {}, { send: false });
+    await s.act(s.ava, SELLER, "revise", { ...proposal(), note: "v2" });
+    expect(
+      (await s.ava(`/api/sales/actions/${acc2.action?.id}/check`, "POST", {})).body.resolution.kind,
+    ).toBe("no_longer_possible");
+  });
+
+  it("one wallet ask per request: a single winner across tabs; a returned hash grants nothing", async () => {
+    const s = await saleWorld();
+    const p = await s.prepare(s.ava, "propose", proposal());
+    const c = await s.ava(`/api/sales/${s.biz}/actions`, "POST", {
+      kind: "propose",
+      input: p.body.input,
+      action_digest: p.body.action_digest,
+      idempotency_key: "ask-once-0001",
+    });
+    const id = c.body.action.id as string;
+    const asks = await Promise.all(
+      [1, 2, 3].map(() => s.ava(`/api/sales/actions/${id}/requested`, "POST", {})),
+    );
+    expect(asks.map((a) => a.body.ask).sort()).toEqual([
+      "already_asked",
+      "already_asked",
+      "granted",
+    ]);
+    expect((await s.ava(`/api/sales/actions/${id}/requested`, "POST", {})).body.ask).toBe(
+      "already_asked",
+    );
+    const out = s.wallet(SELLER, c.body.action.call);
+    const h = await s.ava(`/api/sales/actions/${id}/requested`, "POST", {
+      tx_hash: out.transaction.hash,
+    });
+    expect([h.body.ask, h.body.action.asks, h.body.action.tx_hash]).toEqual([
+      null,
+      1,
+      out.transaction.hash,
+    ]);
+    expect(
+      (await s.ava(`/api/sales/actions/${id}/requested`, "POST", { tx_hash: "x" })).body.code,
+    ).toBe("bad_tx_hash");
+  });
+
+  it("concurrent checks commit one coherent result: the hash, evidence and state of one transaction", async () => {
+    // A second transaction for the same request that the contract refused (synthetic: exactly
+    // this request otherwise), so two checks race with contradictory exact answers.
+    const A = "2".repeat(44);
+    const B = "B";
+    const failure = {
+      Failure: {
+        ActionError: { kind: { FunctionCallError: { ExecutionError: "E_ARGS: synthetic" } } },
+      },
+    };
+    for (const order of [
+      [B, A],
+      [A, B],
+    ]) {
+      const t = await saleWorld();
+      const r = await t.act(t.ava, SELLER, "register", {}, { send: false });
+      const ok = t.wallet(SELLER, r.action?.call);
+      const no = structuredClone(ok);
+      no.transaction.hash = A;
+      no.transaction_outcome.id = A;
+      no.status = failure;
+      no.receipts_outcome[0].outcome.status = failure;
+      const answers: Record<string, Json> = { [ok.transaction.hash]: ok, [A]: no };
+      const gates = new Map<string, () => void>();
+      t.w.reader.txOutcome = (h: string) =>
+        new Promise((res) => gates.set(h, () => res(answers[h] ?? null))) as never;
+      const first = t.ava(`/api/sales/actions/${r.action?.id}/check`, "POST", {
+        tx_hash: order[0] === B ? ok.transaction.hash : A,
+      });
+      const second = t.ava(`/api/sales/actions/${r.action?.id}/check`, "POST", {
+        tx_hash: order[1] === B ? ok.transaction.hash : A,
+      });
+      while (gates.size < 2) await new Promise((x) => setTimeout(x, 5));
+      gates.get(order[0] === B ? ok.transaction.hash : A)?.();
+      await first;
+      gates.get(order[1] === B ? ok.transaction.hash : A)?.();
+      await second;
+      const row = t.w.state.store.db
+        .prepare("SELECT state, tx_hash, evidence FROM sale_actions WHERE id = ?")
+        .get(r.action?.id) as Json;
+      const ev = JSON.parse(row.evidence) as Json;
+      // Whichever reply landed first is the row's one coherent result; the late one changed nothing.
+      if (order[0] === B)
+        expect([row.state, row.tx_hash, ev.kind]).toEqual([
+          "confirmed",
+          ok.transaction.hash,
+          "confirmed",
+        ]);
+      else expect([row.state, row.tx_hash, ev.kind]).toEqual(["refused", A, "refused"]);
+    }
   });
 
   it("duplicate keys, a changed review, an open preparation, set-aside, and two tabs creating at once", async () => {
