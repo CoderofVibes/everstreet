@@ -1,5 +1,27 @@
 {
   "note": "Produced by contracts/business-v3 tests.rs customer_purchase_matches_server_fixture (job 003web). Test-world accounts and keys only.",
+  "history": {
+    "customer": "dana.near",
+    "first_reg_id": "1",
+    "second_reg_id": "2",
+    "accepted": {
+      "msg": "{\"buy\":{\"plan_id\":1,\"units\":10,\"purchase_seq\":1,\"reg_id\":\"1\"}}",
+      "amount": "500000",
+      "returned": "0",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"dana.near\",\"plan_id\":1,\"units\":10,\"amount\":\"500000\"}]}"
+      ],
+      "entitlement": "{\"reg_id\":\"1\",\"active\":true,\"free\":\"10\",\"consumed\":\"0\",\"units_retired_to_refund\":\"0\",\"purchased\":\"10\",\"purchase_seq\":1,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"dana.near\",\"storage_paid\":\"8200000000000000000000\"}"
+    },
+    "after_refund": "{\"reg_id\":\"1\",\"active\":true,\"free\":\"0\",\"consumed\":\"0\",\"units_retired_to_refund\":\"10\",\"purchased\":\"10\",\"purchase_seq\":1,\"hold_seq\":0,\"hold_active\":false,\"hold_key_slot\":0,\"hold_key_epoch\":0,\"hold_units\":0,\"hold_charged\":0,\"hold_used\":0,\"hold_slots\":[],\"hold_opened_at_ms\":\"0\",\"serve_until_ms\":\"0\",\"settle_until_ms\":\"0\",\"last_hold_seq\":0,\"last_hold_used\":0,\"last_hold_charged\":0,\"last_hold_root\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"key_states\":[0,0,0,0],\"key_epochs\":[0,0,0,0],\"keys\":[{\"slot\":0,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":1,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":2,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0},{\"slot\":3,\"state\":\"empty\",\"epoch\":0,\"public_key\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"max_hold_units\":0,\"max_units_per_day\":0,\"day\":0,\"held_today\":0}],\"claim\":\"0\",\"pending_refs\":0,\"paused\":false,\"storage_payer\":\"dana.near\",\"storage_paid\":\"8200000000000000000000\"}",
+    "after_unregister": "null",
+    "replay": {
+      "returned": "500000",
+      "logs": [
+        "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"purchase_returned\",\"data\":[{\"customer\":\"dana.near\",\"amount\":\"500000\",\"reason\":\"registration changed since this purchase was prepared\"}]}"
+      ]
+    }
+  },
   "replacement": {
     "customer": "dana.near",
     "first_reg_id": "1",

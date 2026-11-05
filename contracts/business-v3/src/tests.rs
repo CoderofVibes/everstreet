@@ -3832,8 +3832,49 @@ fn customer_purchase_matches_server_fixture() {
     };
     assert_eq!(legacy_back, 0, "without reg_id the replaced registration's sequence accepts it");
 
+    // History (Astra's PurchaseHandoffReview): an ACCEPTED purchase, then the registration validly
+    // emptied (the contract's own refund payout, its callback succeeding) and removed (unregister),
+    // then a new shell. Afterwards the old registration reads as absent and the old request is
+    // returned if replayed, yet it WAS accepted: a missing or replaced registration proves only
+    // that it can't be accepted from now on, never that it wasn't accepted before.
+    let mut z = W::new();
+    let z1 = z.shell(DANA, DANA);
+    let bought = serde_json::json!({ "buy": { "plan_id": 1, "units": 10, "purchase_seq": 1, "reg_id": U64(z1) } }).to_string();
+    let (r, _) = z.measured(TOKEN, 0, |b| b.ft_on_transfer(id(DANA), U128(10 * P), bought.clone()));
+    let bought_unused = match r {
+        PromiseOrValue::Value(v) => v.0,
+        PromiseOrValue::Promise(_) => panic!("no promise"),
+    };
+    let bought_logs = near_sdk::test_utils::get_logs();
+    assert_eq!(bought_unused, 0, "the purchase was accepted");
+    let after_buy = z.ent(DANA);
+    let (slot, pid) = z.refund(DANA, 10);
+    assert!(z.callback(slot, pid, true), "the refund payout completed");
+    let after_refund = z.ent(DANA);
+    assert_eq!(after_refund.free.0, 0);
+    z.call(DANA, 1, |b| b.unregister(id(DANA), 1));
+    let gone = z.b.get_entitlement(id(DANA), 1);
+    assert!(gone.is_none(), "the registration is absent after unregister");
+    let z2 = z.shell(DANA, DANA);
+    assert_ne!(z1, z2);
+    let (r, _) = z.measured(TOKEN, 0, |b| b.ft_on_transfer(id(DANA), U128(10 * P), bought.clone()));
+    let replay_back = match r {
+        PromiseOrValue::Value(v) => v.0,
+        PromiseOrValue::Promise(_) => panic!("no promise"),
+    };
+    let replay_logs = near_sdk::test_utils::get_logs();
+    assert_eq!(replay_back, 10 * P, "replayed now, the accepted request is returned");
+
     let out = serde_json::json!({
         "note": "Produced by contracts/business-v3 tests.rs customer_purchase_matches_server_fixture (job 003web). Test-world accounts and keys only.",
+        "history": {
+            "customer": DANA, "first_reg_id": U64(z1), "second_reg_id": U64(z2),
+            "accepted": { "msg": bought, "amount": U128(10 * P), "returned": U128(bought_unused), "logs": bought_logs,
+                          "entitlement": raw(serde_json::to_string(&after_buy).unwrap()) },
+            "after_refund": raw(serde_json::to_string(&after_refund).unwrap()),
+            "after_unregister": raw(serde_json::to_string(&gone).unwrap()),
+            "replay": { "returned": U128(replay_back), "logs": replay_logs },
+        },
         "replacement": {
             "customer": DANA, "first_reg_id": U64(r1), "second_reg_id": U64(r2), "legacy_first_reg_id": U64(y1),
             "bound_old": { "msg": bound, "amount": U128(10 * P), "returned": U128(bound_back), "logs": bound_logs },
