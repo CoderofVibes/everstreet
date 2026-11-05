@@ -337,3 +337,189 @@ status; a wrong-account key file refused with an unwind; a writer refused outsid
   (there is no UI or procedure yet; the customer-use readback still decides each request).
 
 The first two and the procedure are in 003w-f.
+
+## 9. Wallet sign-in and customer device authority (sub-job 003w-e)
+
+**Design.** Written before this job's code. The job brief is
+`docs/astra/jobs/2026-11-04_003we_wallet-and-customer-authorization.md`, and
+WalletIntegrationAlignment still holds. There are **three separate acts**, and the customer sees
+three separate pieces of plain consent:
+
+| Act | Authority | Protocol | Who signs |
+|---|---|---|---|
+| Prove my account | an account's full-access key | NEP-413 message, verified on the server (§4) | the wallet |
+| Let this device use a service within limits | the customer's account | `install_key` / `revoke_key` transactions (1 yoctoNEAR) | the wallet |
+| Authorize one exact request | the enrolled device use key | raw ed25519 over the contract's `hold_message` / `use_message` digests | the device key, in this browser |
+
+None stands in for another. A NEP-413 signature is never a hold or use signature, and a wallet
+approval is never shown as a chain outcome. Each act is confirmed only by its own server
+verification or by a fresh contract readback.
+
+### 9.1 The wallet adapter (requirement 1)
+
+**Pinned: `@near-wallet-selector/core` 10.1.4 with `@near-wallet-selector/my-near-wallet`
+10.1.4**, NEAR's own wallet selector, plus `buffer` 6.0.3 because the module uses a global
+`Buffer` in the browser.
+- **Evidence for the API.** The packages' published type declarations, READMEs and module code,
+  fetched with `npm pack` into an isolated temporary directory. Our `node_modules` was not read,
+  and `tsc` checks our calls against the pinned declarations. The NEAR documentation tools
+  weren't available in this session.
+- **What the pinned module does:**
+  - `signMessage({message, nonce, recipient, callbackUrl, state})` opens a MyNearWallet popup at
+    `<walletUrl>/sign-message`. It **always** passes a `callbackUrl`: the given one, or the
+    current page if none is given.
+  - Its answer arrives by `postMessage` from the wallet's own origin, as
+    `{accountId, publicKey, signature}` with the signature in base64.
+  - A closed popup rejects with "User closed the window", and a blocked one rejects with "Popup
+    window blocked".
+  - Transactions go through the same popup, at `/sign`.
+- **Support limits.** Only MyNearWallet on testnet in this slice. It needs a browser that allows
+  its popup. Other wallets, extension wallets and hardware wallets are not offered or claimed.
+- **Redirects.** No redirect path exists for `signMessage` in the pinned module. A return route
+  still exists for redirect-style answers (9.2).
+
+### 9.2 Verified sign-in in the browser (requirement 2)
+
+- **Config.** `sign_in.return_origin` (a bare origin) gives the **exact callback URL**
+  `<origin>/signin/return`. The server issues it with each challenge and stores it with the
+  challenge. Without it, wallet sign-in is unavailable and says so: the pinned module would
+  otherwise sign the current page's URL, which the verifier can't rebuild.
+- **The verifier rebuilds exactly two payloads:**
+  - `callbackUrl = None` (wallets that leave it out);
+  - `callbackUrl = Some(the issued URL)`.
+
+  Never any other URL, and never one the client sends. Which one verified is recorded.
+- **Browser binding.** The `es_sign_in` cookie (§4) still binds the challenge to the initiating
+  browser, it is still one-use, the expiry is unchanged, and the recipient must still be the
+  currently configured one.
+- **Client state.** The browser makes a random `state` per attempt and keeps
+  `{state, nonce, destination, expires}` in `sessionStorage`. A direct popup answer is checked
+  against the attempt that is still current.
+  - The return route `/signin/return` accepts a NEP-413 fragment
+    (`#accountId=…&publicKey=…&signature=…&state=…`, or `error=…`) only when its `state`
+    matches a stored, unexpired attempt. It verifies once, clears the fragment from history, and
+    goes to the stored destination.
+  - A destination is only ever a same-origin path starting with `/`, and never `/signin/return`
+    itself.
+- **Answers:**
+  - **cancellation:** "You closed the wallet: nothing changed";
+  - **popup blocked:** say how to allow it;
+  - **unsupported or not configured:** say why, with no form that can't work;
+  - **expired, wrong browser or replayed:** the server's fixed 401, and "start again".
+
+### 9.3 Account changes and logout (requirement 3)
+
+- **`/api/me` names the verified session's account** (`account`, or null for preview). The
+  browser treats `(person, account)` as the acting identity.
+- **Fencing.** Every sign-in attempt, wallet transaction and device-key action carries the
+  identity generation it started under. Signing out, a switch of account, or a wallet
+  `accountsChanged` or `signedOut` event bumps it. A late answer from an older generation is
+  dropped: it is never posted to verify, never applied, and never stored.
+- **Private UI remounts per identity** (keyed by person and account), so account A's in-memory
+  state can't show under B. Drafts and recovery stay scoped by person, as now.
+- **Two different actions:**
+  - "Sign out of Everstreet" ends the application session (`DELETE /api/session`);
+  - "Disconnect wallet" calls the wallet's `signOut`.
+
+  Each says which it does. Signing out never needs the wallet, and disconnecting never claims to
+  end the session.
+
+### 9.4 The customer's device use key (requirement 4)
+
+- **Creation.** In the browser, with WebCrypto `generateKey({name: "Ed25519"}, false, …)`. The
+  private key is **non-extractable**: no code, ours included, can read its bytes.
+- **Storage.** The `CryptoKey` object goes in IndexedDB (`everstreet-device-keys`), one record
+  per `(network, business account, plan, customer account)`. The record holds:
+  - the key;
+  - the public key in hex;
+  - the slot and limits;
+  - the enrollment intent and its state.
+- **Nothing private leaves the device.** No private material reaches the server, logs, analytics,
+  exports or business sale assets; the server only ever sees the public key from the contract.
+- **Browser support.** WebCrypto Ed25519 is recent in browsers, so a missing algorithm or
+  unavailable IndexedDB (some private modes, storage blocked or evicted) gives
+  **`unsupported` / `storage_unavailable`**. There is no fallback to extractable keys or
+  `localStorage`, and no universal device guarantee is claimed.
+- **Readiness comes only from a fresh `get_entitlement` readback**
+  (`GET /api/customer/offers/:offer/keys`, through the read-only customer transport):
+  - **`ready`:** this slot is `active` with **this** public key; the epoch comes from the
+    readback;
+  - **`pending`:** the intent is stored, and the slot isn't active with this key yet;
+  - **`lost`:** the slot is active with a key this browser doesn't hold, such as after storage
+    loss;
+  - **`revoked`:** the slot is revoked, or now holds another key;
+  - **`none`.**
+
+### 9.5 Enrollment and revocation requests (requirement 5)
+
+- **Exact wallet requests.** One FunctionCall each, receiver = the offer's contract:
+  - `install_key {plan_id, slot, pk (64 hex), max_hold_units, max_units_per_day}`;
+  - `revoke_key {plan_id, slot}`.
+
+  Both carry deposit exactly 1 yoctoNEAR and 30 Tgas. The customer sees every field before
+  approving.
+- **Persist before asking.** The intent (key, slot, limits) is stored **before** the wallet is
+  asked. Afterwards, whatever the wallet answered, or if it never answered, readiness comes from
+  the readback.
+- **An interrupted enrollment recovers the same key and intent.** Retrying re-asks with the same
+  public key and slot. A new key is made only when the customer explicitly chooses "replace this
+  device's key", and never while the stored one could still become active unnoticed.
+- **No account keys added.** Sign-in for transactions uses wallet sign-in **without** a contract,
+  so no function-call or full-access account key is added for convenience.
+- **Revocation.** After `revoke_key`, the local key is deleted only once the readback shows the
+  slot revoked.
+- **Removal and loss.**
+  - "Forget this device's key" deletes it locally, and says plainly that the slot stays active on
+    the contract until revoked.
+  - A lost key is revoked by slot, from the account alone.
+
+### 9.6 The real customer authorizer (requirement 6)
+
+**In configured mode** the customer workspace's authorizer is the device key, for the
+signed-in account and the offer's contract and plan, and only when readiness is `ready`.
+- `publicKey()` gives the readback-confirmed key, and `verifyEnvelope` refuses an envelope naming
+  another key.
+- Before signing, the slot, epoch, account and readiness are checked again against a fresh
+  readback.
+- `sign` signs the 32-byte digests themselves (the contract's `ed25519_verify(sig, msg, pk)`).
+- The existing envelope recomputation, the original-request versus edited-draft separation, and
+  consent and expiry are unchanged.
+
+**The preview's synthetic authorizer stays a separate, labelled dependency**
+(`pageAuthorizer`), used only in preview mode. Privacy, delivery, settlement and 100/20/80 are
+untouched.
+
+### 9.7 A fresh customer (requirement 7)
+
+A fresh customer needs, in order:
+1. a testnet account;
+2. a storage shell: `sponsor_shell(customer, plan_id)`, payable, which anyone may pay for;
+3. the business's token, and storage registration with that token;
+4. the purchase: `ft_transfer_call` on the token to the business, with
+   `msg = {"buy": {plan_id, units, purchase_seq, install?}}`. It can enroll this device's key in
+   the same transaction.
+
+Steps 2–4 are prepared transactions shown to the customer. Their exact preparation (child slice
+003w-e3) is listed in 9.9. The end-to-end path is **not** called complete from a pre-seeded
+entitlement.
+
+### 9.8 Review harness
+
+`scripts/wallet-harness.ts` composes the **normal configured application** with a labelled
+synthetic RPC and synthetic chain state, so **no network** is used. It listens on loopback for a
+bounded time, then stops and deletes its temporary files.
+- **The browser runs the production controllers.** Only the Wallet Selector *module* differs: a
+  synthetic module that implements the official `WalletModule` interface, signs with an
+  ephemeral in-page key, and submits to the harness's synthetic chain.
+- **It is accepted only when** `/api/env` says the server is the harness. The page then shows a
+  permanent "Synthetic review wallet" banner.
+
+### 9.9 Child slices
+
+| Slice | Covers | Gate |
+|---|---|---|
+| 003w-e1 | 9.1–9.3: wallet sign-in, return route, fencing, logout and disconnect | tests: verifier vs the pinned library, callback exactness, cancellation and blocked popup, replay, wrong browser, expiry, late answers after switch or logout |
+| 003w-e2 | 9.4–9.6: device key, enrollment and revocation, readiness, the real authorizer, the harness | tests: the real IndexedDB adapter (over fake-indexeddb), signatures the contract's verifier accepts, lost response, storage unavailable or lost, revocation, changed key or epoch |
+| 003w-e3 | 9.7: fresh-customer shell and purchase preparation (with install) | exact transaction tests; no pre-seeded completion claim |
+
+The real wallet and testnet rehearsal (prepared, never run) is part of the 003w-f packet.
