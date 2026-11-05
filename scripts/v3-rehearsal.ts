@@ -547,10 +547,11 @@ async function resumeDirectLive() {
   const app = startApp(configFile);
   await app.ready();
   const bizId = cfg.v3.bindings[0].business_id as string;
-  // The project id, from the founder's own list (still the owner before the close).
-  const founder = httpClient(port);
-  await signIn(founder, DIRECT.founder);
-  const proj = ((await founder("/api/product-projects")).body.projects as Json[]).find(
+  // The project id, from the CURRENT owner's own list (the founder before the close, the buyer after).
+  const ownerNow = (await view<Json>(DIRECT.business, "get_control")).owner as string;
+  const ownerCall = httpClient(port);
+  await signIn(ownerCall, ownerNow);
+  const proj = ((await ownerCall("/api/product-projects")).body.projects as Json[]).find(
     (x) => x.business_id === bizId,
   );
   if (!proj) throw new StopRun("the project isn't listed");
@@ -558,10 +559,10 @@ async function resumeDirectLive() {
   const rec = Recorder.resume(prior, { at: new Date().toISOString(), commit: commit() });
   try {
     for (const w of ["founder", "customer", "buyer"] as const) await env.signIn(w, env.client(w));
-    const ava = env.client("founder");
+    const owner = env.client(ownerNow === DIRECT.buyer ? "buyer" : "founder");
     const cara = env.client("customer");
     // Context, from the app's own routes and the earlier record.
-    const offers = (await ava(`/api/businesses/${bizId}/customer-offers`)).body.offers as Json[];
+    const offers = (await owner(`/api/businesses/${bizId}/customer-offers`)).body.offers as Json[];
     const offer = offers.find((o) => o.state === "active");
     if (!offer) throw new StopRun("no active offer");
     const firstReq = (await cara("/api/customer/requests/by-key/rehearsal-use-00001")).body as Json;
@@ -571,12 +572,13 @@ async function resumeDirectLive() {
     if (!firstUse)
       throw new StopRun(`the first use isn't found: ${JSON.stringify(firstReq).slice(0, 300)}`);
     const release1 = (prior.steps as Json[]).find((x) => x.step === "release_1")?.facts;
-    const evals = (await ava(`/api/product-projects/${proj.id}/evaluations`)).body as Json;
+    const evals = (await owner(`/api/product-projects/${proj.id}/evaluations`)).body as Json;
     const runs = (evals.runs ?? evals.evaluations ?? []) as Json[];
     const evalRun = runs.find((r) => r.artifact_job === release1?.artifact_job);
     if (!release1 || !evalRun) throw new StopRun("the first release's evaluation isn't found");
     const before = await env.views();
-    if (!before.control?.live_deal) throw new StopRun("no live proposal on the contract");
+    if (!before.control?.live_deal && before.control?.owner !== DIRECT.buyer)
+      throw new StopRun("neither a live proposal nor a closed sale on the contract");
     // The lost device key: revoke exactly it (guarded), then install a replacement in slot 1.
     let key: DeviceKey;
     let slot = 0;

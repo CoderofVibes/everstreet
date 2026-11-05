@@ -140,7 +140,9 @@ export interface DirectOptions {
  */
 async function readAgain(ask: () => Promise<{ status: number; body: Json }>) {
   let r = await ask();
-  for (let i = 1; i <= 4 && r.status === 503 && r.body?.code === "read_failed"; i++) {
+  const unread = () =>
+    r.status === 503 && ["read_failed", "read_unavailable"].includes(String(r.body?.code));
+  for (let i = 1; i <= 4 && unread(); i++) {
     await new Promise((x) => setTimeout(x, 8000 * i));
     r = await ask();
   }
@@ -218,12 +220,15 @@ function steps(env: Env, rec: Recorder, settleMs: number) {
     ).offer as Json;
   };
   const serve = async (offerId: string, n: number, key: DeviceKey, slot: number) => {
+    // Idempotent by its key: asking again after a read failure returns the same request.
     const prep = ok(
-      await cara(`/api/customer/offers/${offerId}/prepare`, "POST", {
-        idempotency_key: `rehearsal-use-${String(n).padStart(5, "0")}`,
-        input: invoice(n),
-        key_slot: slot,
-      }),
+      await readAgain(() =>
+        cara(`/api/customer/offers/${offerId}/prepare`, "POST", {
+          idempotency_key: `rehearsal-use-${String(n).padStart(5, "0")}`,
+          input: invoice(n),
+          key_slot: slot,
+        }),
+      ),
       [200, 201],
       `prepare ${n}`,
     );
@@ -444,8 +449,16 @@ export async function runDirectSale(
   const { id: biz, project } = env.business;
   const first = ok(await cara(`/api/customer/uses/${ctx.firstUse}/result`), 200, "result 1");
 
-  // ---- 4. The Direct sale.
-  if (!o.proposed) {
+  // ---- 4. The Direct sale (a resume after the close goes straight to what follows it).
+  const now = await env.views();
+  const alreadyClosed = now.control?.owner === env.accounts.buyer;
+  if (alreadyClosed)
+    rec.app("sale_already_closed", {
+      owner: now.control.owner,
+      generation: now.control.generation,
+      note: "the close landed before this attempt; its transactions are earlier in this record",
+    });
+  if (!o.proposed && !alreadyClosed) {
     const terms = {
       buyer_account: env.accounts.buyer,
       price: "250000000",
@@ -457,18 +470,20 @@ export async function runDirectSale(
     };
     await s.act("founder", ava, "propose", terms, "rehearsal-propose-01");
   }
-  await s.act("buyer", noah, "register", {}, "rehearsal-register-0001", {
-    satisfiedBy: "registered",
-  });
-  // On a resume, a step the contract already shows done is recorded as satisfied, never repeated.
-  await s.act("buyer", noah, "fund", {}, "rehearsal-fund-0001", { satisfiedBy: "funded" });
-  await s.act("buyer", noah, "accept", {}, "rehearsal-accept-0001", {
-    satisfiedBy: "already_accepted",
-  });
-  await rec.checkpoint("before_close", await env.views());
-  const close = await s.act("founder", ava, "accept", {}, "rehearsal-close-001");
-  expect(close?.resolution?.result === "closed", "the sale closed", close?.resolution);
-  await rec.checkpoint("closed", await env.views());
+  if (!alreadyClosed) {
+    await s.act("buyer", noah, "register", {}, "rehearsal-register-0001", {
+      satisfiedBy: "registered",
+    });
+    // On a resume, a step the contract already shows done is recorded as satisfied, never repeated.
+    await s.act("buyer", noah, "fund", {}, "rehearsal-fund-0001", { satisfiedBy: "funded" });
+    await s.act("buyer", noah, "accept", {}, "rehearsal-accept-0001", {
+      satisfiedBy: "already_accepted",
+    });
+    await rec.checkpoint("before_close", await env.views());
+    const close = await s.act("founder", ava, "accept", {}, "rehearsal-close-001");
+    expect(close?.resolution?.result === "closed", "the sale closed", close?.resolution);
+    await rec.checkpoint("closed", await env.views());
+  }
 
   // The former owner's write is denied; the buyer's succeeds.
   const denied = await ava(`/api/businesses/${biz}/customer-access?project=${project}`);
