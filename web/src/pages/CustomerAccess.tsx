@@ -187,6 +187,12 @@ function Review({
       </div>
       <details className="advanced">
         <summary>Technical details</summary>
+        {p.kind === "create_plan" && (
+          <p className="mono" style={{ fontSize: 12 }}>
+            Exact deposit: {String(v.deposit)} yoctoNEAR for {String(v.plan_bytes)} bytes at{" "}
+            {String(v.storage_byte_cost)} yoctoNEAR per byte
+          </p>
+        )}
         <pre className="mono" style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>
           {JSON.stringify(p.call, null, 2)}
         </pre>
@@ -430,8 +436,7 @@ function StepBody({
         <p style={{ fontSize: 14 }}>
           {o.current
             ? `${o.account} now holds ${o.current.caps === 3 ? "metering and support" : o.current.caps === 2 ? "support" : "metering"} (generation ${o.current.generation}).`
-            : `${o.account} has no permission on this business yet.`}{" "}
-          {st.keepSupport || !o.without_support ? o.change : o.without_support}
+            : `${o.account} has no permission on this business yet.`}
         </p>
         {o.without_support && (
           <label className="row" style={{ gap: 8, fontSize: 14 }}>
@@ -484,6 +489,20 @@ function StepBody({
     );
   }
   return null;
+}
+
+/**
+ * A step's sentence. For an open permission choice it states the CURRENT choice (Astra 06:21):
+ * the exact change under review while one is open, else the change the checkbox selects.
+ */
+function stepDetail(step: AccessStep, st: AccessState, sale: SaleFlowState): string {
+  const o = st.view?.operator;
+  if (step.key !== "permissions" || step.action || !o || !o.without_support) return step.detail;
+  if (step.state !== "needs_input") return step.detail;
+  const p = sale.review?.preview;
+  if (p?.kind === "appoint")
+    return String((p.review as { change?: unknown }).change ?? step.detail);
+  return st.keepSupport ? (o.change ?? step.detail) : o.without_support;
 }
 
 export function CustomerAccess({
@@ -587,11 +606,28 @@ export function CustomerAccess({
                   {STATE_WORDS[step.state].label}
                 </span>
               </h3>
-              <p style={{ fontSize: 14 }}>{step.detail}</p>
+              <p style={{ fontSize: 14 }}>{stepDetail(step, st, sale)}</p>
               <StepBody step={step} st={st} sale={sale} flow={flow} busy={busy} onOffer={onOffer} />
             </li>
           ))}
         </ol>
+      )}
+      {v?.history && v.history.length > 0 && (
+        <details className="advanced">
+          <summary>Your requests from an earlier ownership ({v.history.length})</summary>
+          <p className="muted" style={{ fontSize: 13 }}>
+            Kept as history. They don't count toward this setup, and the contract can no longer
+            accept them; whether one took effect is shown only by its own transaction.
+          </p>
+          <ul style={{ fontSize: 13 }}>
+            {v.history.map((h) => (
+              <li key={h.id}>
+                {h.kind === "create_plan" ? "Plan request" : "Permission request"}, owner generation{" "}
+                {h.generation}: {STATE_LABEL[h.state as keyof typeof STATE_LABEL] ?? h.state}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {v && (
         <button

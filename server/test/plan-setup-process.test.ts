@@ -7,13 +7,15 @@
 // children, each with a hard deadline.
 
 import { type ChildProcess, fork } from "node:child_process";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { encodeTransaction } from "../src/customerWriter.ts";
 import { openDb } from "../src/db.ts";
+import { base58Decode } from "../src/identity.ts";
 import { CUSTOMER, type Json } from "./customer-world.ts";
 import {
   API_KEY_ENV,
@@ -34,7 +36,9 @@ const PLAN = {
   max_units_outstanding: 100,
   max_hold_units: 1,
   hold_ttl_ms: "600000",
-  settle_grace_ms: "360000",
+  // This installation's maintenance (60 s interval + 3 s budget + 2 s deadline) adds 65 s to the
+  // 360 s minimum: 425 s, offered as the guided 8 min.
+  settle_grace_ms: "480000",
 };
 const MAINT = {
   interval_ms: 60_000,
@@ -240,6 +244,110 @@ describe("003wf4 guided plan setup in actual processes", () => {
     ]);
   }, 120_000);
 
+  it("P-1b two processes create DIFFERENT plans at the same instant: one row, the other a conflict", async () => {
+    const b = await installation();
+    const two = await b.second();
+    const a = child(b.configFile, b.rpc, b.model);
+    await a.ready();
+    const c = child(two.file, b.rpc, b.model);
+    await c.ready();
+    const x = browser(b.port);
+    const y = browser(two.port);
+    await signInAs(x, FOUNDER, b.ava);
+    await signInAs(y, FOUNDER, b.ava);
+    const outcomes: string[] = [];
+    for (let round = 0; round < 3; round++) {
+      const [px, py] = await Promise.all([
+        x(`/api/sales/${b.biz}/prepare`, "POST", { kind: "create_plan", input: { plan: PLAN } }),
+        y(`/api/sales/${b.biz}/prepare`, "POST", {
+          kind: "create_plan",
+          input: { plan: { ...PLAN, unit_price: "175000" } },
+        }),
+      ]);
+      expect(px.body.identity).toBe(py.body.identity);
+      expect(px.body.action_digest).not.toBe(py.body.action_digest);
+      const create = (call: Call, p: Json, k: string) =>
+        call(`/api/sales/${b.biz}/actions`, "POST", {
+          kind: "create_plan",
+          input: p.body.input,
+          action_digest: p.body.action_digest,
+          idempotency_key: k,
+        });
+      // Both write transactions at once, from two processes over one database.
+      const [rx, ry] = await Promise.all([
+        create(x, px, `proc-diff-x-${round}`),
+        create(y, py, `proc-diff-y-${round}`),
+      ]);
+      expect([rx.status, ry.status].sort(), JSON.stringify([rx.body, ry.body])).toEqual([201, 409]);
+      const [won, lost, mine] = rx.status === 201 ? [rx, ry, px] : [ry, rx, py];
+      outcomes.push(rx.status === 201 ? "x" : "y");
+      expect(lost.body.code).toBe("request_conflict");
+      expect(lost.body.detail.action.id).toBe(won.body.action.id);
+      // The winner keeps exactly its own reviewed terms; the loser's are never adopted.
+      expect(won.body.action.action_digest).toBe(mine.body.action_digest);
+      const open = b.rows().filter((r) => r.state === "prepared");
+      expect(open).toHaveLength(1);
+      // Set aside (never asked), so the next round contends again.
+      const caller = rx.status === 201 ? x : y;
+      expect(
+        (await caller(`/api/sales/actions/${won.body.action.id}/abandon`, "POST")).status,
+      ).toBe(200);
+    }
+    expect(outcomes).toHaveLength(3);
+    expect(b.rows().every((r) => r.state === "set_aside" && r.asks === 0)).toBe(true);
+  }, 150_000);
+
+  it("P-4 (M-2) the founder's SIGNED plan call through the decoder: the composed server's own check confirms it", async () => {
+    const b = await installation();
+    const a = child(b.configFile, b.rpc, b.model);
+    await a.ready();
+    const x = browser(b.port);
+    await signInAs(x, FOUNDER, b.ava);
+    const p = await x(`/api/sales/${b.biz}/prepare`, "POST", {
+      kind: "create_plan",
+      input: { plan: PLAN },
+    });
+    const c = await x(`/api/sales/${b.biz}/actions`, "POST", {
+      kind: "create_plan",
+      input: p.body.input,
+      action_digest: p.body.action_digest,
+      idempotency_key: "proc-signed-plan-1",
+    });
+    const id = c.body.action.id as string;
+    const call = c.body.action.call as Json;
+    expect((await x(`/api/sales/actions/${id}/requested`, "POST", {})).body.ask).toBe("granted");
+    // The founder's own key signs exactly the stored call (production's encoder and format).
+    const rpc = async (method: string, params: Json) =>
+      JSON.parse(await b.rpc.answer(JSON.stringify({ jsonrpc: "2.0", id: "s", method, params })));
+    const head = (await rpc("block", { finality: "final" })).result.header.hash as string;
+    const tx = encodeTransaction({
+      signer: FOUNDER,
+      publicKey: b.ava.pub,
+      nonce: 1n,
+      receiver: call.receiverId,
+      blockHash: base58Decode(head),
+      method: call.methodName,
+      args: Buffer.from(JSON.stringify(call.args)),
+      gas: BigInt(call.gas),
+      deposit: BigInt(call.deposit),
+    });
+    const sig = sign(null, createHash("sha256").update(tx).digest(), b.ava.privateKey);
+    const sent = await rpc("send_tx", {
+      signed_tx_base64: Buffer.concat([tx, Buffer.from([0]), sig]).toString("base64"),
+      wait_until: "FINAL",
+    });
+    expect(sent.error, JSON.stringify(sent)).toBeUndefined();
+    const hash = sent.result.transaction.hash as string;
+    await x(`/api/sales/actions/${id}/requested`, "POST", { tx_hash: hash });
+    const done = await x(`/api/sales/actions/${id}/check`, "POST", {});
+    expect(done.body.resolution, JSON.stringify(done.body)).toMatchObject({
+      kind: "confirmed",
+      result: "created",
+    });
+    expect(done.body.effects).toMatchObject({ plan: { plan_id: 2, plan: PLAN } });
+    expect(b.rpc.applied.filter((t) => t.method === "create_plan_guarded")).toHaveLength(1);
+  }, 120_000);
+
   it("P-2 killed after the ask and the send, before the hash: the other process recovers it by its own hash; one plan", async () => {
     const b = await installation();
     const two = await b.second();
@@ -296,6 +404,14 @@ describe("003wf4 guided plan setup in actual processes", () => {
       ["offer", "blocked"],
     ]);
     expect(at0.operator).toMatchObject({ account: OP, current: null, change: "Adds metering." });
+    // The scheduler's wait is in the actual composed server's grace (Astra 06:21).
+    expect(at0.timing.min_grace_ms).toBe(425_000);
+    expect(at0.guided.defaults).toMatchObject({ hold_ttl_ms: "600000", settle_grace_ms: "480000" });
+    const short = await ava(`/api/sales/${b.biz}/prepare`, "POST", {
+      kind: "create_plan",
+      input: { plan: { ...PLAN, settle_grace_ms: "424999" } },
+    });
+    expect([short.status, short.body.code]).toEqual([409, "grace_too_short"]);
     // 1. The founder's own plan: plan 1 of this contract (no bootstrap plan exists).
     const made = await walletAction(b, ava, "create_plan", { plan: PLAN }, "journey-plan-01");
     expect(made.resolution).toMatchObject({ kind: "confirmed", result: "created" });

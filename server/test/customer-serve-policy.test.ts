@@ -32,6 +32,7 @@ const DEFAULTS: ServeTiming = {
   maxBlockAgeMs: 120_000,
   maxFutureSkewMs: 30_000,
   timeoutMs: 60_000,
+  settleScheduleMs: 0,
 };
 const plan = (hold: number, grace = 600_000) => ({
   hold_ttl_ms: String(hold),
@@ -70,6 +71,20 @@ const reconcile = (w: CustomerWorld, id: string) =>
   w.cara(`/api/customer/uses/${id}/reconcile`, "POST");
 const execute = (w: CustomerWorld, id: string) =>
   w.cara(`/api/customer/uses/${id}/execute`, "POST", {});
+
+describe("003wf4 (Astra 06:21) the settlement grace includes the scheduler's wait", () => {
+  it("maintenance's interval, pass budget and operation deadline are added; boundary exact", () => {
+    // A configuration of 60 s passes with a 20 s budget and 10 s operations.
+    const scheduled = { ...DEFAULTS, settleScheduleMs: 60_000 + 20_000 + 10_000 };
+    expect(minGraceMs(scheduled)).toBe(360_000 + 90_000);
+    expect(planUsability(scheduled, plan(600_000, 449_999)).grace_ok).toBe(false);
+    expect(planUsability(scheduled, plan(600_000, 450_000)).grace_ok).toBe(true);
+    // Without maintenance nothing schedules settlement: no allowance is invented.
+    expect(minGraceMs(DEFAULTS)).toBe(360_000);
+  });
+  // The composition's own derivation (interval + pass budget + operation deadline) is evidenced
+  // through the actual child in plan-setup-process.test.ts P-3 (customer-access timing).
+});
 
 describe("003wf4 servePolicy: one policy from the configured margins (§5)", () => {
   it("defaults: reserve 120 000, minimum usable hold 450 000, settlement grace 360 000", () => {

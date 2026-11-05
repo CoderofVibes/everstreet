@@ -21,6 +21,15 @@ export interface ServeTiming {
   maxFutureSkewMs: number;
   /** The runtime's execution time limit. */
   timeoutMs: number;
+  /**
+   * Job 003wf4 (Astra 06:21, scheduler/grace): how long a decidable settlement can wait for the
+   * background scheduler to reach it. With maintenance configured that is one interval after the
+   * previous pass ended, plus that pass's budget and its last operation's deadline
+   * (maintenance.ts: each phase checks the budget before each operation; the next pass is scheduled
+   * `interval_ms` after a pass ends). 0 without maintenance: settlement then happens only when the
+   * customer or owner checks, and nothing schedules it.
+   */
+  settleScheduleMs: number;
 }
 
 /** Serve time that must remain when execution starts (execution's own timeLeft check). */
@@ -40,9 +49,19 @@ export function cutoffs(t: ServeTiming, serveUntilMs: bigint) {
   return { executeBy, submitBy, signBy };
 }
 
-/** The settlement grace a plan needs so a result delivered at the latest moment can be settled. */
+/**
+ * The settlement grace a plan needs so a result delivered at the latest moment can still be
+ * settled: execution may start at execute_by, run for the runtime limit, be decided as delivered
+ * within the delivery timeout, wait for the scheduler, then need one submission window; settle_until
+ * is serve_until + grace and execute_by is serve_until − reserve. The honest scope: this covers ONE
+ * settlement reached in the next pass; a backlog larger than a pass's batch, or a settlement in
+ * backoff after failures, can take longer, and nothing here promises that.
+ */
 export const minGraceMs = (t: ServeTiming) =>
-  Math.max(0, t.timeoutMs + t.deliveryTimeoutMs + t.submitMarginMs - reserveMs(t));
+  Math.max(
+    0,
+    t.timeoutMs + t.deliveryTimeoutMs + t.settleScheduleMs + t.submitMarginMs - reserveMs(t),
+  );
 
 /** The shortest hold usable even from the oldest block `fresh` accepts. */
 export const minUsableHoldMs = (t: ServeTiming) =>

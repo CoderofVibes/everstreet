@@ -69,6 +69,14 @@ export interface CustomerAccessView {
   service: { eligible: boolean; reasons: string[]; note: string };
   steps: AccessStep[];
   next: "plan" | "permissions" | "offer" | null;
+  /** Job 003wf4 (S-7): the viewer's requests from earlier owner generations (history only). */
+  history?: {
+    id: string;
+    kind: string;
+    state: string;
+    generation: number;
+    tx_hash: string | null;
+  }[];
 }
 
 export interface AccessPort {

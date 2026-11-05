@@ -246,6 +246,54 @@ describe("003wf4 Set up customer access (actual component, synthetic wallet)", {
     expect(offered).toEqual([2]);
   });
 
+  it("the plan review leads with readable NEAR; the exact deposit is under technical details", async () => {
+    const h = await founder();
+    await mount(h);
+    await wait(() => Boolean(field("Price per use")), "the form");
+    await typeInto(field("Price per use") as HTMLInputElement, "0.15");
+    await click("Review this plan");
+    await wait(() => text().includes("Review the plan"), "the review");
+    const review = document.querySelector("section.review") as HTMLElement;
+    const effects = [...review.querySelectorAll("ul li")].map((l) => l.textContent ?? "");
+    const storage = effects.find((e) => e.startsWith("Attaches")) as string;
+    expect(storage).toContain("Attaches 0.0009 NEAR for 90 bytes of contract storage");
+    expect(storage).not.toContain("yoctoNEAR");
+    const tech = review.querySelector("details") as HTMLDetailsElement;
+    expect(tech.open).toBe(false);
+    expect(tech.textContent).toContain(
+      "Exact deposit: 900000000000000000000 yoctoNEAR for 90 bytes at 10000000000000000000 yoctoNEAR per byte",
+    );
+  });
+
+  it("with a support slot, every sentence of the permission step states the current choice", async () => {
+    const h = await founder();
+    const { saleControl } = await import("../../scripts/lib/saleHarness.ts");
+    await saleControl(h).request(new URL("/access/operator/support", "http://127.0.0.1:8815"), {
+      method: "POST",
+    });
+    await mount(h);
+    await wait(
+      () => step(1)?.textContent?.includes("Keep its support permission") === true,
+      "the choice",
+    );
+    const perm = () => step(1).textContent ?? "";
+    expect(perm()).toContain("Adds metering and keeps support.");
+    expect(perm()).not.toContain("support is removed");
+    // Unchecked: the step's own sentence says removal; nothing still says "keeps support".
+    const box = step(1).querySelector("input[type=checkbox]") as HTMLInputElement;
+    await act(async () => box.click());
+    await wait(
+      () => perm().includes("Replaces support with metering: support is removed."),
+      "removal",
+    );
+    expect(perm()).not.toContain("keeps support");
+    // Under review, the heading and the review say the same reviewed change.
+    await click("Review this permission");
+    await wait(() => text().includes("Review the permission"), "the permission review");
+    expect(perm()).toContain("Replaces support with metering: support is removed.");
+    expect(perm()).not.toContain("keeps support");
+  });
+
   it("a lost wallet answer is recovered by its own transaction ID; never sent twice", async () => {
     const h = await founder();
     await mount(h);

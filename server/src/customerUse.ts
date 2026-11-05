@@ -174,6 +174,12 @@ export interface CustomerUseOptions {
    * before recovery finalizes it as not delivered. A later protection is then discarded.
    */
   deliveryTimeoutMs?: number;
+  /**
+   * Job 003wf4: how long a decidable settlement can wait for background maintenance to reach it
+   * (servePolicy.ts ServeTiming.settleScheduleMs). The composition sets it from the configured
+   * maintenance; 0 (the default) when nothing schedules settlement.
+   */
+  settleScheduleMs?: number;
   now?: () => number;
 }
 
@@ -447,7 +453,10 @@ export class CustomerUses {
       maxBlockAgeMs: this.maxBlockAgeMs,
       maxFutureSkewMs: this.maxFutureSkewMs,
       timeoutMs: runtime?.timeoutMs ?? RUNTIME_LIMITS.maxSeconds * 1000,
+      settleScheduleMs: opts.settleScheduleMs ?? 0,
     };
+    if (!Number.isSafeInteger(this.timing.settleScheduleMs) || this.timing.settleScheduleMs < 0)
+      throw new Error("customer options: settleScheduleMs is invalid");
   }
 
   // ---------- helpers ----------

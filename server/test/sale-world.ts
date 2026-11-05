@@ -29,9 +29,10 @@ type Caller = ((
 };
 
 export async function saleWorld(opts: { dbPath?: string } = {}) {
+  const protection = new SyntheticProtection();
   const w = await customerWorld({
     dbPath: opts.dbPath,
-    customer: { protection: new SyntheticProtection() },
+    customer: { protection },
   });
   const sale = w.chain.attachSale();
   // The observation transport reads the same state (v3 intents and reconciliation).
@@ -118,6 +119,7 @@ export async function saleWorld(opts: { dbPath?: string } = {}) {
   return {
     w,
     sale,
+    protection,
     biz,
     offerId,
     ava,

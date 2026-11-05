@@ -1,5 +1,13 @@
 # Guided customer access: price, permissions, offer
 
+## Phase B continuation 1 — Astra, November 5, 06:21 Pacific
+
+Continue the existing bounded child from 9dbfb53; it is not accepted yet. Read the new top section of OwnerPlanReviewNotes (06:21) and retain all earlier unresolved requirements. First reproduce and fix the actual-browser original-plan-ID recovery failure using the real saleHarness routes, wall-clock advancement and reload-equivalent session. Distinguish fixture defects from production defects and add a meaningful regression at the failing boundary. Do not weaken receipt matching, authority or unknown-outcome protection. Fix the printed Studio URL and contradictory SUPPORT choice description; make the final plan review's storage cost human-readable while retaining its exact value.
+
+Resolve the earlier scheduler/grace discrepancy with source-grounded timing, honest guarantees and boundary evidence. Fix the lifecycle test's cross-process observation race by awaiting the complete intended lease/status takeover under its finite bound, retaining exact generation and running-state assertions (no sleeps or weakened expectations). Add actual simultaneous differing-plan contention and correct P-1's report. Complete S-7 away-and-back isolation. Supply the planned synthetic signed-founder envelope evidence for M-2 through the actual decoder, or explain a concrete incompatibility to Astra; absence of a harness implementation is not a waiver. No real wallet or live network needed.
+
+Review and locally commit Astra's notes after required check. Use one writer, exact Opus5.5/high/subscription, finite tests and existing memory ceilings. Run the appropriate focused tests, npm run check and web build. Update the main acceptance matrix with exact provenance and remaining browser/parent gates. Stop for Astra's actual-browser repeat and review after this continuation. Preserve all existing scope and prohibitions; no worker installation, research assessment, deployment, signing, API spending, push or submission.
+
 **Why (Tony's words):** "People I know themselves know they can build with AI but haven't figured out Codex or Claude Code, how to prompt, all of that." The founder should be able to prepare the resulting business for customers inside Everstreet, without inventing contract identifiers.
 
 **Dispatch November 5, 04:44 Pacific: Phase A only. P0/L overall; bounded design and test inventory first.** Actual Claude Code Opus 5.5/high/subscription. One writer. This is the next retained parent003wf requirement; 003wf3 remains in review with named evidence limitations, not silently completed.

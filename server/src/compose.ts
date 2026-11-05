@@ -398,6 +398,12 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
       operatorAccount: config.customer.operator_account,
       // Protected storage through the fence too (its network-free answers can still arrive late).
       protection: fence.object(protection),
+      // Job 003wf4: settlement waits for the next maintenance pass (servePolicy settleScheduleMs).
+      settleScheduleMs: config.maintenance
+        ? config.maintenance.interval_ms +
+          config.maintenance.pass_budget_ms +
+          config.maintenance.op_deadline_ms
+        : 0,
       now: deps.now,
     };
   cap(

@@ -57,7 +57,23 @@ export async function customerAccess(
   // Local facts first (owner only, 404 otherwise), then the one contract reading.
   const { readiness } = uses.offerReadiness(viewer, businessId, projectId);
   const r = await sales.ownerReading(viewer, businessId);
-  const { reading: s, actions } = r;
+  const { reading: s, actions: all } = r;
+  // S-7 (away and back): only requests reviewed under the CURRENT owner generation are this
+  // owner's setup evidence. Earlier generations' requests are history: shown apart, never counted
+  // as current authority or progress (they also can no longer land: control moved).
+  const reviewedAt = (a: (typeof all)[number]) =>
+    Number((a.review as { generation?: unknown }).generation ?? Number.NaN);
+  const actions = all.filter((a) => reviewedAt(a) === s.control.generation);
+  const history = all
+    .filter((a) => reviewedAt(a) !== s.control.generation)
+    .map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      state: a.state,
+      generation: reviewedAt(a),
+      tx_hash: a.tx_hash,
+      created_at: a.created_at,
+    }));
   const offers = uses
     .listOffers(viewer, businessId)
     .offers.filter((o) => (projectId ? o.project_id === projectId : true));
@@ -325,5 +341,7 @@ export async function customerAccess(
     service,
     steps,
     next: steps.find((x) => x.state !== "confirmed")?.key ?? null,
+    /** The viewer's own requests from earlier owner generations: history, not current setup. */
+    history,
   };
 }

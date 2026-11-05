@@ -366,7 +366,8 @@ export class SaleChain {
   /** False: answers like an older contract without the sale capability (no get_sale_terms). */
   saleTerms = true;
   calls = 0;
-  readonly ceiling = 2_000;
+  /** A finite call budget; a review harness names its own explicitly. */
+  ceiling = 2_000;
 
   constructor(
     s: SaleStart,
@@ -453,7 +454,8 @@ export class SaleChain {
   }
 
   private bump() {
-    if (++this.calls > this.ceiling) throw new Error("sale chain ceiling reached");
+    if (++this.calls > this.ceiling)
+      throw new Error(`sale chain ceiling reached (${this.ceiling} calls)`);
   }
 
   /**

@@ -23,9 +23,91 @@ import { HARNESS_CSP, HARNESS_LABEL, WALLET_SCRIPT, walletHistory } from "./wall
 export { HARNESS_CSP, HARNESS_LABEL };
 export const SALE_ACCOUNTS = [SELLER, BUYER, CUSTOMER] as const;
 
-export async function saleHarness(opts: { origin: string }) {
+/**
+ * Job 003wf4 (Astra 06:21): the session's FINITE budget for each test double. The fixture defaults
+ * (400 chain calls, 300 reads) are sized for one test; a browser review reads the contract on
+ * every page load (about 23 views each), so the defaults ran out after about 17 loads and every
+ * later read failed as "NEAR couldn't be read". The harness now names its own bounded budget.
+ */
+/**
+ * Job 003wf4 (Astra 06:21): where the founder opens Set up customer access: the product studio
+ * route (/build/<project>), as the app's own navigation reaches it. (/studio/<id> is the launch
+ * studio and takes another id.)
+ */
+export const customerAccessPath = (h: { world: { w: { f: { project: string } } } }) =>
+  `/build/${h.world.w.f.project}`;
+
+export const HARNESS_BUDGET = {
+  chain_calls: 200_000,
+  reader_reads: 100_000,
+  sale_calls: 200_000,
+  writer_calls: 5_000,
+  protection_calls: 5_000,
+};
+
+export async function saleHarness(opts: {
+  origin: string;
+  budget?: Partial<typeof HARNESS_BUDGET>;
+}) {
   const s = await saleWorld();
   const { w } = s;
+  const budget = { ...HARNESS_BUDGET, ...opts.budget };
+  for (const [k, v] of Object.entries(budget))
+    if (!Number.isSafeInteger(v) || v < 1)
+      throw new Error(`harness budget ${k} must be a positive integer`);
+  w.chain.ceiling = budget.chain_calls;
+  w.reader.ceiling = budget.reader_reads;
+  s.sale.ceiling = budget.sale_calls;
+  w.writer.ceiling = budget.writer_calls;
+  s.protection.ceiling = budget.protection_calls;
+  /** The first budget reached, named plainly: it is the test double, never NEAR or the product. */
+  const exhausted: { reason: string | null; at: string | null } = { reason: null, at: null };
+  const note = (e: unknown) => {
+    const msg = (e as Error)?.message ?? "";
+    if (/ceiling reached/.test(msg) && exhausted.reason === null) {
+      exhausted.reason = msg;
+      exhausted.at = new Date().toISOString();
+      console.error(
+        `SYNTHETIC BUDGET EXHAUSTED: ${msg}. The harness's test double stopped answering, so every later read fails as "NEAR couldn't be read". This is not a NEAR or product failure: restart the harness.`,
+      );
+    }
+  };
+  /** Wraps a double's entry point so a ceiling it reaches is recorded (then rethrown unchanged). */
+  const watch = <O extends object, K extends keyof O>(o: O, k: K) => {
+    const f = (o[k] as (...a: unknown[]) => unknown).bind(o);
+    o[k] = ((...a: unknown[]) => {
+      try {
+        const r = f(...a);
+        if (r instanceof Promise)
+          return r.catch((e) => {
+            note(e);
+            throw e;
+          });
+        return r;
+      } catch (e) {
+        note(e);
+        throw e;
+      }
+    }) as O[K];
+  };
+  watch(w.chain, "answer");
+  watch(w.chain, "walletCall");
+  watch(w.reader, "view");
+  watch(w.writer, "openHold");
+  watch(w.writer, "settleHold");
+  watch(w.writer, "releaseHoldFor");
+  watch(s.protection, "protect");
+  const budgetReport = () => ({
+    note: "Finite synthetic budgets of this harness's test doubles (not NEAR limits). When one is reached every later read fails; restart the harness.",
+    exhausted,
+    used: {
+      chain_calls: [w.chain.calls, budget.chain_calls],
+      reader_reads: [w.reader.used, budget.reader_reads],
+      sale_calls: [s.sale.calls, budget.sale_calls],
+      writer_calls: [w.writer.calls, budget.writer_calls],
+      protection_calls: [s.protection.calls, budget.protection_calls],
+    },
+  });
   // The double and the server follow THIS computer's clock (the browser's), only forward.
   const time = { offset: 0 };
   const sync = () => {
@@ -230,15 +312,28 @@ export async function saleHarness(opts: { origin: string }) {
       unit = (await cara(`/api/customer/uses/${id}/units/reconcile`, "POST")).body.use.units.unit;
     return { status: 201, code: null, unit, id };
   };
-  return { site, controls, world: s, accountKey, transport, sync, time, customerUse };
+  return {
+    site,
+    controls,
+    world: s,
+    accountKey,
+    transport,
+    sync,
+    time,
+    customerUse,
+    budget: budgetReport,
+  };
 }
 
 /** The control listener (a SEPARATE origin; no control route exists in the app). */
 export function saleControl(h: Awaited<ReturnType<typeof saleHarness>>) {
   const s = h.world;
   const control = new Hono();
+  // The test doubles' finite budgets: what was used, and the first one reached (if any).
+  control.get("/budget", (c) => c.json(h.budget()));
   control.get("/", (c) =>
     c.json({
+      budget: h.budget(),
       controls: h.controls,
       business: s.biz,
       sale_page: `/sales/${s.biz}`,

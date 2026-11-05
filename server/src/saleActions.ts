@@ -1793,7 +1793,8 @@ export class SaleActions {
           timing: { min_hold_ms: timing.min_hold_ms, min_grace_ms: timing.min_grace_ms },
           effects: [
             `Creates plan ${t.next_plan_id} on the contract: ${readableAmount(plan.unit_price, meta.decimals)} ${meta.symbol} per use (${plan.unit_price} base units), at most ${plan.max_units_per_purchase} units per purchase and ${plan.max_units_outstanding} held, ${plan.max_hold_units} per hold; each hold lasts ${mins(plan.hold_ttl_ms)}, with ${mins(plan.settle_grace_ms)} to settle.`,
-            `Attaches ${deposit} yoctoNEAR for ${t.plan_bytes} bytes of contract storage; any excess is refunded. The plan is permanent and its storage isn't released: a new price is a new plan.`,
+            // Readable first (Astra 06:21); the exact yoctoNEAR is `deposit` and the call's own.
+            `Attaches ${readableAmount(deposit, 24)} NEAR for ${t.plan_bytes} bytes of contract storage; any excess is refunded. The plan is permanent and its storage isn't released: a new price is a new plan.`,
           ],
           conditions: [
             "Refused without any change if control changed since this review, another plan was created meanwhile, a sale started, or the storage cost rose.",

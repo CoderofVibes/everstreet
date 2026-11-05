@@ -22,6 +22,8 @@
 //   POST /access/guided/<on|off>   the business answers with | without guided plans (get_plan_terms)
 //   POST /observations/down | /observations/up   the observation reads fail | work again
 //   GET  /                      contract, treasury and who owns the business here
+//   GET  /budget                the test doubles' finite budgets: used, and the first one reached
+//                               (when one is, every later read fails: restart the harness)
 //   GET  /history[?account=<id>]  the synthetic wallet's activity (each transaction's ID and status)
 // FICTIONAL and SYNTHETIC (scripts/lib/saleHarness.ts). Loopback only; the page may connect only
 // to this harness. It stops by itself after the time bound, or on Ctrl+C; nothing remains.
@@ -30,7 +32,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { HARNESS_CSP, saleControl, saleHarness } from "./lib/saleHarness.ts";
+import { customerAccessPath, HARNESS_CSP, saleControl, saleHarness } from "./lib/saleHarness.ts";
 
 const HOST = "127.0.0.1";
 const PORT = 8814;
@@ -70,7 +72,7 @@ const ctl = serve({ fetch: saleControl(h).fetch, port: PORT + 1, hostname: HOST 
 console.log(`Sale review harness (SYNTHETIC wallet and chain, fictional): http://${HOST}:${PORT}/`);
 console.log(`  Sale page: http://${HOST}:${PORT}/sales/${h.world.biz}`);
 console.log(
-  `  Set up customer access (job 003wf4): http://${HOST}:${PORT}/studio/${h.world.w.f.project} (Service, Customer access)`,
+  `  Set up customer access (job 003wf4): http://${HOST}:${PORT}${customerAccessPath(h)} (Service, Customer access)`,
 );
 console.log(`  Controls: http://${HOST}:${PORT + 1}/   Stops in ${minutes} min or on Ctrl+C.`);
 let ending = false;

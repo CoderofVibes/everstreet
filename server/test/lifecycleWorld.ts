@@ -274,6 +274,10 @@ function decodeSigned(b64: string) {
 /** The business methods this double applies, each by the contract's rules (customer-world.ts). */
 const METHODS = new Set(["open_hold", "settle_hold", "release_hold_for"]);
 const GAS = 100_000_000_000_000n;
+/** Job 003wf4 (M-2): an owner's own signed calls this double decodes (the sale double applies them). */
+const OWNER_METHODS = new Set(["create_plan_guarded", "appoint_operator_guarded"]);
+const MIN_OWNER_GAS = 1_000_000_000_000n;
+const MAX_OWNER_GAS = 300_000_000_000_000n;
 
 const spki = (raw: Buffer) =>
   createPublicKey({
@@ -535,24 +539,29 @@ export class SyntheticRpc {
     } catch {
       return fail("INVALID_TRANSACTION", { InvalidTxError: "Malformed" });
     }
+    // Job 003wf4 (M-2): an OWNER's signed call to the sale double (a founder's own wallet signs
+    // it): any canonical deposit (it pays the measured storage) and gas within NEAR's range.
+    const target = this.contractFor(t.receiver);
+    const owner =
+      OWNER_METHODS.has(t.method) && target?.sale !== null && target?.sale !== undefined;
     // The envelope this double can establish: ed25519, one FunctionCall to the modelled business,
-    // a block this endpoint issued, the writer's gas and no deposit, nothing trailing. Anything
-    // else is refused, never applied as a fixture method.
+    // a block this endpoint issued, the writer's gas and no deposit (an owner's call: its gas in
+    // range and its encoded deposit), nothing trailing. Anything else is refused, never applied.
     if (
       t.keyType !== 0 ||
       t.sigType !== 0 ||
       t.actions !== 1 ||
       t.actionKind !== 2 ||
       t.rest !== 0 ||
-      t.gas !== GAS ||
-      t.deposit !== 0n ||
+      (owner
+        ? t.gas < MIN_OWNER_GAS || t.gas > MAX_OWNER_GAS
+        : t.gas !== GAS || t.deposit !== 0n) ||
       !this.hashes.has(base58Encode(t.blockHash))
     )
       return fail("INVALID_TRANSACTION", { InvalidTxError: "UnsupportedByThisDouble" });
-    const target = this.contractFor(t.receiver);
     const closing =
       t.method === "close_sale" && target?.sale !== null && target?.sale !== undefined;
-    if (!target || (!METHODS.has(t.method) && !closing))
+    if (!target || (!METHODS.has(t.method) && !closing && !owner))
       return fail("INVALID_TRANSACTION", { InvalidTxError: "UnknownReceiverOrMethod" });
     const hash = base58Encode(createHash("sha256").update(t.txBytes).digest());
     const seen = this.outcomes.get(hash);
@@ -575,8 +584,54 @@ export class SyntheticRpc {
           !(perm.FunctionCall.method_names ?? []).includes(t.method)))
     )
       return fail("INVALID_TRANSACTION", { InvalidTxError: { InvalidAccessKeyError: {} } });
+    // NEAR: a function-call access key can't attach a deposit.
+    if (perm?.FunctionCall && t.deposit > 0n)
+      return fail("INVALID_TRANSACTION", {
+        InvalidTxError: { InvalidAccessKeyError: "DepositWithFunctionCall" },
+      });
     this.keys.set(key, t.nonce);
     this.sync();
+    if (owner) {
+      // The owner's call by the sale double's own rules (receiver graph, logs, refund), recorded
+      // under THIS signed transaction's hash and exact action, so its own check can find it.
+      const sale = target.sale as NonNullable<typeof target.sale>;
+      sale.now = target.ts;
+      const out = sale.walletCall(t.signer, {
+        receiverId: t.receiver,
+        methodName: t.method,
+        args: t.args,
+        deposit: String(t.deposit),
+        gas: String(t.gas),
+      }) as Json;
+      out.transaction = {
+        ...out.transaction,
+        hash,
+        signer_id: t.signer,
+        receiver_id: t.receiver,
+        actions: [
+          {
+            FunctionCall: {
+              method_name: t.method,
+              args: Buffer.from(JSON.stringify(t.args)).toString("base64"),
+              gas: Number(t.gas),
+              deposit: String(t.deposit),
+            },
+          },
+        ],
+      };
+      out.transaction_outcome = { ...out.transaction_outcome, id: hash };
+      this.chain.tick(1_000n);
+      this.align();
+      this.applied.push({
+        method: t.method,
+        args: t.args,
+        receiver: t.receiver,
+        signer: t.signer,
+        nonce: t.nonce,
+      });
+      this.outcomes.set(hash, out);
+      return ok(out);
+    }
     let status: Json;
     try {
       const a = t.args;

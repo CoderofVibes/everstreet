@@ -135,7 +135,8 @@ export class FixtureChain {
   }
 
   private bump() {
-    if (++this.calls > this.ceiling) throw new Error("fixture chain ceiling reached");
+    if (++this.calls > this.ceiling)
+      throw new Error(`fixture chain ceiling reached (${this.ceiling} calls)`);
   }
 
   /** Synthetic: the accepting fixture's control with its live deal removed. */
@@ -869,6 +870,12 @@ export class FixtureReader implements CustomerViewTransport {
    */
   scripted: { block: PinnedBlock; views: Record<string, Json | null> } | null = null;
   private reads = 0;
+  /** A finite read budget; a longer scenario (a review harness) names its own explicitly. */
+  ceiling = 300;
+  /** Reads answered so far (a harness's budget report). */
+  get used() {
+    return this.reads;
+  }
   constructor(private readonly chain: FixtureChain) {}
   private readGate: { release: Promise<void>; arrive: () => void } | null = null;
   /** The next read waits at its final block until opened (job 003o1); then answers as set then. */
@@ -885,7 +892,8 @@ export class FixtureReader implements CustomerViewTransport {
     return { open, entered };
   }
   async finalBlock(): Promise<PinnedBlock> {
-    if (++this.reads > 300) throw new Error("fixture reader ceiling reached");
+    if (++this.reads > this.ceiling)
+      throw new Error(`fixture reader ceiling reached (${this.ceiling} reads)`);
     const gate = this.readGate;
     if (gate) {
       this.readGate = null;
@@ -951,6 +959,8 @@ export class FixtureWriter implements CustomerChainWriter {
   readonly signer = OPERATOR;
   modes: Mode[] = [];
   calls = 0;
+  /** A finite submission budget; a review harness names its own explicitly. */
+  ceiling = 200;
   answers: WriterAnswer[] = [];
   /** The latest gate (`holdNext`), for tests holding one submission. */
   gateOpen: () => void = () => {};
@@ -983,7 +993,8 @@ export class FixtureWriter implements CustomerChainWriter {
 
   /** One submission: its fault mode, then the double's rule; the shared ceiling is 200. */
   private async submit(modes: Mode[], apply: () => WriterAnswer["status"]): Promise<WriterAnswer> {
-    if (++this.calls > 200) throw new Error("fixture writer ceiling reached");
+    if (++this.calls > this.ceiling)
+      throw new Error(`fixture writer ceiling reached (${this.ceiling} submissions)`);
     const mode = modes.shift() ?? "ok";
     if (mode === "drop") throw new Error("network: the request never arrived");
     if (typeof mode === "object") {
@@ -1045,6 +1056,8 @@ export class SyntheticProtection implements InputProtection {
   kept = new Map<string, Buffer>();
   kinds = new Map<string, string>();
   calls = 0;
+  /** A finite call budget; a review harness names its own explicitly. */
+  ceiling = 100;
   /** The next this-many protect calls fail (job 003n). */
   failProtect = 0;
   deleted: string[] = [];
@@ -1069,7 +1082,8 @@ export class SyntheticProtection implements InputProtection {
   contexts = new Map<string, ProtectedContext>();
   created = new Map<string, number>();
   async protect(input: ProtectedContext & { bytes: Buffer }) {
-    if (++this.calls > 100) throw new Error("synthetic protection ceiling reached");
+    if (++this.calls > this.ceiling)
+      throw new Error(`synthetic protection ceiling reached (${this.ceiling} calls)`);
     // The gate first, so a protection can also fail after it waited (job 003o1).
     if (input.kind === "result" && this.resultGate) {
       this.resultGate.arrive();

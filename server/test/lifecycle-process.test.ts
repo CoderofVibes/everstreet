@@ -389,12 +389,19 @@ describe("003wf1 two processes on one database, and a listen failure", () => {
     expect(t.dbRead<Json>("SELECT holder, gen FROM maintenance_lease")[0]).toEqual(first);
     expect(t.dbRead<Json>("SELECT holder FROM maintenance_status")[0]?.holder).toBe(first.holder);
     expect(await a.shutdown()).toBe(0); // releases the lease
+    // The complete takeover (Astra 06:21): B's lease AND B's own committed status. The status row
+    // is written by B's first pass, separately from the lease claim, so both are awaited together
+    // under the same finite bound; nothing is read between the two commits.
+    let lease: Json = {};
+    let st: Json = {};
     await until(() => {
-      const l = t.dbRead<Json>("SELECT holder, gen FROM maintenance_lease")[0] as Json;
-      return l.holder !== first.holder && l.gen === first.gen + 1;
-    }, "B taking over");
-    const st = t.dbRead<Json>("SELECT holder, state FROM maintenance_status")[0] as Json;
+      lease = t.dbRead<Json>("SELECT holder, gen FROM maintenance_lease")[0] as Json;
+      st = t.dbRead<Json>("SELECT holder, state FROM maintenance_status")[0] as Json;
+      return lease.holder !== first.holder && st.holder === lease.holder && st.state === "running";
+    }, "B's lease and B's running status");
+    expect(lease.gen).toBe(first.gen + 1);
     expect(st.holder).not.toBe(first.holder);
+    expect(st.holder).toBe(lease.holder);
     expect(st.state).toBe("running");
     expect(await b.shutdown()).toBe(0);
   }, 120_000);

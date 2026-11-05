@@ -163,8 +163,14 @@ Two kinds of deadline exist, and they are never merged:
   submission window (`submitMarginMs`, which covers the writer's timeout and the readback).
   `settle_until = serve_until + grace` must cover `execute_by + timeoutMs + deliveryTimeoutMs +
   submitMarginMs`. So `grace ≥ timeoutMs + deliveryTimeoutMs + submitMarginMs − reserve`; with
-  defaults that is 60 000 + 300 000 + 120 000 − 120 000 = **360 000 ms**, and the maintenance
-  interval is added when maintenance drives settlement. Below it, a delivered result could go
+  defaults that is 60 000 + 300 000 + 120 000 − 120 000 = **360 000 ms**, plus the scheduler's
+  wait when maintenance drives settlement: `settleScheduleMs = interval_ms + pass_budget_ms +
+  op_deadline_ms`. That is the next pass, scheduled `interval_ms` after the previous one ends; that
+  pass checks its budget before each operation, and each operation has its own deadline
+  (`maintenance.ts`). The composition sets it from the configured maintenance; it is 0 without
+  maintenance, when settlement happens only when someone checks. The honest scope: this covers one
+  settlement reached in the next pass. A backlog larger than a pass's batch, or a settlement in
+  backoff after failures, can take longer, and nothing promises otherwise. Below the minimum, a delivered result could go
   unpaid (the customer then keeps the unit): **guided creation refuses** it, and an existing plan
   shows the warning. The plan stays usable for service: it isn't a safety failure.
 
