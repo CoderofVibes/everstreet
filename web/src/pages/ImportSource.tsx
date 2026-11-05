@@ -274,7 +274,7 @@ export function ImportSourcePanel({
               Nothing connected. Earlier reports, if any, keep where they came from.
             </p>
           )}
-          {(!status.active || !status.active.usable_by_you) && (
+          {!status.active?.usable_by_you && (
             <form
               className="source-connect"
               onSubmit={(e) => {

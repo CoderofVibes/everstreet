@@ -702,6 +702,8 @@ export class Products {
    */
   recordManualCheck(viewer: Person, projectId: string, input: Record<string, unknown>) {
     const p = this.owned(viewer, projectId);
+    // An owner write: refused while the business is changing hands (MANAGED_HANDOVER §14.2).
+    this.store.requireNoHandover(p.business_id);
     const key = input.check_key;
     if (typeof key !== "string" || !(key in MANUAL_CHECKS))
       throw new HttpError(400, "Choose one of the manual checks");

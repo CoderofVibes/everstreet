@@ -60,6 +60,13 @@ const CLASS: Record<string, Class> = {
   "PATCH /api/imports/:id": "gated_owner",
   "POST /api/imports/:id/inspections": "gated_owner",
   "PUT /api/imports/:id/dependencies/:category": "gated_owner",
+  // November 5 build: a founder's manual check (Phase B) and connected source (004b)
+  "POST /api/product-projects/:id/manual-checks": "gated_owner",
+  "POST /api/imports/:id/source/connect": "gated_owner",
+  "POST /api/imports/:id/source/disconnect": "gated_owner",
+  "POST /api/imports/:id/source/inspections": "gated_owner",
+  // 003wf slice 3: an operator reads one attempt's own FINAL status (recovery evidence)
+  "POST /api/operator/writer-history/check": "allowed_recovery",
   // v2 (legacy) owner routes: refused at entry for a business that is changing hands; a v2-only
   // business can't have a handover (§14.2 legacy rule)
   "POST /api/businesses/:id/team": "legacy_v2",
@@ -358,6 +365,12 @@ function gatedCalls(ids: {
       {},
     ],
     [
+      "POST /api/product-projects/:id/manual-checks",
+      "POST",
+      `${p}/manual-checks`,
+      { revision: 1, check_key: "manual_fallback", outcome: "done", note: "" },
+    ],
+    [
       "POST /api/imports",
       "POST",
       "/api/imports",
@@ -387,6 +400,24 @@ function gatedCalls(ids: {
         "PUT",
         `/api/imports/${ids.importId}/dependencies/hosting`,
         { version: ids.importVersion ?? 1, uses: false },
+      ],
+      [
+        "POST /api/imports/:id/source/connect",
+        "POST",
+        `/api/imports/${ids.importId}/source/connect`,
+        { connection: "fictional-fixture", repository: "ledgerline-fictional/invoice-reader" },
+      ],
+      [
+        "POST /api/imports/:id/source/disconnect",
+        "POST",
+        `/api/imports/${ids.importId}/source/disconnect`,
+        {},
+      ],
+      [
+        "POST /api/imports/:id/source/inspections",
+        "POST",
+        `/api/imports/${ids.importId}/source/inspections`,
+        { idempotency_key: "route-source-0001", ref: "main" },
       ],
     );
   return calls;

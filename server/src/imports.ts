@@ -930,6 +930,7 @@ export class Imports {
 
   connectSource(viewer: Person, id: string, input: Record<string, unknown>) {
     const w = this.owned(viewer, id);
+    this.store.requireNoHandover(w.business_id); // an owner write (§14.2), refused first
     if (!this.sources)
       throw new HttpError(409, "No source connection is configured on this server");
     const conn = this.sources.connections.find((c) => c.id === input.connection);
@@ -973,6 +974,7 @@ export class Imports {
   /** Stops future reads; earlier reports keep their provenance. */
   disconnectSource(viewer: Person, id: string) {
     const w = this.owned(viewer, id);
+    this.store.requireNoHandover(w.business_id);
     const epoch = this.store.controlEpoch(viewer, w.business_id);
     this.store.tx(() => {
       this.store.stillControls(viewer, epoch);
@@ -992,6 +994,8 @@ export class Imports {
    */
   async inspectSource(viewer: Person, id: string, input: Record<string, unknown>) {
     const w = this.owned(viewer, id);
+    // Gated like a supplied inspection (§14.2): refused before reading while changing hands.
+    this.store.requireNoHandover(w.business_id);
     const key = text(input.idempotency_key, IMPORT_LIMITS.key, "The request key");
     if (!key) bad("A request key is required (idempotency_key)");
     if (!this.sources)
@@ -1026,7 +1030,7 @@ export class Imports {
       );
     const out = await this.sources.reader.read(conn, active.repository, ref as string, token);
     // After the await: still this owner, same generation, same connection, or nothing is kept.
-    this.store.stillControls(viewer, epoch, { handover: "allow" });
+    this.store.stillControls(viewer, epoch);
     if (!out.ok) return { created: false, outcome: out, view: this.view(viewer, w.id) };
     const r = out.read;
     const facts = r.manifest.state === "read" ? inspectPackageJson(r.manifest.content) : null;
@@ -1052,7 +1056,7 @@ export class Imports {
         )
         .get(w.id, key);
       if (again) return;
-      this.store.stillControls(viewer, epoch, { handover: "allow" });
+      this.store.stillControls(viewer, epoch);
       const still = this.activeConnection(w.id);
       if (!still || still.id !== active.id)
         throw new HttpError(
