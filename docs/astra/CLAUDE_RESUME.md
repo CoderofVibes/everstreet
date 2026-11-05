@@ -35,6 +35,18 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **Example 1 (Direct) VERIFIED ON NEAR TESTNET** (6a4d8c8; evidence data/evidence/v3-direct-testnet.json,
+  setup v3-setup-testnet.json; `npx tsx scripts/verify-rehearsal.ts <file>`). Spend 6.35 of 20 testnet
+  NEAR (root started at 22.89 after two faucet accounts everstreet-fund-1/2). Tooling:
+  scripts/v3-rehearsal.ts (setup-direct, run-direct, resume-direct), scripts/rehearsal-child.ts
+  (real RPC + labelled stand-in model), scripts/lib/rehearsal/{journey,evidence}.ts; dry run
+  server/test/rehearsal-driver.test.ts. Lessons: FastNEAR free tier rate-limits (429 -> app
+  read_failed/read_unavailable): keep maintenance at 20 s, retry only read-only or idempotent-key
+  routes; persist the device key (data/runtime/.../device-key.pem); seller/buyer token registration
+  done in setup makes "register" already satisfied. NEXT: tooling for examples 2 (Gated, fresh
+  business + closer FC key), 3 (one-answer drop relay between app and RPC), 4 (separate
+  unregistered seller), dry-run each locally, then run live; then README rows.
+
 - **NEAR proof (Tony, Nov 5 evening):** Tony's private handoff (docs/research/near-hackathon/
   analyses/2026-11-05_CLAUDE_NEAR_PROOF_START.md, git-ignored; do NOT open the sibling
   near-depth-handoff.md: outdated, Tony said skip it). Decisions Tony delegated to Claude: NEAR
