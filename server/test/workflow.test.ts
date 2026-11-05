@@ -101,3 +101,73 @@ describe("the engine", () => {
       expect([c.id, runWorkflow(s, c.input).outcome]).toEqual([c.id, c.expect]);
   });
 });
+
+describe("Relaydesk correction: colliding long stage labels", () => {
+  it("compiles two 41-character labels sharing a 40-character prefix, in bounded time (a hung child is stopped)", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const script = `
+      import { compileWorkflow } from "./server/src/workflow.ts";
+      const proto = { schema: 1, screens: [
+        { id: "f", kind: "form", title: "F", submit_label: "Send",
+          fields: [{ key: "subject", label: "Subject", type: "text", options: [] }] },
+        { id: "b", kind: "list", title: "B", source: "f",
+          stages: ["a".repeat(40) + "x", "a".repeat(40) + "y", "Done"] } ] };
+      const r = compileWorkflow(proto, "Long labels");
+      console.log(JSON.stringify(r.ok ? r.spec.stages.map((s) => s.key) : r));
+    `;
+    const out = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", script],
+      {
+        cwd: process.cwd(),
+        timeout: 10_000,
+        encoding: "utf8",
+      },
+    );
+    expect(out.signal, "the compiler hung and was stopped").toBeNull();
+    expect(out.status, out.stderr).toBe(0);
+    const keys = JSON.parse(out.stdout.trim()) as string[];
+    expect(new Set(keys).size).toBe(3);
+    for (const k of keys) expect(k.length).toBeLessThanOrEqual(40);
+    expect(keys[0]).toBe("a".repeat(40));
+  }, 20_000);
+
+  it("keeps the keys earlier compiles gave: a short colliding label still gets its index suffix", () => {
+    const proto: Prototype = {
+      schema: 1,
+      screens: [
+        RELAYDESK_PROTOTYPE.screens[0] as never,
+        {
+          id: "desk",
+          kind: "list",
+          title: "Desk",
+          source: "request",
+          stages: ["Open", "open", "Done"],
+        },
+      ],
+    };
+    const c = compileWorkflow(proto, "x");
+    expect(c.ok && c.spec.stages.map((s) => s.key)).toEqual(["open", "open_1", "done"]);
+  });
+});
+
+describe("stage keys stay as earlier compiles made them", () => {
+  it("a 39-character colliding key keeps its old key (the suffix cut to 40)", () => {
+    const long = "b".repeat(39);
+    const proto: Prototype = {
+      schema: 1,
+      screens: [
+        RELAYDESK_PROTOTYPE.screens[0] as never,
+        {
+          id: "desk",
+          kind: "list",
+          title: "Desk",
+          source: "request",
+          stages: [long, `${long}!`, "Done"],
+        },
+      ],
+    };
+    const c = compileWorkflow(proto, "x");
+    expect(c.ok && c.spec.stages.map((s) => s.key)).toEqual([long, `${long}_`, "done"]);
+  });
+});

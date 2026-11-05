@@ -65,6 +65,25 @@ const slug = (label: string) =>
     .slice(0, 40) || "stage";
 
 /**
+ * A stage key that isn't taken yet, in bounded time (Relaydesk correction: a 40-character key
+ * plus a suffix, cut back to 40, was the same key, so the old loop never ended). The first try is
+ * the one earlier compiles used (`key_i`, cut to 40), so keys that compiled before compile the
+ * same; after that the key is shortened to keep room for its suffix. Always ends: at most one
+ * try per stage plus one is needed, since each suffix differs.
+ */
+function uniqueKey(key: string, i: number, used: Set<string>): string {
+  if (!used.has(key)) return key;
+  const first = `${key}_${i}`.slice(0, 40);
+  if (first !== key && !used.has(first)) return first;
+  for (let n = 0; n <= used.size + 1; n++) {
+    const suffix = n === 0 ? `_${i}` : `_${i}_${n}`;
+    const candidate = `${key.slice(0, 40 - suffix.length)}${suffix}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  throw new Error("unreachable: a free stage key always exists");
+}
+
+/**
  * Compiles a saved revision's prototype into a workflow spec. The intake is the first form
  * screen; the stages are the board (list) screen fed by that form. Every form field is required
  * (v1); each type has a bounded length. Returns the reason when it can't compile.
@@ -100,8 +119,7 @@ export function compileWorkflow(
   }
   const used = new Set<string>();
   const stages: WorkflowStage[] = board.stages.map((label, i) => {
-    let key = slug(label);
-    while (used.has(key)) key = `${key}_${i}`.slice(0, 40);
+    const key = uniqueKey(slug(label), i, used);
     used.add(key);
     return {
       key,

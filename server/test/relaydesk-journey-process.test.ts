@@ -4,7 +4,8 @@
 // sends three requests (one refused and returned, two accepted and charged once each); the child
 // restarts right after a request runs (no second case, no second charge); the owner resolves one
 // case; a Direct sale closes; the buyer works the other case and the seller is refused; the
-// customer still sees both histories and has the right units left.
+// customer still sees both histories and has the right units left. A second release with other
+// stages, before the sale, keeps the earlier case in its own stages (Relaydesk correction).
 //
 // SYNTHETIC chain, wallet and model (flagshipWorld.ts); fictional people and requests.
 
@@ -212,6 +213,72 @@ describe("Relaydesk in the configured child across a Direct sale (SYNTHETIC chai
     for (const to of ["assigned", "resolved"])
       ok(await ava(`${board}/${r1.id}/advance`, "POST", { to_stage: to }), 200, `r1 ${to}`);
 
+    // Relaydesk correction: the founder changes the workflow's stages and releases it, with a new
+    // offer. Request 3's case keeps its own release's stages; request 4 opens in the new ones.
+    const head = ok(await ava(`/api/product-projects/${i.project}`), 200, "project").head as Json;
+    const v2 = {
+      ...RELAYDESK_PROTOTYPE,
+      screens: RELAYDESK_PROTOTYPE.screens.map((s) =>
+        s.kind === "list" ? { ...s, stages: ["Triaged", "Fixed", "Closed"] } : s,
+      ),
+    };
+    const rev2 = ok(
+      await ava(`/api/product-projects/${i.project}/revisions`, "POST", {
+        base_revision: head.number,
+        brief: BRIEF,
+        prototype: v2,
+        note: "New stages",
+      }),
+      201,
+      "revision 2",
+    );
+    const build2 = ok(
+      await ava(`/api/product-projects/${i.project}/builds`, "POST", {
+        idempotency_key: "relaydesk-build-0002",
+        revision: rev2.head.number,
+      }),
+      201,
+      "compile 2",
+    ).job as Json;
+    const run2Start = ok(
+      await ava(`/api/product-projects/${i.project}/evaluations`, "POST", {
+        artifact_job: build2.id,
+      }),
+      202,
+      "checks 2",
+    ).run;
+    const run2 = await until(
+      async () => (await ava(`/api/evaluations/${run2Start.id}`)).body.run,
+      (r) => r?.state !== "running",
+      "the second version's checks",
+      30_000,
+    );
+    const released2 = ok(
+      await ava(`/api/product-projects/${i.project}/releases`, "POST", {
+        artifact_job: build2.id,
+        eval_run: run2.id,
+      }),
+      201,
+      "release 2",
+    );
+    const offer2 = await offerFor(i, ava, released2.active.id as string, "relaydesk-offer-0002");
+    const r4 = await request(cara, offer2.id as string, 4, EXPORT, caraKey);
+    expect(r4.execution).toMatchObject({ outcome: "accepted", fulfilled: true });
+    await charged(cara, r4.id, 4);
+    const mixed = ok(await ava(board), 200, "mixed board").cases as Json[];
+    const caseOf = (id: string) => mixed.find((c) => c.request_id === id) as Json;
+    expect(mixed).toHaveLength(3);
+    expect(caseOf(r3.id)).toMatchObject({
+      stage: { key: "received" },
+      on_current_release: false,
+    });
+    expect((caseOf(r3.id).stages as Json[]).map((s) => s.label)).toEqual([
+      "Received",
+      "Assigned",
+      "Resolved",
+    ]);
+    expect(caseOf(r4.id)).toMatchObject({ stage: { key: "triaged" }, on_current_release: true });
+
     // The Direct sale closes.
     const proposed = await act(i, ava, FOUNDER, "propose", SALE_TERMS, "rd-propose-0001");
     expect((await check(ava, proposed.id, "propose")).resolution.kind).toBe("confirmed");
@@ -227,7 +294,9 @@ describe("Relaydesk in the configured child across a Direct sale (SYNTHETIC chai
     expect((await ava(`${board}/${r3.id}/advance`, "POST", { to_stage: "assigned" })).status).toBe(
       404,
     );
-    expect(ok(await noah(board), 200, "buyer board").cases).toHaveLength(2);
+    // The buyer sees every case, the earlier version's in its own stages, and works request 3
+    // through them.
+    expect(ok(await noah(board), 200, "buyer board").cases).toHaveLength(3);
     ok(
       await noah(`${board}/${r3.id}/advance`, "POST", { to_stage: "assigned", note: "On it" }),
       200,
@@ -235,7 +304,8 @@ describe("Relaydesk in the configured child across a Direct sale (SYNTHETIC chai
     );
     ok(await noah(`${board}/${r3.id}/advance`, "POST", { to_stage: "resolved" }), 200, "r3 done");
 
-    // The customer sees both histories, without anyone's account.
+    ok(await noah(`${board}/${r4.id}/advance`, "POST", { to_stage: "fixed" }), 200, "r4 fixed");
+    // The customer sees every history, without anyone's account.
     for (const id of [r1.id, r3.id]) {
       const mine = ok(await cara(`/api/customer/uses/${id}/case`), 200, "case").case as Json;
       expect((mine.history as Json[]).map((e) => e.to_stage)).toEqual([
@@ -245,7 +315,9 @@ describe("Relaydesk in the configured child across a Direct sale (SYNTHETIC chai
       ]);
       expect(JSON.stringify(mine)).not.toMatch(/\.near/);
     }
-    expect(i.b.w.chain.ent(CUSTOMER)).toMatchObject({ free: "8", consumed: "2" });
+    const r4case = ok(await cara(`/api/customer/uses/${r4.id}/case`), 200, "case 4").case as Json;
+    expect((r4case.history as Json[]).map((e) => e.to_stage)).toEqual(["triaged", "fixed"]);
+    expect(i.b.w.chain.ent(CUSTOMER)).toMatchObject({ free: "7", consumed: "3" });
     // No model was asked anything, at any point.
     expect(i.b.model.calls).toEqual(models);
     expect(await app.shutdown()).toBe(0);

@@ -20,6 +20,8 @@ export interface CaseView {
   stage: CaseStage & { final: boolean };
   next: CaseStage | null;
   stages: CaseStage[];
+  /** Whether the release this case was opened under is the one serving new requests now. */
+  on_current_release: boolean;
   assigned: boolean;
   created_at: string;
   updated_at: string;
@@ -55,6 +57,7 @@ export function parseCase(raw: unknown): CaseView {
     stages: arr(c.stages, "case.stages")
       .slice(0, 12)
       .map((s) => stage(s, "case.stages")),
+    on_current_release: c.on_current_release === true,
     assigned: c.assigned === true,
     created_at: str(c.created_at, "case.created_at"),
     updated_at: str(c.updated_at, "case.updated_at"),

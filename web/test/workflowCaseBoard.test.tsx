@@ -9,6 +9,19 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// The signed-in person and session (Relaydesk correction: the board is bound to both).
+const session = vi.hoisted(() => ({
+  person: { id: "person-ava", display_name: "Ava (fictional)" } as null | {
+    id: string;
+    display_name: string;
+  },
+  epoch: 1,
+}));
+vi.mock("../src/session.tsx", () => ({
+  useSession: () => ({ person: session.person, sessionEpoch: session.epoch }),
+}));
+
 import { CustomerCaseTrack, WorkflowCaseBoard } from "../src/pages/WorkflowCaseBoard.tsx";
 import { Router } from "../src/router.tsx";
 
@@ -45,6 +58,7 @@ const kase = (id: string, stage: string, history: string[], closed = false) => (
   },
   next: stage === "received" ? STAGES[1] : stage === "assigned" ? STAGES[2] : null,
   stages: STAGES,
+  on_current_release: true,
   assigned: stage !== "received",
   created_at: T,
   updated_at: T,
@@ -128,5 +142,112 @@ describe("the customer's case track", () => {
     await settle();
     expect(document.querySelector('[aria-current="step"]')?.textContent).toBe("Assigned");
     expect(document.querySelectorAll(".wf-history li")).toHaveLength(2);
+  });
+});
+
+describe("Relaydesk correction: cases from different releases", () => {
+  it("a case whose release had other stages stays visible, in its own stages, and moves through them", async () => {
+    const OLD = [
+      { key: "triaged", label: "Triaged" },
+      { key: "fixed", label: "Fixed" },
+    ];
+    const older = {
+      ...kase("req-old00001", "received", ["received"]),
+      stage: { key: "triaged", label: "Triaged", final: false },
+      next: OLD[1],
+      stages: OLD,
+      on_current_release: false,
+      history: [{ at: T, actor_kind: "system", from_stage: null, to_stage: "triaged", note: "" }],
+    };
+    const newer = kase("req-new00001", "received", ["received"]);
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", async (u: string, init?: RequestInit) => {
+      const url = String(u);
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200 });
+      if (url.endsWith("/workflow-cases"))
+        return json({ has_workflow: true, cases: [newer, older] });
+      if (url.endsWith("/advance"))
+        return json({ case: { ...older, stage: { ...OLD[1], final: true }, next: null } });
+      return json({ case: older, fields: [], content_note: null });
+    });
+    await mount(createElement(WorkflowCaseBoard, { businessId: "biz-1" }));
+    await settle();
+    expect(text()).toMatch(/2 open · 0 resolved/);
+    expect(document.querySelectorAll(".wf-card")).toHaveLength(2);
+    expect(text()).toMatch(/earlier version of this workflow/);
+    // The released version's board comes first, whatever order the cases arrived in.
+    expect([...document.querySelectorAll(".wf-group-head")].map((h) => h.textContent)).toEqual([
+      "The released version of this workflow",
+      "On an earlier version of this workflow (its own stages)",
+    ]);
+    const old = [...document.querySelectorAll(".wf-card")].find((c) =>
+      c.textContent?.includes("req-old0"),
+    ) as HTMLButtonElement;
+    await act(async () => old.click());
+    await settle();
+    const move = [...document.querySelectorAll("button")].find((x) =>
+      /Move to Fixed/.test(x.textContent ?? ""),
+    ) as HTMLButtonElement;
+    expect(move).toBeTruthy();
+    await act(async () => move.click());
+    await settle();
+    expect(calls.find((c) => c.url.endsWith("/advance"))?.body).toEqual({
+      to_stage: "fixed",
+      note: "",
+    });
+  });
+
+  it("changing business in place drops the open case at once, and a late answer for the old business changes nothing", async () => {
+    const answers: Record<string, (v: unknown) => void> = {};
+    vi.stubGlobal(
+      "fetch",
+      (u: string) =>
+        new Promise((resolve) => {
+          answers[String(u)] = (v) => resolve(new Response(JSON.stringify(v), { status: 200 }));
+        }),
+    );
+    await mount(createElement(WorkflowCaseBoard, { businessId: "biz-1" }));
+    await settle();
+    await act(async () =>
+      root?.render(
+        createElement(Router, null, createElement(WorkflowCaseBoard, { businessId: "biz-2" })),
+      ),
+    );
+    await settle();
+    await act(async () =>
+      answers["/api/businesses/biz-2/workflow-cases"]?.({
+        has_workflow: true,
+        cases: [kase("req-biz20001", "received", ["received"])],
+      }),
+    );
+    await settle();
+    await act(async () =>
+      answers["/api/businesses/biz-1/workflow-cases"]?.({
+        has_workflow: true,
+        cases: [kase("req-biz10001", "received", ["received"])],
+      }),
+    );
+    await settle();
+    expect(text()).toMatch(/req-biz2/);
+    expect(text()).not.toMatch(/req-biz1/);
+    // Open its case, then change business again: the private details go at once.
+    await act(async () => (document.querySelector(".wf-card") as HTMLButtonElement).click());
+    await settle();
+    await act(async () =>
+      answers["/api/businesses/biz-2/workflow-cases/req-biz20001"]?.({
+        case: kase("req-biz20001", "received", ["received"]),
+        fields: [{ key: "subject", label: "Subject", value: "Private words of biz-2's customer" }],
+        content_note: null,
+      }),
+    );
+    await settle();
+    expect(text()).toMatch(/Private words/);
+    await act(async () =>
+      root?.render(
+        createElement(Router, null, createElement(WorkflowCaseBoard, { businessId: "biz-3" })),
+      ),
+    );
+    expect(text()).not.toMatch(/Private words|req-biz2/);
   });
 });

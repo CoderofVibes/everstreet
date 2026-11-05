@@ -104,6 +104,11 @@ export class WorkflowCases {
       stage: { key: c.stage, label: stage?.label ?? c.stage, final: stage?.final ?? false },
       next: next ? { key: next.key, label: next.label } : null,
       stages: spec.stages.map((s) => ({ key: s.key, label: s.label })),
+      // Relaydesk correction: a case keeps its own release's stages; this says whether that
+      // release is the one serving new requests now.
+      on_current_release: !!this.db
+        .prepare("SELECT 1 FROM runtime_releases WHERE id = ? AND state = 'active'")
+        .get(c.release_id),
       assigned: c.assignee_account !== null,
       created_at: c.created_at,
       updated_at: c.updated_at,

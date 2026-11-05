@@ -1466,3 +1466,5 @@ ul.plain { margin: 0; padding-left: 18px; }
 .an-flag { border-top: 1px solid var(--line); padding: 10px 0 4px; display: grid; gap: 6px; }
 .an-flag p { margin: 0; overflow-wrap: anywhere; }
 .an-quote { margin: 0; padding: 6px 10px; border-left: 3px solid var(--line-strong); background: var(--surface-2); font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wf-group { display: grid; gap: 8px; }
+.wf-group-head { margin: 4px 0 0; font-size: 13.5px; color: var(--ink-2); font-weight: 600; }

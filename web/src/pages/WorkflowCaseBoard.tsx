@@ -2,9 +2,12 @@
 // one column per stage, each accepted customer request a case. The business's current owner opens
 // a case (its fields come from the request's protected copy, for them only) and moves it to the
 // next stage; the final stage closes it. Every move is recorded and the customer sees it. After a
-// sale the buyer works the cases and the seller no longer sees them.
+// sale the buyer works the cases and the seller no longer sees them. Cases opened under an earlier
+// release keep that release's stages and are shown in their own board (Relaydesk correction).
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useActorRead } from "../actorRead.ts";
+import { useSession } from "../session.tsx";
 import { ago } from "../via.ts";
 import { type CaseDetail, type CaseView, workflowApi } from "../workflowApi.ts";
 
@@ -14,27 +17,36 @@ const WHO: Record<CaseView["history"][number]["actor_kind"], string> = {
   system: "Received",
 };
 
-export function WorkflowCaseBoard({ businessId }: { businessId: string }) {
-  const [board, setBoard] = useState<{ has_workflow: boolean; cases: CaseView[] } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
-  const load = useCallback(() => {
-    workflowApi
-      .board(businessId)
-      .then((b) => {
-        setBoard(b);
-        setError(null);
-      })
-      .catch((e: Error) => setError(e.message));
-  }, [businessId]);
-  useEffect(() => {
-    load();
-  }, [load]);
+/** Cases grouped by the stages of the release each was opened under (newest group first). */
+export function groupByStages(cases: CaseView[]) {
+  const groups: { key: string; stages: CaseView["stages"]; cases: CaseView[] }[] = [];
+  for (const c of cases) {
+    const key = c.stages.map((s) => `${s.key}=${s.label}`).join("|");
+    const g = groups.find((x) => x.key === key);
+    if (g) g.cases.push(c);
+    else groups.push({ key, stages: c.stages, cases: [c] });
+  }
+  // The current release's stages first; earlier ones after, in the order the server listed them.
+  const current = (g: (typeof groups)[number]) => g.cases.some((c) => c.on_current_release);
+  return [...groups.filter(current), ...groups.filter((g) => !current(g))];
+}
 
-  if (error && !board) return null; // the desk shows its own errors; the board is optional
-  if (!board?.has_workflow) return null;
-  const stages = board.cases[0]?.stages ?? [];
+export function WorkflowCaseBoard({ businessId }: { businessId: string }) {
+  const { person, sessionEpoch } = useSession();
+  // Relaydesk correction: bound to the session AND the business. An in-place change of either
+  // drops what was shown (and any open case's private details) at once; a late answer for the
+  // earlier scope changes nothing. The read takes its business from the scope it reads for.
+  const scope = person ? `${person.id}#${sessionEpoch}|${businessId}` : null;
+  const read = useActorRead(scope, (w) => workflowApi.board(w.slice(w.lastIndexOf("|") + 1)));
+  const [open, setOpen] = useState<{ scope: string; id: string } | null>(null);
+  const board = read.state.data;
+  const shownOpen = open && open.scope === scope ? open.id : null;
+
+  if (!scope || !board?.has_workflow) return null; // the board is optional on the desk
   const openCount = board.cases.filter((c) => !c.closed_at).length;
+  // Each case keeps the stages of the release it was opened under; a workflow that changed
+  // stages has its earlier cases in their own board, never hidden.
+  const groups = groupByStages(board.cases);
 
   return (
     <section className="card wf-board-card" aria-labelledby="wf-board-title" id="desk-cases">
@@ -53,41 +65,57 @@ export function WorkflowCaseBoard({ businessId }: { businessId: string }) {
           as a case.
         </p>
       ) : (
-        <div className="wf-board" style={{ gridTemplateColumns: `repeat(${stages.length}, 1fr)` }}>
-          {stages.map((s) => {
-            const here = board.cases.filter((c) => c.stage.key === s.key);
-            return (
-              <div className="wf-col" key={s.key}>
-                <div className="wf-col-head">
-                  {s.label} <span className="muted">{here.length}</span>
-                </div>
-                {here.map((c) => (
-                  <button
-                    type="button"
-                    key={c.request_id}
-                    className={`wf-card${open === c.request_id ? " is-open" : ""}`}
-                    aria-expanded={open === c.request_id}
-                    onClick={() => setOpen(open === c.request_id ? null : c.request_id)}
-                  >
-                    <span className="mono wf-card-id">{c.request_id.slice(0, 8)}</span>
-                    <span className="muted">
-                      {c.closed_at
-                        ? `Resolved ${ago(c.closed_at)}`
-                        : `Updated ${ago(c.updated_at)}`}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            );
-          })}
-        </div>
+        groups.map((g) => (
+          <div key={g.key} className="wf-group">
+            {groups.length > 1 && (
+              <h3 className="wf-group-head">
+                {g.cases.some((c) => c.on_current_release)
+                  ? "The released version of this workflow"
+                  : "On an earlier version of this workflow (its own stages)"}
+              </h3>
+            )}
+            <div
+              className="wf-board"
+              style={{ gridTemplateColumns: `repeat(${g.stages.length}, 1fr)` }}
+            >
+              {g.stages.map((st) => {
+                const here = g.cases.filter((c) => c.stage.key === st.key);
+                return (
+                  <div className="wf-col" key={st.key}>
+                    <div className="wf-col-head">
+                      {st.label} <span className="muted">{here.length}</span>
+                    </div>
+                    {here.map((c) => (
+                      <button
+                        type="button"
+                        key={c.request_id}
+                        className={`wf-card${shownOpen === c.request_id ? " is-open" : ""}`}
+                        aria-expanded={shownOpen === c.request_id}
+                        onClick={() =>
+                          setOpen(shownOpen === c.request_id ? null : { scope, id: c.request_id })
+                        }
+                      >
+                        <span className="mono wf-card-id">{c.request_id.slice(0, 8)}</span>
+                        <span className="muted">
+                          {c.closed_at
+                            ? `Resolved ${ago(c.closed_at)}`
+                            : `Updated ${ago(c.updated_at)}`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))
       )}
-      {open && (
+      {shownOpen && (
         <CaseDetailPanel
-          key={open}
+          key={`${scope}:${shownOpen}`}
           businessId={businessId}
-          requestId={open}
-          onMoved={load}
+          requestId={shownOpen}
+          onMoved={read.retry}
           onClose={() => setOpen(null)}
         />
       )}
