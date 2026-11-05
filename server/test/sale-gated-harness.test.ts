@@ -6,6 +6,7 @@
 // the harness's site and control listeners are used, as a browser and a reviewer would. Cara's
 // existing fixture key signs (no enrollment). Ephemeral ports, one bounded child, all removed.
 
+import { existsSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CONFIGURED_BUYER,
@@ -261,5 +262,50 @@ describe("003wf3 the Gated review harness's controls (actual child process)", ()
     // refuses customer uses as clock_uncertain (its own clock and NEAR's disagree); nothing runs.
     const again = await ctl(h, "/customer/start");
     expect(again, JSON.stringify(again)).toMatchObject({ status: 503, code: "clock_uncertain" });
+  }, 240_000);
+});
+
+describe("003wf3 the harness's one-step customer-pause setup (test harness only; actual child)", () => {
+  it("reaches the review state through the composition's routes and the synthetic wallet: a completed result readable, a reserved use returned uncharged by the coordinator, a new use refused by the actual gate, the close held; release lands it; the stop leaves nothing", async () => {
+    const { h, handover } = await gatedHarness();
+    const s = await ctl(h, "/setup/customer-pause");
+    expect(s.error, JSON.stringify(s)).toBeUndefined();
+    expect(s.urls).toEqual({
+      sale: `${h.origin}/sales/${h.business}`,
+      offer: expect.stringMatching(new RegExp(`^${h.origin}/use/`)),
+      returned_use: `${h.origin}/uses/${s.returned_use.id}`,
+      completed_use: `${h.origin}/uses/${s.completed_use.id}`,
+    });
+    expect(String(s.handover.state)).toMatch(/^(ordering|outcome_unknown)$/);
+    expect(s.handover).toMatchObject({ orders: 1, close_held: true });
+    expect(s.returned_use).toMatchObject({ state: "reserved", unit: "returned" });
+    expect(s.completed_use.result_status).toBe(200);
+    expect(s.new_use).toMatchObject({ status: 409, code: "handover_pause" });
+    expect(String(s.new_use.error)).toContain("Nothing was signed, held or charged");
+    expect(s.wallet_transactions).toBe(5); // propose, register, fund, two accepts
+    // The pages the reviewer opens are the composition's own (the site adds only the harness).
+    for (const url of [s.urls.sale, s.urls.returned_use, s.urls.completed_use]) {
+      const r = await fetch(url as string);
+      expect(r.status, url).toBe(200);
+      expect(r.headers.get("content-type") ?? "").toMatch(/^text\/html/);
+    }
+    // Inside its finite budget; a second setup is refused (this sale is already live).
+    const u = (await ctl(h, "/usage", "GET")).counters as Json;
+    expect(u.exhausted).toBeNull();
+    expect((await ctl(h, "/setup/customer-pause")).error).toMatch(/already live/);
+    // The existing release control lets the close land; the handover completes.
+    await ctl(h, "/release-close");
+    const final = await until(
+      handover,
+      (x) => x?.state === "released_to_buyer",
+      "handed over",
+      90_000,
+    );
+    expect(final.orders).toHaveLength(1);
+    // The stop leaves no child, listener or directory.
+    running = null;
+    expect(await h.stop()).toEqual({ childExit: 0, forcedKill: false });
+    expect(existsSync(h.dir)).toBe(false);
+    await expect(fetch(`${h.origin}/`)).rejects.toThrow();
   }, 240_000);
 });

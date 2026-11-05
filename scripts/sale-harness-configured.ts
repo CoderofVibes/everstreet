@@ -17,6 +17,10 @@
 //   POST /customer/start                Cara prepares and confirms one use (her fixture key)
 //   POST /customer/execute/<id>         runs it in the background (see it with a held provider)
 //   GET  /customer/uses | /customer/use/<id>   Cara's own view: state, pause, unit, result
+//   POST /setup/customer-pause          one step to the customer-pause review state: Cara's
+//                                       completed use, a reserved use the coordinator returns,
+//                                       the sale closing with its close held; returns the URLs
+//                                       and the measured state (release with /release-close)
 //
 // Site: http://127.0.0.1:<port>/ (default 8814). Sign in with the synthetic wallet (it starts as the
 // seller, ava-founder.near). Controls on http://127.0.0.1:<port+1>/ (a separate listener):

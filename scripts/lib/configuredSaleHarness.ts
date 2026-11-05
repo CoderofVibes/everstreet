@@ -51,6 +51,7 @@ import {
   FICTIONAL_KEY,
   FOUNDER,
   nearKey,
+  OP,
   signInAs,
 } from "../../server/test/lifecycleWorld.ts";
 import { labelScript } from "./customerPreview.ts";
@@ -530,6 +531,148 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
       return { use: id, started: true };
     };
 
+    // ---- Job 003wf3 (Astra 04:23): a repeatable customer-pause setup, TEST HARNESS ONLY ----
+    // Everything goes through the composition's regular routes (sale actions, customer uses)
+    // and the synthetic wallet's encoded calls; Cara signs with her existing fixture key only.
+    // Nothing is assigned directly: the pause, the returned unit and the refusal come from the
+    // composition's own gate and coordinator.
+    const jarCall = () => {
+      const jar = new Map<string, string>();
+      return async (path: string, method = "GET", body?: unknown) => {
+        const cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
+        const res = await loopback(`${app}${path}`, {
+          method,
+          headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        for (const set of res.headers.getSetCookie()) {
+          const [pair, ...attrs] = set.split(";");
+          const [name, ...rest] = (pair as string).split("=");
+          if (!rest.join("=") || attrs.some((x) => /^max-age=0$/i.test(x.trim())))
+            jar.delete(name as string);
+          else jar.set(name as string, rest.join("="));
+        }
+        return { status: res.status, body: (await res.json().catch(() => null)) as Json };
+      };
+    };
+    const saleAct = async (
+      call: ReturnType<typeof jarCall>,
+      account: string,
+      kind: string,
+      input: Json = {},
+    ) => {
+      const biz = b.w.f.business as string;
+      const p = await call(`/api/sales/${biz}/prepare`, "POST", { kind, input });
+      if (p.status !== 200) throw new Error(`${kind}: ${p.body?.error ?? p.status}`);
+      const c = await call(`/api/sales/${biz}/actions`, "POST", {
+        kind,
+        input: p.body.input,
+        action_digest: p.body.action_digest,
+        idempotency_key: `harness-pause-${kind}-${Math.random().toString(36).slice(2, 10)}`,
+      });
+      if (c.status !== 201) throw new Error(`${kind}: ${c.body?.error ?? c.status}`);
+      const a = c.body.action as Json;
+      await call(`/api/sales/actions/${a.id}/requested`, "POST", {});
+      const out = b.w.chain.walletCall(account, a.call as never) as Json;
+      controls.sent.push({ signer: account, ...(a.call as Json) });
+      counters.wallet_tx++;
+      await call(`/api/sales/actions/${a.id}/requested`, "POST", {
+        tx_hash: out.transaction.hash,
+      });
+      const check = (await call(`/api/sales/actions/${a.id}/check`, "POST", {})).body as Json;
+      if (check?.resolution?.kind !== "confirmed")
+        throw new Error(`${kind}: ${JSON.stringify(check?.resolution ?? check).slice(0, 200)}`);
+      return check;
+    };
+    const waitFor = async (what: string, ok: () => Promise<boolean>, ms = 60_000) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (await ok()) return;
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      throw new Error(`customer-pause setup: timed out waiting for ${what}`);
+    };
+    const customerPauseSetup = async () => {
+      if (!gated) throw new Error("customer-pause setup needs the Gated harness (--gated)");
+      if (sale.controlView().live_deal) throw new Error("a sale is already live in this harness");
+      if (caraJar.size === 0) await signInAs(cara, CUSTOMER, b.cara);
+      // 1. A completed use: run, delivered and settled (Cara's own unit-reconcile route).
+      const done = (await customerStart()) as Json;
+      if (done.state !== "reserved") throw new Error(`first use: ${JSON.stringify(done)}`);
+      const ran = await cara(`/api/customer/uses/${done.use}/execute`, "POST", {});
+      if (!ran.body?.use?.execution?.fulfilled) throw new Error("first use didn't deliver");
+      await waitFor("the first use settled", async () => {
+        await cara(`/api/customer/uses/${done.use}/units/reconcile`, "POST", {});
+        const v = (await cara(`/api/customer/uses/${done.use}`)).body as Json;
+        return v?.use?.units?.unit === "charged";
+      });
+      // 2. A reserved use that hasn't run.
+      const held = (await customerStart()) as Json;
+      if (held.state !== "reserved") throw new Error(`second use: ${JSON.stringify(held)}`);
+      // 3. The sale reaches its closing through the participants' requests; the close is held.
+      const seller = jarCall();
+      const buyer = jarCall();
+      await signInAs(seller, FOUNDER, b.ava);
+      await signInAs(buyer, CONFIGURED_BUYER, noahKey);
+      await saleAct(seller, FOUNDER, "propose", {
+        buyer_account: CONFIGURED_BUYER,
+        price: "250000000",
+        expires_in_days: 7,
+        available_floor: "0",
+        grants: [{ account: OP, caps: 1 }],
+        exclusions: [],
+        note: "",
+      });
+      for (const k of ["register", "fund", "accept"]) await saleAct(buyer, CONFIGURED_BUYER, k);
+      heldClose = b.rpc.holdNextSend("close_sale");
+      controls.closeHeld = true;
+      await saleAct(seller, FOUNDER, "accept");
+      // 4. The coordinator returns the reserved unit, and the close waits at its send.
+      const biz = b.w.f.business as string;
+      await waitFor("the reserved use's unit returned", async () => {
+        const v = (await cara(`/api/customer/uses/${held.use}`)).body as Json;
+        return v?.use?.units?.unit === "returned";
+      });
+      await waitFor("the close order held at its send", async () => {
+        const s = (await seller(`/api/sales/${biz}`)).body as Json;
+        return (s?.handover?.orders?.length ?? 0) > 0;
+      });
+      // 5. What the gate itself says to a new use (nothing is signed, held or charged).
+      const tryNew = await cara(`/api/customer/offers/${b.offer}/prepare`, "POST", {
+        idempotency_key: `configured-harness-use-${String(++uses).padStart(4, "0")}`,
+        input: INVOICE,
+      });
+      const setup = (await seller(`/api/sales/${biz}`)).body as Json;
+      const returned = (await cara(`/api/customer/uses/${held.use}`)).body as Json;
+      const result = await cara(`/api/customer/uses/${done.use}/result`);
+      return {
+        note: "Test harness only: set up through the composition's regular routes and the synthetic wallet; fictional people; Cara's fixture key. The close is held at its send; POST /release-close lets it land.",
+        urls: {
+          sale: `${origin}/sales/${biz}`,
+          offer: `${origin}/use/${b.offer}`,
+          returned_use: `${origin}/uses/${held.use}`,
+          completed_use: `${origin}/uses/${done.use}`,
+        },
+        handover: {
+          state: setup?.handover?.state ?? null,
+          orders: setup?.handover?.orders?.length ?? 0,
+          close_held: controls.closeHeld,
+        },
+        returned_use: {
+          id: held.use,
+          state: returned?.use?.state ?? null,
+          unit: returned?.use?.units?.unit ?? null,
+        },
+        completed_use: { id: done.use, result_status: result.status },
+        new_use: {
+          status: tryNew.status,
+          code: tryNew.body?.code ?? null,
+          error: tryNew.body?.error ?? null,
+        },
+        wallet_transactions: controls.sent.length,
+      };
+    };
+
     // ---- Listeners and the bounded stop ----
     /** Listens, or fails the start (e.g. the port is taken); a bound listener is tracked. */
     const listen = (fetch: (r: Request) => Response | Promise<Response>, port: number) =>
@@ -564,6 +707,7 @@ export async function startConfiguredSaleHarness(o: ConfiguredSaleOptions) {
         cara,
         customerStart,
         customerExecute,
+        customerPauseSetup,
         background,
         releaseClose: () => {
           heldClose?.open();
@@ -662,6 +806,7 @@ function configuredSaleControl(h: {
   releaseProvider: () => void;
   cara: (path: string, method?: string, body?: unknown) => Promise<{ status: number; body: Json }>;
   customerStart: () => Promise<unknown>;
+  customerPauseSetup: () => Promise<unknown>;
   customerExecute: (id: string) => unknown;
   background: Map<string, { done: boolean; status: number | null; code: string | null }>;
   app: string;
@@ -777,6 +922,15 @@ function configuredSaleControl(h: {
   });
   // Cara (the existing fixture customer; her fixture key signs, no enrollment), step by step.
   control.post("/customer/start", async (c) => c.json(await h.customerStart()));
+  // Job 003wf3 (Astra 04:23): the customer-pause review state, in one step (Gated only).
+  control.post("/setup/customer-pause", async (c) => {
+    if (!h.gated) return c.json({ error: "Gated harness only (--gated)" }, 400);
+    try {
+      return c.json(await h.customerPauseSetup());
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 409);
+    }
+  });
   control.post("/customer/execute/:id", (c) => c.json(h.customerExecute(c.req.param("id"))));
   control.get("/customer/uses", async (c) => {
     const list = await h.cara("/api/customer/uses");
