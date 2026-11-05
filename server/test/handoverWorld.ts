@@ -38,15 +38,16 @@ export interface HandoverWorldOptions {
   handover?: Json;
 }
 
-export async function handoverWorld(o: HandoverWorldOptions = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "handover-world-"));
-  const b = await bootstrap(dir, 1, {
-    interval_ms: 60_000,
-    batch: 5,
-    pass_budget_ms: 3_000,
-    op_deadline_ms: 2_000,
-    stop_timeout_ms: 5_000,
-  });
+/**
+ * The installation's handover prerequisites on a bootstrapped directory (shared with the actual-
+ * process tests): the sale half in Gated mode, the buyer linked, the closer's ephemeral key and its
+ * on-chain permission, and the `handover` config section.
+ */
+export function prepareHandover(
+  b: Awaited<ReturnType<typeof bootstrap>>,
+  dir: string,
+  o: HandoverWorldOptions = {},
+) {
   const sale = b.w.chain.attachSale({ owner: FOUNDER, closer: CLOSER });
   sale.handoverTerms = o.terms ?? true;
   b.w.chain.balances.set(BUYER, 1_000_000_000n);
@@ -101,6 +102,19 @@ export async function handoverWorld(o: HandoverWorldOptions = {}) {
     min_allowance_yocto: "1000",
     ...(o.handover ?? {}),
   };
+  return { sale, noah, ck, closerKeyId: k, handover };
+}
+
+export async function handoverWorld(o: HandoverWorldOptions = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "handover-world-"));
+  const b = await bootstrap(dir, 1, {
+    interval_ms: 60_000,
+    batch: 5,
+    pass_budget_ms: 3_000,
+    op_deadline_ms: 2_000,
+    stop_timeout_ms: 5_000,
+  });
+  const { sale, noah, ck, closerKeyId: k, handover } = prepareHandover(b, dir, o);
   const composed = composeIn(b, { config: { handover } });
   const coordinator = composed.handover;
   if (!coordinator) throw new Error("handover world: the coordinator wasn't composed");
