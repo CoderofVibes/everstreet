@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Wallet browser repeat](2026-11-04_WalletBrowserRepeat.md) | Actual synthetic enroll/use/settle99free1used and lost-answer revocation pass after reload | First sign-in Loading and390px clipping block003wea; bounded correction next; all six milestones open |
 | 2026-11-04 | [Device-key review](2026-11-04_DeviceKeyReview.md) | Original controller races corrected; two-handle storage checks pass; actual browser sign-in then unavailable product | Independent1315+1skip snapshot;003wea corrects unpublished harness, revoke review and UI lifetime; full browser acceptance pending |
 | 2026-11-04 | [Wallet sign-in review](2026-11-04_WalletSignInReview.md) | Delayed verification/server and old-controller cleanup failures corrected | Four independent regressions pass; e1 full1284+1skip; actual synthetic sign-in succeeds, SessionProvider lifetime review retained003wea |
 | 2026-11-04 | [Configured journey planning](2026-11-04_ConfiguredJourneyPlanning.md) | Grounded 003wf integration requirements: real composition/maintenance, wallet commerce, restart, 100/20/80 and uncertainty recovery | Registered queued after all003we children; all six milestones retained |
