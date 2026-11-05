@@ -335,7 +335,7 @@ export class Publications {
       choices: this.choices(businessId),
       limits: PROFILE_LIMITS,
     };
-    this.store.stillControls(viewer, epoch);
+    this.store.stillControls(viewer, epoch, { handover: "allow" }); // job 003wf3: a read
     return out;
   }
 
@@ -347,6 +347,9 @@ export class Publications {
     if (!Number.isInteger(base) || base < 0) bad("A base revision is required (base_rev)");
     this.store.stillControls(viewer, epoch);
     this.store.tx(() => {
+      // Job 003wf3 (S-21): again inside the write transaction (another process may have armed the
+      // business's handover gate, or changed its owner, since the check above).
+      this.store.stillControls(viewer, epoch);
       const { draft: current, rev } = this.draftOf(businessId);
       if (base !== rev) {
         if (rev === base + 1 && JSON.stringify(current) === JSON.stringify(draft)) return; // a retry
@@ -378,6 +381,7 @@ export class Publications {
     this.store.stillControls(viewer, epoch);
     let already = false;
     this.store.tx(() => {
+      this.store.stillControls(viewer, epoch); // job 003wf3 (S-21): in the write transaction
       const r = this.row(businessId);
       const { draft, rev } = this.draftOf(businessId);
       if (!r || reviewed !== rev)

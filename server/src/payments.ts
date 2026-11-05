@@ -760,8 +760,8 @@ export class Payments {
       this.wallet(founder).catch(() => null),
     ]);
     // After the reads and before anything private (balances, orders, customers' names) is
-    // returned: still this owner, in the same period of control (003f1).
-    this.store.stillControls(founder, epoch);
+    // returned: still this owner, in the same period of control (003f1). Job 003wf3: a read.
+    this.store.stillControls(founder, epoch, { handover: "allow" });
     // Exact conversion (job 003f); null, never 0, for anything not read or not representable.
     const c = (u: string | undefined) =>
       u === undefined ? null : (unitsToCents(BigInt(u), chain.decimals)?.cents ?? null);

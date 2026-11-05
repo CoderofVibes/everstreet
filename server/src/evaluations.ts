@@ -405,6 +405,9 @@ export class Evaluations {
     const p = this.runtime.project(viewer, projectId);
     const cases = parseCases(input.cases);
     this.store.tx(() => {
+      // Job 003wf3 (S-21, found by the route inventory): the business's own test cases are an
+      // owner mutation; refused in this transaction while the business is changing hands.
+      this.store.requireNoHandover(p.business_id);
       const l = this.latest(p.id);
       const base =
         input.base_version === null || input.base_version === undefined

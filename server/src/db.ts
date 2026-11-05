@@ -1052,6 +1052,8 @@ function migrateHandover(db: DatabaseSync, columns: (t: string) => Set<string>) 
     ["app_preview_tokens", "NEW.business_id"],
     ["customer_requests", "NEW.business_id"],
     ["product_revisions", "(SELECT business_id FROM product_projects WHERE id = NEW.project_id)"],
+    // Job 003wf3 (S-21): the business's test cases.
+    ["eval_fixtures", "(SELECT business_id FROM product_projects WHERE id = NEW.project_id)"],
     [
       "customer_executions",
       "(SELECT business_id FROM customer_requests WHERE id = NEW.request_id)",

@@ -945,7 +945,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const n = Math.min(24, Math.max(1, Math.round(Number(c.req.query("months") ?? 12)) || 12));
     const [ledger, now] = await Promise.all([books.months(id, n), books.now(id)]);
     // Checked again after the reads: a sale (or a sale and return) while they ran returns nothing.
-    store.stillControls(p, epoch);
+    // Job 003wf3 (§14.2): a read, so a business changing hands still shows its owner its books.
+    store.stillControls(p, epoch, { handover: "allow" });
     const costs = books.costs(p, id);
     return c.json({
       ...ledger,
@@ -971,7 +972,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const id = c.req.param("id");
     const epoch = store.controlEpoch(p, id);
     const view = digitalDesk(store.db, id, new Date(), customerUses.operationsService(id));
-    store.stillControls(p, epoch);
+    store.stillControls(p, epoch, { handover: "allow" }); // job 003wf3: a read
     return c.json(view);
   });
   app.post("/api/businesses/:id/costs", async (c) => {
@@ -994,9 +995,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const id = c.req.param("id");
     const epoch = store.controlEpoch(p, id);
     const { months, chain_error } = await books.months(id, 12);
-    store.stillControls(p, epoch); // still in control after the read, before anything is written
+    // Job 003wf3 (§14.2): a read (nothing is written), allowed while the business changes hands.
+    store.stillControls(p, epoch, { handover: "allow" });
     const estimate = await valuation.current(id, months);
-    store.stillControls(p, epoch);
+    store.stillControls(p, epoch, { handover: "allow" });
     return c.json({
       estimate,
       settings: valuation.settings(id),
