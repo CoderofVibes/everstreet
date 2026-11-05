@@ -28,6 +28,7 @@ import {
   type HandoverRow,
   type JournalCaps,
   journal,
+  latestHandover,
   openHandover,
 } from "./handover.ts";
 import type { V3Intents } from "./v3intents.ts";
@@ -405,7 +406,38 @@ export class HandoverCoordinator {
       return `evidence_${recorded}`;
     }
     let h = openHandover(this.db, businessId);
-    if (!h) return "idle";
+    if (!h) {
+      // S-12: a finished handover's close attempt still unresolved (an aged original that was
+      // replaced, say) is resolved by its own transaction, so its evidence is never left
+      // looking absent. It never moves the finished handover.
+      const last = latestHandover(this.db, businessId);
+      const open = last
+        ? (
+            this.db
+              .prepare(
+                "SELECT COUNT(*) AS n FROM closer_tx_attempts WHERE operation LIKE ? AND state = 'signed'",
+              )
+              .get(`close-${last.id}-%`) as { n: number }
+          ).n
+        : 0;
+      if (!last || open === 0) return "idle";
+      // Bounded: once every order is older than the contract's own limit (MAX_ISSUE_AGE_MS) none
+      // can ever execute (E_ISSUE_AGE), so nothing more is sent; an attempt still unproven then
+      // stays unknown on its own record, which is the truth.
+      const youngest = this.db
+        .prepare(
+          "SELECT MAX(json_extract(order_json, '$.issued_at_ms')) AS t FROM close_orders WHERE handover_id = ?",
+        )
+        .get(last.id) as { t: string | null };
+      if (
+        youngest.t === null ||
+        BigInt(r.block.timestamp_ms) - BigInt(youngest.t) > BigInt(MAX_ISSUE_AGE_MS)
+      )
+        return "idle";
+      if (!alive()) return "stopped";
+      await this.resolveAttempts(last, binding.account, gen);
+      return "attempts_resolved";
+    }
     if (h.state === "attention") return "attention";
     if (h.state === "closed_observed" || h.state === "reconciled") {
       if (!h.intent_id) {
@@ -448,7 +480,30 @@ export class HandoverCoordinator {
     if (last) {
       const issued = Number((JSON.parse(last.order_json) as { issued_at_ms: string }).issued_at_ms);
       const age = Number(r.block.timestamp_ms) - issued;
-      const failed = this.attemptState(h, last.n) === "failure";
+      const state = this.attemptState(h, last.n);
+      const failed = state === "failure";
+      if (state === null && age < MAX_ISSUE_AGE_MS - this.opts.dispatchMarginMs) {
+        // Astra 03:10: a durable order whose sending never started (the step that made it ended
+        // before the writer ran). The SAME order is sent: its exact stored contents under its own
+        // operation identity, through the writer's single-sender admission (the attempt is
+        // persisted before any broadcast; a concurrent sender of this operation is refused there).
+        // Never a replacement: an order that was never sent can't land late, but a new one isn't
+        // needed while this one is still young enough.
+        this.tx(() => {
+          this.requireLease(businessId, gen);
+          journal(this.db, h, "order_resumed", String(last.n), {
+            caps: this.caps,
+            now: this.now(),
+          });
+        });
+        return this.dispatch(
+          h,
+          last.n,
+          JSON.parse(last.order_json) as Record<string, unknown>,
+          binding.account,
+          gen,
+        );
+      }
       if (!failed && age < MAX_ISSUE_AGE_MS - this.opts.dispatchMarginMs) {
         this.status(businessId, gen, "order_outstanding");
         return "order_outstanding";

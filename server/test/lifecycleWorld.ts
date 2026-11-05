@@ -173,9 +173,28 @@ export class SyntheticModel {
   }
   /** The test RPC as an in-process fetch (the configured endpoint only). */
   static rpcFetch(rpc: SyntheticRpc) {
-    return async (url: string, init: { body: string }) => {
+    return async (url: string, init: { body: string; signal?: AbortSignal }) => {
       if (url !== RPC) throw new Error(`synthetic RPC: refused ${url}`);
-      return new Response(await rpc.answer(init.body), { status: 200 });
+      const answer = rpc.answer(init.body);
+      // Job 003wf3: when asked to, the caller's abort ends ITS wait, as a real fetch's does; the
+      // request already sent goes on (a transaction may still land). Off by default: the
+      // existing tests use a transport that ignores cancellation on purpose.
+      const signal = init.signal;
+      if (rpc.honorAbort && signal) {
+        const aborted = new Promise<never>((_, reject) => {
+          if (signal.aborted) reject(new DOMException("aborted", "AbortError"));
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            {
+              once: true,
+            },
+          );
+        });
+        answer.catch(() => {});
+        return new Response(await Promise.race([answer, aborted]), { status: 200 });
+      }
+      return new Response(await answer, { status: 200 });
     };
   }
 }
@@ -275,6 +294,13 @@ export class SyntheticRpc {
   private snapshots = new Map<number, Json>();
   private heldSend: Barrier | null = null;
   private heldQuery: Barrier | null = null;
+  /** Job 003wf3: the in-process fetch honours its caller's abort (as a real fetch). */
+  honorAbort = false;
+  /**
+   * Job 003wf3: a send this predicate matches never reaches the network (its caller gets a
+   * transport error; nothing is applied), e.g. every broadcast of one exact close order.
+   */
+  dropSend: ((method: string, args: Json) => boolean) | null = null;
   /** Job 003wf3: only a send of this method is held (null: the next send of any method). */
   private heldSendMethod: string | null = null;
   /** Job 003wf3: the next send of this method is applied, then its answer is lost. */
@@ -408,6 +434,16 @@ export class SyntheticRpc {
     if (req.method === "send_tx") {
       this.sends++;
       const b64 = String(p.signed_tx_base64);
+      if (this.dropSend) {
+        let d: ReturnType<typeof decodeSigned> | null = null;
+        try {
+          d = decodeSigned(b64);
+        } catch {
+          d = null;
+        }
+        if (d && this.dropSend(d.method, d.args as Json))
+          throw new Error("synthetic: the send didn't reach the network");
+      }
       const method = this.heldSendMethod || this.loseSendMethod ? this.methodOfSend(b64) : null;
       const h = this.heldSend;
       if (h && (this.heldSendMethod === null || this.heldSendMethod === method)) {
