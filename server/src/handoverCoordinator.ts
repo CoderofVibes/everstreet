@@ -403,6 +403,10 @@ export class HandoverCoordinator {
         this.attention(h, gen, "intent_missing", r.block);
         return "attention";
       }
+      // An earlier attempt still unresolved is resolved by its own hash (Astra 01:41): whichever
+      // order closed it, the evidence is reconciled, never left looking absent.
+      if (!alive()) return "stopped";
+      await this.resolveAttempts(h, binding.account, gen);
       if (!alive()) return "stopped";
       const rec = await this.intents.reconcile(null, businessId, h.intent_id, {
         handoverId: h.id,
@@ -685,7 +689,30 @@ export class HandoverCoordinator {
       .prepare("SELECT n, order_json FROM close_orders WHERE handover_id = ? ORDER BY n")
       .all(h.id) as { n: number; order_json: string }[];
     for (const o of orders) {
-      if (this.attemptState(h, o.n) !== "signed") continue;
+      const state = this.attemptState(h, o.n);
+      if (state !== null && state !== "signed") {
+        // Final by its own transaction (perhaps recorded by a step that had lost its lease): the
+        // journal records it once, so the evidence is never shown as absent (Astra 01:41).
+        const noted = this.db
+          .prepare(
+            "SELECT 1 FROM handover_journal WHERE handover_id = ? AND kind = 'attempt_final' AND code LIKE ?",
+          )
+          .get(h.id, `${o.n}:%`);
+        if (!noted)
+          try {
+            this.tx(() => {
+              this.requireLease(h.business_id, gen);
+              journal(this.db, h, "attempt_final", `${o.n}:${state}`, {
+                caps: this.caps,
+                now: this.now(),
+              });
+            });
+          } catch (e) {
+            if (!(e instanceof LeaseLost)) throw e;
+          }
+        continue;
+      }
+      if (state !== "signed") continue;
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), this.opts.opDeadlineMs);
       try {
