@@ -4,19 +4,36 @@
     {
       "name": "everstreet",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "serve"],
+      "runtimeArgs": [
+        "run",
+        "serve"
+      ],
       "port": 8800
     },
     {
       "name": "everstreet-sale-smoke",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "serve"],
+      "runtimeArgs": [
+        "run",
+        "serve"
+      ],
       "port": 8801,
       "env": {
         "PORT": "8801",
         "EVERSTREET_DB": "data/runtime/sale-smoke.db",
         "OPENSEAT_DB": "data/runtime/sale-smoke-openseat.db"
       }
+    },
+    {
+      "name": "sale-harness",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "scripts/sale-harness.ts",
+        "--minutes",
+        "90"
+      ],
+      "port": 8814
     }
   ]
 }

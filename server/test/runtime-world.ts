@@ -234,6 +234,21 @@ export function runtimeWorld(
     const job = await build(ava, p.id);
     return { ava, project: p.id as string, business: p.business_id as string, job };
   };
+  /**
+   * Flagship journey (003wf parent): ONLY the founder's person and the project's business shell,
+   * so the business's contract account can be bound in the configuration. No budget, build,
+   * evaluation or release: the founder makes those through the configured child's own routes.
+   */
+  const shell = async (name = "Ava Chen") => {
+    const ava = await join(name);
+    const p = (
+      await ava("/api/product-projects", "POST", {
+        idea: "Turn fictional supplier invoices into clean rows",
+        foundation: "ai_api",
+      })
+    ).body.project;
+    return { ava, project: p.id as string, business: p.business_id as string, job: "" };
+  };
   /** Starts a check of a version and waits for it to finish (bounded). */
   const check = async (f: Awaited<ReturnType<typeof founder>>, job = f.job) => {
     const started = await f.ava(`/api/product-projects/${f.project}/evaluations`, "POST", {
@@ -281,6 +296,7 @@ export function runtimeWorld(
     join,
     build,
     founder,
+    shell,
     check,
     release,
     transfer,

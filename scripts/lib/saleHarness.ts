@@ -60,6 +60,20 @@ export async function saleHarness(opts: {
   s.sale.ceiling = budget.sale_calls;
   w.writer.ceiling = budget.writer_calls;
   s.protection.ceiling = budget.protection_calls;
+  /**
+   * What running out of each double means for the person at the browser (Astra 06:28: a spent
+   * writer or protection budget need not make every later read fail, so say only what it stops).
+   */
+  const budgetEffect = (msg: string) =>
+    /sale chain ceiling/.test(msg)
+      ? "The synthetic sale chain stopped answering, so later sale steps and sale reads fail."
+      : /chain ceiling|reader ceiling/.test(msg)
+        ? `The synthetic chain stopped answering, so later NEAR reads fail as "NEAR couldn't be read".`
+        : /writer ceiling/.test(msg)
+          ? "The synthetic customer writer stopped accepting submissions, so later customer uses cannot be recorded; reads may still work."
+          : /protection ceiling/.test(msg)
+            ? "The synthetic protection service stopped answering, so later customer documents cannot be protected or opened; other reads may still work."
+            : "A synthetic test double stopped answering.";
   /** The first budget reached, named plainly: it is the test double, never NEAR or the product. */
   const exhausted: { reason: string | null; at: string | null } = { reason: null, at: null };
   const note = (e: unknown) => {
@@ -68,7 +82,7 @@ export async function saleHarness(opts: {
       exhausted.reason = msg;
       exhausted.at = new Date().toISOString();
       console.error(
-        `SYNTHETIC BUDGET EXHAUSTED: ${msg}. The harness's test double stopped answering, so every later read fails as "NEAR couldn't be read". This is not a NEAR or product failure: restart the harness.`,
+        `SYNTHETIC BUDGET EXHAUSTED: ${msg}. ${budgetEffect(msg)} This is not a NEAR or product failure: restart the harness.`,
       );
     }
   };
@@ -97,6 +111,8 @@ export async function saleHarness(opts: {
   watch(w.writer, "settleHold");
   watch(w.writer, "releaseHoldFor");
   watch(s.protection, "protect");
+  // Every sale-chain method counts through its private bump(), where its ceiling throws.
+  watch(s.sale as unknown as { bump: () => void }, "bump");
   const budgetReport = () => ({
     note: "Finite synthetic budgets of this harness's test doubles (not NEAR limits). When one is reached every later read fails; restart the harness.",
     exhausted,
@@ -120,6 +136,8 @@ export async function saleHarness(opts: {
     sync();
     return finalBlock();
   };
+  // Astra 06:28: the reader's ceiling throws in finalBlock as well as view; record both.
+  watch(w.reader, "finalBlock");
   sync();
   w.state.store.db
     .prepare("UPDATE businesses SET name = ?, slug = ?, published_at = ? WHERE id = ?")

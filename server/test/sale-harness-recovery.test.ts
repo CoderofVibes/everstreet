@@ -185,6 +185,52 @@ describe("003wf4 (Astra 06:21) original plan ID recovery through the actual harn
     }
   }, 60_000);
 
+  it("a reader budget spent in finalBlock is recorded too (Astra 06:28)", async () => {
+    // Astra's probe: reader_reads 1, finalBlock until refusal; exhaustion stayed null before.
+    const h = await saleHarness({ origin: ORIGIN, budget: { reader_reads: 1 } });
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...a: unknown[]) => errors.push(a.join(" "));
+    try {
+      let refused: Error | null = null;
+      for (let i = 0; i < 5 && !refused; i++)
+        await h.world.w.reader.finalBlock().catch((e: Error) => {
+          refused = e;
+        });
+      expect((refused as Error | null)?.message).toBe("fixture reader ceiling reached (1 reads)");
+      const b = h.budget();
+      expect(b.exhausted.reason).toBe("fixture reader ceiling reached (1 reads)");
+      expect(b.exhausted.at).not.toBeNull();
+      const diag = errors.filter((e) => e.startsWith("SYNTHETIC BUDGET EXHAUSTED"));
+      expect(diag).toHaveLength(1);
+      expect(diag[0]).toContain("synthetic chain stopped answering");
+    } finally {
+      console.error = original;
+    }
+  }, 60_000);
+
+  it("a spent writer budget says what it stops, not that every read fails", async () => {
+    const h = await saleHarness({ origin: ORIGIN, budget: { writer_calls: 1 } });
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...a: unknown[]) => errors.push(a.join(" "));
+    try {
+      const writer = h.world.w.writer as unknown as { ceiling: number; calls: number };
+      writer.calls = writer.ceiling; // the next submission is the first one over the budget
+      await Promise.resolve()
+        .then(() => (h.world.w.writer.openHold as (...a: unknown[]) => unknown)())
+        .catch(() => undefined);
+      const b = h.budget();
+      expect(b.exhausted.reason).toBe("fixture writer ceiling reached (1 submissions)");
+      const diag = errors.filter((e) => e.startsWith("SYNTHETIC BUDGET EXHAUSTED"));
+      expect(diag).toHaveLength(1);
+      expect(diag[0]).toContain("reads may still work");
+      expect(diag[0]).not.toContain("NEAR couldn't be read");
+    } finally {
+      console.error = original;
+    }
+  }, 60_000);
+
   it("the printed link opens the product studio route the app navigates to", async () => {
     const { customerAccessPath } = await import("../../scripts/lib/saleHarness.ts");
     const t = await session();

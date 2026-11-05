@@ -164,10 +164,21 @@ export class FixtureChain {
     this.height += 1;
   }
 
+  /**
+   * Flagship journey (003wf parent): when set, a new block's time follows THIS computer's clock
+   * (never backwards, at least 1 ms later), as real NEAR's does, instead of a fixed second per
+   * change. A long journey of many changes otherwise runs the double's clock ahead of the server's,
+   * which the product correctly refuses as `clock_uncertain`.
+   */
+  followWallClock = false;
+
   /** A change lands in a new block one second later (block time rises: assumption A1). */
   private nextBlock() {
     this.height += 1;
-    this.ts += 1_000n;
+    if (this.followWallClock) {
+      const wall = BigInt(Date.now());
+      this.ts = wall > this.ts ? wall : this.ts + 1n;
+    } else this.ts += 1_000n;
   }
 
   block(): PinnedBlock {
@@ -1237,17 +1248,23 @@ export async function customerWorld(
     runtimeProvider?: RuntimeProvider;
     /** The v3 observation clock (job 003s1: a fixture clock in the acquisition preview). */
     v3Now?: () => number;
+    /** Flagship journey: the founder and the business shell only (no build, budget or release). */
+    bare?: boolean;
   } = {},
 ) {
   // The scripted extractor that passes the release check (fictional documents only).
   const provider = new ScriptedRuntime(correct);
   const runtimeProvider: RuntimeProvider = opts.runtimeProvider ?? provider;
   const rw = runtimeWorld(runtimeProvider, opts.runtime ?? {}, { dbPath: opts.dbPath });
-  const f = await rw.founder("Ava Chen");
-  await rw.release(f);
-  const release = rw.store.db
-    .prepare("SELECT id FROM runtime_releases WHERE project_id = ? AND state = 'active'")
-    .get(f.project) as { id: string };
+  // Flagship journey (`bare`): only the founder and the project's business shell exist; nothing
+  // is built or released here (the founder does that through the configured routes).
+  const f = opts.bare ? await rw.shell("Ava Chen") : await rw.founder("Ava Chen");
+  if (!opts.bare) await rw.release(f);
+  const release = opts.bare
+    ? { id: "" }
+    : (rw.store.db
+        .prepare("SELECT id FROM runtime_releases WHERE project_id = ? AND state = 'active'")
+        .get(f.project) as { id: string });
   const chain = new FixtureChain();
   if (opts.businessAccount) chain.business = opts.businessAccount;
   const { verifiesEd25519 } = await import("../src/customerSigning.ts");

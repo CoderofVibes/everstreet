@@ -708,8 +708,14 @@ export async function bootstrap(
      * offer; the founder's own routes create them (the sale double is attached, owner the founder).
      */
     fresh?: boolean;
+    /**
+     * Flagship journey (003wf parent): `fresh`, and the founder's project is a bare shell: no
+     * budget, build, evaluation or release exists until the founder makes them in the child.
+     */
+    bare?: boolean;
   } = {},
 ) {
+  if (opts.bare) opts = { ...opts, fresh: true };
   const db = join(dir, "everstreet.db");
   const root = join(dir, "protected");
   mkdirSync(root, { recursive: true });
@@ -738,6 +744,7 @@ export async function bootstrap(
   if (!ai.ok) throw new Error(ai.reason);
   const w = await customerWorld({
     dbPath: db,
+    bare: opts.bare,
     businessAccount: BIZ,
     runtimeProvider: new AnthropicRuntime(
       ai.config,
