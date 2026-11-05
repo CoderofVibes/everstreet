@@ -6,7 +6,10 @@
 //   K2 reserve:   the hold was applied on the chain; its answer is lost.
 //   K3 settle:    the charge was applied on the chain; its answer is lost.
 //   K4 close:     the seller's close landed on the chain; the check's chain read is cut.
-//   K5 execute:   the model call is in flight (under the buyer).
+//   K5a execute:  the model call is cut in transport BEFORE the provider double records it.
+//   K5b execute:  the provider double ACCEPTS and records the call, and its answer is lost.
+//   (Both under the buyer; each is never dispatched again, never charged, and its unit returns
+//   after the delivery timeout. The Direct close is one contract transition, asserted exactly.)
 //
 // Concurrency, live: one idempotency key prepared 4 times at once, one use confirmed and run 3
 // times at once, and a second purchase checked 3 times at once.
@@ -214,6 +217,9 @@ describe("hardening: restart and concurrency matrix around the whole flagship jo
       expect((await check(noah, a.id, k)).resolution.kind).toBe("confirmed");
     }
     await app.shutdown();
+    // The Direct close is ONE contract transition: the seller's acceptance (no close_sale call);
+    // the control generation moves by exactly one, and a repeated check doesn't move it again.
+    const genBefore = i.b.w.chain.sale?.controlView().generation as number;
     let armedClose = false;
     app = await i.start({ cut: () => (armedClose ? "hold" : "answer") });
     const close = await act(i, ava, FOUNDER, "accept", {}, "matrix-close-0001");
@@ -238,7 +244,10 @@ describe("hardening: restart and concurrency matrix around the whole flagship jo
       { to_id: "person-noah" },
     ]);
     expect(i.b.w.chain.sale?.controlView()).toMatchObject({ owner: BUYER });
-    expect(methods(i, "close_sale")).toBeLessThanOrEqual(1);
+    expect(methods(i, "close_sale")).toBe(0);
+    expect(i.b.w.chain.sale?.controlView().generation).toBe(genBefore + 1);
+    await check(ava, close.id, "close once more"); // a repeated check reads, it doesn't act
+    expect(i.b.w.chain.sale?.controlView().generation).toBe(genBefore + 1);
     expect(i.b.w.chain.ent(CUSTOMER)).toMatchObject({ free: "104", consumed: "6" });
     // The seller isn't revived after the restart.
     expect((await ava(`/api/sales/${i.biz}`)).body.local_owner).toBe(false);
@@ -246,7 +255,7 @@ describe("hardening: restart and concurrency matrix around the whole flagship jo
     // The buyer serves the next use.
     delivered.push(await serveOneUse(cara, offerId, 7, key));
 
-    // ---- K5: the model call is in flight; the server dies. Never dispatched twice; not charged.
+    // ---- K5a: the model call is cut in transport before the provider double records it.
     await app.shutdown();
     app = await i.start({ cut: (r) => (r.channel === "model" ? "hold" : "answer") });
     const u8 = await prepareAndConfirm(cara, offerId, 8, key);
@@ -270,7 +279,8 @@ describe("hardening: restart and concurrency matrix around the whole flagship jo
       "K5 again",
     );
     expect(again.use.execution?.fulfilled).not.toBe(true);
-    expect(i.b.model.calls.messages).toBe(before); // the held call never answered; none resent
+    // The provider double never recorded it (cut before it), and nothing was resent.
+    expect(i.b.model.calls.messages).toBe(before);
     expect(await unitOf(cara, u8.id)).not.toBe("charged");
     // Past the delivery timeout (a labelled test clock in the next process), recovery finalizes
     // it as not delivered and the unit comes back once.
@@ -291,11 +301,71 @@ describe("hardening: restart and concurrency matrix around the whole flagship jo
     );
     expect(methods(i, "release_hold_for")).toBe(1);
 
+    // ---- K5b: the provider double ACCEPTS the call (recorded, as an upstream that did the work)
+    // and the answer is lost; the server dies. No second dispatch, no charge, its compute stays
+    // unknown (never zero), and the unit returns after the delivery timeout.
+    await app.shutdown();
+    app = await i.start(
+      {
+        cut: (r) =>
+          r.channel === "model" && r.url.endsWith("/v1/messages") ? "lose_reply" : "answer",
+      },
+      { LIFECYCLE_CLOCK_OFFSET_MS: String(SKIP) },
+    );
+    const u9 = await prepareAndConfirm(cara, offerId, 9, key);
+    expect(
+      ok(await cara(`/api/customer/uses/${u9.id}/confirm`, "POST", u9.body), 200, "K5b confirm").use
+        .state,
+    ).toBe("reserved");
+    const accepted = i.b.model.calls.messages;
+    const lostExec2 = cara(`/api/customer/uses/${u9.id}/execute`, "POST", {}).catch(() => null);
+    await until(
+      async () => app.state.cut,
+      (v) => v,
+      "K5b cut",
+    );
+    await app.kill();
+    await lostExec2;
+    expect(i.b.model.calls.messages).toBe(accepted + 1); // the provider did record it
+    app = await i.start({}, { LIFECYCLE_CLOCK_OFFSET_MS: String(SKIP) });
+    const again2 = ok(
+      await cara(`/api/customer/uses/${u9.id}/execute`, "POST", {}),
+      200,
+      "K5b again",
+    );
+    expect(again2.use.execution?.fulfilled).not.toBe(true);
+    expect(i.b.model.calls.messages).toBe(accepted + 1); // never dispatched twice
+    expect(await unitOf(cara, u9.id)).not.toBe("charged");
+    const usage = i.read(
+      `SELECT ri.state, ri.usage_state, ri.charged_microcents FROM customer_executions ce
+         JOIN runtime_invocations ri ON ri.id = ce.invocation_id WHERE ce.request_id = ?`,
+      u9.id,
+    );
+    expect(usage, JSON.stringify(usage)).toHaveLength(1);
+    // Unknown, not zero: the provider may have done the work, and nothing says what it cost.
+    expect(usage[0]?.usage_state).not.toBe("final");
+    await app.shutdown();
+    const SKIP2 = 2 * SKIP;
+    i.b.w.chain.wallClockOffsetMs = SKIP2;
+    i.b.w.chain.tick(BigInt(Date.now() + SKIP2) - i.b.w.chain.ts);
+    app = await i.start({}, { LIFECYCLE_CLOCK_OFFSET_MS: String(SKIP2) });
+    await until(
+      async () => {
+        await cara(`/api/customer/uses/${u9.id}/units/reconcile`, "POST");
+        return unitOf(cara, u9.id);
+      },
+      (u) => u === "returned",
+      "K5b unit returned",
+      60_000,
+    );
+    expect(methods(i, "release_hold_for")).toBe(2);
+    expect(i.b.model.calls.messages).toBe(accepted + 1);
+
     // ---- The ledger after everything.
     const n = delivered.length; // 7 delivered uses
     expect(n).toBe(7);
     expect(methods(i, "settle_hold")).toBe(n);
-    expect(methods(i, "open_hold")).toBe(n + 1);
+    expect(methods(i, "open_hold")).toBe(n + 2); // + the two interrupted, returned uses
     expect(i.b.w.chain.charged).toBe(n);
     expect(i.b.w.chain.ent(CUSTOMER)).toMatchObject({ free: String(110 - n), consumed: String(n) });
     expect(

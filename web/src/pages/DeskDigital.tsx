@@ -10,6 +10,7 @@ import type { DigitalDeskView } from "../api4.ts";
 import { deskViewHref, PRODUCT_STATUS_LABEL, productIdentity, workHref } from "../digitalDesk.ts";
 import { settlementText } from "../operations.ts";
 import { Link } from "../router.tsx";
+import { TokenAmount } from "../TokenAmount.tsx";
 import { ago } from "../via.ts";
 
 /** What needs the founder, and what is waiting on the system, each a link to where it is. */
@@ -161,12 +162,11 @@ export function ProductCards({ d, businessId }: { d: DigitalDeskView; businessId
                     {p.offer.unit_price === null ? (
                       <span className="fin-unknown">not recorded</span>
                     ) : (
-                      <>
-                        <span className="mono">{p.offer.unit_price}</span> base units of{" "}
-                        <span className="mono" style={{ overflowWrap: "anywhere" }}>
-                          {p.offer.asset}
-                        </span>
-                      </>
+                      <TokenAmount
+                        base={p.offer.unit_price}
+                        asset={p.offer.asset}
+                        token={p.offer.token}
+                      />
                     )}{" "}
                     per use, as recorded with the offer
                   </p>

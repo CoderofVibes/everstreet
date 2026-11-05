@@ -15,6 +15,7 @@
 
 import { addMonths, ym } from "./books.ts";
 import type { Db } from "./db.ts";
+import { tokenMetaOf } from "./tokenMeta.ts";
 
 export const ECONOMICS_MONTHS_MAX = 24;
 const MONTH = (col: string) => `CAST(substr(${col}, 1, 4) || substr(${col}, 6, 2) AS INTEGER)`;
@@ -211,8 +212,24 @@ export function economics(db: Db, businessId: string, months: number, now = new 
     };
   });
 
+  // Each asset's metadata as read on the chain (ft_metadata) for this business's offers on one
+  // network, or null (never read, or offers on more than one network): never a guessed scale.
+  const tokens = Object.fromEntries(
+    assets.map((a) => {
+      const nets = db
+        .prepare(
+          "SELECT DISTINCT network FROM customer_offers WHERE business_id = ? AND asset = ? LIMIT 2",
+        )
+        .all(businessId, a) as { network: string }[];
+      return [
+        a,
+        nets.length === 1 ? tokenMetaOf(db, (nets[0] as { network: string }).network, a) : null,
+      ];
+    }),
+  );
   return {
     as_of: asOf,
+    tokens,
     period: { from: list[0], to: current, months: n, buckets: "UTC calendar months, by request" },
     assets,
     months: monthsOut,

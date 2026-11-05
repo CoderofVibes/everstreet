@@ -452,7 +452,7 @@ function ChecksView({
           </div>
         ))}
       </section>
-      <div className="grid-3" style={{ gap: 12 }}>
+      <div className="checks-evidence">
         <section className="check-group">
           <h3>
             <Icon name="spark" /> Build
@@ -472,7 +472,7 @@ function ChecksView({
           <EvidenceRow c={c.journey_tests} />
         </section>
       </div>
-      <div className="grid-2" style={{ gap: 12 }}>
+      <div className="checks-evidence">
         <section className="check-group">
           <h3>
             <Icon name="eye" /> Check yourself

@@ -449,6 +449,12 @@ describe("003wf parent: the flagship journey in one configured child (SYNTHETIC 
       pending_units: 0,
       returned_purchases: "0",
     });
+    // Readable amounts: the token's metadata, as read on the chain during Cara's purchase setup.
+    expect(eco.tokens["tusd.near"]).toMatchObject({
+      symbol: s1.token.symbol,
+      decimals: s1.token.decimals,
+      changed: false,
+    });
     expect(eco.months[0].successful_uses).toBe(20);
     expect(eco.months[0].compute).toMatchObject({ calls: 20, unknown_cost_calls: 0 });
     expect(BigInt(eco.months[0].cost_per_success_microcents)).toBe(

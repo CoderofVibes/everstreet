@@ -64,6 +64,7 @@ import {
   validSellerText,
 } from "./saleTerms.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import { recordTokenMeta } from "./tokenMeta.ts";
 import type { V3Intents } from "./v3intents.ts";
 import type { V3Observations } from "./v3observe.ts";
 import {
@@ -953,6 +954,9 @@ export class SaleActions {
         at(asset, "storage_balance_of", { account_id: c }),
         at(asset, "storage_balance_bounds", {}),
       ]);
+      // Readable amounts elsewhere: a valid token metadata read is recorded with its block.
+      const validMeta = validMetadata(meta);
+      if (validMeta) recordTokenMeta(this.db, binding.network, asset, validMeta, pinned.height);
       return {
         block,
         ...r,
@@ -960,7 +964,7 @@ export class SaleActions {
         party: decodeParty(party),
         terms: termsRaw === null ? null : decodeSaleTerms(termsRaw),
         token: {
-          meta: validMetadata(meta),
+          meta: validMeta,
           balance: validU128(balance),
           registered: mine !== null,
           business_registered: biz !== null,

@@ -35,6 +35,19 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **NEAR proof (Tony, Nov 5 evening):** Tony's private handoff (docs/research/near-hackathon/
+  analyses/2026-11-05_CLAUDE_NEAR_PROOF_START.md, git-ignored; do NOT open the sibling
+  near-depth-handoff.md: outdated, Tony said skip it). Decisions Tony delegated to Claude: NEAR
+  preparation right after the evidence-and-presentation job (before showcase corrections);
+  read-only testnet RPC queries allowed in preflight; script-held fictional testnet accounts
+  (keys only in .near-credentials/), with Tony's explicit approval of the exact plan (budget,
+  signing steps, fault injection) before ANY deployment, signing or spending. Order: keyless
+  preflight + local rehearsal of all four examples (Direct, Gated, lost purchase response,
+  failed token payout) -> approval packet -> Direct live -> review -> Gated + recovery cases.
+  Research notes stay out of tracked/public material. Opus 5.5 throughout.
+- Evidence and presentation job: browser pass done (see JOBS row). README.md has uncommitted
+  v3 example rows NOT written by Claude (author unknown; asked Tony).
+
 - Astra's assessment (docs/astra/2026-11-05_IndependentBuildAssessment.md, committed 244388d) is
   the disposition. Tony: start her correction jobs in her order (006b1, then review evidence and
   presentation, then showcase corrections), Opus 5.5; **Fable for step 7** (the full demo +
@@ -44,8 +57,9 @@ visual direction), then Opus builds.
   evidence + manual checks; 002f1 stage 1), C (004b), D (005e economics, 005c expert help,
   005d portfolio), F part (003x control sheet + record + verifier).
   Then Phase G polish (729a4d5) and 006b agent access + MCP 2026-07-28 (4a9300e).
-  Remaining: 006a web-app customer release, 006c rehearsal records, M6 team/co-op, the restart
-  matrix around the whole journey, readable token amounts on offer pages.
+  Remaining (Nov 5 evening): 006a web-app customer release, Relaydesk and Signalwatch engines,
+  M6 team/co-op, 006c rehearsal records, showcase/demo. Done since: restart matrix and Gated
+  journey (13b2c8c), 006b1 (0b5a6f4), readable amounts and evidence corrections (this job).
   Review packet: docs/astra/reports/2026-11-05_bulk-build-review.md.
 - Scratch preview `everstreet-scratch` (port 8811, data/runtime/scratch-review*.db) may be running.
 - Running: the sale review harness in the preview pane (`sale-harness`, ports 8814/8815, 90-min
@@ -100,7 +114,8 @@ visual direction), then Opus builds.
 
 - M2: only AI API and web-app bundles execute; no shared functional/prototype label; web-app
   bundles have no customer release (006a).
-- 006a web-app customer release; 006b machine API/MCP; 006c rehearsal records; M6 team/co-op.
+- 006a web-app customer release; 006c rehearsal records; M6 team/co-op. (006b built; its
+  corrections 006b1 await Astra's review.)
 - Live GitHub connection (needs Tony's authorization + a read-only token).
 - 002f1 stage 2 (host) needs Astra dispatch; VMM pressure method needs review.
 

@@ -8,6 +8,7 @@
 import { ApiError } from "./api.ts";
 import { call, MalformedAnswer } from "./customerApi.ts";
 import type { Storage } from "./customerWorkspace.ts";
+import { parseToken, type TokenInfo } from "./TokenAmount.tsx";
 
 // ---------- answers, parsed strictly ----------
 
@@ -106,6 +107,8 @@ export interface OwnerOffer {
   plan_id: number;
   plan: PlanTerms;
   asset: string;
+  /** The token as read on the chain, or null (exact base units are shown). */
+  token: TokenInfo | null;
   read_block: Block;
   retention_days: number;
   created_at: string;
@@ -246,6 +249,7 @@ export function parseOwnerOffer(raw: unknown): OwnerOffer {
     plan_id: int(o.plan_id, "offer.plan_id"),
     plan: parsePlan(o.plan),
     asset: str(o.asset, "offer.asset"),
+    token: parseToken(o.token),
     read_block: parseBlock(o.read_block, "offer.read_block"),
     retention_days: int(o.retention_days, "offer.retention_days"),
     created_at: str(o.created_at, "offer.created_at"),

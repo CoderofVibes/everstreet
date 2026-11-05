@@ -156,6 +156,7 @@ export class Portfolio {
             }
           : null,
         owed: econ ? econ.obligations : null,
+        tokens: econ ? econ.tokens : {},
         attention,
         next_action: attention[0] ?? null,
         label: n?.label ?? "",

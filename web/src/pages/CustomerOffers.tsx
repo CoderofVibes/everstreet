@@ -15,6 +15,7 @@ import {
 } from "../offerSetup.ts";
 import { Link } from "../router.tsx";
 import { offersSignature } from "../studioRecords.ts";
+import { TokenAmount } from "../TokenAmount.tsx";
 import { AgentUseSwitches } from "./AgentUseSwitch.tsx";
 
 const EVIDENCE: Record<Evidence, { label: string; tone: string }> = {
@@ -143,9 +144,9 @@ function OfferRow({
           {o.state === "active" ? "Active" : "Retired"}
         </span>
         <div className="muted" style={{ fontSize: 13.5 }}>
-          Plan {o.plan_id} · <span className="mono">{o.plan.unit_price}</span> base units of{" "}
-          <span className="mono">{o.asset}</span> per use · results kept {o.retention_days} days ·
-          created {new Date(o.created_at).toLocaleDateString()}
+          Plan {o.plan_id} ·{" "}
+          <TokenAmount base={o.plan.unit_price} asset={o.asset} token={o.token} /> per use · results
+          kept {o.retention_days} days · created {new Date(o.created_at).toLocaleDateString()}
           {o.retired_at && ` · retired ${new Date(o.retired_at).toLocaleDateString()}`}
         </div>
       </div>

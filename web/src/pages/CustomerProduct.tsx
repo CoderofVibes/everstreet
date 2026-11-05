@@ -25,6 +25,7 @@ import type { Readiness } from "../deviceKey.ts";
 import { tokenAmount } from "../purchase.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { TokenAmount } from "../TokenAmount.tsx";
 import { DeviceKeyPanel } from "./DeviceKeyPanel.tsx";
 import { PurchasePanel } from "./PurchasePanel.tsx";
 
@@ -105,8 +106,7 @@ function Consent({
         <dd>Exactly one, charged only if you get a result</dd>
         <dt>Price of one unit</dt>
         <dd>
-          <span className="mono">{t.unit_price}</span> base units of{" "}
-          <span className="mono">{t.asset}</span>
+          <TokenAmount base={t.unit_price} asset={t.asset} token={t.token} />
         </dd>
         <dt>Result kept for</dt>
         <dd>
@@ -570,8 +570,12 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
                   </>
                 ) : (
                   <>
-                    One unit: <span className="mono">{offer.terms.unit_price}</span> base units of{" "}
-                    <span className="mono">{offer.terms.asset}</span>
+                    One unit:{" "}
+                    <TokenAmount
+                      base={offer.terms.unit_price}
+                      asset={offer.terms.asset}
+                      token={offer.terms.token}
+                    />
                   </>
                 )}
               </dd>

@@ -1,8 +1,10 @@
 // Job 005e: operating economics and recovery in Operate. Every figure is in its own unit (an
-// offer's token in exact base units; compute in USD), with a readable table beside the chart,
+// offer's token, readable when its metadata was read on the chain, else exact base units;
+// compute in USD), with a readable table beside the chart,
 // and nothing converted, summed across currencies or turned into profit.
 
 import { useEffect, useId, useState } from "react";
+import { readable, TokenAmount, type TokenInfo } from "../TokenAmount.tsx";
 
 interface AssetMonth {
   earned: string;
@@ -15,6 +17,8 @@ interface AssetMonth {
 }
 interface EconomicsView {
   as_of: string;
+  /** Each asset's metadata as read on the chain, or null (exact base units are shown). */
+  tokens?: Record<string, TokenInfo | null>;
   assets: string[];
   months: {
     yyyymm: number;
@@ -59,6 +63,9 @@ const usd = (micro: string) => {
 
 function EarnedChart({ view, asset }: { view: EconomicsView; asset: string }) {
   const id = useId();
+  const token = view.tokens?.[asset] ?? null;
+  /** A cell: readable in the token when its details were read, else exact base units. */
+  const amt = (v: string) => (token ? (readable(v, token.decimals) ?? group(v)) : group(v));
   const rows = view.months.map((m) => ({ label: m.label, so_far: m.so_far, v: m.by_asset[asset] }));
   const max = rows.reduce((x, r) => {
     const a = BigInt(r.v?.earned ?? "0");
@@ -72,7 +79,17 @@ function EarnedChart({ view, asset }: { view: EconomicsView; asset: string }) {
   return (
     <figure className="eco-chart" aria-labelledby={`${id}-cap`}>
       <figcaption id={`${id}-cap`}>
-        Earned and prepaid by month, base units of <span className="mono">{asset}</span>
+        {token ? (
+          <>
+            Earned and prepaid by month, in {token.symbol} (token{" "}
+            <span className="mono">{asset}</span>; exact base units below the table)
+          </>
+        ) : (
+          <>
+            Earned and prepaid by month, exact base units of <span className="mono">{asset}</span>{" "}
+            (this token's details haven't been read yet)
+          </>
+        )}
       </figcaption>
       <div className="eco-bars" aria-hidden="true">
         {rows.map((r) => (
@@ -114,17 +131,32 @@ function EarnedChart({ view, asset }: { view: EconomicsView; asset: string }) {
                 {r.label}
                 {r.so_far ? " (so far)" : ""}
               </th>
-              <td className="mono">{group(r.v?.earned ?? "0")}</td>
+              <td className="mono">{amt(r.v?.earned ?? "0")}</td>
               <td>{r.v?.earned_units ?? 0}</td>
               <td>
-                {r.v?.pending_units ? `${r.v.pending_units} (${group(r.v.pending_value)})` : "0"}
+                {r.v?.pending_units ? `${r.v.pending_units} (${amt(r.v.pending_value)})` : "0"}
               </td>
-              <td className="mono">{group(r.v?.prepaid_in ?? "0")}</td>
-              <td className="mono">{group(r.v?.returned_purchases ?? "0")}</td>
+              <td className="mono">{amt(r.v?.prepaid_in ?? "0")}</td>
+              <td className="mono">{amt(r.v?.returned_purchases ?? "0")}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {token && (
+        <details className="eco-exact small">
+          <summary>Exact base units</summary>
+          <ul className="plain">
+            {rows.map((r) => (
+              <li key={r.label}>
+                {r.label}: earned <span className="mono">{group(r.v?.earned ?? "0")}</span>, prepaid
+                in <span className="mono">{group(r.v?.prepaid_in ?? "0")}</span>, returned{" "}
+                <span className="mono">{group(r.v?.returned_purchases ?? "0")}</span> base units of{" "}
+                <span className="mono">{asset}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </figure>
   );
 }
@@ -185,8 +217,13 @@ export function DeskEconomics({ businessId }: { businessId: string }) {
                 {o.outstanding_value !== null && (
                   <>
                     {" "}
-                    (<span className="mono">{group(o.outstanding_value)}</span> base units of{" "}
-                    <span className="mono">{o.asset}</span>)
+                    (worth{" "}
+                    <TokenAmount
+                      base={o.outstanding_value}
+                      asset={o.asset}
+                      token={view.tokens?.[o.asset]}
+                    />
+                    )
                   </>
                 )}
                 . <span className="muted small">{o.note}</span>

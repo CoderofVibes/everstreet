@@ -5,6 +5,7 @@
 
 import { ApiError } from "./api.ts";
 import type { SigningEnvelope } from "./customerEnvelope.ts";
+import { parseToken, type TokenInfo } from "./TokenAmount.tsx";
 
 export class MalformedAnswer extends Error {}
 
@@ -24,6 +25,8 @@ export interface OfferView {
     retention_days: number;
     network: string;
     contract: string;
+    /** The token as read on the chain, or null (exact base units are shown). */
+    token: TokenInfo | null;
   };
 }
 
@@ -214,6 +217,7 @@ export function parseOffer(raw: unknown): OfferView {
       retention_days: int(t.retention_days, "terms.retention_days"),
       network: str(t.network, "terms.network"),
       contract: str(t.contract, "terms.contract"),
+      token: parseToken(t.token),
     },
   };
 }

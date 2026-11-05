@@ -1366,7 +1366,18 @@ ul.plain { margin: 0; padding-left: 18px; }
 .expert-filters .input { width: auto; flex: 1 1 220px; max-width: 360px; }
 
 /* Job 005d: portfolio (comparison grid of owned businesses; rows for the rest). */
-.pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 16px; }
+.pf-card { min-width: 0; overflow-wrap: anywhere; }
+/* Review evidence and presentation (Nov 5): Checks evidence collapses to fewer columns before its
+   text gets narrow (the companion panel can take a third of 1280). */
+.checks-evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.checks-evidence > * { min-width: 0; overflow-wrap: anywhere; }
+/* In an evidence card the status sits under the text, so the text keeps the card's full width. */
+.checks-evidence .check-row { grid-template-columns: 22px minmax(0, 1fr); align-items: start; }
+.checks-evidence .check-row > :nth-child(3) { grid-column: 2; justify-self: start; }
+/* Token amounts: the readable figure leads; the exact base units wrap rather than overflow. */
+.token-amount .mono, .token-exact { overflow-wrap: anywhere; }
+.eco-exact { margin-top: 8px; }
 .pf-card h3 a { color: inherit; }
 .pf-row { padding: 14px 16px; margin-bottom: 10px; }
 .pf-note { margin-top: 10px; }

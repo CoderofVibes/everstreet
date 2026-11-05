@@ -125,7 +125,13 @@ export interface DeskProduct {
   updated_at: string;
   release: { state: "active"; activated_at: string } | { state: "none" | "retired_only" };
   offers: { active: number; retired: number };
-  offer: { id: string; plan_id: number; unit_price: string | null; asset: string } | null;
+  offer: {
+    id: string;
+    plan_id: number;
+    unit_price: string | null;
+    asset: string;
+    token?: { symbol: string; decimals: number } | null;
+  } | null;
   /** Job 001h: the active release's identity (what customers see), apart from the draft `name`. */
   released?: { name: string | null; revision: number } | null;
   status: "brief_only" | "released" | "offered" | "offer_retired";

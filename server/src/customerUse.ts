@@ -42,6 +42,7 @@ import { maintenanceHealth } from "./maintenance.ts";
 import { RUNTIME_LIMITS } from "./runtime.ts";
 import { cutoffs, MIN_SIGN_MS, planUsability, reserveMs, type ServeTiming } from "./servePolicy.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import { tokenMetaOf } from "./tokenMeta.ts";
 import type { V3Observations } from "./v3observe.ts";
 import { type ControlV3, isAccountId, V3ReadError } from "./v3read.ts";
 
@@ -586,6 +587,8 @@ export class CustomerUses {
       plan_id: o.plan_id,
       plan: JSON.parse(o.plan) as PlanV3,
       asset: o.asset,
+      // As read on the chain (ft_metadata), or null: never a guessed scale.
+      token: tokenMetaOf(this.db, o.network, o.asset),
       read_block: JSON.parse(o.read_block) as PinnedBlock,
       retention_days: o.retention_days,
       created_at: o.created_at,
@@ -1278,6 +1281,7 @@ export class CustomerUses {
         retention_days: o.retention_days,
         network: o.network,
         contract: o.account,
+        token: tokenMetaOf(this.db, o.network, o.asset),
       },
     };
   }

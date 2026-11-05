@@ -12,6 +12,7 @@ import {
 import { businessOffers, type OfferView } from "../customerApi.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { TokenAmount } from "../TokenAmount.tsx";
 import { Avatar, FAMILY_LABEL, money, OfferCard, STAGE_LABEL } from "../ui.tsx";
 import { ago, rememberVia, viaFor, when } from "../via.ts";
 import { DigitalStorefront } from "./DigitalStorefront.tsx";
@@ -654,9 +655,8 @@ function ProductOffers({ offers }: { offers: OfferView[] }) {
                 <>Reads: {o.product.fields.map((f) => f.label).join(", ")}. </>
               )}
               One unit per use, charged only when you get a result ·{" "}
-              <span className="mono">{o.terms.unit_price}</span> base units of{" "}
-              <span className="mono">{o.terms.asset}</span> · results kept {o.terms.retention_days}{" "}
-              days, private to you.
+              <TokenAmount base={o.terms.unit_price} asset={o.terms.asset} token={o.terms.token} />{" "}
+              · results kept {o.terms.retention_days} days, private to you.
             </p>
           </div>
           <Link to={`/use/${o.offer_id}`} className="btn btn-primary">

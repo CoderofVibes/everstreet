@@ -7,10 +7,10 @@ import { useActorRead } from "../actorRead.ts";
 import { ApiError } from "../api.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { TokenAmount } from "../TokenAmount.tsx";
 
 // biome-ignore lint/suspicious/noExplicitAny: a loosely typed projection, read field by field
 type Json = Record<string, any>;
-const group = (v: string) => v.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 function NoteEditor({
   item,
@@ -183,8 +183,9 @@ export function PortfolioPage() {
               <ul className="plain small">
                 {Object.entries(o.this_month.by_asset as Record<string, Json>).map(([asset, v]) => (
                   <li key={asset}>
-                    {o.this_month.label}: earned <span className="mono">{group(v.earned)}</span>{" "}
-                    base units of <span className="mono">{asset}</span> from {v.earned_units} use
+                    {o.this_month.label}: earned{" "}
+                    <TokenAmount base={v.earned} asset={asset} token={o.tokens?.[asset]} /> from{" "}
+                    {v.earned_units} use
                     {v.earned_units === 1 ? "" : "s"}
                   </li>
                 ))}

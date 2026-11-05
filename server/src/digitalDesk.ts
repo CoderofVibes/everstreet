@@ -8,6 +8,7 @@ import type { Db } from "./db.ts";
 import type { MaintenanceHealth } from "./maintenance.ts";
 import { currentCustomerWork, type SettlementWorker } from "./operations.ts";
 import { FOUNDATION_DEFS, type Foundation } from "./products.ts";
+import { tokenMetaOf } from "./tokenMeta.ts";
 
 export const DESK_PRODUCTS = 12;
 
@@ -66,7 +67,7 @@ export function digitalDesk(
     retired_offers: number;
   }[];
   const newestOffer = db.prepare(
-    "SELECT id, plan_id, plan, asset FROM customer_offers WHERE project_id = ? AND state = 'active' ORDER BY created_at DESC, id LIMIT 1",
+    "SELECT id, plan_id, plan, asset, network FROM customer_offers WHERE project_id = ? AND state = 'active' ORDER BY created_at DESC, id LIMIT 1",
   );
   // Job 001h: the active release's own identity (its built artifact's name and the brief revision
   // it was built from), the same source customers see (customerUse.productName). A newer draft
@@ -107,7 +108,7 @@ export function digitalDesk(
             : "brief_only";
     const o = r.active_offers
       ? (newestOffer.get(r.id) as
-          | { id: string; plan_id: number; plan: string; asset: string }
+          | { id: string; plan_id: number; plan: string; asset: string; network: string }
           | undefined)
       : undefined;
     let unitPrice: string | null = null;
@@ -128,7 +129,16 @@ export function digitalDesk(
         : { state: r.releases > 0 ? ("retired_only" as const) : ("none" as const) },
       offers: { active: r.active_offers, retired: r.retired_offers },
       // Exact contract base units and the asset's identity, as recorded with the offer.
-      offer: o ? { id: o.id, plan_id: o.plan_id, unit_price: unitPrice, asset: o.asset } : null,
+      offer: o
+        ? {
+            id: o.id,
+            plan_id: o.plan_id,
+            unit_price: unitPrice,
+            asset: o.asset,
+            // As read on the chain (ft_metadata), or null: never a guessed scale.
+            token: tokenMetaOf(db, o.network, o.asset),
+          }
+        : null,
       released: r.active_since ? released(r.id) : null,
       status,
     };

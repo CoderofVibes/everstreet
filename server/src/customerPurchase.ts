@@ -29,6 +29,7 @@ import {
 } from "./customerRead.ts";
 import type { Db } from "./db.ts";
 import { HttpError, type Person } from "./store.ts";
+import { recordTokenMeta } from "./tokenMeta.ts";
 
 /** Only who is asking matters here. */
 type Viewer = Pick<Person, "id">;
@@ -650,6 +651,8 @@ export class CustomerPurchases {
     const minDeposit = u128((boundsRaw as { min?: unknown } | null)?.min);
     if (!meta || balance === null || mine === "bad" || biz === "bad" || !minDeposit)
       bad(503, "The token's answers aren't valid", "token_malformed");
+    // Readable amounts elsewhere: this valid metadata read is recorded with its block.
+    if (meta) recordTokenMeta(this.db, o.network, o.asset, meta, block.height);
     const e = read.entitlement as EntitlementV3 | null;
     const held = e?.hold_active ? e.hold_units - e.hold_charged : 0;
     const quote = terms ? shellQuote(terms) : null;
