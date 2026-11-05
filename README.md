@@ -149,12 +149,39 @@ Who can do what, and what the sale does and does not cover: [docs/AUTHORITY.md](
 
 ### Business v3 handover and recovery examples
 
-The testnet records above cover the earlier contracts. The four examples below have local
-test coverage. Their v3 testnet rehearsals are pending.
+The testnet records above cover the earlier contracts. All four examples below have local test
+coverage. **The Direct sale has now been verified on NEAR testnet**; the other three testnet
+runs are pending.
+
+**Direct sale: verified on NEAR testnet (Nov 5 2026).**
+- **Setup:** contract `ledgerline-v3-1.everstreet.testnet` was deployed born locked (no access
+  keys), with code hash `HMGhGxrpnKJfxBSwovHmvd1zoKv5nw4hSGp3s6qhxM7C` (business-v3 at
+  `50615a2`, rustc 1.99.1, cargo-near 0.22.0, non-reproducible build). The platform's metering
+  account holds only a function-call key for `open_hold`, `settle_hold` and
+  `release_hold_for` on that contract.
+- **Before the sale (final views):** a fresh fictional customer bought 100 uses for exactly 15 tUSD
+  and used 20, leaving 80 free and 20 consumed.
+- **The sale:** the Direct sale closed. Control moved from the founder (generation 1) to the buyer
+  (generation 2) with 80 still owed, and the former owner's owner view and release were refused
+  (404).
+- **After the sale:** the customer's next use under the buyer left 79. The buyer's checked
+  update was released, and a later use on its offer left 78.
+- **Labels:** AI results came from a labelled stand-in model, not a provider. The record also
+  shows a recovered run: the customer's in-memory device key was lost when the first attempt
+  stopped, so it was revoked with the guarded call and replaced in slot 1. The public RPC's rate
+  limit stopped two attempts, which resumed without repeating any write.
+- **Evidence:**
+  - [data/evidence/v3-direct-testnet.json](data/evidence/v3-direct-testnet.json): every
+    transaction with its explorer link, and the views at each checkpoint;
+  - [data/evidence/v3-setup-testnet.json](data/evidence/v3-setup-testnet.json): accounts, the
+    deployment and the key scope.
+- **Verify offline:** `npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json`.
+  It checks the digests and that no keys are present. Then open the explorer links, or read
+  `get_control` / `get_entitlement` on the contract.
 
 | Example | What the local check covers | Reproduce locally |
 |---|---|---|
-| Direct sale | A customer buys 100 uses, consumes 20 and retains 80 at close. The seller loses control, the buyer serves the next use, and the customer has 79 left. | `npx vitest run server/test/flagship-journey-process.test.ts` |
+| Direct sale (also verified on testnet, above) | A customer buys 100 uses, consumes 20 and retains 80 at close. The seller loses control, the buyer serves the next use, and the customer has 79 left. | `npx vitest run server/test/flagship-journey-process.test.ts`; the rehearsal driver's dry run: `npx vitest run server/test/rehearsal-driver.test.ts` |
 | Gated sale | The closer returns one outstanding reservation, closes once and reopens service under the buyer. The customer retains 95 unused units and access to earlier results. | `npx vitest run server/test/flagship-gated-journey.test.ts` |
 | Lost purchase response | The payment lands in the chain fixture before the app loses its readback. Rechecking the original transaction confirms one purchase without adding units twice. | `npx vitest run server/test/flagship-restart-matrix.test.ts` |
 | Failed token payout | Contract tests simulate a failed transfer callback, check that the claim keeps its category and beneficiary, and exercise a successful retry and duplicate callback. The testnet rehearsal will exercise the downstream token receipt and check the recipient's actual test-token balance. | `cargo test --manifest-path contracts/business-v3/Cargo.toml payouts_keep_their_category_through_failures_claims_and_duplicates` |
