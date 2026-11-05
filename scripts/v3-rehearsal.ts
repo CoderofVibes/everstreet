@@ -33,6 +33,8 @@ import {
 import { Recorder } from "./lib/rehearsal/evidence.ts";
 import {
   continueGated,
+  controlledDrop,
+  payoutRecovery,
   type RecoveryEnv,
   runGated,
   runRecovery,
@@ -44,9 +46,11 @@ import {
   type Json,
   loadDeviceKey,
   newDeviceKey,
+  readAgain,
   runDirect,
   runDirectSale,
   StopRun,
+  steps,
   type Who,
 } from "./lib/rehearsal/journey.ts";
 
@@ -1045,32 +1049,69 @@ function exampleEnv(ex: Example, port: number, business: Env["business"]): Env {
 }
 
 /** One signed function call as this fictional account, final; failures kept, never thrown. */
+/**
+ * One signed function call as this fictional account. The hash is known BEFORE broadcast (signed
+ * locally), logged, then sent without waiting; the outcome is read from the transaction's own
+ * final status. If it isn't seen, the SAME signed bytes are broadcast again (one transaction can
+ * execute only once). Never re-signed. An outcome still unknown after the deadline stops the run
+ * with the hash, for recovery through it.
+ */
 async function sendAs(
   accountId: string,
   call: { receiverId: string; methodName: string; args: Json; gas: string; deposit: string },
 ) {
   await spendGuard(`before ${call.methodName}`);
-  const r = await account(accountId).signAndSendTransaction({
+  const a = account(accountId);
+  const signer = a.getSigner();
+  if (!signer) throw new StopRun(`no signer for ${accountId}`);
+  const tx = await a.createTransaction({
     receiverId: call.receiverId,
     actions: [
       actions.functionCall(call.methodName, call.args, BigInt(call.gas), BigInt(call.deposit)),
     ],
-    waitUntil: "FINAL",
-    throwOnFailure: false,
+    publicKey: await signer.getPublicKey(),
   });
+  const { txHash, signedTransaction } = await signer.signTransaction(tx);
+  const hash = baseEncode(txHash);
+  const who = accountId.split(".")[0];
+  console.log(`  ${who} ${call.methodName}: ${EXPLORER}${hash} (signed; sending)`);
+  const broadcast = () => provider.sendTransactionAsync(signedTransaction).catch(() => undefined);
+  await broadcast();
+  const deadline = Date.now() + 240_000;
+  let rebroadcastAt = Date.now() + 30_000;
+  // biome-ignore lint/suspicious/noExplicitAny: the RPC's status shape, read field by field
+  let r: any = null;
+  while (Date.now() < deadline) {
+    r = await provider
+      .viewTransactionStatusWithReceipts({ txHash: hash, accountId, waitUntil: "FINAL" } as never)
+      .catch(() => null);
+    if (r?.status && ("SuccessValue" in r.status || "Failure" in r.status)) break;
+    r = null;
+    if (Date.now() > rebroadcastAt) {
+      await broadcast(); // the same signed bytes
+      rebroadcastAt = Date.now() + 60_000;
+    }
+    await new Promise((x) => setTimeout(x, 3000));
+  }
+  if (!r)
+    throw new StopRun(
+      `${call.methodName} by ${accountId}: outcome unknown; recover through ${hash}`,
+    );
   const failure = (r.status as { Failure?: unknown }).Failure;
-  const downstream = r.receipts_outcome.filter((o) => "Failure" in (o.outcome.status as object));
+  // biome-ignore lint/suspicious/noExplicitAny: receipts as returned
+  const outcomes = (r.receipts_outcome ?? []) as any[];
+  const downstream = outcomes.filter((o) => "Failure" in (o.outcome.status as object));
   console.log(
-    `  ${accountId.split(".")[0]} ${call.methodName}: ${EXPLORER}${r.transaction.hash}${failure ? " (FAILED)" : downstream.length ? " (a downstream receipt failed)" : ""}`,
+    `  ${who} ${call.methodName}: final${failure ? " (FAILED)" : downstream.length ? " (a downstream receipt failed)" : ""}`,
   );
   return {
-    hash: r.transaction.hash,
+    hash,
     ok: failure === undefined,
     error: failure === undefined ? undefined : JSON.stringify(failure).slice(0, 400),
-    receipts: r.receipts_outcome.map((o) => ({
+    receipts: outcomes.map((o) => ({
       executor: o.outcome.executor_id,
       status: Object.keys(o.outcome.status as object)[0],
-      logs: o.outcome.logs.filter((l) => l.startsWith("EVENT_JSON")).slice(0, 4),
+      logs: (o.outcome.logs as string[]).filter((l) => l.startsWith("EVENT_JSON")).slice(0, 4),
     })),
   };
 }
@@ -1323,6 +1364,168 @@ async function resumeGated(ex: Example, port: number) {
   console.log(`evidence: ${out}`);
 }
 
+function recoveryEnv(ex: Example, env: Env, app: ReturnType<typeof startApp>): RecoveryEnv {
+  let fired = false;
+  app.onMessage((m) => {
+    if (m?.type === "dropped") fired = true;
+  });
+  return {
+    ...env,
+    relay: {
+      arm: () => {
+        fired = false;
+        app.send({ type: "arm-drop" });
+      },
+      fired: () => fired,
+    },
+    unregister: async () =>
+      sendAs(ex.founder, {
+        receiverId: TOKEN,
+        methodName: "storage_unregister",
+        args: { force: false },
+        gas: "30000000000000",
+        deposit: "1",
+      }),
+    seller: async () => ({
+      party: await view<Json | null>(ex.business, "get_party", { account: ex.founder }).catch(
+        () => null,
+      ),
+      balance: await view<string>(TOKEN, "ft_balance_of", { account_id: ex.founder }),
+      registered: !!(await view<Json | null>(TOKEN, "storage_balance_of", {
+        account_id: ex.founder,
+      })),
+    }),
+  };
+}
+
+/**
+ * The customer's own transaction ID for a purchase, as their wallet's activity would list it:
+ * read from the public testnet explorer's API (read-only; public chain data).
+ */
+async function originalPurchaseHash(customer: string): Promise<string> {
+  const res = await fetch(
+    `https://api-testnet.nearblocks.io/v1/account/${customer}/txns?per_page=25&order=desc`,
+  );
+  if (!res.ok) throw new StopRun(`the explorer's activity list answered ${res.status}`);
+  const body = (await res.json()) as { txns?: Json[] };
+  const hit = (body.txns ?? []).find(
+    (t) =>
+      t.predecessor_account_id === customer &&
+      t.receiver_account_id === TOKEN &&
+      JSON.stringify(t.actions ?? []).includes("ft_transfer_call"),
+  );
+  if (!hit) throw new StopRun("the customer's purchase isn't in the explorer's activity list yet");
+  return hit.transaction_hash as string;
+}
+
+/**
+ * Resumes examples 3 and 4 on the same database and evidence record. The first attempt's
+ * purchase landed but the WALLET's answer (with its transaction ID) was lost (the provider answered
+ * 500): the app never learned the hash. That is example 3 for real: the app says unknown; the
+ * customer finds the original ID in their wallet's activity; the app confirms exactly once. Then
+ * the controlled variant (the app's own readback answer dropped) on a second small purchase, and
+ * example 4.
+ */
+async function resumeRecovery(ex: Example, port: number) {
+  const dir = resolve("data", "runtime", `rehearsal-${ex.name}`);
+  const configFile = join(dir, "config.json");
+  const out = join(EVIDENCE_DIR, `v3-${ex.name}-testnet.json`);
+  if (!existsSync(join(dir, "everstreet.db")) || !existsSync(out))
+    throw new StopRun("nothing to resume");
+  const prior = JSON.parse(readFileSync(out, "utf8")) as Json;
+  if (prior.outcome?.completed) throw new StopRun("examples 3 and 4 already completed");
+  await spendGuard(`${ex.name} resume start`);
+  const cfg = JSON.parse(readFileSync(configFile, "utf8")) as Json;
+  if (cfg.rpc.endpoint !== RPC) {
+    cfg.rpc.endpoint = RPC;
+    writeFileSync(configFile, JSON.stringify(cfg));
+  }
+  const app = startApp(configFile);
+  await app.ready();
+  const bizId = cfg.v3.bindings[0].business_id as string;
+  const f = httpClient(port);
+  await signIn(f, ex.founder);
+  const proj = ((await f("/api/product-projects")).body.projects as Json[]).find(
+    (x) => x.business_id === bizId,
+  );
+  if (!proj) throw new StopRun("the project isn't listed");
+  const env = recoveryEnv(
+    ex,
+    exampleEnv(ex, port, { id: bizId, project: proj.id as string, contract: ex.business }),
+    app,
+  );
+  const rec = Recorder.resume(prior, { at: new Date().toISOString(), commit: commit(), rpc: RPC });
+  try {
+    for (const w of ["founder", "customer", "buyer"] as const) await env.signIn(w, env.client(w));
+    const cara = env.client("customer");
+    const s = steps(env, rec, 180_000);
+    const offers = (await env.client("founder")(`/api/businesses/${bizId}/customer-offers`)).body
+      .offers as Json[];
+    const offer = offers.find((o) => o.state === "active");
+    if (!offer) throw new StopRun("no active offer");
+    // ---- Example 3, for real: the wallet's answer was lost; the app never had the hash.
+    const list = (await cara("/api/customer/purchases")).body.purchases as Json[];
+    const open = list.find((p) => p.state !== "confirmed");
+    if (open) {
+      const without = await cara(`/api/customer/purchases/${open.id}/check`, "POST", {});
+      rec.app("wallet_answer_lost_check_without_hash", {
+        fault:
+          "real: the provider answered 500 to the wallet's send; the transaction ID never reached the app",
+        status: without.status,
+        resolution: without.body?.resolution ?? null,
+      });
+      const hash = await originalPurchaseHash(ex.customer);
+      rec.app("original_hash_found", {
+        source:
+          "the customer's own activity, as listed by the public testnet explorer (nearblocks)",
+        hash,
+        explorer: `${EXPLORER}${hash}`,
+      });
+      const withHash = await readAgain(() =>
+        cara(`/api/customer/purchases/${open.id}/check`, "POST", { tx_hash: hash }),
+      );
+      const again = await readAgain(() =>
+        cara(`/api/customer/purchases/${open.id}/check`, "POST", { tx_hash: hash }),
+      );
+      rec.app("recovered_with_original_hash_real", {
+        first: withHash.body?.resolution ?? withHash.body,
+        second: again.body?.resolution ?? again.body,
+      });
+      if (withHash.body?.resolution?.kind !== "confirmed")
+        throw new StopRun(`the original hash didn't confirm: ${JSON.stringify(withHash.body)}`);
+      const v = await env.views();
+      await rec.checkpoint("recovered_purchase_real", v);
+      const e = v.entitlement as Json;
+      if (e?.free !== "10") throw new StopRun(`expected 10 free, saw ${e?.free}`);
+      const paid = 5_000_000n - BigInt(v.tusd?.[ex.customer] ?? "0");
+      if (paid !== 1_500_000n) throw new StopRun(`expected one payment of 1.5 tUSD, saw ${paid}`);
+    }
+    // ---- Example 3, controlled: a second small purchase; the app's readback answer dropped.
+    const pem = join(dir, "device-key-customer-2.pem");
+    const key2 = existsSync(pem) ? loadDeviceKey(readFileSync(pem, "utf8")) : newDeviceKey();
+    if (!existsSync(pem)) writeFileSync(pem, key2.pem, { mode: 0o600 });
+    await controlledDrop(env, rec, s, {
+      offer: offer.id as string,
+      units: 5,
+      key: key2,
+      slot: 1,
+      tag: "recovery-2",
+    });
+    // ---- Example 4.
+    const r = await payoutRecovery(env, rec, s);
+    console.log(`✓ examples 3 and 4 complete: ${JSON.stringify(r)}`);
+    rec.write(out, { completed: true });
+  } catch (e) {
+    rec.write(out, { completed: false, reason: (e as Error).message.slice(0, 600) });
+    console.log(`app log (last part):\n${app.log().slice(-3000)}`);
+    throw e;
+  } finally {
+    await spendGuard(`${ex.name} resume end`).catch(() => {});
+    await app.stop();
+  }
+  console.log(`evidence: ${out}`);
+}
+
 const cmd = process.argv[2];
 try {
   if (cmd === "setup-direct") await setupDirect();
@@ -1333,6 +1536,7 @@ try {
   else if (cmd === "resume-gated") await resumeGated(GATED, 8833);
   else if (cmd === "setup-recovery") await setupExample(RECOVERY);
   else if (cmd === "run-recovery") await runExample(RECOVERY, 8834);
+  else if (cmd === "resume-recovery") await resumeRecovery(RECOVERY, 8834);
   else {
     console.error("usage: v3-rehearsal.ts setup-direct | run-direct");
     process.exit(2);

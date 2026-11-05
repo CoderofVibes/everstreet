@@ -16,6 +16,7 @@ import {
   found,
   type Json,
   newDeviceKey,
+  PRICE,
   readAgain,
   StopRun,
   steps,
@@ -303,23 +304,39 @@ export async function runRecovery(
 ) {
   const settleMs = o.settleWaitMs ?? 120_000;
   const s = steps(env, rec, settleMs);
-  const { ava, cara, noah } = s;
   for (const w of ["founder", "customer", "buyer"] as const) await env.signIn(w, env.client(w));
-  const { id: biz } = env.business;
   await rec.checkpoint("start", await env.views());
   const { offer } = await found(env, rec, s, "recovery");
 
   // ---- Example 3: the purchase lands; the app's readback answer is dropped; a recheck recovers.
   const key = newDeviceKey();
   o.keepKey?.(key);
+  await controlledDrop(env, rec, s, { offer, units: 10, key, slot: 0, tag: "recovery" });
+  // ---- Example 4.
+  const { owed } = await payoutRecovery(env, rec, s);
+  return { offer, owed };
+}
+
+/**
+ * Example 3 (controlled): a purchase lands; the test-only drop loses the app's readback answer;
+ * a recheck with the original hash confirms it exactly once (a third check changes nothing).
+ */
+export async function controlledDrop(
+  env: RecoveryEnv,
+  rec: Recorder,
+  s: ReturnType<typeof steps>,
+  o: { offer: string; units: number; key: DeviceKey; slot: number; tag: string },
+) {
+  const { cara } = s;
+  const offer = o.offer;
   const before = await env.views();
   await buy(env, rec, s, {
     who: "customer",
     offer,
-    units: 10,
-    key,
-    slot: 0,
-    tag: "recovery",
+    units: o.units,
+    key: o.key,
+    slot: o.slot,
+    tag: o.tag,
     check: async (pid, hash) => {
       env.relay.arm();
       const lost = await cara(`/api/customer/purchases/${pid}/check`, "POST", { tx_hash: hash });
@@ -360,19 +377,29 @@ export async function runRecovery(
     },
   });
   const after = await env.views();
-  await rec.checkpoint("recovered_purchase", after);
-  expect(ent(after)?.free === "10", "exactly one entitlement increase (10)", ent(after));
+  await rec.checkpoint(`recovered_purchase_${o.tag}`, after);
+  const added = BigInt(ent(after)?.free ?? "0") - BigInt(ent(before)?.free ?? "0");
+  expect(added === BigInt(o.units), `exactly one entitlement increase (${o.units})`, ent(after));
   const paid =
     BigInt(before.tusd?.[env.accounts.customer] ?? "0") -
     BigInt(after.tusd?.[env.accounts.customer] ?? "0");
-  expect(paid === 1_500_000n, "exactly one payment of 1.5 tUSD", paid.toString());
+  const price = BigInt(PRICE) * BigInt(o.units);
+  expect(paid === price, `exactly one payment of ${price} base units`, paid.toString());
   const purchases = ok(await cara("/api/customer/purchases"), 200, "purchases").purchases as Json[];
   rec.app("purchases_listed", {
     count: purchases.length,
     states: purchases.map((p) => p.state ?? p.outcome ?? null),
   });
+}
 
-  // ---- Example 4: a small Direct sale, then the seller's proceeds payout fails and recovers.
+/**
+ * Example 4: a small Direct sale, then the seller's proceeds payout fails (the seller
+ * unregisters after review: the deliberate fault), is restored, can't be taken by the buyer, and
+ * is collected once after re-registration; a replay pays nothing.
+ */
+export async function payoutRecovery(env: RecoveryEnv, rec: Recorder, s: ReturnType<typeof steps>) {
+  const { ava, noah } = s;
+  const { id: biz } = env.business;
   const terms = {
     buyer_account: env.accounts.buyer,
     price: "10000000",
@@ -511,5 +538,5 @@ export async function runRecovery(
   const s3 = await env.seller();
   expect(s3.balance === s2.balance, "no second payout", s3.balance);
   await rec.checkpoint("after_replay", await env.views());
-  return { offer, owed };
+  return { owed };
 }
