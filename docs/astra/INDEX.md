@@ -2,8 +2,10 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Direct sale design review](2026-11-04_DirectSaleDesignReview.md) |155b636 review: unknown-action retries need identity, coherent customer/sale economics, post-close and claim actions | Corrections requested within active003wf2; no new writer or external scope |
+| 2026-11-04 | [Check scheduling review](2026-11-04_CheckSchedulingReview.md) | Recurring protected-store timeout under suite load; isolate the required file without weakening assertions | Baseline1439+1skip/1timeout; isolated12/12 and lifecycle21/21 reported; production unchanged |
 | 2026-11-04 | [Configured lifecycle accepted](2026-11-04_ConfiguredLifecycleAccepted.md) | Narrow003wf1 acceptance and immediate Direct sale dispatch | Final cleanup independently5/5; prior full1440+1skip/19; builder final21 lifecycle; all parent/milestone gates retained |
-| 2026-11-04 | [NEAR skill references](2026-11-04_NEARSkillReferences.md) | Tony-provided official contract/API/audit packages pinned and cached with complete references;003wf2 usage guidance |21 files locally downloaded, not installed; audit entry+3 references read; remaining pinned reads required before application |
+| 2026-11-04 | [NEAR skill references](2026-11-04_NEARSkillReferences.md) | Tony-provided official contract/API/audit packages pinned and cached with complete references;003wf2 usage guidance |21 files locally downloaded, not installed; Astra completed API entry+6 references, contract entry+9 rules and audit entry+3 references; contextual limitations recorded |
 | 2026-11-04 | [Direct sale planning](2026-11-04_DirectSalePlanning.md) | Grounded v3 wallet acquisition, exact review guards, party storage and claims; next003wf2 brief | Queued only;003wf1 correction writer65377 remains sole active builder |
 | 2026-11-04 | [Configured lifecycle handoff review](2026-11-04_ConfiguredLifecycleHandoffReview.md) | 003wf1 verified at 662445a but unfinished: reservation/retention barriers, build adapter, response-body shutdown, dead-peer evaluation recovery | Dispatched as a bounded 003wf1 continuation |
 | 2026-11-04 | [Lifecycle RPC evidence review](2026-11-04_LifecycleRpcEvidenceReview.md) | The synthetic RPC must keep contract and block identity and validate envelopes | Probe committed 081f017; fixed in e83a79b with negative cases |
@@ -116,8 +118,3 @@
 | 2026-11-01 | [Intact businesses and living profiles](2026-11-01_IntactProfiles.md) | Extends Launch pad: business continuity from activation, profitable API and customer-cooperative journeys, living profiles and social layer, computed financials and valuation, owner rules, seven wireframes, v2 requirements and eight-phase update | Proposal complete; six Tony decisions with recommendations |
 | 2026-11-01 | [Launch pad](2026-11-01_LaunchPad.md) | Launch-first product: founder journey from idea to first customers, profiles and distribution, early valuations, acquisitions, service discovery, NEAR architecture, mobile UI and phased build order | Proposal complete; five Tony decisions with recommendations |
 | 2026-11-01 | [Platform vision](2026-11-01_PlatformVision.md) | Full platform: founder and customer journeys, acquisitions and valuations, NEAR architecture, UI, bold extensions and phased build order | Proposal complete; Tony decisions open |
-
-
-
-
-

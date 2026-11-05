@@ -10,7 +10,8 @@
       "!.claude",
       "!docs",
       "!data",
-      "!package-lock.json"
+      "!package-lock.json",
+      "!server/test/fixtures/v3/direct-sale.json"
     ]
   },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
