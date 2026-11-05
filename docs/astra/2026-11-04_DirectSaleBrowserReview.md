@@ -130,3 +130,47 @@ five-step grid. Preserve readable status words and avoid shrinking text merely t
 The live pending funding transaction from the synthetic wallet's read-only history is
 Ch4vUgvniKhAaSYoEXQFSzKSUmN1pXcpsgYuU9cvo9zv (buyer.near -> tusd.near, ft_transfer_call).
 Astra will enter it through corrected visible History controls; no API reconciliation has run.
+
+## First actual browser sale completed; preview cleaned — 23:42 Pacific
+
+Continued the DISTINCT acceptance actions while keeping the buyer's old funding request
+unresolved. Buyer review correctly described exact acceptance and conditional close, then its
+own transaction confirmed acceptance and the page waited for the seller. Signed out and back
+in through the real synthetic identity flow as Ava. On the newly rebuilt frontend (dist timestamp
+23:38:31), the seller's review now visibly lists buyer,250TUSD, exact expiry in PST plus UTC,
+floor0, meter.near and attached NEAR before the wallet button. This fixes the previously missing
+human-readable summary in that acceptance case.
+
+Seller clicked the synthetic acceptance; actual UI then showed deal1 closed, buyer.near controls
+the business, local apply complete, former-seller role and Your handovers instead of Business
+desk, and250TUSD sale proceeds owed (not paid). Customer obligations remained5TUSD. Screenshot
+showed a balanced3x2 progress layout at the laptop viewport, with collection current while prior
+steps complete. No premature paid claim. This is page/route/double evidence only, not configured
+composition, real NEAR, actual buyer operation, or an attempted stale-owner request denial.
+
+One remaining content-state polish: after close, Authority the buyer receives falls back to
+"No sale is proposed ... Once terms are proposed ... draft ...". Show the confirmed handover /
+current authority context here, clearly distinguishing the closed terms from current owner and
+operator observations. Do not show pre-proposal guidance after a successful sale. Do not treat
+any historical close as the current one when a later deal exists.
+
+Preview48000 reached its25-minute bound and exited0; ports8814/8815 no longer listen. Tab65 was
+closed; viewport override had been reset. No preview remains. Funding History recovery still
+needs actual-browser recheck with a fresh bounded case (the old in-memory state is gone); it was
+never secretly resolved. Draft/cancel and final form1440/1280/390, keyboard/zoom/reduced-motion,
+payout restoration/payment, actual buyer operation/customer use and configured-composition
+browser evidence also remain. Keep this evidence matrix honest; no whole003wf2 acceptance.
+
+## Next bounded continuation — 23:49 Pacific
+
+Astra verified the correction stream's terminal success result and exact-session process absence;
+old exec37479 is no longer registered. Head0d32f98 contains correction2eea876. Independent focused
+page/controller/journey/harness tests32/32 pass, exit0 at23:47. This is narrow automated evidence;
+History recovery/focus still need actual-browser review. No preview is active.
+
+Dispatch now: implement the configured-composition browser variant requested above and the
+23:42 after-close authority wording correction. The previous preview has expired, so there is
+no dependency on keeping it alive or first testing its now-lost in-memory funding record.
+Use a fresh bounded synthetic case on the configured variant for the remaining browser matrix.
+Preserve all existing test and permission boundaries; do not enable the real worker or bypass
+pending customer enrollment/revocation approval. Read the entire latest review before finalizing.
