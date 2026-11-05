@@ -23,10 +23,12 @@ export const SUBNAV: Record<Destination, { label: string; to: string }[]> = {
     { label: "Product studio", to: "/build" },
     { label: "Bring a product", to: "/import" },
     { label: "Start a business", to: "/start" },
+    { label: "Expert help", to: "/experts" },
   ],
   operate: [
     { label: "My businesses", to: "/desk" },
     { label: "Inbox", to: "/inbox" },
+    { label: "Help requests", to: "/expert-help" },
   ],
   acquire: [
     { label: "Acquisitions", to: "/acquire" },
@@ -52,12 +54,19 @@ export function destinationOf(rawPath: string): Destination | null {
   if (/^\/desk\/[^/]+\/(sale|handover)(\/|$)/.test(path)) return "acquire";
   if (under(path, "/acquire") || under(path, "/deal") || under(path, "/handovers"))
     return "acquire";
-  if (under(path, "/desk") || under(path, "/help") || under(path, "/inbox")) return "operate";
+  if (
+    under(path, "/desk") ||
+    under(path, "/help") ||
+    under(path, "/inbox") ||
+    under(path, "/expert-help")
+  )
+    return "operate";
   if (
     under(path, "/build") ||
     under(path, "/start") ||
     under(path, "/import") ||
-    under(path, "/studio")
+    under(path, "/studio") ||
+    under(path, "/experts")
   )
     return "build";
   if (

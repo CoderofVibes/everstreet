@@ -329,6 +329,12 @@ export function DigitalWorkspace({
             <Link to={`/desk/${b.id}/public`} className="btn btn-secondary btn-sm">
               Public profile
             </Link>
+            <Link
+              to={`/experts?business=${encodeURIComponent(b.id)}`}
+              className="btn btn-quiet btn-sm"
+            >
+              Find expert help
+            </Link>
             {desk.project_id && (
               <Link to={`/studio/${desk.project_id}`} className="btn btn-quiet btn-sm">
                 Edit page and legacy offering

@@ -21,6 +21,7 @@ import { Deals } from "./deals.ts";
 import { digitalDesk } from "./digitalDesk.ts";
 import { economics } from "./economics.ts";
 import { Evaluations } from "./evaluations.ts";
+import { ExpertHelp } from "./expertHelp.ts";
 import { StoppedError } from "./fence.ts";
 import type { AccountSignIn } from "./identity.ts";
 import { type ImportInspector, type ImportSourceOptions, Imports } from "./imports.ts";
@@ -127,6 +128,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const authoring = new Authoring(store.db, store, products, builds, () =>
     proposalBudget(builds.provider),
   );
+  const expertHelp = new ExpertHelp(store.db, store);
   const imports = new Imports(
     store.db,
     store,
@@ -998,6 +1000,39 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
 
   // ---------- books and value (owner only) ----------
+
+  // ---------- job 005c: expert help (personal profiles, private requests; no authority) ----------
+  app.get("/api/me/expert-profile", (c) => c.json(expertHelp.myProfile(me(c))));
+  app.put("/api/me/expert-profile", async (c) =>
+    c.json(expertHelp.saveProfile(me(c), await body(c))),
+  );
+  app.post("/api/me/expert-profile/publish", (c) => c.json(expertHelp.setPublished(me(c), true)));
+  app.post("/api/me/expert-profile/unpublish", (c) =>
+    c.json(expertHelp.setPublished(me(c), false)),
+  );
+  app.get("/api/experts", (c) =>
+    c.json(
+      expertHelp.directory({
+        skill: c.req.query("skill"),
+        q: c.req.query("q"),
+        capacity: c.req.query("capacity"),
+      }),
+    ),
+  );
+  app.get("/api/experts/:id", (c) => c.json(expertHelp.publicProfile(c.req.param("id"))));
+  app.post("/api/help-requests/preview", async (c) =>
+    c.json(expertHelp.preview(me(c), await body(c))),
+  );
+  app.post("/api/help-requests", async (c) => {
+    const r = expertHelp.create(me(c), await body(c));
+    return c.json(r, r.created ? 201 : 200);
+  });
+  app.get("/api/help-requests", (c) => c.json(expertHelp.list(me(c))));
+  app.get("/api/help-requests/:id", (c) => c.json(expertHelp.get(me(c), c.req.param("id"))));
+  app.post("/api/help-requests/:id/events", async (c) => {
+    const r = expertHelp.act(me(c), c.req.param("id"), await body(c));
+    return c.json(r, r.created ? 201 : 200);
+  });
 
   // Job 005e: operating economics (per asset, no conversion, no profit) and recovery, owner only.
   app.get("/api/businesses/:id/economics", (c) => {

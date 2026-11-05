@@ -5,51 +5,63 @@ Builder: Claude Code, claude-opus-5-5, high, subscription. Astra's automatic goa
 
 ## Now
 
-- Active phase: A (flagship journey) -> moving to the browser/visual findings, then phases B-F.
-- Running: the 003wf4 sale review harness via the preview pane (`sale-harness`, port 8814/8815,
-  90-minute self-stop). Stop it with the preview tools when browser work ends.
-- Approvals carried: synthetic device enrollment for fictional Dana in the in-memory localhost
-  preview, one invoice use (HANDOFF_STATE). Not yet executed.
+- Phases done this session: A (flagship journey, writer history, rehearsal packet), B (Checks
+  evidence + manual checks; 002f1 stage 1), C (004b connected source), D part 1 (005e economics).
+  Next: 005c expert help (none exists), 005d portfolio, then E (006a), F (003x, 006b, 006c), G.
+- Scratch preview `everstreet-scratch` (port 8811, data/runtime/scratch-review*.db) may be running.
+- Running: the sale review harness in the preview pane (`sale-harness`, ports 8814/8815, 90-min
+  self-stop). Stop it with preview_stop when browser work ends.
+- Approval carried, not executed: synthetic device enrollment for fictional Dana in the in-memory
+  localhost preview, one invoice use (HANDOFF_STATE).
 
-## Done this session
+## Commits this session
 
-| Item | Evidence |
+| Commit | What |
 |---|---|
-| Astra pause note + handoff packet reviewed, committed | a0bbde8 |
-| 003wf4 finalBlock exhaustion (Astra 06:28) recorded; per-budget wording; sale-chain budget watched | `sale-harness-recovery.test.ts` (2 new tests fail before, pass after) |
-| 003wf4 B gates in a REAL browser (built-in browser, 1280x800, harness): lost answer -> "unknown, recover by its own ID"; wrong ID refused, nothing recorded; reload keeps the unresolved request as the step; original ID confirms plan 2 with readback; "Review the offer for plan 2" pre-fills and focuses the plan field; inspection still required | builder-verified (browser); independent review pending |
-| Flagship 003wf parent journey in ONE configured child: founder revision, budgets, build, 10-case evaluation, release, plan, grant, offer; fresh customer buys 100, 20 uses delivered+charged (ops 20/20, compute recorded, none unknown); Direct sale propose/register/fund/accept/close+reconcile; 80 at close; result 1 identical; seller denied; 79 after the buyer's use; buyer's revision/build/eval/release/offer; use on the update (78); durable rows show release/artifact/owner generation per use; 22 charges; graceful stop exit 0 | `server/test/flagship-journey-process.test.ts` (~10 s), SYNTHETIC chain/wallet/model |
+| a0bbde8 | Astra pause note + handoff packet (reviewed, docs) |
+| ac6831e | Flagship 100/20/80/79 journey in one configured child; harness finalBlock budget record |
+| 519ca1a | 003wf slice 3: operators' unresolved writer history (list, own-hash check, audit) |
+| 8cb4c74 | Checks states real build/evaluation/release; manual checks; draft-never-alters proof; rehearsal packet |
+| 56cd3b0 | 002f1 stage 1: worker readiness corrections in the repo (no host touched) |
+| 7fa6deb | 004b connected source inspection (read-only, pinned commit, immutable reports, compare) |
+| 7641da5 | Gate new owner routes during a managed handover; classify every new mutation route |
+| 41223ba | 005e operating economics + recovery in Operate (per asset, no conversion or profit) |
 
-## Browser findings to fix (Phase G polish; observed at 1280)
+## Evidence (builder-verified; independent review pending)
 
-1. Offer review/list and customer pages lead with "150000 base units of tusd.near"; plan step says
-   "0.15 TUSD". Readable amount first, exact base units in details (CustomerOffers, PublicPage,
-   CustomerProduct, PurchasePanel, DeskDigital).
-2. Studio tab (Service > Customer access) is not in the URL; reload returns to Preview.
-3. Wrong-ID refusal text renders under "Read again", away from the ID field.
-4. Raw code `no_active_offer` shown in "Service checks not yet passing".
-5. Recovery panel order: "Check it" button sits before the ID label/field.
-6. Unnamed buttons in the progress strip (accessibility tree shows no name).
+- Full `npm run check` at ac6831e: exit 0; 1606 passed / 1 skipped; protected 12; process 60.
+- Full check at 7fa6deb: 1 failure (route guard: 5 new mutation routes unclassified) -> fixed
+  in 7641da5 (gated + exercised during an actual closing); focused suites since. Full check due.
+- Flagship journey (`flagship-journey-process.test.ts`, ~10 s, SYNTHETIC chain/wallet/model):
+  founder build/eval/release/plan/grant/offer; fresh customer buys 100, 20 delivered+charged
+  (ops 20/20, compute recorded); Direct sale closes with reconcile; 80 at close; result 1 same;
+  seller denied; 79; a use during the buyer's unreleased draft runs on the released artifact;
+  buyer release+offer; use on the update (77); durable rows per use; 23 charges; stop exit 0.
+- Real browser (built-in, 1280x800, synthetic harness): 003wf4 lost answer -> wrong ID refused ->
+  reload -> original ID confirms plan -> offer review pre-filled; Studio Checks shows build,
+  10/10 evaluation, release; a manual check recorded.
+- Writer history: 14 unit + 1 production-composition test. 002f1: setup-harness all pass,
+  conformance self-test, conformance-memory tests (5).
 
-## Gaps found (not yet built)
+## Browser findings still to fix (Phase G)
 
-- Books' monthly revenue ignores token-denominated customer charges (20 x 0.15 TUSD shows
-  revenue 0, basis none). Operations has usage/cost. -> 005e economics.
-- Phase B inventory: only AI API + web-app bundle execute; no customer release path for web-app
-  bundles (006a); no shared functional-vs-prototype label; no recorded manual evaluation; no
-  end-to-end "draft edit after release leaves served product unchanged" test; 002f1 corrections
-  1-5 all missing (repo parts possible; host proof needs a dispatched host step).
-- Phases C-F: 004b GitHub adapter missing; 005c entirely missing; 005d portfolio missing;
-  006a customer release of bundles missing; 003x sheet/record/verifier missing; 005e unified
-  economics + recovery view missing; 006b machine API/MCP missing; 006c rehearsal records missing.
+1. Offer review/lists and customer pages lead with base units; plan step shows 0.15 TUSD.
+2. Studio tab not in the URL (reload returns to Preview).
+3. Wrong-ID refusal shown under "Read again", away from the ID field.
+4. Raw `no_active_offer` in "Service checks not yet passing".
+5. Recovery panel order ("Check it" before the ID field).
+6. Unnamed buttons in the Studio progress strip.
+7. Checks cards are narrow at 1280 with the companion open.
 
-## Open (retained, not claimed)
+## Gaps known (not built yet)
 
-Restart/concurrency matrix around the full journey, writer-history (needs_reconciliation /
-legacy_invalid) operator workflow, Gated at its boundaries in the journey, external rehearsal
-packet, zoom/reduced motion/screen reader, 390/1440 passes, device enrollment in browser.
+- M2: only AI API and web-app bundles execute; no shared functional/prototype label; web-app
+  bundles have no customer release (006a).
+- 004b GitHub adapter; 005c expert help; 005d portfolio; 006a; 003x sheet/record/verifier;
+  005e economics view; 006b machine API/MCP; 006c rehearsal records; M6 team/co-op.
+- 002f1 stage 2 (host) needs Astra dispatch; VMM pressure method needs review.
 
-## Checks
+## Decisions for Tony (batched at the end)
 
-- Focused: flagship + harness recovery + plan-setup process: 3 files, 11 tests pass. tsc exit 0.
-- Full `npm run check` not yet run this session.
+- External rehearsal packet decisions (docs/design/EXTERNAL_REHEARSAL_PACKET.md): deploy v3 or
+  not and NEAR budget; provider spend ceiling; who operates wallet steps; Gated in scope.

@@ -65,6 +65,14 @@ const CLASS: Record<string, Class> = {
   "POST /api/imports/:id/source/connect": "gated_owner",
   "POST /api/imports/:id/source/disconnect": "gated_owner",
   "POST /api/imports/:id/source/inspections": "gated_owner",
+  // 005c: a person's own expert profile and private help requests (a business link is checked
+  // and refused while it changes hands inside the service; the request itself isn't owner state)
+  "PUT /api/me/expert-profile": "not_business",
+  "POST /api/me/expert-profile/publish": "not_business",
+  "POST /api/me/expert-profile/unpublish": "not_business",
+  "POST /api/help-requests/preview": "not_business",
+  "POST /api/help-requests": "not_business",
+  "POST /api/help-requests/:id/events": "not_business",
   // 003wf slice 3: an operator reads one attempt's own FINAL status (recovery evidence)
   "POST /api/operator/writer-history/check": "allowed_recovery",
   // v2 (legacy) owner routes: refused at entry for a business that is changing hands; a v2-only

@@ -16,6 +16,12 @@ import { CustomerProduct } from "./pages/CustomerProduct.tsx";
 import { DealPage } from "./pages/Deal.tsx";
 import { DeskList, DeskPage } from "./pages/Desk.tsx";
 import { DeskSale } from "./pages/DeskSale.tsx";
+import {
+  ExpertProfilePage,
+  ExpertsDirectory,
+  HelpRequestThread,
+  MyHelpRequests,
+} from "./pages/ExpertHelp.tsx";
 import { Explore } from "./pages/Explore.tsx";
 import { Find } from "./pages/Find.tsx";
 import { HandoversPage, HandoverWorkspace } from "./pages/Handover.tsx";
@@ -315,6 +321,13 @@ function Routes() {
   const room = match("/acquire/room/:id", path);
   if (room) return <AcquireRoom id={room.id as string} />;
   if (path === "/profile") return <Profile />;
+  // Job 005c: expert help (directory, a profile and its request form, my requests, a thread).
+  if (path === "/experts") return <ExpertsDirectory />;
+  const expert = match("/experts/:id", path);
+  if (expert?.id) return <ExpertProfilePage key={expert.id} id={expert.id} />;
+  if (path === "/expert-help") return <MyHelpRequests />;
+  const thread = match("/expert-help/:id", path);
+  if (thread?.id) return <HelpRequestThread key={thread.id} id={thread.id} />;
   // Job 003wf slice 3: configured operators only (the API answers 404 to anyone else).
   if (path === "/operator/writer-history") return <WriterHistoryPage />;
   return (
