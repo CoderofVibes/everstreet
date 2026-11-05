@@ -32,6 +32,8 @@ const EMPTY: SaleFlowState = {
   busy: null,
   notice: null,
   answers: {},
+  drafts: {},
+  focus: null,
 };
 const STEP_WORD = {
   done: "Completed",
@@ -146,6 +148,129 @@ function TermsDocument({ text, hash }: { text: string; hash: string }) {
   );
 }
 
+/** An absolute time, readable, with its time zone, and the exact UTC instant. */
+export function When({ ms }: { ms: string }) {
+  const d = new Date(Number(ms));
+  return (
+    <>
+      {d.toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZoneName: "short",
+      })}{" "}
+      <span className="muted mono">
+        (
+        {d
+          .toISOString()
+          .replace("T", " ")
+          .replace(/\.\d+Z$/, " UTC")}
+        )
+      </span>
+    </>
+  );
+}
+
+/**
+ * The reviewed facts, readable and together, before the wallet button (Astra's browser review):
+ * who, how much, until when, the floor kept, the operators named, and what is attached. The exact
+ * arguments stay below as secondary evidence.
+ */
+export function ReviewSummary({ p, s }: { p: SalePreview; s: SaleSetup }) {
+  const v = p.review as Record<string, unknown>;
+  const live = s.control.live_deal;
+  const str = (k: string) => (typeof v[k] === "string" ? (v[k] as string) : null);
+  const buyer = str("buyer") ?? live?.buyer ?? null;
+  const price = str("price");
+  const expires =
+    str("expires_at_ms") ??
+    (live && p.kind !== "claim" && p.kind !== "register" && p.kind !== "appoint"
+      ? live.expires_at_ms
+      : null);
+  const floor =
+    str("available_floor") ??
+    (live && (p.kind === "accept" || p.kind === "fund") ? live.available_floor : null);
+  const grants = Array.isArray(v.grants)
+    ? (v.grants as { account: string; caps: number }[])
+    : live && (p.kind === "accept" || p.kind === "fund")
+      ? live.grants
+      : null;
+  return (
+    <dl className="facts sale-summary" aria-label="What you are reviewing">
+      {str("deal_seq") && (
+        <>
+          <dt>Deal</dt>
+          <dd>
+            Number {str("deal_seq")}, version {String(v.version ?? v.next_version)}
+          </dd>
+        </>
+      )}
+      {buyer && p.kind !== "claim" && p.kind !== "register" && p.kind !== "appoint" && (
+        <>
+          <dt>Buyer</dt>
+          <dd className="mono wrap">{buyer}</dd>
+        </>
+      )}
+      {price && (
+        <>
+          <dt>Price</dt>
+          <dd>
+            <Amount base={price} s={s} /> <span className="muted mono">({price} base units)</span>
+          </dd>
+        </>
+      )}
+      {str("amount") && (
+        <>
+          <dt>Amount</dt>
+          <dd>
+            <Amount base={str("amount") as string} s={s} />{" "}
+            <span className="muted mono">({str("amount")} base units)</span>
+          </dd>
+        </>
+      )}
+      {expires && (
+        <>
+          <dt>Offer open until</dt>
+          <dd>
+            <When ms={expires} />
+          </dd>
+        </>
+      )}
+      {floor !== null && (
+        <>
+          <dt>Available balance kept (floor)</dt>
+          <dd>
+            <Amount base={floor} s={s} />
+          </dd>
+        </>
+      )}
+      {grants && (
+        <>
+          <dt>Operators named</dt>
+          <dd>
+            {grants.length === 0
+              ? "None: after the close, customers' new uses pause until the new owner appoints metering."
+              : grants.map((g) => `${g.account} (${caps(g.caps)})`).join("; ")}
+          </dd>
+        </>
+      )}
+      {typeof v.operator === "string" && (
+        <>
+          <dt>Operator appointed</dt>
+          <dd className="mono wrap">{v.operator} (metering)</dd>
+        </>
+      )}
+      <dt>Attached NEAR</dt>
+      <dd>
+        <span className="mono">{yocto(p.call.deposit)} NEAR</span>
+        {typeof v.deposit_basis === "string" && <div className="muted">{v.deposit_basis}</div>}
+      </dd>
+    </dl>
+  );
+}
+
 function Review({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: SaleSetup }) {
   const ref = useRef<HTMLElement>(null);
   const r = st.review;
@@ -173,6 +298,8 @@ function Review({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: SaleSet
           new transaction; each one's outcome is checked by its own transaction.
         </p>
       )}
+      <ReviewSummary p={p} s={s} />
+      <h3 className="sale-h3">What this does</h3>
       <ul>
         {((v.effects as string[] | undefined) ?? []).map((e) => (
           <li key={e}>{e}</li>
@@ -187,17 +314,6 @@ function Review({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: SaleSet
             ))}
           </ul>
         </>
-      )}
-      {typeof v.price === "string" && (
-        <p>
-          Price: <Amount base={v.price} s={s} />{" "}
-          <span className="muted mono">({v.price} base units)</span>
-        </p>
-      )}
-      {typeof v.amount === "string" && (
-        <p>
-          Amount: <Amount base={v.amount} s={s} />
-        </p>
       )}
       {p.terms_doc && <TermsDocument text={p.terms_doc.text} hash={p.terms_doc.hash} />}
       <p>
@@ -328,22 +444,44 @@ function OpenRequest({ flow, st, a }: { flow: SaleFlow; st: SaleFlowState; a: Sa
   );
 }
 
-function TermsForm({ flow, s, revise }: { flow: SaleFlow; s: SaleSetup; revise: boolean }) {
+function TermsForm({
+  flow,
+  st,
+  s,
+  revise,
+}: {
+  flow: SaleFlow;
+  st: SaleFlowState;
+  s: SaleSetup;
+  revise: boolean;
+}) {
   const d = s.control.live_deal;
   const m = s.token.meta;
   const id = useId();
-  const [buyer, setBuyer] = useState(d?.buyer ?? "");
-  const [price, setPrice] = useState(d && m ? tokenAmount(d.price, m.decimals) : "");
-  const [days, setDays] = useState(7);
-  const [floor, setFloor] = useState(d && m ? tokenAmount(d.available_floor, m.decimals) : "0");
-  const [metering, setMetering] = useState(
-    !d ||
-      (s.platform_operator !== null &&
-        d.grants.some((g) => g.account === s.platform_operator && (g.caps & 1) !== 0)),
+  const kind = revise ? ("revise" as const) : ("propose" as const);
+  // The draft lives in the controller (this business, this account), so leaving the form for a
+  // review and coming back, a retry or a stale review never loses what was typed.
+  const saved = st.drafts[kind];
+  const [buyer, setBuyer] = useState(saved?.buyer ?? d?.buyer ?? "");
+  const [price, setPrice] = useState(
+    saved?.price ?? (d && m ? tokenAmount(d.price, m.decimals) : ""),
   );
-  const [exclusions, setExclusions] = useState("");
-  const [note, setNote] = useState("");
+  const [days, setDays] = useState(saved?.days ?? 7);
+  const [floor, setFloor] = useState(
+    saved?.floor ?? (d && m ? tokenAmount(d.available_floor, m.decimals) : "0"),
+  );
+  const [metering, setMetering] = useState(
+    saved?.metering ??
+      (!d ||
+        (s.platform_operator !== null &&
+          d.grants.some((g) => g.account === s.platform_operator && (g.caps & 1) !== 0))),
+  );
+  const [exclusions, setExclusions] = useState(saved?.exclusions ?? "");
+  const [note, setNote] = useState(saved?.note ?? "");
   const [problem, setProblem] = useState<string | null>(null);
+  useEffect(() => {
+    flow.setDraft(kind, { buyer, price, days, floor, metering, exclusions, note });
+  }, [flow, kind, buyer, price, days, floor, metering, exclusions, note]);
   if (!m)
     return (
       <p className="notice error">
@@ -365,18 +503,23 @@ function TermsForm({ flow, s, revise }: { flow: SaleFlow; s: SaleSetup; revise: 
     setProblem(null);
     const grants =
       metering && s.platform_operator ? [{ account: s.platform_operator, caps: 1 }] : [];
-    void flow.review(revise ? "revise" : "propose", {
-      buyer_account: buyer.trim(),
-      price: base,
-      expires_in_days: days,
-      available_floor: floorBase,
-      grants,
-      exclusions: exclusions
-        .split("\n")
-        .map((x) => x.trim())
-        .filter(Boolean),
-      note,
-    });
+    void flow.review(
+      kind,
+      {
+        buyer_account: buyer.trim(),
+        price: base,
+        expires_in_days: days,
+        available_floor: floorBase,
+        grants,
+        exclusions: exclusions
+          .split("\n")
+          .map((x) => x.trim())
+          .filter(Boolean),
+        note,
+      },
+      null,
+      `terms-${kind}`,
+    );
   };
   return (
     <section className="card" aria-labelledby={`${id}-t`}>
@@ -484,7 +627,7 @@ function TermsForm({ flow, s, revise }: { flow: SaleFlow; s: SaleSetup; revise: 
             {problem}
           </p>
         )}
-        <button type="submit" className="btn btn-primary">
+        <button type="submit" className="btn btn-primary" data-focus={`terms-${kind}`}>
           Review the exact request
         </button>
       </form>
@@ -676,18 +819,65 @@ function OtherActions({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: S
             type="button"
             className="btn btn-secondary"
             disabled={st.busy !== null}
-            onClick={() => void flow.review(i.kind)}
+            data-focus={`other-${i.kind}`}
+            onClick={() => void flow.review(i.kind, {}, null, `other-${i.kind}`)}
           >
             {i.label}
           </button>
         ))}
       </div>
-      {revising && <TermsForm flow={flow} s={s} revise />}
+      {revising && <TermsForm flow={flow} st={st} s={s} revise />}
     </section>
   );
 }
 
-function History({ s }: { s: SaleSetup }) {
+/**
+ * Read-only recovery for a request that can no longer take effect (Astra's browser review): its
+ * own transaction ID, or a fresh check. Nothing is ever sent again from here, and it blocks
+ * nothing else on the page.
+ */
+function HistoryRecovery({ flow, st, a }: { flow: SaleFlow; st: SaleFlowState; a: SaleAction }) {
+  const [tx, setTx] = useState("");
+  return (
+    <form
+      className="sale-recover"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void flow.checkWithTransaction(a.id, tx);
+      }}
+    >
+      <label className="field">
+        <span>Its transaction ID from your wallet's activity</span>
+        <input
+          className="input mono"
+          value={tx}
+          onChange={(e) => setTx(e.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <small>
+          Read-only: this checks that one transaction and records it only if it is exactly this
+          request. Nothing is sent.
+        </small>
+      </label>
+      <div className="row">
+        <button type="submit" className="btn btn-secondary" disabled={st.busy !== null}>
+          Check with this ID
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={st.busy !== null}
+          onClick={() => void flow.checkOpen(a.id)}
+        >
+          Check again
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function History({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: SaleSetup }) {
   if (s.actions.length === 0) return null;
   return (
     <section className="card quiet" aria-labelledby="sale-hist">
@@ -699,6 +889,12 @@ function History({ s }: { s: SaleSetup }) {
           <li key={a.id}>
             <strong>{KIND_LABEL[a.kind]}</strong> · {STATE_LABEL[a.state]}
             {a.evidence?.kind === "confirmed" && <span> · {a.evidence.result}</span>}
+            {a.state !== "prepared" &&
+              a.state !== "set_aside" &&
+              (st.answers[a.id]?.resolution ?? a.evidence) && (
+                <div className="muted">{(st.answers[a.id]?.resolution ?? a.evidence)?.message}</div>
+              )}
+            {a.state === "no_longer_possible" && <HistoryRecovery flow={flow} st={st} a={a} />}
             {a.tx_hash && (
               <div className="mono wrap muted" style={{ fontSize: 12 }}>
                 {a.tx_hash}
@@ -731,6 +927,15 @@ export function SaleRoom({ id }: { id: string }) {
     () => EMPTY,
   );
   const [showTerms, setShowTerms] = useState(false);
+  // After a review is set aside, focus returns to the control it was opened from.
+  useEffect(() => {
+    if (!flow || !st.focus || st.review) return;
+    const el = document.querySelector<HTMLElement>(`[data-focus="${st.focus}"]`);
+    if (el) {
+      el.focus();
+      flow.focused();
+    }
+  });
 
   if (!person || !account)
     return (
@@ -774,7 +979,7 @@ export function SaleRoom({ id }: { id: string }) {
       case "none":
         return undefined;
       default:
-        return void flow.review(next.action, next.input ?? {});
+        return void flow.review(next.action, next.input ?? {}, null, "next");
     }
   };
   const status =
@@ -811,6 +1016,7 @@ export function SaleRoom({ id }: { id: string }) {
               type="button"
               className="btn btn-primary"
               disabled={st.busy !== null}
+              data-focus="next"
               onClick={run}
             >
               {next.label}
@@ -862,10 +1068,10 @@ export function SaleRoom({ id }: { id: string }) {
           {(showTerms || next.action === "terms") &&
             !st.review &&
             s.roles.seller &&
-            !s.control.live_deal && <TermsForm flow={flow} s={s} revise={false} />}
+            !s.control.live_deal && <TermsForm flow={flow} st={st} s={s} revise={false} />}
           <LiveTerms s={s} />
           <OtherActions flow={flow} st={st} s={s} />
-          <History s={s} />
+          <History flow={flow} st={st} s={s} />
         </div>
         <Continuity s={s} />
       </div>

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { SalePort } from "../../web/src/saleApi.ts";
 import { SaleError } from "../../web/src/saleApi.ts";
 import { verifyPreview } from "../../web/src/saleCalls.ts";
-import { SaleFlow, saleNext, saleSentence, saleSteps } from "../../web/src/saleFlow.ts";
+import { noticeFor, SaleFlow, saleNext, saleSentence, saleSteps } from "../../web/src/saleFlow.ts";
 import type { WalletBoundary } from "../../web/src/wallet.ts";
 import type { Json } from "./customer-world.ts";
 import { BUYER, PRICE, proposal, type SaleWorld, SELLER, saleWorld } from "./sale-world.ts";
@@ -359,5 +359,72 @@ describe("003wf2 SaleFlow controller against the real routes", () => {
     await pending;
     expect(old.f.getState().setup).toBeNull();
     expect(PRICE).toBe("250000000");
+  });
+
+  it("Not now keeps the draft and returns focus to its origin; a changed sale keeps the terms; a confirmed proposal settles them", async () => {
+    const s = await saleWorld();
+    const seller = flowFor(s, s.ava, SELLER);
+    await seller.f.load();
+    const draft = {
+      buyer: BUYER,
+      price: "250",
+      days: 7,
+      floor: "0.1",
+      metering: true,
+      exclusions: "ledgerline.example domain",
+      note: "",
+    };
+    seller.f.setDraft("propose", draft);
+    await seller.f.review("propose", proposal(), null, "terms-propose");
+    expect(seller.f.getState().review?.origin).toBe("terms-propose");
+    seller.f.cancelReview();
+    expect(seller.f.getState()).toMatchObject({
+      review: null,
+      focus: "terms-propose",
+      drafts: { propose: draft },
+    });
+    seller.f.focused();
+    expect(seller.f.getState().focus).toBeNull();
+    // The sale changes between review and confirm: nothing stored or sent, the terms are kept.
+    await seller.f.review("propose", proposal(), null, "terms-propose");
+    await s.act(s.ava, SELLER, "propose", proposal({ price: "1000000" }));
+    await seller.f.confirm();
+    expect(seller.f.getState()).toMatchObject({
+      review: null,
+      focus: "terms-propose",
+      drafts: { propose: draft },
+    });
+    // The one create attempt was refused (review_changed): the other tab's terms stand.
+    expect([seller.wl.c.sent, seller.p.creates]).toEqual([0, 1]);
+    expect(s.control().live_deal).toMatchObject({ price: "1000000", version: 1 });
+    // A confirmed revision settles its own draft only.
+    seller.f.setDraft("revise", { ...draft, price: "260" });
+    await seller.f.load();
+    await seller.f.review("revise", proposal({ price: "260000000" }), null, "terms-revise");
+    await seller.f.confirm();
+    expect(seller.f.getState().notice).toMatchObject({ tone: "ok" });
+    expect(seller.f.getState().drafts).toEqual({ propose: draft });
+  });
+
+  it("the notice for a confirmed close follows the stored follow-up: unfinished, final-but-not-applied, applied", () => {
+    const r = { kind: "confirmed", result: "closed", message: "Closed." } as never;
+    expect(
+      noticeFor(r, false, {
+        reconcile: { state: "unavailable", message: "no read" },
+        finished: false,
+      }),
+    ).toMatchObject({ tone: "info", text: expect.stringContaining("Apply the close here") });
+    const final = noticeFor(r, false, {
+      reconcile: { state: "superseded", message: "A later version replaced it" },
+      finished: true,
+    });
+    expect(final).toMatchObject({ tone: "warn" });
+    expect(final?.text).not.toContain("check again");
+    expect(
+      noticeFor(r, false, {
+        reconcile: { state: "already", message: "Already applied." },
+        finished: true,
+      }),
+    ).toMatchObject({ tone: "ok", text: "Closed. Already applied." });
   });
 });

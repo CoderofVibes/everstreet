@@ -1105,7 +1105,10 @@ export class SaleActions {
           effects: [
             live
               ? `Deal ${seq} becomes version ${version}; both parties' acceptances are cleared, and the buyer must accept the new version.`
-              : `Deal ${seq} is proposed to ${buyerAcct}, open until the time shown.`,
+              : `Deal ${seq} is proposed to ${buyerAcct}, open until ${new Date(Number(expires))
+                  .toISOString()
+                  .replace("T", " ")
+                  .replace(/\.\d+Z$/, " UTC")}.`,
             ...(returned !== "0"
               ? [
                   `The price changes, so the buyer's escrow (${returned} base units) becomes their returned-escrow claim at once.`,
@@ -1749,7 +1752,15 @@ export class SaleActions {
           "UPDATE sale_actions SET effects = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND state = 'confirmed' AND effects IS NULL",
         )
         .run(JSON.stringify(out), this.stamp(), p.id);
-    return out ? { ...out, finished: terminal } : out;
+    // Report the AUTHORITATIVE result: whatever terminal answer is stored now (this attempt's, or
+    // an earlier or concurrent one's), never this attempt's stale retryable answer over it.
+    const stored = (
+      this.db.prepare("SELECT effects FROM sale_actions WHERE id = ?").get(p.id) as
+        | { effects: string | null }
+        | undefined
+    )?.effects;
+    if (stored) return { ...(JSON.parse(stored) as Record<string, unknown>), finished: true };
+    return out ? { ...out, finished: false } : out;
   }
 
   /** Sets aside a request the wallet was NEVER asked for. An asked one stays tracked. */

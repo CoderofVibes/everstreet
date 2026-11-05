@@ -297,6 +297,45 @@ describe("003wf2 local follow-up after a confirmed close", () => {
     expect(c4.body.effects).toMatchObject({ reconcile: { state: "applied" } });
     expect(owner()).toBe(s.noah.id);
   });
+
+  it("a late retryable answer reports the authoritative stored result, not its own stale failure", async () => {
+    const s = await saleWorld();
+    await s.act(s.ava, SELLER, "propose", proposal());
+    await s.act(s.noah, BUYER, "register");
+    await s.act(s.noah, BUYER, "fund");
+    await s.act(s.noah, BUYER, "accept");
+    const close = await s.act(s.ava, SELLER, "accept", {}, { lose: true });
+    const id = close.action?.id as string;
+    const hash = close.outcome?.transaction.hash as string;
+    // The first observation read is slow: while it is outstanding another check of the same
+    // confirmed action applies the close; then the slow read fails (a late, retryable answer).
+    const transport = s.w.v3.transport as unknown as Record<string, unknown>;
+    let inner: Json | null = null;
+    s.w.v3.transport = new Proxy(transport, {
+      get(t, k) {
+        const f = t[k as string];
+        if (typeof f !== "function") return f;
+        return async () => {
+          s.w.v3.transport = transport as never;
+          inner = (await s.ava(`/api/sales/actions/${id}/check`, "POST", {})).body;
+          throw new Error("synthetic late read failure");
+        };
+      },
+    }) as never;
+    const late = await s.ava(`/api/sales/actions/${id}/check`, "POST", { tx_hash: hash });
+    expect(inner).toMatchObject({ effects: { reconcile: { state: "applied" }, finished: true } });
+    expect(late.body.resolution).toMatchObject({ kind: "confirmed", result: "closed" });
+    // Not "unavailable" or an error: the stored, applied answer, marked finished.
+    expect(late.body.effects).toMatchObject({ reconcile: { state: "applied" }, finished: true });
+    expect(JSON.stringify(late.body.effects)).not.toContain("unavailable");
+    expect(
+      (
+        s.w.state.store.db
+          .prepare("SELECT owner_id FROM businesses WHERE id = ?")
+          .get(s.biz) as Json
+      ).owner_id,
+    ).toBe(s.noah.id);
+  });
 });
 
 describe("003wf2 claim receipts: the returned promise is the evidence", () => {

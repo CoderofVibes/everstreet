@@ -1144,7 +1144,10 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 @media (max-width: 760px) { .sale-title { font-size: 26px; } .sale-title-row .btn { width: 100%; justify-content: center; } .sale-steps { grid-template-columns: 1fr; gap: 6px; } .sale-step { grid-template-columns: 7.5em minmax(0, 1fr); column-gap: 8px; } .sale-step-detail { grid-column: 1 / -1; } }
 @media (prefers-reduced-motion: reduce) { .sale-step { transition: none; } }
 /* Job 003wf2: the Direct sale room (scoped: these rules apply to /sales/:business only). */
-.sale-room .sale-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+/* Six steps: a balanced 3 × 2 at desktop and tablet widths, one row of six only where each step
+   keeps its full-size words (wide screens), stacked on phones (below). Never a 5 + 1 split. */
+.sale-room .sale-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (min-width: 1600px) { .sale-room .sale-steps { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 .sale-room .sale-step.is-unknown { border-style: dotted; background: transparent; }
 .sale-room .sale-step-detail { font-size: 12.5px; }
 .sale-room .sale-args { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; font-size: 12.5px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; margin: 8px 0; }

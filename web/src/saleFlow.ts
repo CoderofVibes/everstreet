@@ -28,26 +28,66 @@ export interface SaleNotice {
   text: string;
 }
 
+/** A seller's terms as typed (never sent until reviewed); kept per kind for this controller. */
+export interface TermsDraft {
+  buyer: string;
+  price: string;
+  days: number;
+  floor: string;
+  metering: boolean;
+  exclusions: string;
+  note: string;
+}
+
 export interface SaleFlowState {
   status: "loading" | "ready" | "error";
   setup: SaleSetup | null;
-  /** The exact request being reviewed (verified here), or why it can't be offered. */
-  review: { preview: SalePreview; replaces: string | null } | null;
+  /** The exact request being reviewed (verified here), and the control it was opened from. */
+  review: { preview: SalePreview; replaces: string | null; origin: string | null } | null;
   busy: null | "reading" | "reviewing" | "storing" | "wallet" | "checking";
   notice: SaleNotice | null;
   /** The newest check's answer, by action. */
   answers: Record<string, CheckAnswer>;
+  /**
+   * Terms being written, by kind (Astra's browser review: "Not now", a retry or a stale review
+   * never discards them). The controller is one per business and signed-in account, so a draft
+   * can never reach another person's or another business's page.
+   */
+  drafts: Partial<Record<"propose" | "revise", TermsDraft>>;
+  /** Where focus returns after a review is set aside (a control's `data-focus` key). */
+  focus: string | null;
 }
 
 const CANCEL = /closed the window|cancel|reject/i;
 export const TX_ID = /^[1-9A-HJ-NP-Za-km-z]{43,44}$/;
 
-const noticeFor = (r: SaleResolution | null, cancelled = false): SaleNotice | null => {
+/** What a check found, in words: the transaction's result, and any local follow-up still due. */
+export function noticeFor(
+  r: SaleResolution | null,
+  cancelled = false,
+  effects: Record<string, unknown> | null = null,
+): SaleNotice | null {
   if (!r) return null;
-  if (r.kind === "confirmed") return { tone: "ok", text: r.message };
+  if (r.kind === "confirmed") {
+    const rec = effects?.reconcile as { state?: string; message?: string } | undefined;
+    // A stored TERMINAL answer other than applied (conflict, ended, superseded) is final here: it
+    // is reported as it is, without offering to check again.
+    if (rec && rec.state !== "applied" && rec.state !== "already" && effects?.finished === true)
+      return {
+        tone: "warn",
+        text: `${r.message} It wasn't applied here: ${rec.message ?? rec.state}.`,
+      };
+    if (rec && rec.state !== "applied" && rec.state !== "already")
+      return {
+        tone: "info",
+        text: `${r.message} Applying it here isn't finished yet (${rec.message ?? rec.state}). Use "Apply the close here" to check again; nothing is sent.`,
+      };
+    if (rec) return { tone: "ok", text: `${r.message} ${rec.message ?? ""}`.trim() };
+    return { tone: "ok", text: r.message };
+  }
   if (r.kind === "refused") return { tone: "warn", text: r.message };
   return { tone: "info", text: cancelled ? `You closed the wallet. ${r.message}` : r.message };
-};
+}
 
 export class SaleFlow {
   private state: SaleFlowState = {
@@ -57,6 +97,8 @@ export class SaleFlow {
     busy: null,
     notice: null,
     answers: {},
+    drafts: {},
+    focus: null,
   };
   private listeners = new Set<() => void>();
   private alive = true;
@@ -129,9 +171,10 @@ export class SaleFlow {
     kind: SaleKind,
     input: Record<string, unknown> = {},
     replaces: string | null = null,
+    origin: string | null = null,
   ) {
     if (this.state.busy) return;
-    this.set({ busy: "reviewing", notice: null, review: null });
+    this.set({ busy: "reviewing", notice: null, review: null, focus: null });
     try {
       const p = await this.port.prepare(this.opts.businessId, kind, input);
       if (!this.alive) return;
@@ -139,28 +182,50 @@ export class SaleFlow {
       if (!setup) return;
       const problem = await verifyPreview(p, setup, this.opts.account);
       if (!this.alive) return;
-      if (problem) return this.set({ notice: { tone: "warn", text: problem } });
+      if (problem) return this.set({ notice: { tone: "warn", text: problem }, focus: origin });
       if (replaces) {
         const open = setup.open.find((a) => a.id === replaces);
         if (!open || open.action_digest !== p.action_digest)
           return this.set({
+            focus: origin,
             notice: {
               tone: "warn",
               text: "The sale has moved on, so this can't be the identical request any more. Check the open request instead: it can no longer take effect.",
             },
           });
       }
-      this.set({ review: { preview: p, replaces } });
+      this.set({ review: { preview: p, replaces, origin } });
     } catch (e) {
       if (!this.alive) return;
-      this.set({ notice: { tone: "warn", text: (e as Error).message } });
+      this.set({ notice: { tone: "warn", text: (e as Error).message }, focus: origin });
     } finally {
       this.set({ busy: null });
     }
   }
 
+  /** Set the review aside: nothing is stored or sent; the draft stays; focus goes back. */
   cancelReview() {
-    this.set({ review: null });
+    const origin = this.state.review?.origin ?? null;
+    this.set({ review: null, focus: origin });
+  }
+
+  /** Keep what the person typed (only in this controller: this business, this account). */
+  setDraft(kind: "propose" | "revise", d: TermsDraft) {
+    this.set({ drafts: { ...this.state.drafts, [kind]: d } });
+  }
+
+  /** A confirmed proposal or revision has been made: its draft is done. */
+  private settledDrafts(r: CheckAnswer) {
+    const k = r.action.kind;
+    if (r.resolution?.kind !== "confirmed" || (k !== "propose" && k !== "revise"))
+      return this.state.drafts;
+    const { [k]: _done, ...rest } = this.state.drafts;
+    return rest;
+  }
+
+  /** Focus was restored by the page. */
+  focused() {
+    if (this.state.focus !== null) this.set({ focus: null });
   }
 
   /** The wallet, connected with THIS participant's account, or null (with the reason shown). */
@@ -208,14 +273,18 @@ export class SaleFlow {
         if (err.code === "review_changed") {
           this.set({
             review: null,
+            focus: r.origin,
             notice: {
               tone: "warn",
-              text: "The sale changed since you reviewed it. Review it again.",
+              text:
+                p.kind === "propose" || p.kind === "revise"
+                  ? "The sale changed since you reviewed it. Your terms are kept: review them again."
+                  : "The sale changed since you reviewed it, so nothing was stored or sent. Review it again.",
             },
           });
           return void (await this.load());
         }
-        this.set({ review: null, notice: { tone: "warn", text: err.message } });
+        this.set({ review: null, focus: r.origin, notice: { tone: "warn", text: err.message } });
         return void (await this.load());
       }
       if (!this.alive) return;
@@ -352,7 +421,8 @@ export class SaleFlow {
       if (!this.alive) return;
       this.set({
         answers: { ...this.state.answers, [id]: r },
-        notice: noticeFor(r.resolution, cancelled),
+        notice: noticeFor(r.resolution, cancelled, r.effects),
+        drafts: this.settledDrafts(r),
       });
     } catch (e) {
       if (!this.alive) return;
@@ -386,7 +456,8 @@ export class SaleFlow {
                 tone: "warn",
                 text: "That transaction isn't this request (or isn't final yet), so it shows nothing about it. Nothing was recorded from it.",
               }
-            : noticeFor(r.resolution),
+            : noticeFor(r.resolution, false, r.effects),
+        drafts: this.settledDrafts(r),
       });
     } catch (e) {
       if (!this.alive) return;
