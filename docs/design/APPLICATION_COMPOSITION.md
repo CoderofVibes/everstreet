@@ -1184,3 +1184,25 @@ own build worker, over the model seam):
   - Asserted: every result ends deleted with its object gone, and no record still marked stored
     lacks its object.
   - It can't prove a per-item barrier inside one SQLite delete; it states that.
+
+### 12.9 Follow-ups made during the continuation (recorded after the code)
+
+These came from Astra's probes and reviews while the continuation ran. Each was reproduced
+before it was fixed. This section was written after their code (`a40eab1`, `52f22ea`,
+`db68fdb`), not before.
+- **Build recovery with peers:** the worker recovered lapsed leases only at start, so a survivor
+  never noticed a dead peer's build. In the `"expired"` mode, every poll now recovers lapsed
+  leases.
+- **A recovered evaluation's old loop never continues.** Before each case the run must still be
+  this process's running run. Each result write is conditional on that (`state = 'running'` and
+  `runner IS` this process), and so is the case's admission, inside the same transaction as its
+  reservation (409 `eval_stopped`). No further paid case is dispatched, and a recovered row is
+  never rewritten.
+- **Owned work is awaited, not sampled.** The runtime tracks its runs and the evaluation loops as
+  owned work. Stop awaits them under what is left of the shared deadline, and
+  `lastStop().work_running` is what is still unsettled then. The build worker's own stop covers
+  builds.
+- **Retention interruption is made deterministic** with batch 1: one deletion per phase per pass,
+  a pass a second. The kill lands with deletions genuinely still due, which is asserted.
+- **`npm test`:** the four long lifecycle evidence files (process, peers, builds, body) run in
+  the second required phase.

@@ -4,7 +4,7 @@ Job: `docs/astra/jobs/2026-11-04_003wf1_configured-maintenance-lifecycle.md`, th
 003wf. Design: APPLICATION_COMPOSITION §12, written and committed before the code (`8edf410`),
 with §12.7 recording what was built.
 
-**Status: in review**, for Astra. 003wf stays partial. The 003web and 003wec browser gates stay
+**Status: in review again**, after the continuation that Astra's ConfiguredLifecycleHandoffReview dispatched (its four items, below). 003wf stays partial. The 003web and 003wec browser gates stay
 open, and no browser, wallet, provider or network action was taken.
 
 ## Commits
@@ -20,7 +20,16 @@ open, and no browser, wallet, provider or network action was taken.
 | `e83a79b` | Actual child-process tests; the hardened synthetic RPC and its negative cases; listener close order |
 | `f711bd8` | Astra's runtime-recovery and fence-close probes |
 | `1eaf7bc` | Recovery never takes a live peer's work, one claim per completion, the fence finishes its waiters, one shared stop deadline, `npm test` in two phases |
-| Final | Design §12.7, this report, JOBS, INDEX |
+| `662445a` | Design §12.7, this report, JOBS, INDEX (first handoff) |
+| `127e612` | Astra's handoff review; JOBS: the continuation taken |
+| `a9635e0` | Item 3 (the whole response body) and item 4 (evaluations recovered by owner) |
+| `7a2ef60` | Design §12.8 (after `a9635e0`, before items 1 and 2) |
+| `a40eab1` | Item 2: the configured build adapter, its limits and peers |
+| `001dd11` | Astra's probes and docs, including the queued 003wf2 brief (not dispatched) |
+| `52f22ea` | Item 1: process barriers for reservation and retention; evaluation continuations fenced; owned work awaited |
+| `8ae81fc` | Astra's evaluation-admission probe |
+| `db68fdb` | Evaluation case admission checked in the reservation's transaction |
+| Final | Design §12.9, this report, JOBS |
 
 ## Evidence matrix (each requirement of the brief)
 
@@ -50,7 +59,33 @@ open, and no browser, wallet, provider or network action was taken.
 | Astra: synthetic RPC evidence quality | Only the modelled business; bounded per-block snapshots; envelope validation (tags, one FunctionCall, receiver, known block, gas, no deposit, nothing trailing), signature and nonce; one transaction per signed bytes | Astra's RPC probe 2/2; `lifecycle-rpc.test.ts` 3 (negative cases, pinned views, eviction) |
 | Astra: stale `customer_authorization` | Derived from sign-in, its browser callback and customer use | composition inventory |
 
-## Checks (final code, `1eaf7bc`)
+## The continuation (ConfiguredLifecycleHandoffReview)
+
+**Order.** Items 3 and 4 were reproduced and fixed before design §12.8 was written. §12.8 states
+that, and preceded the code for items 1 and 2. The follow-ups in §12.9 were written after their
+code.
+
+| Item | Built | Executed evidence | Limits |
+|---|---|---|---|
+| **3. The whole response lifetime** | Every body read passes the fence; at close a pending read is rejected and the underlying reader cancelled; url/redirect kept; owned runs and evaluation loops awaited under the shared deadline; `lastStop().work_running` | **Reproduced first:** after stop the runtime still had 1 request reading a held body. `lifecycle-body.test.ts`: headers then a held body from a non-cooperating transport; stop ends the request (503) and the run and its timer (`work_running` 0); no unhandled error; nothing written after close or fabricated; the next composition records it unknown, never resent | In this process (the composition's own state is observed); the RPC body path rests on the same wrapper and isn't tested separately |
+| **4. A dead peer's evaluation while another lives** | `eval_runs.runner`; recovery by owner at start and every 10 s; a recovered run's loop never continues (checked before each case, at admission in the reservation's transaction, and on every result write) | **Reproduced first:** stayed running indefinitely; Astra's two probes failed. `lifecycle-peers.test.ts`: a peer starting leaves a live evaluation running and it completes; when its process stops, the survivor stops it within a tick, the in-doubt case is unknown, nothing resent. Astra's recovery and admission probes pass | Two compositions in one process, not two OS processes |
+| **2. The configured build adapter** | Production `AnthropicProvider` through the composition's worker; the worker recovers lapsed leases each poll with peers | `lifecycle-builds.test.ts`: accounting (1500/800 tokens, 55,000 microcents); budget refusal (409, no provider call); cancellation (cancelled, never resent); its configured 10 s limit (failed/timeout); a peer starting leaves a live build running with its lease and it completes; when its process stops, the survivor recovers it after the 30 s lease as `needs_reconciliation`/`outcome_unknown`, never resent. **Reproduced first:** the survivor never recovered it. `lifecycle.test.ts`: the runtime's timeout through `httpsTransport`'s own limit | Peers are two compositions in one process. The runtime timeout is adapter-level evidence, because the composition's provider timeout is a fixed 120 s |
+| **1. Reservation and retention barriers** | A labelled test clock in the child (`LIFECYCLE_CLOCK_OFFSET_MS` via the composition's own `now`) | `lifecycle-process.test.ts`: a graceful stop while the confirm's `open_hold` is held at the node (the confirm gets 503); after restart it is reserved once, with one `open_hold`. Retention: with batch 1, the kill lands with some results deleted and some still due (asserted); at most the one item in flight lacks its object; a restart deletes every result and input and nothing is left on disk | The reservation case is a graceful stop only (kill is covered for settlement). Retention can't hold a barrier inside a synchronous SQLite delete; its interruption is between items, made deterministic by batch 1 |
+
+## Checks (final code, `db68fdb`)
+
+- **`npm run check`:** exit 0, lint (424 files) with no warnings, types clean.
+  - **Main phase:** 1440 passed and 1 skipped (166 files plus 1 skipped).
+  - **Lifecycle phase:** 19 passed across 4 files (10 child-process, 2 peer, 6 build, 1 body),
+    137 s, mostly deliberate lease waits.
+- **The heavy lifecycle files moved.** The four long files now run in the second phase, after the
+  disk-bound protected-store test timed out at 5.01 s alongside them in the main phase. That test,
+  its sample and its timeout are unchanged, and nothing retries.
+- **Astra's probes during the continuation** (evaluation recovery, evaluation admission) failed
+  when added and pass now.
+- **`npm run web:build`:** exit 0 (943.06 kB; `web/` unchanged).
+
+## Checks at the first handoff (`1eaf7bc`)
 
 - **`npm run check`:** exit 0, lint (419 files) with no warnings, types clean.
   - **Main phase:** 1437 passed and 1 skipped (164 files plus 1 skipped).
@@ -72,12 +107,9 @@ open, and no browser, wallet, provider or network action was taken.
   settles a use reserved by the real writer and run by the real runtime; it stops within a bound
   with no access after close; restart never repeats a provider request or a settlement; two
   processes share one database without taking each other's live work.
-- **Not covered here:**
-  - a stop during a **reservation** (open_hold) or during **retention cleanup**, in a child: only
-    settlement and provider dispatch were barriered;
-  - a provider **timeout** (the error path was tested);
-  - the build worker's live-peer case in a child (it rests on the existing lease rules and
-    `recoverAtStart: "expired"`).
+- **The first handoff's gaps** (reservation and retention barriers, the build adapter, provider
+  timeout, the build's live peer) are covered by the continuation above, with the limits stated
+  there.
 - **Stated limits:**
   - restart recovery of a settlement waits out its 30 s per-item lease;
   - an evaluation run left by a dead peer stays `running` until a process starts with no live
