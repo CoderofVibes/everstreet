@@ -186,8 +186,11 @@ as an exact replacement (`replaces` naming it, equal `action_digest`, exclusive 
 
 **One ask per row.** Recording the ask is a conditional `prepared → requested` claim with one
 winner across tabs and processes; its answer (`ask: "granted"` or `"already_asked"`) is obeyed
-before the wallet is invoked, and only `granted` invokes it. Recording a returned hash is separate
-and never grants an ask. A lost answer after the claim stays recoverable as unknown.
+before the wallet is invoked, and only `granted` invokes it. The claimant may name itself with an
+in-memory `ask_id`: its own retry after a lost answer (before any hash) is answered `granted`
+again, so a lost answer never strands a request whose kind can't be replaced; every other tab or
+process still gets `already_asked`. Recording a returned hash is separate and never grants an ask.
+After a reload the id is gone and the request is recovered as unknown.
 
 **Committing a result.** A check commits the transaction identity, its evidence and the state
 together with a compare-and-set on the row as read; if another check settled it first, the stored

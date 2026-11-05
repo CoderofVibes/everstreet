@@ -421,7 +421,9 @@ export function HandoverWorkspace({ id }: { id: string }) {
         <p className="muted sale-scope">
           Nothing here signs, pays or closes a sale: that happens on the contract. This page shows
           what the contract shows, records the exact version you agree to, and applies a closed sale
-          here only when you or the buyer ask.
+          here only when you or the buyer ask.{" "}
+          <Link to={`/sales/${id}`}>Sell directly through your wallet</Link> to propose, accept and
+          collect with exact, reviewed wallet requests.
         </p>
       </header>
 
@@ -660,7 +662,8 @@ function ReceiptCard({
       </h2>
       <p style={{ margin: "0 0 6px" }}>
         You are the <strong>{r.role}</strong> ·{" "}
-        <span className={`pill ${STATUS[r.status].tone}`}>{STATUS[r.status].label}</span>
+        <span className={`pill ${STATUS[r.status].tone}`}>{STATUS[r.status].label}</span> ·{" "}
+        <Link to={`/sales/${bid}`}>Open the sale</Link>
       </p>
       <dl className="facts">
         <dt>Deal</dt>

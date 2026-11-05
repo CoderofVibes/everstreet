@@ -163,3 +163,112 @@ continuity, reversible-state recovery, one-winner asks and both lookup-race repl
 gas-refund-child and empty-transfer-status follow-up cases above are not covered by those20
 tests and remain unresolved in the inspected source. This is still in-process synthetic
 evidence; actual-process and browser requirements remain open.
+
+## Independent correction and process verification — 22:59 Pacific
+
+Astra reviewed eb25e15 and independently reran sale-chain.test.ts plus sale-journey.test.ts:
+20/20 pass, exit0. The extended cases now cover both reproduced follow-ups: valid additional
+refund children preserve paid/restored resolution; empty, malformed or contradictory transfer
+statuses prove no payment. Source now requires affirmative statuses and unique required paths.
+This narrowly resolves the two follow-up findings above; it is synthetic graph evidence only.
+
+Astra then read caad2da and independently ran sale-process.test.ts. The first sandbox attempt
+could not connect to localhost (EACCES), so it provides no behavioral result. The same bounded,
+keyless tests with loopback permission passed2/2, exit0: original-transaction recovery after an
+actual killed/restarted process, and two live processes admitting one action and one wallet ask.
+Children and disposable files are cleaned by the harness. No external chain/provider was used.
+
+Remaining evidence includes the requested cross-process check-result race (these two process
+tests cover admission/restart, not competing lookup completion), actual controller and browser
+flows, and all parent003wf acceptance requirements. The test's documented simultaneous-start
+migration contention must remain an explicit outstanding limitation until reproduced/corrected
+in a bounded lifecycle follow-up; sequential startup is not verification of concurrent startup.
+No whole-job or milestone acceptance, and no Gated implementation dispatch, is implied.
+
+## Follow-up recovery gap: temporary reconciliation result cached as finished
+
+Astra's finite in-memory real-route probe at23:04 reproduced this sequence:
+propose -> register buyer -> fund -> buyer accept -> seller accept (wallet reply lost), using
+saleWorld and actual stored calls. Before checking the seller's exact close transaction, set only
+w.v3.transport=null (transaction lookup remains available). Check confirms closed, while its local
+effect returns reconcile.state=unavailable/code=no_transport. Restore the original observation
+transport, then check the same action again. It returns the old unavailable effect without a new
+read, and the local owner is still the seller (buyerApplied=false). SQLite closed; exit0. No real
+wallet, chain or customer data involved.
+
+Cause: effects() persists every non-error object, including reconciliation's transient unavailable
+or pending result; stored() retries only if effects is null. A returned nonthrowing unavailable is
+not a finished ownership transition. Preserve the confirmed transaction independently, but make
+explicit Check again retry unfinished reconciliation through V3Intents and update its displayed
+result. Classify terminal versus retryable effects deliberately; do not turn a failed read into a
+terminal result, and do not bypass existing authority/CAS. Concurrent retry results must not let
+a late unavailable response overwrite a successfully applied result. Add this exact failed-read /
+restored-transport route test, plus the competing-result ordering test, before browser acceptance.
+The UI should plainly distinguish confirmed on-chain close from local handover still needing a
+check, with a working recovery action. The older separate reconciliation page is not a substitute
+for making this wallet journey's own advertised retry work.
+
+## Early controller review: current sale, payout evidence and account switch
+
+Astra reviewed the in-progress saleFlow.ts before UI acceptance and ran finite probes at23:08.
+These findings concern the current uncommitted controller, not a shipped or accepted interface.
+
+1. **Historical close completes a new sale.** Through saleWorld's actual routes/calls, complete
+   deal1, then have its buyer (now owner) propose deal2 to the former seller. The new live deal is
+   seq2 with escrow="0", but saleSteps(currentSetup) returns done for every step, including escrow,
+   both acceptances, apply and aftercare. It chooses any historical closed outcome even when a
+   different live deal exists. Derive one exact current deal/version/digest context for progress,
+   primary action and sentence; show earlier outcomes only as history. Cover the actual second
+   proposal, revised versions and ended latest deal after an older closed deal. Preserve the
+   established CurrentSaleAccepted/001i1 invariant in this new surface.
+
+2. **Buyer view claims seller's proceeds collected without payment.** Immediately after deal1's
+   close/apply, before any claim, the seller's sale_proceeds_claim is250000000. The buyer's setup
+   nevertheless makes the final step "Buyer operates · proceeds collected" done: it checks the
+   viewing buyer's zero claim/payouts. Zero owed to this viewer proves nothing about the seller's
+   payment, and zero current claim is not evidence of a specific payout. Separate buyer operation
+   from the seller's collection; only exact relevant affirmative payout evidence supports paid.
+   Show unknown/not-visible where this participant has no evidence, without broadening privacy.
+   Test both parties before payout, pending, restored and confirmed paid.
+
+3. **Account switches during admission still reach send.** Use the real sale routes for buyer
+   registration and the actual SaleFlow. A wallet stub reports buyer.near to accounts(); after
+   the requested endpoint returns, change its selected account to stranger.near. confirm() invokes
+   send(storage_deposit) with stranger.near selected. Probe only records the call; it signs/sends
+   nothing. walletFor checks too early, before create/requested awaits. Revalidate the connected
+   account at the send boundary and fence account changes/retirement during preparation, ask
+   recovery and connection. Test delayed prepare/create/requested and actual wrapper onChange
+   behavior. A late account change must never invoke the wrong participant's wallet; keep the
+   original durable row recoverable and do not silently replace it. Also retain the one-invocation
+   proof for new ask_id retry behavior and reviewed-call verification on resumed preparations.
+
+All probes used disposable in-memory SQLite, closed afterward, exit0. No browser permission gate,
+real wallet, network transaction or customer data was involved. Correct and add focused controller
+coverage before the finite UI handoff; existing frontend work may naturally address these findings.
+
+## Follow-up verification — 23:09 Pacific
+
+Astra independently ran the initial sale-controller.test.ts:6/6 pass (23:06:58), exit0. These
+initial cases cover ordinary close, initial account mismatch, cancelled/lost wallet response,
+preview digest, lost ask response, reload and retirement. They do not yet cover every new finding.
+
+The exact temporary-reconciliation probe now passes on the updated source: first check confirms
+closed with unavailable/finished=false; restore the observation transport; the next check returns
+applied/finished=true and buyerApplied=true. SQLite closed, exit0. This verifies sequential retry,
+not the competing-result completion order.
+
+The updated buyer setup now shows seller collection as unknown/not shown rather than done.
+Source now derives progression from the live deal or newest ended outcome. Remaining source
+concern: paidEvidence still matches ANY confirmed category2 claim in s.actions, without linking
+the relevant close/claim incarnation. An older payout plus a zero current balance is not proof
+that this sale's proceeds were paid. Preserve the requested exact relevant payout evidence,
+including later sales by the same seller and an unconfirmed new claim; aggregate categories may
+need an honest separate claim-history presentation instead of assigning payment to a sale.
+
+An exploratory real-route round trip completed the first sale and seller collection, then the
+return sale, but the third sale attempt returned read_failed on acceptance. The probe ended exit1
+and closed its SQLite handle; therefore it did NOT verify the intended third-sale payout case.
+Sequence: Ava sells to Noah; Ava registers/collects category2; Noah sells back to Ava; Ava proposes
+to Noah, registers only if needed, funds and accepts. Investigate this with a focused fixture/
+view-decoding test before claiming repeat-sale support; do not treat the incomplete probe as a
+confirmed cause or final-code failure while source is still changing.

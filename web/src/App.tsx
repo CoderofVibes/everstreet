@@ -29,6 +29,7 @@ import { ProductStudio } from "./pages/ProductStudio.tsx";
 import { Profile } from "./pages/Profile.tsx";
 import { PublicPage } from "./pages/PublicPage.tsx";
 import { PublicProfileEditor } from "./pages/PublicProfile.tsx";
+import { SaleRoom } from "./pages/SaleRoom.tsx";
 import { SignInReturn } from "./pages/SignInReturn.tsx";
 import { Start } from "./pages/Start.tsx";
 import { Studio } from "./pages/Studio.tsx";
@@ -249,6 +250,10 @@ function Routes() {
       />
     );
   if (path === "/handovers") return <HandoversPage key={person?.id ?? "anon"} />;
+  // Job 003wf2: a Direct sale through each participant's own wallet; keyed by who is acting.
+  const saleRoom = match("/sales/:id", path);
+  if (saleRoom)
+    return <SaleRoom key={`${person?.id ?? "anon"}:${saleRoom.id}`} id={saleRoom.id as string} />;
   // Job 001d: the public profile editor, keyed by who is acting and which business.
   const publicProfile = match("/desk/:id/public", path);
   if (publicProfile)

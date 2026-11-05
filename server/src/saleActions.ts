@@ -139,6 +139,8 @@ export interface SaleActionRow {
   effects: string | null;
   /** Rises with every update: a compare-and-set names the revision it read. */
   rev: number;
+  /** The winning ask claimant's id (its retry after a lost answer is answered the same). */
+  ask_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -154,7 +156,7 @@ export function migrateSaleActions(db: Db) {
       terms_id TEXT, replaces TEXT, idempotency_key TEXT NOT NULL,
       state TEXT NOT NULL CHECK (state IN ('prepared','requested','unknown','confirmed','refused','no_longer_possible','set_aside')),
       tx_hash TEXT, asks INTEGER NOT NULL DEFAULT 0, evidence TEXT, effects TEXT,
-      rev INTEGER NOT NULL DEFAULT 0,
+      rev INTEGER NOT NULL DEFAULT 0, ask_id TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE (person_id, idempotency_key)
     ) STRICT;
@@ -1084,6 +1086,17 @@ export class SaleActions {
           grants,
           metering_granted: meteringGranted,
           terms_hash: termsHash,
+          seller: g.account,
+          // Everything else the contract's digest binds, as read: the browser recomputes it.
+          digest_basis: {
+            business: contract,
+            asset,
+            expected_generation: s.control.generation,
+            manifest: s.control.service_manifest,
+            manifest_seq: s.control.manifest_seq,
+            plan_count: terms.plan_count,
+            min_reserve: terms.min_reserve,
+          },
           deposit,
           deposit_basis: newRecord
             ? `The contract states a new buyer record is exactly ${terms.party_bytes} bytes at ${terms.storage_byte_cost} yoctoNEAR a byte; any excess is refunded, less is refused.`
@@ -1309,6 +1322,8 @@ export class SaleActions {
         break;
       }
     }
+    // The control state this review reads, shown with every request (the block is the preview's).
+    review = { ...review, control_seq: cs };
     const identity = exclusivity(kind, call, g.account);
     const actionDigest = sha([
       kind,
@@ -1526,14 +1541,23 @@ export class SaleActions {
         .run(input.tx_hash as string, this.stamp(), id);
       return { action: view(this.own(viewer, id)), ask: null };
     }
+    // The claimant's own id (a tab's, in memory): its retry after a lost answer is answered
+    // "granted" again; every other claimant gets "already_asked". Without one, only the first wins.
+    const askId = typeof input.ask_id === "string" && KEY.test(input.ask_id) ? input.ask_id : null;
+    if (input.ask_id !== undefined && askId === null)
+      bad(400, "ask_id must be 8 to 80 letters, digits, dashes or underscores");
     const won = this.db
       .prepare(
-        "UPDATE sale_actions SET state = 'requested', asks = asks + 1, rev = rev + 1, updated_at = ? WHERE id = ? AND state = 'prepared'",
+        "UPDATE sale_actions SET state = 'requested', asks = asks + 1, ask_id = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND state = 'prepared'",
       )
-      .run(this.stamp(), id);
+      .run(askId, this.stamp(), id);
+    const now = this.own(viewer, id);
+    const granted =
+      won.changes === 1 ||
+      (askId !== null && now.ask_id === askId && now.state === "requested" && now.tx_hash === null);
     return {
-      action: view(this.own(viewer, id)),
-      ask: won.changes === 1 ? ("granted" as const) : ("already_asked" as const),
+      action: view(now),
+      ask: granted ? ("granted" as const) : ("already_asked" as const),
     };
   }
 
@@ -1698,14 +1722,24 @@ export class SaleActions {
             : "The local follow-up didn't complete; it can be repeated safely.",
       };
     }
-    // Kept only once the follow-up finished (an error is retried by the next check).
-    if (out && !("error" in out))
+    // Kept only when the follow-up reached a TERMINAL answer (Astra's addendum): the version is
+    // recorded, or the reconciliation applied it, found it already applied, or answered conflict /
+    // ended / superseded. A failed read, "pending", a missing record or an error isn't finished: it
+    // is not stored, so the next check runs it again. The first terminal answer wins (a late
+    // retryable answer can never overwrite it).
+    const state = (out?.reconcile as { state?: string } | undefined)?.state;
+    const terminal =
+      out !== null &&
+      !("error" in out) &&
+      ("recorded" in out ||
+        ["applied", "already", "conflict", "ended", "superseded"].includes(String(state)));
+    if (terminal)
       this.db
         .prepare(
-          "UPDATE sale_actions SET effects = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND state = 'confirmed'",
+          "UPDATE sale_actions SET effects = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND state = 'confirmed' AND effects IS NULL",
         )
         .run(JSON.stringify(out), this.stamp(), p.id);
-    return out;
+    return out ? { ...out, finished: terminal } : out;
   }
 
   /** Sets aside a request the wallet was NEVER asked for. An asked one stays tracked. */

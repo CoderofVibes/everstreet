@@ -261,6 +261,44 @@ describe("003wf2 revision, cancel, expiry, unfund and claims", () => {
   });
 });
 
+describe("003wf2 local follow-up after a confirmed close", () => {
+  it("a failed read during reconciliation isn't cached as finished: the next check applies it; a later failed read can't undo it", async () => {
+    const s = await saleWorld();
+    await s.act(s.ava, SELLER, "propose", proposal());
+    await s.act(s.noah, BUYER, "register");
+    await s.act(s.noah, BUYER, "fund");
+    await s.act(s.noah, BUYER, "accept");
+    const close = await s.act(s.ava, SELLER, "accept", {}, { lose: true });
+    const id = close.action?.id as string;
+    const hash = close.outcome?.transaction.hash as string;
+    // The observation transport is down (the transaction lookup still works).
+    const transport = s.w.v3.transport;
+    s.w.v3.transport = null;
+    const c1 = await s.ava(`/api/sales/actions/${id}/check`, "POST", { tx_hash: hash });
+    expect(c1.body.resolution).toMatchObject({ kind: "confirmed", result: "closed" });
+    expect(c1.body.effects).toMatchObject({ reconcile: { state: "unavailable" }, finished: false });
+    const owner = () =>
+      (
+        s.w.state.store.db
+          .prepare("SELECT owner_id FROM businesses WHERE id = ?")
+          .get(s.biz) as Json
+      ).owner_id;
+    expect(owner()).toBe(s.w.f.ava.id);
+    // Restored: checking the same confirmed action again runs the reconciliation again.
+    s.w.v3.transport = transport;
+    const c2 = await s.ava(`/api/sales/actions/${id}/check`, "POST", {});
+    expect(c2.body.effects).toMatchObject({ reconcile: { state: "applied" } });
+    expect(owner()).toBe(s.noah.id);
+    // A later failed read can't overwrite the applied result: it is stored and returned as is.
+    s.w.v3.transport = null;
+    const c3 = await s.noah(`/api/sales/actions/${id}/check`, "POST", {}).catch(() => null);
+    expect(c3?.status).toBe(404); // not the buyer's action
+    const c4 = await s.ava(`/api/sales/actions/${id}/check`, "POST", {});
+    expect(c4.body.effects).toMatchObject({ reconcile: { state: "applied" } });
+    expect(owner()).toBe(s.noah.id);
+  });
+});
+
 describe("003wf2 claim receipts: the returned promise is the evidence", () => {
   it("paid and restored only through the connected callback; old shapes, wrong pointers, pending and contradictions prove nothing", async () => {
     const s = await saleWorld();
