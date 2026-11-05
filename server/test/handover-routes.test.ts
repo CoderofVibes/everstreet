@@ -68,6 +68,15 @@ const CLASS: Record<string, Class> = {
   // 005c: a person's own expert profile and private help requests (a business link is checked
   // and refused while it changes hands inside the service; the request itself isn't owner state)
   "PUT /api/me/expert-profile": "not_business",
+  // 006b: a customer's own agent grants (not business state); the agent's uses go through the
+  // customer admission path (paused during a handover there)
+  "POST /api/customer/agent-grants": "not_business",
+  "POST /api/customer/agent-grants/:id/revoke": "not_business",
+  "POST /api/agent/v1/uses": "customer_admission",
+  "POST /api/agent/v1/uses/:id/confirm": "customer_admission",
+  "POST /api/agent/v1/uses/:id/execute": "customer_admission",
+  "POST /api/agent/mcp": "customer_admission",
+  "DELETE /api/agent/mcp": "not_business",
   // 003x: verifies supplied text only (reads and changes nothing)
   "POST /api/handover-records/verify": "not_business",
   // 005d: the viewer's own private portfolio note (never business state)

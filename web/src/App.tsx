@@ -10,6 +10,7 @@ import { Acquire } from "./pages/Acquire.tsx";
 import { AcquireListing } from "./pages/AcquireListing.tsx";
 import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
+import { AgentAccessPage } from "./pages/AgentAccess.tsx";
 import { BuildHome } from "./pages/Build.tsx";
 import { Continuity } from "./pages/Continuity.tsx";
 import { ControlSheetPage, VerifyRecordPage } from "./pages/ControlSheet.tsx";
@@ -327,6 +328,8 @@ function Routes() {
   const sheet = match("/acquire/control/:id", path);
   if (sheet?.id) return <ControlSheetPage key={sheet.id} businessId={sheet.id} />;
   if (path === "/acquire/verify-record") return <VerifyRecordPage />;
+  // Job 006b: a customer's agent access.
+  if (path === "/agent-access") return <AgentAccessPage />;
   // Job 005d: the viewer's portfolio.
   if (path === "/portfolio") return <PortfolioPage />;
   // Job 005c: expert help (directory, a profile and its request form, my requests, a thread).

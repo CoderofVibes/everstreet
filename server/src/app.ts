@@ -4,6 +4,7 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { Acquisitions, type Criteria, interpretAcquire } from "./acquire.ts";
+import { AgentAccess } from "./agentAccess.ts";
 import { AppChecks } from "./appChecks.ts";
 import { AppVersions } from "./appVersions.ts";
 import { Authoring } from "./authoring.ts";
@@ -148,6 +149,12 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const v3Intents = new V3Intents(store.db, store, v3);
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const customerUses = new CustomerUses(store.db, store, v3, options.customer, runtime);
+  const agentAccess = new AgentAccess(
+    store.db,
+    store,
+    () => customerUses,
+    options.platformOrigin ?? null,
+  );
   const purchases = new CustomerPurchases(store.db, options.customer?.reader ?? null);
   // Job 003wf2: a Direct sale through each participant's own wallet (read and verify only).
   const sales = new SaleActions(store.db, store, v3, v3Intents, options.customer?.reader ?? null, {
@@ -1008,6 +1015,48 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
 
   // ---------- books and value (owner only) ----------
+
+  // ---------- job 006b: agent access (a customer's narrow grant; the same customer-use path) ----------
+  app.post("/api/customer/agent-grants", async (c) =>
+    c.json(agentAccess.createGrant(me(c), await body(c)), 201),
+  );
+  app.get("/api/customer/agent-grants", (c) => c.json(agentAccess.listGrants(me(c))));
+  app.post("/api/customer/agent-grants/:id/revoke", (c) =>
+    c.json(agentAccess.revoke(me(c), c.req.param("id"))),
+  );
+  app.get("/api/agent/v1/offers/:offer", (c) => c.json(agentAccess.describe(c.req.param("offer"))));
+  const agent = (c: { req: { header: (n: string) => string | undefined } }) =>
+    agentAccess.authorize(c.req.header("authorization"));
+  app.post("/api/agent/v1/uses", async (c) => {
+    const r = (await agentAccess.prepare(agent(c), await body(c))) as { created?: boolean };
+    return c.json(r, r.created ? 201 : 200);
+  });
+  app.post("/api/agent/v1/uses/:id/confirm", async (c) =>
+    c.json(await agentAccess.confirm(agent(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/agent/v1/uses/:id/execute", async (c) =>
+    c.json(await agentAccess.execute(agent(c), c.req.param("id"))),
+  );
+  app.get("/api/agent/v1/uses/:id", (c) => c.json(agentAccess.status(agent(c), c.req.param("id"))));
+  app.get("/api/agent/v1/uses/:id/result", async (c) =>
+    c.json(await agentAccess.result(agent(c), c.req.param("id"))),
+  );
+  const mcp = async (c: { req: { method: string; raw: Request; text: () => Promise<string> } }) => {
+    const r = await agentAccess.mcp({
+      method: c.req.method,
+      headers: c.req.raw.headers,
+      body: c.req.method === "POST" ? await c.req.text() : "",
+    });
+    return r.body === null
+      ? new Response(null, { status: r.status, headers: r.status === 405 ? { allow: "POST" } : {} })
+      : new Response(JSON.stringify(r.body), {
+          status: r.status,
+          headers: { "content-type": "application/json" },
+        });
+  };
+  app.post("/api/agent/mcp", (c) => mcp(c));
+  app.get("/api/agent/mcp", (c) => mcp(c));
+  app.delete("/api/agent/mcp", (c) => mcp(c));
 
   // ---------- job 003x: the buyer's control sheet, the portable record and its verifier ----------
   app.get("/api/businesses/:id/control-sheet", (c) =>
