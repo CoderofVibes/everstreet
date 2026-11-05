@@ -188,13 +188,124 @@ export class Store {
     return token;
   }
 
-  personForToken(token: string | undefined): Person | null {
+  /**
+   * Job 003w-b: the person a session belongs to, only if the session was minted in THIS mode and
+   * hasn't expired by the server's clock. A preview session (name-only or actor switch) never
+   * authenticates in verified mode; a verified session always carries an expiry.
+   */
+  personForToken(
+    token: string | undefined,
+    mode: "preview" | "verified" = "preview",
+    nowMs: number = Date.now(),
+  ): Person | null {
     if (!token) return null;
     return (
       (this.db
-        .prepare("SELECT p.* FROM sessions s JOIN people p ON p.id = s.person_id WHERE s.token = ?")
-        .get(token) as unknown as Person | undefined) ?? null
+        .prepare(
+          `SELECT p.* FROM sessions s JOIN people p ON p.id = s.person_id
+            WHERE s.token = ? AND s.mode = ?
+              AND (s.expires_ms IS NULL OR s.expires_ms > ?)
+              AND (s.mode = 'preview' OR s.expires_ms IS NOT NULL)`,
+        )
+        .get(token, mode, nowMs) as unknown as Person | undefined) ?? null
     );
+  }
+
+  // ---------- Job 003w-b: verified sign-in records ----------
+
+  /** A one-use sign-in challenge; returns its nonce (32 random bytes, base64). */
+  createChallenge(
+    message: string,
+    recipient: string,
+    bindingHash: string,
+    ttlMs: number,
+    nowMs: number,
+  ): string {
+    const nonce = randomBytes(32).toString("base64");
+    // Expired challenges are pruned as new ones are made (bounded table).
+    this.db.prepare("DELETE FROM sign_in_challenges WHERE expires_ms <= ?").run(nowMs);
+    this.db
+      .prepare(
+        "INSERT INTO sign_in_challenges (nonce, message, recipient, binding_hash, expires_ms, created_ms) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(nonce, message, recipient, bindingHash, nowMs + ttlMs, nowMs);
+    return nonce;
+  }
+
+  /**
+   * Consumes an unexpired, unused challenge exactly once (atomic), only for the browser that
+   * started it (its binding hash); null otherwise. A wrong binding doesn't spend it.
+   */
+  consumeChallenge(
+    nonce: string,
+    bindingHash: string,
+    nowMs: number,
+  ): { message: string; recipient: string } | null {
+    return this.tx(() => {
+      const row = this.db
+        .prepare(
+          "SELECT message, recipient FROM sign_in_challenges WHERE nonce = ? AND binding_hash = ? AND used_ms IS NULL AND expires_ms > ?",
+        )
+        .get(nonce, bindingHash, nowMs) as { message: string; recipient: string } | undefined;
+      if (!row) return null;
+      const c = this.db
+        .prepare("UPDATE sign_in_challenges SET used_ms = ? WHERE nonce = ? AND used_ms IS NULL")
+        .run(nowMs, nonce);
+      return c.changes === 1 ? row : null;
+    });
+  }
+
+  /**
+   * The one person bound to a verified account, created on first sign-in. The account is also
+   * linked as that person's chain account (no secret), which is how customer use finds it.
+   */
+  personForAccount(accountId: string, network: string): Person {
+    return this.tx(() => {
+      const bound = this.db
+        .prepare("SELECT person_id FROM person_accounts WHERE account_id = ?")
+        .get(accountId) as { person_id: string } | undefined;
+      if (bound) return this.person(bound.person_id);
+      const linked = this.db
+        .prepare("SELECT owner_kind, owner_id FROM chain_accounts WHERE account_id = ?")
+        .get(accountId) as { owner_kind: string; owner_id: string } | undefined;
+      // An account already linked to something else is never silently taken over.
+      if (linked) throw new HttpError(409, "That account is already linked here", "account_linked");
+      const person: Person = {
+        id: randomUUID(),
+        display_name: accountId.slice(0, 80),
+        headline: "",
+        bio: "",
+        created_at: now(),
+      };
+      this.db
+        .prepare(
+          "INSERT INTO people (id, display_name, headline, bio, created_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(person.id, person.display_name, "", "", person.created_at);
+      this.db
+        .prepare(
+          "INSERT INTO person_accounts (account_id, person_id, network, created_at) VALUES (?, ?, ?, ?)",
+        )
+        .run(accountId, person.id, network, now());
+      this.db
+        .prepare(
+          "INSERT INTO chain_accounts (owner_kind, owner_id, account_id, secret, tx, created_at) VALUES ('person', ?, ?, NULL, 'verified-sign-in', ?)",
+        )
+        .run(person.id, accountId, now());
+      this.event("person_joined", person.id, person.id);
+      return person;
+    });
+  }
+
+  /** A verified session with a server-side expiry. */
+  verifiedSession(personId: string, accountId: string, expiresMs: number): string {
+    const token = randomBytes(24).toString("base64url");
+    this.db
+      .prepare(
+        "INSERT INTO sessions (token, person_id, created_at, mode, expires_ms, account_id) VALUES (?, ?, ?, 'verified', ?, ?)",
+      )
+      .run(token, personId, now(), expiresMs, accountId);
+    return token;
   }
 
   endSession(token: string) {

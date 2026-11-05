@@ -713,6 +713,24 @@ export function openDb(path: string) {
     );
   // Job 003m1: the fenced evidence mark and a sticky evidence conflict per customer request. A row
   // from 003m has no mark; it is fenced from its prepared block when next read.
+  // Job 003w-b: a session records the mode that minted it (a preview session never authenticates
+  // in configured mode; older rows are preview), an optional server-side expiry, and the account a
+  // verified session proved. One-use sign-in challenges, and the one person bound to an account.
+  const sessionCols = columns("sessions");
+  if (!sessionCols.has("mode"))
+    db.exec("ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'preview'");
+  if (!sessionCols.has("expires_ms")) db.exec("ALTER TABLE sessions ADD COLUMN expires_ms INTEGER");
+  if (!sessionCols.has("account_id")) db.exec("ALTER TABLE sessions ADD COLUMN account_id TEXT");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sign_in_challenges (
+      nonce TEXT PRIMARY KEY, message TEXT NOT NULL, recipient TEXT NOT NULL,
+      binding_hash TEXT NOT NULL, expires_ms INTEGER NOT NULL, used_ms INTEGER, created_ms INTEGER NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS person_accounts (
+      account_id TEXT PRIMARY KEY, person_id TEXT NOT NULL UNIQUE REFERENCES people(id),
+      network TEXT NOT NULL, created_at TEXT NOT NULL
+    ) STRICT;
+  `);
   const requestCols003m = columns("customer_requests");
   if (!requestCols003m.has("evidence_mark"))
     db.exec("ALTER TABLE customer_requests ADD COLUMN evidence_mark TEXT");

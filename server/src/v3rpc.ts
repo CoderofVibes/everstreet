@@ -134,6 +134,8 @@ function rpcFailure(error: unknown): never {
       return refuse("block_unavailable", "the endpoint no longer has that block");
     case "UNKNOWN_ACCOUNT":
     case "INVALID_ACCOUNT":
+    // Job 003w-b: an access key the account doesn't have (view_access_key) proves nothing either.
+    case "UNKNOWN_ACCESS_KEY":
       return refuse("unknown_account", "the contract account isn't known there");
     case "NOT_SYNCED_YET":
       return refuse("unavailable", "the endpoint isn't synced");
@@ -218,7 +220,7 @@ export class TestnetRpcTransport implements ViewTransport {
   }
 
   /** Only the fixed views and their exact arguments are ever sent. */
-  private checkedArgs(method: string, args: Record<string, unknown>): Record<string, unknown> {
+  protected checkedArgs(method: string, args: Record<string, unknown>): Record<string, unknown> {
     const keys = args && typeof args === "object" ? Object.keys(args) : null;
     if (!keys) return refuse("unsupported", "arguments must be an object");
     if (VIEWS.has(method)) {
@@ -242,7 +244,7 @@ export class TestnetRpcTransport implements ViewTransport {
     return refuse("unsupported", "not a supported view");
   }
 
-  private async rpc(
+  protected async rpc(
     method: "block" | "query",
     params: Record<string, unknown>,
     outer?: AbortSignal,
@@ -343,5 +345,131 @@ export class TestnetRpcTransport implements ViewTransport {
     } catch {
       return refuse("malformed", "the response isn't valid UTF-8");
     }
+  }
+}
+
+// ---------- Job 003w-c: customer reads ----------
+
+const U32_MAX = 0xffff_ffff;
+const DECIMAL = /^(0|[1-9][0-9]{0,19})$/;
+const FINGERPRINT = /^[0-9a-f]{64}$/;
+const NANOS = /^[0-9]{1,30}$/;
+const whole = (v: unknown, max: number) =>
+  typeof v === "number" && Number.isSafeInteger(v) && v >= 0 && v <= max;
+
+/**
+ * Job 003w-c: the read-only transport customer use needs (customerRead.ts `CustomerViewTransport`).
+ * The same envelope, block-identity, size, deadline, redirect and concurrency rules as
+ * `TestnetRpcTransport`; the final block also carries its own timestamp (milliseconds, from the
+ * header's `timestamp_nanosec`, converted exactly), and only the customer views with their exact
+ * arguments are sent. No keys, no transactions.
+ */
+export class TestnetCustomerRpcTransport extends TestnetRpcTransport {
+  async finalBlock(network: string, signal?: AbortSignal) {
+    if (network !== this.network) refuse("unsupported", "this transport reads testnet only");
+    const r = await this.rpc("block", { finality: "final" }, signal);
+    const header =
+      r && typeof r === "object" ? (r as { header?: Record<string, unknown> }).header : undefined;
+    if (!header || typeof header !== "object")
+      return refuse("malformed", "the block has no header");
+    const ns = header.timestamp_nanosec;
+    if (typeof ns !== "string" || !NANOS.test(ns))
+      return refuse("malformed", "the block has no exact timestamp");
+    return {
+      height: height(header.height, "block height"),
+      hash: hash(header.hash, "block hash"),
+      timestamp_ms: (BigInt(ns) / 1_000_000n).toString(),
+    };
+  }
+
+  protected checkedArgs(method: string, args: Record<string, unknown>): Record<string, unknown> {
+    const keys = args && typeof args === "object" ? Object.keys(args).sort() : null;
+    if (!keys) return refuse("unsupported", "arguments must be an object");
+    const exactly = (...k: string[]) =>
+      keys.length === k.length && [...k].sort().every((x, i) => keys[i] === x);
+    if (method === "get_control" || method === "get_treasury") {
+      if (keys.length !== 0) refuse("unsupported", "this view takes no arguments");
+      return {};
+    }
+    if (method === "get_plan") {
+      if (!exactly("plan_id") || !whole(args.plan_id, U32_MAX))
+        refuse("unsupported", "get_plan takes one plan_id");
+      return { plan_id: args.plan_id };
+    }
+    if (method === "get_entitlement") {
+      if (
+        !exactly("customer", "plan_id") ||
+        typeof args.customer !== "string" ||
+        !isAccountId(args.customer) ||
+        !whole(args.plan_id, U32_MAX)
+      )
+        refuse("unsupported", "get_entitlement takes a customer account and a plan_id");
+      return { customer: args.customer, plan_id: args.plan_id };
+    }
+    if (method === "check_use") {
+      if (
+        !exactly("customer", "plan_id", "reg_id", "hold_seq", "slot", "fingerprint") ||
+        typeof args.customer !== "string" ||
+        !isAccountId(args.customer) ||
+        !whole(args.plan_id, U32_MAX) ||
+        typeof args.reg_id !== "string" ||
+        !DECIMAL.test(args.reg_id) ||
+        !whole(args.hold_seq, U32_MAX) ||
+        !whole(args.slot, 255) ||
+        typeof args.fingerprint !== "string" ||
+        !FINGERPRINT.test(args.fingerprint)
+      )
+        refuse("unsupported", "check_use takes one exact slot");
+      return {
+        customer: args.customer,
+        plan_id: args.plan_id,
+        reg_id: args.reg_id,
+        hold_seq: args.hold_seq,
+        slot: args.slot,
+        fingerprint: args.fingerprint,
+      };
+    }
+    return refuse("unsupported", "not a supported customer view");
+  }
+}
+
+// ---------- Job 003w-b: account key authority, for verified sign-in ----------
+
+export interface AccessKeyReader {
+  /** Whether `publicKey` is a FullAccess key of `account` at the final block now. */
+  isFullAccessKey(account: string, publicKey: string, signal?: AbortSignal): Promise<boolean>;
+}
+
+const PUBLIC_KEY = /^ed25519:[1-9A-HJ-NP-Za-km-z]{32,50}$/;
+
+/**
+ * Job 003w-b: one documented read, `query` with `request_type: "view_access_key"` at final
+ * finality. An unknown account or key is "no" (it proves nothing); any other failure is a
+ * `V3ReadError`, so sign-in fails closed. Read-only, as the class it extends.
+ */
+export class TestnetAccessKeyReader extends TestnetRpcTransport implements AccessKeyReader {
+  async isFullAccessKey(account: string, publicKey: string, signal?: AbortSignal) {
+    if (!isAccountId(account)) refuse("unsupported", "not an account id");
+    if (!PUBLIC_KEY.test(publicKey)) refuse("unsupported", "not an ed25519 public key");
+    let r: unknown;
+    try {
+      r = await this.rpc(
+        "query",
+        {
+          request_type: "view_access_key",
+          finality: "final",
+          account_id: account,
+          public_key: publicKey,
+        },
+        signal,
+      );
+    } catch (e) {
+      if (e instanceof V3ReadError && e.code === "unknown_account") return false;
+      throw e;
+    }
+    if (!r || typeof r !== "object") return refuse("malformed", "the key query has no result");
+    // Older endpoints report an unknown key as a result carrying `error`.
+    if ("error" in (r as object)) return false;
+    return (r as { permission?: unknown }).permission === "FullAccess";
   }
 }

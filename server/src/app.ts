@@ -17,6 +17,7 @@ import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
 import { Deals } from "./deals.ts";
 import { digitalDesk } from "./digitalDesk.ts";
 import { Evaluations } from "./evaluations.ts";
+import type { AccountSignIn } from "./identity.ts";
 import { type ImportInspector, Imports } from "./imports.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { customerOperations } from "./operations.ts";
@@ -31,6 +32,8 @@ import { V3Observations, type V3Options } from "./v3observe.ts";
 import { type Overrides, Valuation } from "./value.ts";
 
 const COOKIE = "es_session";
+/** Job 003w-b: binds a sign-in challenge to the browser that asked for it. */
+const SIGN_IN_COOKIE = "es_sign_in";
 
 export interface AppOptions {
   /** Local preview: anyone at this computer may switch between fictional people. */
@@ -69,9 +72,20 @@ export interface AppOptions {
    */
   previewOrigin?: string;
   platformOrigin?: string;
+  /**
+   * Job 003w-b: who may sign in. Preview (the default): name-only join and, with localPreview,
+   * fictional actor switching; sessions are preview sessions. Verified: only a NEP-413-proven
+   * account signs in; sessions expire on the server and preview sessions never authenticate.
+   */
+  identity?: { mode: "preview" } | { mode: "verified"; signIn: AccountSignIn };
 }
 
 export function everstreetApi(store: Store, options: AppOptions) {
+  const identity = options.identity ?? { mode: "preview" as const };
+  // Fictional actor switching can never sit beside verified identity.
+  if (identity.mode === "verified" && options.localPreview)
+    throw new Error("app options: verified identity can't run with localPreview");
+  const clock = identity.mode === "verified" ? identity.signIn.now : Date.now;
   const app = new Hono<{ Variables: { person: Person | null } }>();
   const community = new Community(store.db, store);
   const bookings = options.bookingProvider
@@ -143,7 +157,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   });
 
   app.use("*", async (c, next) => {
-    c.set("person", store.personForToken(getCookie(c, COOKIE)));
+    c.set("person", store.personForToken(getCookie(c, COOKIE), identity.mode, clock()));
     // Job 003p: API answers depend on who is asking and what they may see right now (evidence
     // rooms, exports, scenarios, books, value, deal terms). None may be stored by a browser or
     // proxy and replayed after access ends. Set first, so refusals carry it too.
@@ -158,16 +172,24 @@ export function everstreetApi(store: Store, options: AppOptions) {
   };
   const body = async <T>(c: { req: { json: () => Promise<unknown> } }) =>
     ((await c.req.json().catch(() => ({}))) ?? {}) as T;
-  const startSession = (c: Parameters<typeof setCookie>[0], token: string) =>
+  const startSession = (
+    c: Parameters<typeof setCookie>[0],
+    token: string,
+    maxAgeS = 60 * 60 * 24 * 90,
+  ) =>
     setCookie(c, COOKIE, token, {
       httpOnly: true,
       sameSite: "Lax",
       path: "/",
-      maxAge: 60 * 60 * 24 * 90,
+      maxAge: maxAgeS,
     });
 
   app.get("/api/env", (c) =>
-    c.json({ environment: options.environment, localPreview: options.localPreview }),
+    c.json({
+      environment: options.environment,
+      localPreview: options.localPreview,
+      identity: identity.mode,
+    }),
   );
 
   // ---------- account ----------
@@ -175,6 +197,9 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/me", (c) => c.json({ person: c.get("person") }));
 
   app.post("/api/session", async (c) => {
+    // 003w-b: a name alone is never an identity outside preview.
+    if (identity.mode === "verified")
+      throw new HttpError(403, "Sign in with your NEAR account", "verified_sign_in_required");
     const { name } = await body<{ name?: string }>(c);
     const { person, token } = store.createPerson(String(name ?? ""));
     startSession(c, token);
@@ -186,6 +211,26 @@ export function everstreetApi(store: Store, options: AppOptions) {
     if (token) store.endSession(token);
     deleteCookie(c, COOKIE, { path: "/" });
     return c.json({ person: null });
+  });
+
+  // 003w-b: verified sign-in (NEP-413 challenge, then a signed answer). Absent in preview.
+  app.post("/api/session/challenge", (c) => {
+    if (identity.mode !== "verified") throw new HttpError(404, "Not available");
+    const { binding, challenge } = identity.signIn.challenge();
+    setCookie(c, SIGN_IN_COOKIE, binding, {
+      httpOnly: true,
+      sameSite: "Lax",
+      path: "/api/session",
+      maxAge: Math.ceil(identity.signIn.challengeTtl / 1000),
+    });
+    return c.json({ challenge });
+  });
+  app.post("/api/session/verify", async (c) => {
+    if (identity.mode !== "verified") throw new HttpError(404, "Not available");
+    const out = await identity.signIn.verify(await body(c), getCookie(c, SIGN_IN_COOKIE));
+    deleteCookie(c, SIGN_IN_COOKIE, { path: "/api/session" });
+    startSession(c, out.token, Math.floor(identity.signIn.sessionTtlMs / 1000));
+    return c.json({ person: out.person, expires_at: new Date(out.expiresMs).toISOString() }, 201);
   });
 
   app.get("/api/people", (c) => {

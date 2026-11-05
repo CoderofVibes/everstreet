@@ -1,0 +1,228 @@
+// Job 003w-a: the application's one configuration object (docs/design/APPLICATION_COMPOSITION.md
+// §2–3), validated before anything is opened or written. A mode is explicit; testnet is the only
+// network; mainnet is refused wherever a network, endpoint or account could name it. The config
+// names FILES and ENVIRONMENT VARIABLE NAMES for secrets; it never holds a secret, and nothing in
+// it is echoed in status. Example (placeholders only): config/everstreet.example.json.
+
+import { isAbsolute } from "node:path";
+import { isAccountId } from "./v3read.ts";
+import { validateRpcConfig } from "./v3rpc.ts";
+
+export type AppMode = "preview" | "configured";
+
+export interface AppConfig {
+  config_version: 1;
+  mode: AppMode;
+  network: "testnet";
+  listen: { host: string; port: number };
+  /** An absolute path to the records database (":memory:" only in preview). */
+  database: string;
+  /** The built web app to serve, if any (relative to the working directory or absolute). */
+  web_dist?: string;
+  /** Where previews are served from and the platform's own origin (both, or neither). */
+  origins?: { platform: string; preview: string };
+  /** Verified sign-in (configured mode: required). */
+  sign_in?: { recipient: string; session_hours?: number };
+  /** A testnet JSON-RPC endpoint (required by sign-in, v3 and customer reads). */
+  rpc?: { endpoint: string };
+  /** Business-v3 bindings the operator vouches for. */
+  v3?: { bindings: { business_id: string; account: string }[] };
+  /** Customer use: the platform's metering account. */
+  customer?: { operator_account: string };
+  /** Protected customer storage (003v): its root and the file holding its keys. */
+  protected_storage?: { root: string; active_key_id: string; keys_file: string };
+  /** Model build/runtime: the AI config file and the NAME of the variable holding the key. */
+  model?: { ai_config_file: string; api_key_env: string };
+}
+
+const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
+const ENV_NAME = /^[A-Z][A-Z0-9_]{2,63}$/;
+const KEY_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const BUSINESS_ID = /^[A-Za-z0-9_-]{1,80}$/;
+
+const bad = (why: string): never => {
+  throw new Error(`config: ${why}`);
+};
+
+function testnetAccount(v: unknown, what: string): string {
+  if (typeof v !== "string" || !isAccountId(v)) return bad(`${what} is not an account id`);
+  if (!v.endsWith(".testnet")) return bad(`${what} must be a testnet account (ending .testnet)`);
+  return v;
+}
+
+function origin(v: unknown, what: string): string {
+  let u: URL;
+  try {
+    u = new URL(String(v));
+  } catch {
+    return bad(`${what} is not a URL`);
+  }
+  if (u.origin !== String(v)) return bad(`${what} must be a bare origin`);
+  return u.origin;
+}
+
+/** Validates an untrusted, parsed config; throws `config: …` with no secret in it. */
+export function validateConfig(raw: unknown): AppConfig {
+  const c = raw as Record<string, unknown> | null;
+  if (!c || typeof c !== "object" || Array.isArray(c)) return bad("an object is required");
+  if (c.config_version !== 1) bad("config_version must be 1");
+  if (c.mode !== "preview" && c.mode !== "configured")
+    bad('mode must be "preview" or "configured"');
+  if (c.network !== "testnet") bad('network must be "testnet" (mainnet is refused)');
+  const mode = c.mode as AppMode;
+  const known = new Set([
+    "config_version",
+    "mode",
+    "network",
+    "listen",
+    "database",
+    "web_dist",
+    "origins",
+    "sign_in",
+    "rpc",
+    "v3",
+    "customer",
+    "protected_storage",
+    "model",
+  ]);
+  for (const k of Object.keys(c)) if (!known.has(k)) bad(`unknown field ${k}`);
+
+  const listen = c.listen as { host?: unknown; port?: unknown } | undefined;
+  if (!listen || typeof listen.host !== "string") return bad("listen.host is required");
+  if (
+    !Number.isSafeInteger(listen.port) ||
+    (listen.port as number) < 1 ||
+    (listen.port as number) > 65535
+  )
+    bad("listen.port must be 1 to 65535");
+  if (mode === "preview" && !LOOPBACK.has(listen.host))
+    bad("preview listens on loopback only (127.0.0.1, ::1 or localhost)");
+
+  if (typeof c.database !== "string" || !c.database) return bad("database is required");
+  if (c.database === ":memory:") {
+    if (mode !== "preview") bad("a configured application needs a durable database file");
+  } else if (!isAbsolute(c.database)) bad("database must be an absolute path");
+
+  if (c.web_dist !== undefined && typeof c.web_dist !== "string") bad("web_dist must be a path");
+  let origins: AppConfig["origins"];
+  if (c.origins !== undefined) {
+    const o = c.origins as { platform?: unknown; preview?: unknown };
+    origins = {
+      platform: origin(o?.platform, "origins.platform"),
+      preview: origin(o?.preview, "origins.preview"),
+    };
+    if (origins.platform === origins.preview)
+      bad("origins.preview must be another site than the platform");
+  }
+
+  let rpc: AppConfig["rpc"];
+  if (c.rpc !== undefined) {
+    const endpoint = (c.rpc as { endpoint?: unknown })?.endpoint;
+    if (typeof endpoint !== "string") return bad("rpc.endpoint is required");
+    try {
+      validateRpcConfig({ network: "testnet", endpoint });
+    } catch (e) {
+      bad((e as Error).message.replace(/^v3 rpc: /, "rpc: "));
+    }
+    rpc = { endpoint };
+  }
+
+  let sign_in: AppConfig["sign_in"];
+  if (c.sign_in !== undefined) {
+    const s = c.sign_in as { recipient?: unknown; session_hours?: unknown };
+    if (typeof s?.recipient !== "string" || !/^[a-z0-9][a-z0-9.-]{0,63}$/.test(s.recipient))
+      bad("sign_in.recipient must be a short lowercase application name");
+    if (
+      s.session_hours !== undefined &&
+      (!Number.isSafeInteger(s.session_hours) ||
+        (s.session_hours as number) < 1 ||
+        (s.session_hours as number) > 168)
+    )
+      bad("sign_in.session_hours must be 1 to 168");
+    if (!rpc) bad("sign_in needs rpc (the account's key is read on NEAR)");
+    sign_in = {
+      recipient: s.recipient as string,
+      session_hours: s.session_hours as number | undefined,
+    };
+  }
+  if (mode === "configured" && !sign_in)
+    bad("a configured application needs sign_in (verified accounts only)");
+  if (mode === "preview" && sign_in) bad("preview uses preview sessions; remove sign_in");
+
+  let v3: AppConfig["v3"];
+  if (c.v3 !== undefined) {
+    const b = (c.v3 as { bindings?: unknown })?.bindings;
+    if (!Array.isArray(b) || b.length === 0 || b.length > 100)
+      return bad("v3.bindings must list 1 to 100 businesses");
+    if (!rpc) bad("v3 needs rpc");
+    v3 = {
+      bindings: b.map((x, i) => {
+        const r = x as { business_id?: unknown; account?: unknown };
+        if (typeof r?.business_id !== "string" || !BUSINESS_ID.test(r.business_id))
+          bad(`v3.bindings[${i}].business_id is invalid`);
+        return {
+          business_id: r.business_id as string,
+          account: testnetAccount(r.account, `v3.bindings[${i}].account`),
+        };
+      }),
+    };
+  }
+
+  let protected_storage: AppConfig["protected_storage"];
+  if (c.protected_storage !== undefined) {
+    const p = c.protected_storage as {
+      root?: unknown;
+      active_key_id?: unknown;
+      keys_file?: unknown;
+    };
+    if (typeof p?.root !== "string" || !isAbsolute(p.root))
+      bad("protected_storage.root must be absolute");
+    if (typeof p?.keys_file !== "string" || !isAbsolute(p.keys_file))
+      bad("protected_storage.keys_file must be absolute");
+    if (typeof p?.active_key_id !== "string" || !KEY_ID.test(p.active_key_id))
+      bad("protected_storage.active_key_id is invalid");
+    protected_storage = {
+      root: p.root as string,
+      active_key_id: p.active_key_id as string,
+      keys_file: p.keys_file as string,
+    };
+  }
+
+  let customer: AppConfig["customer"];
+  if (c.customer !== undefined) {
+    customer = {
+      operator_account: testnetAccount(
+        (c.customer as { operator_account?: unknown })?.operator_account,
+        "customer.operator_account",
+      ),
+    };
+    if (!rpc) bad("customer use needs rpc");
+    if (!protected_storage) bad("customer use needs protected_storage (no plaintext fallback)");
+  }
+
+  let model: AppConfig["model"];
+  if (c.model !== undefined) {
+    const m = c.model as { ai_config_file?: unknown; api_key_env?: unknown };
+    if (typeof m?.ai_config_file !== "string" || !isAbsolute(m.ai_config_file))
+      bad("model.ai_config_file must be absolute");
+    if (typeof m?.api_key_env !== "string" || !ENV_NAME.test(m.api_key_env))
+      bad("model.api_key_env must be an environment variable NAME");
+    model = { ai_config_file: m.ai_config_file as string, api_key_env: m.api_key_env as string };
+  }
+
+  return {
+    config_version: 1,
+    mode,
+    network: "testnet",
+    listen: { host: listen.host, port: listen.port as number },
+    database: c.database as string,
+    ...(c.web_dist !== undefined ? { web_dist: c.web_dist as string } : {}),
+    ...(origins ? { origins } : {}),
+    ...(sign_in ? { sign_in } : {}),
+    ...(rpc ? { rpc } : {}),
+    ...(v3 ? { v3 } : {}),
+    ...(customer ? { customer } : {}),
+    ...(protected_storage ? { protected_storage } : {}),
+    ...(model ? { model } : {}),
+  };
+}

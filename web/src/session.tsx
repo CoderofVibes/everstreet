@@ -8,6 +8,8 @@ interface SessionState {
   person: Person | null;
   ready: boolean;
   localPreview: boolean;
+  /** Job 003w-b: preview sessions, or verified accounts only (no name-only join). */
+  identity: "preview" | "verified";
   environment: string;
   refresh: () => Promise<void>;
   setPerson: (p: Person | null) => void;
@@ -22,7 +24,11 @@ const SessionContext = createContext<SessionState | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [person, setPerson] = useState<Person | null>(null);
   const [ready, setReady] = useState(false);
-  const [env, setEnv] = useState({ environment: "Local preview", localPreview: true });
+  const [env, setEnv] = useState<{
+    environment: string;
+    localPreview: boolean;
+    identity?: "preview" | "verified";
+  }>({ environment: "Local preview", localPreview: true });
   const [signInReason, setSignInReason] = useState<string | null>(null);
   const [resolver, setResolver] = useState<((p: Person | null) => void) | null>(null);
 
@@ -54,6 +60,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         person,
         ready,
         localPreview: env.localPreview,
+        identity: env.identity === "verified" ? "verified" : "preview",
         environment: env.environment,
         refresh,
         setPerson,

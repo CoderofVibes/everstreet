@@ -1521,19 +1521,49 @@ export function startBuildWorker(
   const worker = new BuildWorker(builds, provider, options);
   worker.recover({ orphanAll: true });
   let busy = false;
-  const timer = setInterval(async () => {
-    if (busy) return;
+  // Job 003w (Astra's CompositionDesignReview): stop() used to clear only the timer, so a pass
+  // already draining the queue kept dispatching jobs after stop. Now admission ends at once (the
+  // loop checks `stopped` before every job), the running pass is awaited for a bounded time, and
+  // anything still in flight after that is FENCED: its attempt stops and writes no outcome, and
+  // the next process's recover({ orphanAll: true }) settles it by the existing rules (never re-sent
+  // if it may have been sent). Only then may the caller close the database.
+  let stopped = false;
+  let pass: Promise<void> | null = null;
+  const timer = setInterval(() => {
+    if (busy || stopped) return;
     busy = true;
-    try {
-      while (await worker.runNext()) {}
-    } catch {
-      console.error("Build worker: a job could not be processed; it will be recovered");
-    } finally {
-      busy = false;
-    }
+    pass = (async () => {
+      try {
+        while (!stopped && (await worker.runNext())) {}
+      } catch {
+        console.error("Build worker: a job could not be processed; it will be recovered");
+      } finally {
+        busy = false;
+      }
+    })();
   }, options.pollMs ?? 2000);
   timer.unref?.();
-  return { worker, stop: () => clearInterval(timer) };
+  const wait = (ms: number) =>
+    new Promise<false>((r) => {
+      const t = setTimeout(() => r(false), ms);
+      t.unref?.();
+    });
+  return {
+    worker,
+    /** Ends admission, then drains or fences in-flight work; resolves when nothing is running. */
+    stop: async (drainMs = 5_000): Promise<{ drained: boolean }> => {
+      stopped = true;
+      clearInterval(timer);
+      const running = pass as Promise<void> | null;
+      if (!running || !busy) return { drained: true };
+      const drained = await Promise.race([running.then(() => true as const), wait(drainMs)]);
+      if (!drained) {
+        for (const fence of builds.active.values()) fence("fenced");
+        await Promise.race([running, wait(2_000)]);
+      }
+      return { drained };
+    },
+  };
 }
 
 /** The server's limits for one proposal; founders never choose tokens. */

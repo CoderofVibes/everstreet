@@ -24,7 +24,8 @@
     "setup:v2": "tsx scripts/setup-v2.ts",
     "smoke:payments": "tsx scripts/smoke-payments.ts",
     "smoke:sale": "tsx scripts/smoke-sale.ts",
-    "seed:history": "tsx scripts/seed-history.ts"
+    "seed:history": "tsx scripts/seed-history.ts",
+    "entry": "tsx server/src/entry.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.5",

@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { everstreetApi } from "../src/app.ts";
 import type { BuildEvent, BuildProvider, BuildRequest } from "../src/build.ts";
-import { Builds, BuildWorker, type WorkerOptions } from "../src/builds.ts";
+import { Builds, BuildWorker, startBuildWorker, type WorkerOptions } from "../src/builds.ts";
 import { openDb } from "../src/db.ts";
 import { Store } from "../src/store.ts";
 
@@ -569,5 +569,68 @@ describe("002a1: quiet providers and flooding streams", () => {
     await w.worker("w1").runNext();
     expect(w.row(job.id)).toMatchObject({ state: "failed", failure_code: "invalid_output" });
     expect(w.types(job.id)).not.toContain("output_received");
+  });
+});
+
+describe("003w startBuildWorker stop (Astra's CompositionDesignReview reproduction)", () => {
+  const secondJob = async (w: Awaited<ReturnType<typeof world>>) => {
+    const p2 = (
+      await w.ava("/api/product-projects", "POST", {
+        idea: "A second fictional invoice tool",
+        foundation: "ai_api",
+      })
+    ).body;
+    await w.ava(`/api/businesses/${p2.project.business_id}/build-budget`, "PUT", {
+      limit_cents: 100,
+    });
+    return (
+      await w.ava(`/api/product-projects/${p2.project.id}/builds`, "POST", {
+        idempotency_key: "build-key-0002",
+        revision: 1,
+        budget: BUDGET,
+      })
+    ).body.job as { id: string };
+  };
+
+  it("after stop, a queued second job is never dispatched; the held first one drains", async () => {
+    const entered = resolvers();
+    const held = resolvers();
+    const provider = new Scripted(async function* () {
+      entered.resolve();
+      await held.promise;
+      yield { type: "usage_final", inputTokens: 10, outputTokens: 10 };
+    });
+    const w = await world(provider);
+    const j1 = (await w.request("build-key-0001")).job as { id: string };
+    const j2 = await secondJob(w);
+    const s = startBuildWorker(w.builds, provider, { pollMs: 5 });
+    await entered.promise; // one of the two (the worker's order) is with the provider
+    const stopping = s.stop(2_000);
+    held.resolve(); // its response arrives after stop
+    expect(await stopping).toEqual({ drained: true });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(provider.calls).toBe(1); // before 003w the drain loop dispatched the other job too
+    // Exactly one job was dispatched; the other was never claimed.
+    const states = [w.row(j1.id).state, w.row(j2.id).state];
+    expect(states.filter((x) => x === "queued")).toHaveLength(1);
+    const untouched = w.row(j1.id).state === "queued" ? j1.id : j2.id;
+    expect(w.types(untouched)).toEqual(["queued"]);
+  });
+
+  it("an attempt still running past the drain bound is fenced (its signal aborted) before close", async () => {
+    const entered = resolvers();
+    const provider = new Scripted(async function* (_req, signal) {
+      entered.resolve();
+      await new Promise<void>((r) => signal.addEventListener("abort", () => r(), { once: true }));
+      yield { type: "usage_final", inputTokens: 10, outputTokens: 10 };
+    });
+    const w = await world(provider);
+    const { job } = await w.request("build-key-0001");
+    const s = startBuildWorker(w.builds, provider, { pollMs: 5 });
+    await entered.promise;
+    expect(await s.stop(50)).toEqual({ drained: false });
+    expect(provider.aborted).toBe(1);
+    expect(w.row(job.id).state).not.toBe("succeeded");
+    expect(provider.calls).toBe(1);
   });
 });

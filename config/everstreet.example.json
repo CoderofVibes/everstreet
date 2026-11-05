@@ -1,0 +1,26 @@
+{
+  "config_version": 1,
+  "mode": "configured",
+  "network": "testnet",
+  "listen": { "host": "127.0.0.1", "port": 8800 },
+  "database": "/ABSOLUTE/PATH/TO/everstreet.db",
+  "web_dist": "web/dist",
+  "origins": { "platform": "http://127.0.0.1:8800", "preview": "http://localhost:8800" },
+  "sign_in": { "recipient": "everstreet.local", "session_hours": 12 },
+  "rpc": { "endpoint": "https://PLACEHOLDER-TESTNET-RPC.example" },
+  "v3": {
+    "bindings": [
+      { "business_id": "PLACEHOLDER_BUSINESS_ID", "account": "placeholder-business.testnet" }
+    ]
+  },
+  "customer": { "operator_account": "placeholder-operator.testnet" },
+  "protected_storage": {
+    "root": "/ABSOLUTE/PATH/TO/protected-store-dir",
+    "active_key_id": "k2026a",
+    "keys_file": "/ABSOLUTE/PATH/TO/protected-keys.json"
+  },
+  "model": {
+    "ai_config_file": "/ABSOLUTE/PATH/TO/ai-config.json",
+    "api_key_env": "PLACEHOLDER_KEY_VARIABLE_NAME"
+  }
+}

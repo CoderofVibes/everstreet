@@ -15,6 +15,15 @@ NEAR testnet only.
 
 Double-click **`Start Everstreet.cmd`**, or run `npm run app`, then open http://localhost:8800.
 The first run installs and fills in four fictional example businesses. Close the window to stop.
+This is the **legacy local preview** (`server/src/main.ts`): fictional people, and it looks for
+local NEAR testnet keys for its booking and payment demos.
+
+The **normal composed entry** (job 003w, `docs/design/APPLICATION_COMPOSITION.md`) is
+`npm run entry -- --config <absolute path>` with a config like `config/everstreet.example.json`
+(placeholders only). It reads one explicit config, refuses mainnet, never searches for keys and lists
+what is unavailable at `/api/system/capabilities`. To review it in a browser with no network:
+`npm run web:build`, then `npx tsx scripts/preview-entry.ts configured` (or `preview`) →
+http://127.0.0.1:8870.
 
 What you can do today:
 
@@ -145,7 +154,9 @@ Requirements: Node 24+. For the contract: WSL Ubuntu with Rust and `cargo-near`.
 | Task | Command |
 |---|---|
 | Install | `npm install` |
-| Build and run the app | `npm run app` → http://localhost:8800 |
+| Build and run the app (legacy local preview) | `npm run app` → http://localhost:8800 |
+| Run the normal composed entry (003w) | `npm run entry -- --config <absolute path to a config>` |
+| Review the composed entry in a browser (temporary, no network) | `npm run web:build`, then `npx tsx scripts/preview-entry.ts configured` → http://127.0.0.1:8870 |
 | Fill an empty local database with fictional examples | `npm run seed:demo` (`-- --reset` starts over; stop the app first) |
 | Work on the UI with live reload | `npm run serve` and, beside it, `npm run web:dev` → http://localhost:5173 |
 | Add the examples' fictional history, buyers and listings to an existing local database (no reset) | `npm run seed:history` |

@@ -382,7 +382,10 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
 }
 
 export const api = {
-  env: () => call<{ environment: string; localPreview: boolean }>("/api/env"),
+  env: () =>
+    call<{ environment: string; localPreview: boolean; identity?: "preview" | "verified" }>(
+      "/api/env",
+    ),
   me: () => call<{ person: Person | null }>("/api/me"),
   join: (name: string) => call<{ person: Person }>("/api/session", "POST", { name }),
   signOut: () => call<{ person: null }>("/api/session", "DELETE"),

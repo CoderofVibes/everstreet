@@ -133,8 +133,34 @@ export function OfferCard({
   );
 }
 
+/**
+ * Job 003w-b: in verified mode a name is never an identity. Signing in proves control of a NEAR
+ * account through a wallet (NEP-413); this version has no wallet connection yet (sub-job
+ * 003w-e), so it says so plainly instead of offering a form that can't work.
+ */
+export function VerifiedSignInNotice({ reason, onClose }: { reason: string; onClose: () => void }) {
+  return (
+    <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="signin-title">
+      <div className="dialog">
+        <h2 id="signin-title">Sign in with your NEAR account</h2>
+        <p className="muted">{reason}</p>
+        <p>
+          Here, signing in means proving you control a NEAR testnet account with your wallet. A name
+          alone isn't an account. This version doesn't connect a wallet yet, so signing in isn't
+          available here.
+        </p>
+        <div className="row">
+          <button className="btn btn-quiet" type="button" onClick={onClose}>
+            Not now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SignInDialog() {
-  const { signInReason, finishSignIn, localPreview } = useSession();
+  const { signInReason, finishSignIn, localPreview, identity } = useSession();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [people, setPeople] = useState<{ id: string; display_name: string }[]>([]);
@@ -146,6 +172,8 @@ export function SignInDialog() {
         .catch(() => {});
   }, [signInReason, localPreview]);
   if (!signInReason) return null;
+  if (identity === "verified")
+    return <VerifiedSignInNotice reason={signInReason} onClose={() => finishSignIn(null)} />;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
