@@ -198,11 +198,15 @@ export class ProtectedStore implements InputProtection {
       ) STRICT;
       CREATE INDEX IF NOT EXISTS objects_request ON objects (request_id, kind);
     `);
+    // Another process may open the same file at the same moment (two children of one
+    // installation): every first write is conflict-tolerant, then the stored value decides.
+    this.db
+      .prepare("INSERT INTO store_meta (k, v) VALUES ('format', ?) ON CONFLICT (k) DO NOTHING")
+      .run(FORMAT);
     const format = this.db.prepare("SELECT v FROM store_meta WHERE k = 'format'").get() as
       | { v: string }
       | undefined;
-    if (!format) this.db.prepare("INSERT INTO store_meta (k, v) VALUES ('format', ?)").run(FORMAT);
-    else if (format.v !== FORMAT) {
+    if (format?.v !== FORMAT) {
       this.db.close();
       throw new Error("protected storage: the store file has an unknown format");
     }
@@ -210,14 +214,16 @@ export class ProtectedStore implements InputProtection {
     // bytes differ from the first ones seen under that id is WRONG, and is never used.
     for (const [id, bytes] of this.keys) {
       const mac = keyCheck(bytes);
+      this.db
+        .prepare(
+          "INSERT INTO key_checks (key_id, check_mac, first_seen_ms) VALUES (?, ?, ?) ON CONFLICT (key_id) DO NOTHING",
+        )
+        .run(id, mac, this.now());
+      // The first bytes recorded under this id (ours, or a concurrent opener's) decide.
       const row = this.db.prepare("SELECT check_mac FROM key_checks WHERE key_id = ?").get(id) as
         | { check_mac: Uint8Array }
         | undefined;
-      if (!row)
-        this.db
-          .prepare("INSERT INTO key_checks (key_id, check_mac, first_seen_ms) VALUES (?, ?, ?)")
-          .run(id, mac, this.now());
-      else if (!timingSafeEqual(Buffer.from(row.check_mac), mac)) this.wrongKeys.add(id);
+      if (!row || !timingSafeEqual(Buffer.from(row.check_mac), mac)) this.wrongKeys.add(id);
     }
   }
 

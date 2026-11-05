@@ -109,6 +109,14 @@ function runStep(s: View) {
   const x = u?.execution ?? null;
   if (u?.state !== "reserved")
     return is("waiting", u && ENDED.includes(u.state) ? "Not run." : "After the unit is held.");
+  // Job 003wf4 (§5): the hold opened too late to run safely; the server returns the unit itself.
+  if (!x && u.units.reason === "too_late_to_run")
+    return is(
+      "ended",
+      u.units.unit === "returned"
+        ? "Not run: your hold opened too late to run safely. The contract confirmed your unit returned."
+        : "Not run: your hold opened too late to run safely. Your unit is being returned.",
+    );
   if (!x)
     return u.units.unit === "release_pending"
       ? is(

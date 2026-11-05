@@ -1612,7 +1612,13 @@ export class SaleActions {
       const again = this.db
         .prepare("SELECT * FROM sale_actions WHERE person_id = ? AND idempotency_key = ?")
         .get(viewer.id, key as string) as unknown as SaleActionRow | undefined;
-      if (again) return { row: again, created: false };
+      // A concurrent request under the same key (Astra 05:18): recovered only if it is the same
+      // immutable request; different reviewed terms are refused, never silently substituted.
+      if (again) {
+        if (again.action_digest !== p.action_digest)
+          bad(409, "That key was used for a different request.", "idempotency_conflict");
+        return { row: again, created: false };
+      }
       const open = this.db
         .prepare(
           "SELECT * FROM sale_actions WHERE business_id = ? AND account = ? AND state IN ('prepared','requested','unknown') ORDER BY created_at",

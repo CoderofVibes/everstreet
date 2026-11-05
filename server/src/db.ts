@@ -822,6 +822,9 @@ export function openDb(path: string) {
   // Job 003n1: when a protected input was deleted, and when a result was durably delivered.
   if (!requestCols003m.has("input_deleted_at"))
     db.exec("ALTER TABLE customer_requests ADD COLUMN input_deleted_at TEXT");
+  // Job 003wf4: the operational first-submission cutoff, separate from the contract's accept_by.
+  if (!requestCols003m.has("submit_by_ms"))
+    db.exec("ALTER TABLE customer_requests ADD COLUMN submit_by_ms INTEGER");
   if (!columns("customer_executions").has("delivered_at"))
     db.exec("ALTER TABLE customer_executions ADD COLUMN delivered_at TEXT");
   // Job 003o1: the durable delivery decision (null: undecided) and when protection started.

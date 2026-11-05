@@ -228,8 +228,10 @@ The appoint kind's review carries the **current slot** and the **resulting mask*
   the old mask, new mask and generation.
 - A stale read (control moved) refuses `E_REVIEWED`; the founder re-reviews.
 - **Confirmation:** "Metering is appointed for this owner." Service readiness is shown separately:
-  the runtime, release, budget, protection and worker capabilities (the existing D4
-  `serviceReadiness`). This replaces the current "customers' new uses can be served" wording.
+  the release, runtime, budget, protection, writer, metering and plan-timing checks of the existing
+  D4 `serviceReadiness` (§5). The isolated build worker is not one of them: serving an extraction
+  offer never needs it (Astra Q3). This replaces the current "customers' new uses can be served"
+  wording.
 - No new signer: the founder's wallet, with the same durable recovery as §4.
 - **Tests:**
   - SUPPORT-only kept by default, and removed only by the explicit choice;
@@ -243,8 +245,9 @@ The appoint kind's review carries the **current slot** and the **resulting mask*
 
 The confirmed plan (id and full verified contents) pre-fills the existing offer inspection and its
 own review: release, plan, retention and terms digest. That review is never skipped. The offer is
-created only if the plan is usable (§5) and the existing readiness passes. Unavailable provider,
-protected storage, budget or worker keep the action unavailable with their real remedy.
+created only if the plan is usable (§5) and the existing readiness passes. An unavailable runtime
+provider, protected storage, budget, writer or metering keeps the action unavailable with its real
+remedy. The isolated build worker's availability never does: it isn't a service requirement (§5).
 
 ## 8. API and data inventory
 
@@ -369,10 +372,9 @@ timeouts, disposable directories, no listener left running.
 - Q2: the guided hold is 600 000 ms when supported.
 - D1/D2: §5 (contract expiry separate from operational cutoffs; conservative absolute cutoffs).
 
-## 12a. Previously open questions
+## 12a. Previously open questions (answered above)
 
-- Is SUPPORT retention as the default (§6) acceptable as the product wording?
-- The minimum usable hold under defaults is 300 s, and the guided default is 600 s. Should the
-  guided default instead be the usable minimum, to shorten holds?
-
-Neither blocks Phase B.
+- Is SUPPORT retention as the default (§6) acceptable as the product wording? (Q1: yes, as the
+  reviewed resulting mask.)
+- Should the guided default be the usable minimum? (Q2: no, 600 s. The usable minimum is now
+  450 s from the worst accepted block, §5, superseding the earlier 300 s.)

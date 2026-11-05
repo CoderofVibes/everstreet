@@ -39,6 +39,8 @@ import type { Extraction } from "./extract.ts";
 import { armHandover, openHandover, pauseError, requireCustomerAdmission } from "./handover.ts";
 import type { InvocationRow, ManagedRuntime } from "./invocations.ts";
 import { maintenanceHealth } from "./maintenance.ts";
+import { RUNTIME_LIMITS } from "./runtime.ts";
+import { cutoffs, MIN_SIGN_MS, planUsability, reserveMs, type ServeTiming } from "./servePolicy.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import type { V3Observations } from "./v3observe.ts";
 import { type ControlV3, isAccountId, V3ReadError } from "./v3read.ts";
@@ -252,6 +254,8 @@ interface RequestRow {
   settle_until_ms: string;
   accept_by_ms: string;
   sign_by_ms: number;
+  /** Job 003wf4: the last moment a FIRST submission may start (null: prepared before 003wf4). */
+  submit_by_ms: number | null;
   salt: string;
   fingerprint: string;
   hold_message: string;
@@ -276,6 +280,17 @@ interface RequestRow {
   created_at: string;
   updated_at: string;
 }
+
+/** Job 003wf4 (§5): a confirmation that couldn't be sent in time to run. */
+const SUBMIT_CUTOFF =
+  "It was confirmed too late to send in time to run here, so nothing was sent and nothing is held. You can start a new request.";
+/** Job 003wf4 (§5, D1): the original hold opened too late to run here. */
+const TOO_LATE = {
+  returning:
+    "Your hold opened too late to run safely here, so it wasn't run. Your unit is being returned; nothing is charged.",
+  returned:
+    "Your hold opened too late to run safely here, so it wasn't run. The contract shows your unit back with you; nothing was charged.",
+};
 
 const LABELS: Record<State, { label: string; explanation: string }> = {
   prepared: {
@@ -359,6 +374,13 @@ export class CustomerUses {
   private readonly maxBlockAgeMs: number;
   private readonly maxFutureSkewMs: number;
   private readonly deliveryTimeoutMs: number;
+  /** Job 003wf4: the configured timing the serve policy (servePolicy.ts) is evaluated against. */
+  readonly timing: ServeTiming;
+
+  /** Job 003wf4 (§5): whether this server can serve a plan's holds, under the current settings. */
+  planUsability(plan: { hold_ttl_ms: string; settle_grace_ms: string }) {
+    return planUsability(this.timing, plan);
+  }
 
   /**
    * Admission freshness (003n1): a block read now is fresh only if its own timestamp is close
@@ -417,6 +439,15 @@ export class CustomerUses {
     // The customer needs time to sign: the serve window must leave a minute after the margins.
     if (this.serveWindowMs < Number(MIN_SERVE_MS) + this.submitMarginMs + 60_000)
       throw new Error("customer options: the serve window is too short for its margins");
+    this.timing = {
+      serveWindowMs: this.serveWindowMs,
+      submitMarginMs: this.submitMarginMs,
+      executionMarginMs: this.executionMarginMs,
+      deliveryTimeoutMs: this.deliveryTimeoutMs,
+      maxBlockAgeMs: this.maxBlockAgeMs,
+      maxFutureSkewMs: this.maxFutureSkewMs,
+      timeoutMs: runtime?.timeoutMs ?? RUNTIME_LIMITS.maxSeconds * 1000,
+    };
   }
 
   // ---------- helpers ----------
@@ -625,6 +656,9 @@ export class CustomerUses {
     this.sameBinding(businessId, b);
     this.fresh(read.block);
     if (!read.plan) bad(409, "The contract has no such plan", "no_such_plan");
+    // Job 003wf4 (§5): whether THIS server can serve the plan's holds, under the current settings.
+    // Not part of the reviewed digest: it is the server's capability, evaluated at every read.
+    const usability = this.planUsability(read.plan);
     const terms = {
       release_id: release.id,
       artifact_digest: release.artifact_digest,
@@ -636,7 +670,15 @@ export class CustomerUses {
       retention_days: v.retention,
       owner_generation: epoch.generation,
     };
-    return { epoch, release, b, read, terms, digest: sha256Hex(JSON.stringify(terms)) };
+    return {
+      epoch,
+      release,
+      b,
+      read,
+      terms,
+      usability,
+      digest: sha256Hex(JSON.stringify(terms)),
+    };
   }
 
   private sameRelease(businessId: string, r: { id: string; artifact_digest: string }) {
@@ -726,6 +768,7 @@ export class CustomerUses {
         owner_generation: t.epoch.generation,
         terms_digest: t.digest,
         active_offer: existing?.id ?? null,
+        serve: t.usability,
       },
     };
   }
@@ -1101,6 +1144,10 @@ export class CustomerUses {
         "The terms changed since you reviewed them; nothing was created. Inspect again and review the new terms.",
         "terms_changed",
       );
+    if (!t.usability.usable)
+      bad(409, t.usability.reason ?? "This plan can't be served here", "plan_unusable", {
+        min_hold_ms: t.usability.min_hold_ms,
+      });
     const { epoch, release, b, read } = t;
     const id = randomUUID();
     const at = iso();
@@ -1298,8 +1345,15 @@ export class CustomerUses {
         title: "Ready to review",
         detail: "Check the details and authorize it before the time shown. Nothing is held yet.",
       };
-    if (r.state !== "reserved")
-      return { title: LABELS[r.state].label, detail: LABELS[r.state].explanation };
+    if (r.state !== "reserved") return { title: LABELS[r.state].label, detail: this.explain(r) };
+    // Job 003wf4 (§5, D1): an original that opened too late to run here.
+    if (this.settlement(r.id)?.reason === "too_late_to_run" && units === "release_pending")
+      return {
+        title: "Returning your unit",
+        detail: TOO_LATE.returning,
+      };
+    if (this.settlement(r.id)?.reason === "too_late_to_run" && units === "returned")
+      return { title: "Ended, unit returned", detail: TOO_LATE.returned };
     switch (units) {
       case "charged":
         return {
@@ -1370,6 +1424,12 @@ export class CustomerUses {
     return { state: "check" as const, until_ms: null };
   }
 
+  /** The state's explanation, or the reason's where the state alone would mislead (003wf4). */
+  private explain(r: RequestRow) {
+    if (r.state === "cancelled" && r.reason === "submit_cutoff") return SUBMIT_CUTOFF;
+    return LABELS[r.state].explanation;
+  }
+
   private view(r: RequestRow) {
     const l = LABELS[r.state];
     return {
@@ -1378,7 +1438,7 @@ export class CustomerUses {
       id: r.id,
       state: r.state,
       label: l.label,
-      explanation: l.explanation,
+      explanation: this.explain(r),
       // Public facts about what this request is for (003q); never another customer's data.
       offer: this.productOf(this.offer(r.offer_id) as OfferRow),
       reason: r.reason,
@@ -1577,6 +1637,9 @@ export class CustomerUses {
       );
     if (!plan || JSON.stringify(plan) !== o.plan)
       bad(409, "The contract's plan differs from the offer", "plan_changed");
+    // Job 003wf4 (§5): the same policy as offer creation, under the current settings.
+    if (!this.planUsability(plan).usable)
+      bad(409, "This offer can't be served here right now; nothing was held", "plan_unusable");
     if (!e?.active) bad(409, "You have no units for this product yet", "no_entitlement");
     const k = e.keys[slot];
     if (k?.state !== "active") bad(409, "That key isn't active", "key_not_active");
@@ -1593,11 +1656,20 @@ export class CustomerUses {
         ? BigInt(this.serveWindowMs)
         : BigInt(plan.hold_ttl_ms);
     const serveUntil = T + window;
+    // The contract's expiry (unchanged; Astra D1): the proof an unknown hold can no longer open.
     const acceptBy = serveUntil - MIN_SERVE_MS;
     const settleUntil = serveUntil + BigInt(plan.settle_grace_ms);
-    const signBy = this.now() + Number(acceptBy - T) - this.submitMarginMs;
-    if (signBy <= this.now())
-      bad(409, "This plan's holds are too short to sign in time", "window_too_short");
+    // Job 003wf4 (§5, D2): the operational cutoffs, absolute from the signed serve_until. An old
+    // block already moved serve_until earlier; sign_by also allows for a lagging local clock.
+    const cut = cutoffs(this.timing, serveUntil);
+    const signBy = Number(cut.signBy);
+    const submitBy = Number(cut.submitBy);
+    if (signBy - this.now() < MIN_SIGN_MS)
+      bad(
+        409,
+        "This plan's holds are too short to sign and run here; nothing was held",
+        "window_too_short",
+      );
     const deal = control.live_deal;
     const notice = !deal
       ? null
@@ -1749,8 +1821,8 @@ export class CustomerUses {
       }
       this.db
         .prepare(
-          `INSERT INTO customer_requests (id, person_id, customer_account, offer_id, business_id, idempotency_key, request_hash, input_sha, input_chars, network, account, plan_id, reg_id, key_slot, key_epoch, public_key, hold_seq, units, slot, serve_until_ms, settle_until_ms, accept_by_ms, sign_by_ms, salt, fingerprint, hold_message, use_message, envelope, envelope_digest, prepared_block, evidence_height, evidence_mark, notice, state, allocation, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?, ?)`,
+          `INSERT INTO customer_requests (id, person_id, customer_account, offer_id, business_id, idempotency_key, request_hash, input_sha, input_chars, network, account, plan_id, reg_id, key_slot, key_epoch, public_key, hold_seq, units, slot, serve_until_ms, settle_until_ms, accept_by_ms, sign_by_ms, submit_by_ms, salt, fingerprint, hold_message, use_message, envelope, envelope_digest, prepared_block, evidence_height, evidence_mark, notice, state, allocation, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?, ?)`,
         )
         .run(
           id,
@@ -1774,6 +1846,7 @@ export class CustomerUses {
           String(settleUntil),
           String(acceptBy),
           signBy,
+          submitBy,
           salt,
           fingerprint,
           envelope.hold.message_hex,
@@ -2038,18 +2111,29 @@ export class CustomerUses {
     });
   }
 
-  private async submit(r: RequestRow, gen: number): Promise<"sent" | "stale" | "handover_paused"> {
+  private async submit(
+    r: RequestRow,
+    gen: number,
+  ): Promise<"sent" | "stale" | "handover_paused" | "submit_cutoff"> {
     const writer = this.writer;
     if (!writer) return "sent";
     // Job 003wf3 (§3 W3/W4): while this business is changing hands nothing is submitted. A request
     // with no writer attempt at all can't land, so it is cancelled (its allocation freed); one
     // already submitted keeps its exact readback and is never resent.
     let paused = false;
+    let late = false;
     const ok = this.underLease(r.id, gen, (cur) => {
       if (openHandover(this.db, cur.business_id)) {
         paused = true;
         this.cancelUnsentInTx(cur);
         return;
+      }
+      // Job 003wf4 (§5, D1): no FIRST submission after submit_by: a request with no writer attempt
+      // can't land, so it is cancelled and its allocation freed. A request already submitted is
+      // never here for that reason (its resends follow the writer's rules and accept_by).
+      if (cur.submissions === 0 && cur.submit_by_ms !== null && this.now() > cur.submit_by_ms) {
+        late = this.cancelUnsentInTx(cur, "submit_cutoff");
+        if (late) return;
       }
       this.db
         .prepare(
@@ -2060,6 +2144,7 @@ export class CustomerUses {
     });
     if (!ok) return "stale";
     if (paused) return "handover_paused";
+    if (late) return "submit_cutoff";
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.writeTimeoutMs);
     let answer: WriterAnswer;
@@ -2151,6 +2236,7 @@ export class CustomerUses {
         finish();
         return "handover_paused";
       }
+      if (sent === "submit_cutoff") return "submit_cutoff"; // cancelled; the lease is cleared
     }
     if (!this.reader) {
       finish();
@@ -2252,8 +2338,18 @@ export class CustomerUses {
             id,
           );
       this.event(id, "read", { code: `${d.kind}:${d.row}`, block: read.block.height, lease: gen });
-      if (d.kind === "reserved") set("reserved", d.reason, d.serving ? 1 : 0, false);
-      else if (d.kind === "refused") set("refused", d.reason, null, true);
+      if (d.kind === "reserved") {
+        set("reserved", d.reason, d.serving ? 1 : 0, false);
+        // Job 003wf4 (§5, D1): the original hold, reconciled to THIS request, opened too late to
+        // run here (a delayed original or a lost reply between submit_by and accept_by). It is
+        // returned uncharged through the existing release path; nothing is executed.
+        if (
+          !this.execution(id) &&
+          !this.settlement(id) &&
+          this.timeLeft(cur.serve_until_ms, read.block.timestamp_ms) < reserveMs(this.timing)
+        )
+          this.releaseUnrunInTx(id, "too_late_to_run");
+      } else if (d.kind === "refused") set("refused", d.reason, null, true);
       else if (d.kind === "unresolved") set("unresolved", d.reason, null, true);
       else {
         // Still acceptable: resend the identical payload, within the bounded number of attempts.
@@ -2278,7 +2374,7 @@ export class CustomerUses {
     const again = await this.submit(this.request(id) as RequestRow, gen);
     if (again === "stale") return "stale";
     finish();
-    return again === "handover_paused" ? "handover_paused" : "resent";
+    return again === "handover_paused" || again === "submit_cutoff" ? again : "resent";
   }
 
   // ---------- execution of a reserved request (job 003n, design §13) ----------
@@ -3052,6 +3148,8 @@ export class CustomerUses {
       }
       const rel = runtime?.releaseFor(o.project_id, o.release_id, o.artifact_digest);
       if (rel && !rel.ok) reasons.push(`release_${rel.code}`);
+      // Job 003wf4 (§5): the offer's plan, under the current settings (a reconfiguration counts).
+      if (!this.planUsability(JSON.parse(o.plan) as PlanV3).usable) reasons.push("plan_unusable");
     }
     const availability = runtime?.availability();
     if (!availability?.available)
@@ -3091,7 +3189,10 @@ export class CustomerUses {
    * In the caller's transaction: a confirmed request that was never submitted (no writer attempt
    * exists for it, so no hold can land) is cancelled and its allocation freed (§3 W3).
    */
-  private cancelUnsentInTx(r: RequestRow) {
+  private cancelUnsentInTx(
+    r: RequestRow,
+    reason: "handover_pause" | "submit_cutoff" = "handover_pause",
+  ) {
     if (r.state !== "reserve_requested" || r.submissions !== 0) return false;
     const attempt = this.db
       .prepare("SELECT 1 FROM chain_tx_attempts WHERE operation LIKE ? LIMIT 1")
@@ -3099,10 +3200,15 @@ export class CustomerUses {
     if (attempt) return false;
     const c = this.db
       .prepare(
-        "UPDATE customer_requests SET state = 'cancelled', reason = 'handover_pause', allocation = NULL, lease_until = NULL, updated_at = ? WHERE id = ? AND state = 'reserve_requested' AND submissions = 0",
+        "UPDATE customer_requests SET state = 'cancelled', reason = ?, allocation = NULL, lease_until = NULL, updated_at = ? WHERE id = ? AND state = 'reserve_requested' AND submissions = 0",
       )
-      .run(iso(), r.id);
-    if (c.changes) this.event(r.id, "cancelled_for_handover", {});
+      .run(reason, iso(), r.id);
+    if (c.changes)
+      this.event(
+        r.id,
+        reason === "handover_pause" ? "cancelled_for_handover" : "cancelled_submit_cutoff",
+        {},
+      );
     return c.changes === 1;
   }
 
@@ -3111,19 +3217,26 @@ export class CustomerUses {
    * already executed or with an intent is left to its own settlement.
    */
   releaseForHandover(id: string) {
-    return this.tx(() => {
-      const r = this.request(id);
-      if (r?.state !== "reserved" || r.conflict || this.settlement(id) || this.execution(id))
-        return false;
-      const t = iso();
-      this.db
-        .prepare(
-          "INSERT INTO customer_settlements (request_id, kind, state, reason, eligibility, created_at, updated_at) VALUES (?, 'release', 'requested', 'handover_pause', ?, ?, ?)",
-        )
-        .run(id, JSON.stringify({ executed: false, handover: true }), t, t);
-      this.event(id, "unit_release_intent", { code: "handover_pause" });
-      return true;
-    });
+    return this.tx(() => this.releaseUnrunInTx(id, "handover_pause"));
+  }
+
+  /** In the caller's transaction: a release intent for a reserved request that never ran. */
+  private releaseUnrunInTx(id: string, reason: "handover_pause" | "too_late_to_run") {
+    const r = this.request(id);
+    if (r?.state !== "reserved" || r.conflict || this.settlement(id) || this.execution(id))
+      return false;
+    const t = iso();
+    const eligibility =
+      reason === "handover_pause"
+        ? { executed: false, handover: true }
+        : { executed: false, too_late: true, reserve_ms: reserveMs(this.timing) };
+    this.db
+      .prepare(
+        "INSERT INTO customer_settlements (request_id, kind, state, reason, eligibility, created_at, updated_at) VALUES (?, 'release', 'requested', ?, ?, ?, ?)",
+      )
+      .run(id, reason, JSON.stringify(eligibility), t, t);
+    this.event(id, "unit_release_intent", { code: reason });
+    return true;
   }
 
   /**
