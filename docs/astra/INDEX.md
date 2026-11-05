@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-04 | [Customer writer review](2026-11-04_CustomerWriterReview.md) | Actual seeded pending-attempt probes reach fresh attempts after unknown nonce/expiry; no signing or network | In-progress003wd correction required; finality/identity and pinned SDK compatibility also need evidence |
 | 2026-11-04 | [Composition first slice review](2026-11-04_CompositionFirstSliceReview.md) | Independent1235 tests; actual configured sign-in notice; background keyboard focus reproduced | a/b/c backend checked, modal correction and003w-d next; worker remains partial |
 | 2026-11-04 | [Composition design review](2026-11-04_CompositionDesignReview.md) | Challenge browser binding, actual process restart and exact settle_hold contract method |003w sole87576 active; design-ahead claims must stay planned until verified; no external execution |
 | 2026-11-04 | [Studio drafts accepted](2026-11-04_StudioDraftsAccepted.md) | Actual app/brief SPA and reload, separate typed-ahead recovery, one queued job and clear/reload pass at2226246 | Narrow001k1 acceptance;003w next; all six and worker gates open; preview stopped |

@@ -31,6 +31,20 @@ Use the established accessible modal pattern; preserve preview sign-in behavior 
 leaving background controls keyboard-operable while the modal claims to be modal. A small
 mounted interaction regression should cover the reproduced behavior. Browser repeat follows.
 
+### Actual browser repeat after the correction
+
+Astra rebuilt the web bundle (886.08kB) and ran the same no-network configured composition in
+finite120-second preview94285. On tab58, opening Sign in or join focused Not now; forward Tab
+and Shift+Tab both stayed on Not now. Escape removed the dialog and returned focus to Sign in
+or join. These are actual mounted browser observations, supplementing the pure modal-rule
+tests. Tab58 closed afterward. No identity proof, wallet, worker, model or chain was used.
+The reproduced configured-dialog defect is corrected. This does not claim a completed wallet
+flow, all preview-mode interactions or broader accessibility acceptance.
+
+Preview94285 subsequently completed its SIGTERM cleanup and exited0. Astra check72641 also
+exited0:1239 tests passed,1 Linux-only skip,lint/types clean. This check precedes new writer
+implementation and is evidence for the modal correction, not final003wd acceptance.
+
 ## Next and limits
 
 003w-a/b/c backend slice has passing checks; UI correction remains.003w-d is the next bounded
