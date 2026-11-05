@@ -91,7 +91,9 @@ describe("005c expert help", () => {
       'Their offer mentions "adversarial"',
     ]);
     expect(found.body.experts[0].self_reported).toMatch(/doesn't verify/);
-    expect(JSON.stringify(found.body)).not.toMatch(/"(rating|score|verified|badge|confidence)[a-z_]*":/i);
+    expect(JSON.stringify(found.body)).not.toMatch(
+      /"(rating|score|verified|badge|confidence)[a-z_]*":/i,
+    );
 
     const ask = {
       expert_id: iris.id,

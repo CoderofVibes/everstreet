@@ -315,7 +315,7 @@ export class ExpertHelp {
 
   publicProfile(personId: string) {
     const r = this.profileRow(personId);
-    if (!r || r.state !== "published") throw new HttpError(404, "No such expert profile");
+    if (r?.state !== "published") throw new HttpError(404, "No such expert profile");
     return this.profileView(r, false);
   }
 
@@ -395,7 +395,7 @@ export class ExpertHelp {
   private snapshot(viewer: Person, input: Record<string, unknown>) {
     const expertId = String(input.expert_id ?? "");
     const p = this.profileRow(expertId);
-    if (!p || p.state !== "published") throw new HttpError(404, "No such expert profile");
+    if (p?.state !== "published") throw new HttpError(404, "No such expert profile");
     if (expertId === viewer.id) bad("You can't send a request to yourself");
     const title = text(input.title, LIMITS.title, "The title", false);
     const task = text(input.task, LIMITS.text, "The task");
