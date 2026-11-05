@@ -314,7 +314,13 @@ describe("003web PurchaseFlow for a fresh customer", () => {
       release2 = r;
     });
     const g = new PurchaseFlow(
-      { ...base, check: async (id, b) => (await gate2, base.check(id, b)) },
+      {
+        ...base,
+        check: async (id, b) => {
+          await gate2;
+          return base.check(id, b);
+        },
+      },
       async () => wal.b,
       { offerId: offer, account: FRESH },
     );

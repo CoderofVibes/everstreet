@@ -12,6 +12,9 @@
 //   POST /delay-next/<ms>  the next wallet answer arrives late (0 to 30000 ms)
 //   POST /account/<id>  the synthetic wallet switches to another (fictional) account
 //   GET  /             what the synthetic wallet signed and sent
+//   GET  /history[?account=<id>]  the synthetic wallet's activity, newest first: each recorded
+//                      transaction's ID, signer, receiver, method and its own status (read-only;
+//                      e.g. the original ID of a purchase whose answer /lose-next withheld)
 // FICTIONAL and SYNTHETIC (scripts/lib/walletHarness.ts): in-memory data, the real app and routes
 // with verified identity, ephemeral keys, the chain double. Loopback only. It stops by itself after
 // the time bound, or on Ctrl+C; nothing remains.
@@ -20,7 +23,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { HARNESS_CSP, walletHarness } from "./lib/walletHarness.ts";
+import { HARNESS_CSP, harnessControl, walletHarness } from "./lib/walletHarness.ts";
 
 const HOST = "127.0.0.1";
 const PORT = 8814;
@@ -66,27 +69,7 @@ site.get("*", (c) => {
 });
 const app = serve({ fetch: site.fetch, port: PORT, hostname: HOST });
 
-const control = new Hono();
-control.get("/", (c) => c.json({ ...h.controls, offer: h.offerId }));
-control.post("/cancel-next", (c) => {
-  h.controls.cancelNext = true;
-  return c.json({ cancel_next: true });
-});
-control.post("/lose-next", (c) => {
-  h.controls.loseNext = true;
-  return c.json({ lose_next: true });
-});
-control.post("/delay-next/:ms", (c) => {
-  const ms = Number(c.req.param("ms"));
-  if (!Number.isInteger(ms) || ms < 0 || ms > 30_000)
-    return c.json({ error: "0 to 30000 ms" }, 400);
-  h.controls.delayNextMs = ms;
-  return c.json({ delay_next_ms: ms });
-});
-control.post("/account/:id", (c) => {
-  h.controls.account = c.req.param("id");
-  return c.json({ account: h.controls.account });
-});
+const control = harnessControl(h);
 const ctl = serve({ fetch: control.fetch, port: PORT + 1, hostname: HOST });
 
 console.log(

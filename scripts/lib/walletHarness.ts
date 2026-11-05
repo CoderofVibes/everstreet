@@ -291,3 +291,81 @@ export async function walletHarness(opts: { origin: string; customer?: "seeded" 
   });
   return { site, controls, offerId, world: w, accountKey, customer: opts.customer ?? "seeded" };
 }
+
+/** How many transactions the synthetic wallet's history lists (newest first). */
+export const HISTORY_LIMIT = 50;
+
+/**
+ * The synthetic wallet's activity, as a wallet's history shows it (Astra's PurchaseBrowserRepeat:
+ * with the answer lost, the reviewer needs the ORIGINAL transaction's ID, as a customer would copy
+ * it from the wallet). A read-only PROJECTION of the transactions the in-memory chain double
+ * actually recorded (FixtureChain.txs, in the order applied), nothing computed or added: per
+ * transaction, its ID, its (fictional) signer and receiver, its one method, and the transaction's
+ * own top-level status. No arguments, keys, signatures, signed bytes, documents or results. The
+ * status is the transaction's, not whether a purchase was accepted: a returned purchase is still a
+ * successful transaction, exactly as a wallet lists it. Test support on the control listener only;
+ * never an app route.
+ */
+export function walletHistory(txs: Map<string, Json>) {
+  const out: {
+    id: string;
+    signer: string;
+    receiver: string;
+    method: string;
+    status: "success" | "failure" | "unknown";
+  }[] = [];
+  for (const o of txs.values()) {
+    const t = o?.transaction as Json | undefined;
+    const st = o?.status as Json | undefined;
+    out.push({
+      id: String(t?.hash),
+      signer: String(t?.signer_id),
+      receiver: String(t?.receiver_id),
+      method: String(t?.actions?.[0]?.FunctionCall?.method_name),
+      status:
+        st && typeof st === "object" && "Failure" in st
+          ? "failure"
+          : st && typeof st === "object" && typeof st.SuccessValue === "string"
+            ? "success"
+            : "unknown",
+    });
+  }
+  return out.reverse().slice(0, HISTORY_LIMIT);
+}
+
+/**
+ * The harness's control listener (a SEPARATE origin from the site; no control route exists in the
+ * app): the wallet controls, what the synthetic wallet sent, and its read-only history.
+ */
+export function harnessControl(h: Awaited<ReturnType<typeof walletHarness>>) {
+  const control = new Hono();
+  control.get("/", (c) => c.json({ ...h.controls, offer: h.offerId }));
+  control.get("/history", (c) => {
+    const account = c.req.query("account");
+    const all = walletHistory(h.world.chain.txs as Map<string, Json>);
+    return c.json({
+      note: "Synthetic wallet activity (fictional): each transaction's ID, signer, receiver, method and its own status. Not whether a purchase was accepted.",
+      transactions: account ? all.filter((t) => t.signer === account) : all,
+    });
+  });
+  control.post("/cancel-next", (c) => {
+    h.controls.cancelNext = true;
+    return c.json({ cancel_next: true });
+  });
+  control.post("/lose-next", (c) => {
+    h.controls.loseNext = true;
+    return c.json({ lose_next: true });
+  });
+  control.post("/delay-next/:ms", (c) => {
+    const ms = Number(c.req.param("ms"));
+    if (!Number.isInteger(ms) || ms < 0 || ms > 30_000)
+      return c.json({ error: "0 to 30000 ms" }, 400);
+    h.controls.delayNextMs = ms;
+    return c.json({ delay_next_ms: ms });
+  });
+  control.post("/account/:id", (c) => {
+    h.controls.account = c.req.param("id");
+    return c.json({ account: h.controls.account });
+  });
+  return control;
+}
