@@ -74,7 +74,7 @@ export interface ReportItem {
   category: Category;
   label: string;
   status: ItemStatus;
-  evidence: { kind: "detected" | "declared" | "verified"; text: string }[];
+  evidence: { kind: "detected" | "declared" | "verified" | "observed" | "claimed"; text: string }[];
   mechanism: string;
   risk: "high" | "medium";
   risk_text: string;
@@ -120,15 +120,27 @@ export interface ImportView {
       input_digest: string;
       input_bytes: number;
       created_at: string;
-      facts: Facts;
+      /** Null when a connected read couldn't read package.json (unknown, not "no dependencies"). */
+      facts: Facts | null;
+      /** Job 004b: where a connected read came from; null for a supplied manifest. */
+      provenance?: SourceProvenance | null;
     } | null;
+    /** Job 004b: the newest two connected reads, compared. */
+    comparison?: SourceComparison | null;
     history: {
       number: number;
       inspector: string;
       inspector_version: string;
       input_digest: string;
       input_bytes: number;
-      dependency_count: number;
+      dependency_count: number | null;
+      source?: {
+        repository: string;
+        commit: string;
+        ref: string;
+        manifest: string;
+        fixture: boolean;
+      } | null;
       by: string;
       created_at: string;
     }[];
@@ -177,7 +189,88 @@ async function call<T>(path: string, method = "GET", body?: unknown): Promise<T>
 
 const at = (id: string) => `/api/imports/${encodeURIComponent(id)}`;
 
+// ---------- job 004b: connected source ----------
+
+export interface SourceProvenance {
+  connection: { id: string; label: string; fixture: boolean };
+  repository: { full_name: string; private: boolean | null; default_branch: string | null };
+  ref: string;
+  commit: { sha: string };
+  manifest: { state: string; bytes?: number; detail?: string };
+  deployments:
+    | {
+        state: "read";
+        truncated: boolean;
+        records: {
+          id: number;
+          environment: string;
+          sha: string;
+          matches_commit: boolean;
+          created_at: string;
+          statuses: { state: string; created_at: string }[];
+        }[];
+      }
+    | { state: "unread"; reason: string };
+  unread: string[];
+  usage: { calls: number; bytes: number; ms: number };
+  read_at: string;
+  api_version: string;
+}
+
+export interface SourceComparison {
+  from: { number: number; commit: string | null; ref: string | null };
+  to: { number: number; commit: string | null; ref: string | null };
+  commit_changed: boolean;
+  manifest: { from: string | null; to: string | null };
+  dependencies: {
+    added: { key: string; ref: string }[];
+    removed: { key: string; ref: string }[];
+    changed: { key: string; from: string; to: string }[];
+  } | null;
+  deployment_claims: { from: string[] | null; to: string[] | null };
+}
+
+export interface SourceStatus {
+  available: boolean;
+  unavailable_reason: string | null;
+  connections: {
+    id: string;
+    label: string;
+    kind: string;
+    fixture: boolean;
+    repositories: string[];
+    configured: boolean;
+  }[];
+  active: {
+    connection: { id: string; label: string; fixture: boolean };
+    repository: string;
+    connected_by: string;
+    connected_at: string;
+    usable_by_you: boolean;
+  } | null;
+  history: {
+    connection_id: string;
+    repository: string;
+    connected_by: string;
+    connected_at: string;
+    disconnected_at: string | null;
+  }[];
+  limits: string;
+}
+
+export interface SourceReadResult {
+  created: boolean;
+  outcome: { ok: true } | { ok: false; failure: string; retryable: boolean; detail: string } | null;
+  view: ImportView;
+}
+
 export const importsApi = {
+  source: (id: string) => call<SourceStatus>(`${at(id)}/source`),
+  connectSource: (id: string, connection: string, repository: string) =>
+    call<SourceStatus>(`${at(id)}/source/connect`, "POST", { connection, repository }),
+  disconnectSource: (id: string) => call<SourceStatus>(`${at(id)}/source/disconnect`, "POST"),
+  readSource: (id: string, ref: string, idempotency_key: string) =>
+    call<SourceReadResult>(`${at(id)}/source/inspections`, "POST", { ref, idempotency_key }),
   list: () => call<{ imports: ImportSummary[] }>("/api/imports"),
   forBusiness: (businessId: string) =>
     call<{ imports: ImportSummary[] }>(`/api/businesses/${encodeURIComponent(businessId)}/imports`),

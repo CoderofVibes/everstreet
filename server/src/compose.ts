@@ -33,6 +33,7 @@ import { ManagedRuntime } from "./invocations.ts";
 import { guardAdapters, MaintenanceSupervisor, maintenanceWorker } from "./maintenance.ts";
 import { type ProtectedStore, protectedStoreFromConfig } from "./protectedStore.ts";
 import { AnthropicRuntime, type RuntimeProvider } from "./runtime.ts";
+import { configuredSourceOptions, fictionalSourceOptions } from "./sourceConnect.ts";
 import { Store } from "./store.ts";
 import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
@@ -84,6 +85,8 @@ export interface ComposeDeps {
    * browser then accepts the harness's synthetic Wallet Selector module and shows that it is one.
    */
   walletHarness?: { label: string };
+  /** Job 004b: the source connections' transport (default: global fetch; configured only). */
+  sourceFetch?: typeof fetch;
   /** Preview only: labelled synthetic adapters. */
   preview?: {
     label: string;
@@ -624,6 +627,18 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     handover: coordinator
       ? (businessId: string) => (coordinator as HandoverCoordinator).capability(businessId)
       : undefined,
+    // Job 004b: read-only source connections. Configured: only what the config names, over the
+    // source transport (default global fetch), tokens from their named variables. Preview: the
+    // labelled fictional fixture (no account, token or network).
+    importSources: configured
+      ? config.source
+        ? configuredSourceOptions(
+            config.source.github,
+            (deps.sourceFetch ?? globalThis.fetch) as never,
+            deps.envVar ?? ((n: string) => process.env[n]),
+          )
+        : null
+      : fictionalSourceOptions(),
     // Job 003wf slice 3: unresolved writer history for the configured operators (status reads
     // only, over the same bounded transport the writer uses; nothing is ever sent from here).
     writerHistory:

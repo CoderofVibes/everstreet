@@ -1325,3 +1325,14 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .state-icon.fail { background: var(--danger, #b42318); color: #fff; }
 .manual-check .manual-form { display: grid; gap: 6px; margin-top: 8px; }
 .manual-check .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Job 004b: connected source (observed vs claimed, readable provenance). */
+.source-prov { margin-top: 12px; border-top: 1px solid var(--line, #dfe4ee); padding-top: 12px; }
+.source-dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 8px 0 0; }
+.source-dl dt { color: var(--text-3, #5b6478); }
+.source-dl dd { margin: 0; overflow-wrap: anywhere; }
+.source-read, .source-connect { display: grid; gap: 6px; margin-top: 8px; }
+.source-read .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.source-read .row-actions .input { flex: 1 1 220px; }
+ul.plain { margin: 0; padding-left: 18px; }
+@media (max-width: 600px) { .source-dl { grid-template-columns: minmax(0, 1fr); } }

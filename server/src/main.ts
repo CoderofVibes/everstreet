@@ -26,6 +26,7 @@ import { openDb } from "./db.ts";
 import { Evaluations } from "./evaluations.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { AnthropicRuntime } from "./runtime.ts";
+import { fictionalSourceOptions } from "./sourceConnect.ts";
 import { Store } from "./store.ts";
 
 const port = Number(process.env.PORT ?? 8800);
@@ -177,6 +178,8 @@ app.route(
     buildProvider,
     builds,
     runtime,
+    // Job 004b: the labelled fictional source fixture (no real account or network).
+    importSources: fictionalSourceOptions(),
   }),
 );
 

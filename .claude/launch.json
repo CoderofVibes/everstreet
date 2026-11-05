@@ -34,6 +34,20 @@
         "90"
       ],
       "port": 8814
+    },
+    {
+      "name": "everstreet-scratch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "serve"
+      ],
+      "port": 8811,
+      "env": {
+        "PORT": "8811",
+        "EVERSTREET_DB": "data/runtime/scratch-review.db",
+        "OPENSEAT_DB": "data/runtime/scratch-review-openseat.db"
+      }
     }
   ]
 }

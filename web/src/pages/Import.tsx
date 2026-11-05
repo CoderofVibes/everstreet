@@ -54,6 +54,7 @@ import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { newKey } from "./Builds.tsx";
 import { Scroll } from "./FinanceChart.tsx";
+import { ImportSourcePanel } from "./ImportSource.tsx";
 
 const SCOPE_SHORT =
   "We read the package.json you supply: its package details and the packages it declares. Your code isn't fetched, installed or run, scripts are ignored, and nothing that looks like a key or password is accepted.";
@@ -602,6 +603,7 @@ export function ImportWorkspace({ id }: { id: string }) {
             attempt={attempt}
             onInspect={(recover) => void c.inspect(recover)}
             locked={locked}
+            onSourceRead={() => void c.load()}
           />
         )}
         {tab === "dependencies" && (
@@ -642,6 +644,7 @@ function Overview({
   attempt,
   onInspect,
   locked,
+  onSourceRead,
 }: {
   locked: boolean;
   view: ImportView;
@@ -656,6 +659,8 @@ function Overview({
   onClear: () => void;
   attempt: InspectAttempt | null;
   onInspect: (recover: boolean) => void;
+  /** Job 004b: a connected read finished; the view is read again (drafts are kept). */
+  onSourceRead: () => void;
 }) {
   const w = view.workspace;
   const d = detailsShown(view, drafts.details);
@@ -667,14 +672,20 @@ function Overview({
       <div>
         <section className="card">
           <h2>Source facts</h2>
-          {latest ? (
+          {latest?.facts ? (
             <FactsView facts={latest.facts} number={latest.number} at={latest.created_at} />
+          ) : latest ? (
+            <p className="muted">
+              Read {latest.number} couldn't read package.json, so what it declares is unknown (not
+              none). See Connected source for why.
+            </p>
           ) : (
             <p className="muted">
               No manifest inspected yet. Add the product's package.json to see what it declares.
             </p>
           )}
         </section>
+        <ImportSourcePanel view={view} locked={locked} onRead={onSourceRead} />
         <section className="card">
           <h2>{latest ? "Inspect an updated manifest" : "Inspect a manifest"}</h2>
           <p className="muted" style={{ fontSize: 14 }}>
@@ -907,7 +918,7 @@ function Dependencies({
   onSave: (c: Category) => void;
 }) {
   const detected = (c: Category) =>
-    (view.source.latest?.facts.detections ?? []).filter((d) => d.category === c);
+    (view.source.latest?.facts?.detections ?? []).filter((d) => d.category === c);
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <p className="notice info" style={{ margin: 0 }}>

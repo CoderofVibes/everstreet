@@ -46,6 +46,23 @@ export interface AppConfig {
    * who may see unresolved writer history and read an attempt's own final status. Configured only.
    */
   operators?: { accounts: string[] };
+  /**
+   * Job 004b: read-only source connections for import workspaces (GitHub REST, GET only). Each
+   * names the repositories it may read; a repository-scoped one names the VARIABLE holding its
+   * read-only token (never the token). Unset: connecting a source is unavailable.
+   */
+  source?: {
+    github: {
+      origin: string;
+      connections: {
+        id: string;
+        label: string;
+        kind: "public" | "repository_scoped";
+        repositories: string[];
+        credential_env?: string;
+      }[];
+    };
+  };
 }
 
 export interface HandoverConfig {
@@ -122,6 +139,7 @@ export function validateConfig(raw: unknown): AppConfig {
     "maintenance",
     "handover",
     "operators",
+    "source",
   ]);
   for (const k of Object.keys(c)) if (!known.has(k)) bad(`unknown field ${k}`);
 
@@ -380,6 +398,55 @@ export function validateConfig(raw: unknown): AppConfig {
     operators = { accounts: [...(list as string[])] };
   }
 
+  let source: AppConfig["source"];
+  if (c.source !== undefined) {
+    const g = (c.source as { github?: Record<string, unknown> } | null)?.github;
+    if (!g || typeof g !== "object") bad("source.github is required");
+    const gh = g as Record<string, unknown>;
+    if (gh.origin !== "https://api.github.com")
+      bad('source.github.origin must be "https://api.github.com"');
+    const list = gh.connections;
+    if (!Array.isArray(list) || list.length < 1 || list.length > 8)
+      bad("source.github.connections lists 1 to 8");
+    const ids = new Set<string>();
+    const connections = (list as Record<string, unknown>[]).map((x) => {
+      if (typeof x.id !== "string" || !/^[a-z0-9-]{1,40}$/.test(x.id) || ids.has(x.id))
+        bad("each source connection needs a unique id (a-z, 0-9, -)");
+      ids.add(x.id as string);
+      if (typeof x.label !== "string" || !x.label.trim() || x.label.length > 80)
+        bad("each source connection needs a label");
+      if (x.kind !== "public" && x.kind !== "repository_scoped")
+        bad("a source connection is public or repository_scoped");
+      const repos = x.repositories;
+      if (
+        !Array.isArray(repos) ||
+        repos.length < 1 ||
+        repos.length > 50 ||
+        !repos.every(
+          (r) => typeof r === "string" && /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(r),
+        )
+      )
+        bad("a source connection lists 1 to 50 repositories as owner/name");
+      if (
+        x.kind === "repository_scoped" &&
+        (typeof x.credential_env !== "string" || !/^[A-Z][A-Z0-9_]{1,63}$/.test(x.credential_env))
+      )
+        bad(
+          "a repository_scoped connection names its credential_env (an environment variable NAME)",
+        );
+      if (x.kind === "public" && x.credential_env !== undefined)
+        bad("a public connection has no credential");
+      return {
+        id: x.id as string,
+        label: (x.label as string).trim(),
+        kind: x.kind as "public" | "repository_scoped",
+        repositories: [...(repos as string[])],
+        ...(x.kind === "repository_scoped" ? { credential_env: x.credential_env as string } : {}),
+      };
+    });
+    source = { github: { origin: "https://api.github.com", connections } };
+  }
+
   return {
     config_version: 1,
     mode,
@@ -397,5 +464,6 @@ export function validateConfig(raw: unknown): AppConfig {
     ...(maintenance ? { maintenance } : {}),
     ...(handover ? { handover } : {}),
     ...(operators ? { operators } : {}),
+    ...(source ? { source } : {}),
   };
 }

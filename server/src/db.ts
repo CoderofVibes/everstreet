@@ -825,6 +825,23 @@ export function openDb(path: string) {
   // flagged `reconcile = 'legacy_invalid'`, and only that attempt's own exact FINAL status (or an
   // operator's reconciliation) resolves it. Recorded success and failure stay as they are (every
   // committed writer recorded them only from a FINAL status for the exact hash).
+  // Job 004b: a source inspection's provenance (connection, repository, ref, pinned commit, what
+  // was and wasn't read). Never the manifest's text, a token or a payload URL. Null for supplied.
+  if (!columns("import_inspections").has("source"))
+    db.exec("ALTER TABLE import_inspections ADD COLUMN source TEXT");
+  // Job 004b: which configured connection a workspace reads through, by whom, under which owner
+  // generation. A sale never passes it on: the next owner connects their own. Rows are kept after
+  // disconnect (history), never reused.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS import_source_connections (
+      id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES import_workspaces(id),
+      connection_id TEXT NOT NULL, repository TEXT NOT NULL,
+      connected_by TEXT NOT NULL REFERENCES people(id), owner_generation INTEGER NOT NULL,
+      connected_at TEXT NOT NULL, disconnected_at TEXT, disconnected_by TEXT REFERENCES people(id)
+    ) STRICT;
+    CREATE UNIQUE INDEX IF NOT EXISTS import_source_one_active
+      ON import_source_connections(workspace_id) WHERE disconnected_at IS NULL;
+  `);
   const attemptCols = columns("chain_tx_attempts");
   if (!attemptCols.has("history")) {
     db.exec("BEGIN IMMEDIATE");

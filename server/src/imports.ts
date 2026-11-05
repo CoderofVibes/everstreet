@@ -9,7 +9,39 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import type { Db } from "./db.ts";
+import {
+  type GithubSource,
+  type SourceConnectionConfig,
+  type SourceRead,
+  validRef,
+  validRepository,
+} from "./sourceConnect.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+
+/** Job 004b: configured read-only source connections for import workspaces. */
+export interface ImportSourceOptions {
+  reader: GithubSource;
+  connections: SourceConnectionConfig[];
+  /** A repository-scoped connection's token from its named variable; null if not configured. */
+  credential: (conn: SourceConnectionConfig) => string | null;
+}
+
+/**
+ * Job 004b: what a source inspection recorded about where its facts came from. Never the
+ * manifest's text, a token or any URL from a payload.
+ */
+export interface SourceProvenance {
+  connection: SourceRead["connection"];
+  repository: SourceRead["repository"];
+  ref: string;
+  commit: { sha: string };
+  manifest: { state: string; bytes?: number; blob_sha?: string | null; detail?: string };
+  deployments: SourceRead["deployments"];
+  unread: string[];
+  usage: SourceRead["usage"];
+  read_at: string;
+  api_version: string;
+}
 
 // ---------- limits ----------
 
@@ -631,7 +663,7 @@ export interface ReportItem {
   category: Category;
   label: string;
   status: ItemStatus;
-  evidence: { kind: "detected" | "declared" | "verified"; text: string }[];
+  evidence: { kind: "detected" | "declared" | "verified" | "observed" | "claimed"; text: string }[];
   mechanism: string;
   risk: "high" | "medium";
   risk_text: string;
@@ -660,16 +692,52 @@ const ORDER: Category[] = [
 ];
 
 /** A pure function of the latest facts and the founder's statements. Never "ready". */
+/**
+ * Job 004b: what a connected read adds to the report, per category. A read through a connection
+ * is an OBSERVATION (it doesn't prove ownership); a deployment record is a CLAIM published by an
+ * integration (it doesn't prove the service runs now, or runs this commit). Neither is "verified".
+ */
+function sourceEvidence(category: Category, s: SourceProvenance | null): ReportItem["evidence"] {
+  if (!s) return [];
+  const where = `${s.repository.full_name} at ${s.commit.sha.slice(0, 12)} (${s.ref}), read through ${s.connection.label}${s.connection.fixture ? " (fictional fixture)" : ""}`;
+  if (category === "source_ownership")
+    return [
+      {
+        kind: "observed",
+        text: `Observed: ${where}. Being able to read it isn't proof of who owns it or its code.`,
+      },
+    ];
+  if (category === "hosting") {
+    if (s.deployments.state !== "read")
+      return [
+        { kind: "observed", text: `Deployment records weren't read: ${s.deployments.reason}.` },
+      ];
+    if (s.deployments.records.length === 0)
+      return [
+        {
+          kind: "observed",
+          text: "No deployment records name this commit. That doesn't mean it isn't deployed.",
+        },
+      ];
+    return s.deployments.records.map((d) => ({
+      kind: "claimed" as const,
+      text: `Deployment record ${d.id} (${d.environment || "no environment"}) reports ${d.statuses[0]?.state ?? "no status"}${d.matches_commit ? " for this commit" : ` for another commit (${d.sha.slice(0, 12)})`}. A claim by an integration, not proof it runs now.`,
+    }));
+  }
+  return [];
+}
+
 export function readiness(
   facts: InspectionFacts | null,
   inspection: number | null,
   assertions: Partial<Record<Category, Assertion | null>>,
+  source: SourceProvenance | null = null,
 ): Report {
   const items: ReportItem[] = CATEGORIES.map((category) => {
     const t = TRANSFER[category];
     const found = (facts?.detections ?? []).filter((d) => d.category === category);
     const a = assertions[category] ?? null;
-    const evidence: ReportItem["evidence"] = [];
+    const evidence: ReportItem["evidence"] = [...sourceEvidence(category, source)];
     for (const d of found)
       evidence.push({
         kind: "detected",
@@ -682,7 +750,13 @@ export function readiness(
           ? `You said: ${a.note || "used"}`
           : `You said it isn't used${a.note ? `: ${a.note}` : ""}`,
       });
-    const status: ItemStatus = found.length ? "detected" : a ? "declared" : "unknown";
+    const observedHere = evidence.some((e) => e.kind === "observed" || e.kind === "claimed");
+    const status: ItemStatus =
+      found.length || (observedHere && category === "source_ownership")
+        ? "detected"
+        : a
+          ? "declared"
+          : "unknown";
     const next_step =
       !found.length && !a
         ? t.ask
@@ -722,7 +796,9 @@ export function readiness(
     basis:
       inspection === null
         ? "No manifest inspected yet; only what you have said."
-        : `Inspection ${inspection} of the supplied package.json, and what you have said.`,
+        : source
+          ? `Inspection ${inspection}: ${source.repository.full_name} at commit ${source.commit.sha.slice(0, 12)}, read through ${source.connection.label}${source.connection.fixture ? " (fictional fixture)" : ""}${source.manifest.state === "read" ? "" : `; package.json not read (${source.manifest.detail ?? source.manifest.state})`}, and what you have said.`
+          : `Inspection ${inspection} of the supplied package.json, and what you have said.`,
   };
 }
 
@@ -748,6 +824,8 @@ interface InspectionRow {
   input_digest: string;
   input_bytes: number;
   facts: string;
+  /** Job 004b: a connected read's provenance (JSON); null for a supplied manifest. */
+  source?: string | null;
   idempotency_key: string;
   requested_by: string;
   created_at: string;
@@ -773,8 +851,280 @@ export class Imports {
     private readonly db: Db,
     private readonly store: Store,
     inspectors: ImportInspector[] = [packageManifestInspector],
+    /** Job 004b: configured read-only source connections; unset: connecting is unavailable. */
+    private readonly sources: ImportSourceOptions | null = null,
   ) {
     this.inspectors = new Map(inspectors.map((i) => [i.kind, i]));
+  }
+
+  // ---------- job 004b: connected source ----------
+
+  private activeConnection(workspaceId: string) {
+    return this.db
+      .prepare(
+        "SELECT * FROM import_source_connections WHERE workspace_id = ? AND disconnected_at IS NULL",
+      )
+      .get(workspaceId) as
+      | {
+          id: string;
+          connection_id: string;
+          repository: string;
+          connected_by: string;
+          owner_generation: number;
+          connected_at: string;
+        }
+      | undefined;
+  }
+
+  /** What can be connected, what is connected, and whether this owner may read through it. */
+  sourceStatus(viewer: Person, id: string) {
+    const w = this.owned(viewer, id);
+    const generation = this.store.controlEpoch(viewer, w.business_id).generation;
+    const a = this.activeConnection(w.id);
+    const conn = a ? this.sources?.connections.find((c) => c.id === a.connection_id) : undefined;
+    const history = this.db
+      .prepare(
+        "SELECT connection_id, repository, connected_by, connected_at, disconnected_at FROM import_source_connections WHERE workspace_id = ? ORDER BY connected_at DESC LIMIT 20",
+      )
+      .all(w.id) as {
+      connection_id: string;
+      repository: string;
+      connected_by: string;
+      connected_at: string;
+      disconnected_at: string | null;
+    }[];
+    return {
+      available: this.sources !== null,
+      unavailable_reason:
+        this.sources === null
+          ? "No source connection is configured on this server. Nothing is read from your accounts; you can still supply package.json by hand."
+          : null,
+      connections: (this.sources?.connections ?? []).map((c) => ({
+        id: c.id,
+        label: c.label,
+        kind: c.kind,
+        fixture: c.fixture === true,
+        repositories: c.repositories,
+        configured: c.kind === "public" || this.sources?.credential(c) !== null,
+      })),
+      active: a
+        ? {
+            connection: {
+              id: a.connection_id,
+              label: conn?.label ?? a.connection_id,
+              fixture: conn?.fixture === true,
+            },
+            repository: a.repository,
+            connected_by: this.name(a.connected_by),
+            connected_at: a.connected_at,
+            // A sale doesn't pass a connection on: only the person who connected it, under the
+            // owner generation it was made in, may read through it.
+            usable_by_you: a.connected_by === viewer.id && a.owner_generation === generation,
+          }
+        : null,
+      history: history.map((h) => ({ ...h, connected_by: this.name(h.connected_by) })),
+      limits:
+        "Read only: the repository, the commit a ref names, package.json at that commit, and up to 5 deployment records with their statuses. Nothing is cloned, installed or run.",
+    };
+  }
+
+  connectSource(viewer: Person, id: string, input: Record<string, unknown>) {
+    const w = this.owned(viewer, id);
+    if (!this.sources)
+      throw new HttpError(409, "No source connection is configured on this server");
+    const conn = this.sources.connections.find((c) => c.id === input.connection);
+    if (!conn) bad("Choose one of the configured connections");
+    const repository = validRepository(input.repository);
+    if (!repository) bad("Name the repository as owner/name");
+    // Scope is checked before anything is stored or read.
+    if (!(conn as SourceConnectionConfig).repositories.includes(repository as string))
+      bad("That connection isn't allowed to read that repository", 409);
+    const epoch = this.store.controlEpoch(viewer, w.business_id);
+    this.store.tx(() => {
+      this.store.stillControls(viewer, epoch);
+      const t = now();
+      this.db
+        .prepare(
+          "UPDATE import_source_connections SET disconnected_at = ?, disconnected_by = ? WHERE workspace_id = ? AND disconnected_at IS NULL",
+        )
+        .run(t, viewer.id, w.id);
+      this.db
+        .prepare(
+          "INSERT INTO import_source_connections (id, workspace_id, connection_id, repository, connected_by, owner_generation, connected_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          randomUUID(),
+          w.id,
+          (conn as SourceConnectionConfig).id,
+          repository as string,
+          viewer.id,
+          epoch.generation,
+          t,
+        );
+      this.event("import.source_connected", w.business_id, viewer.id, {
+        workspace: w.id,
+        connection: (conn as SourceConnectionConfig).id,
+        repository,
+      });
+    });
+    return this.sourceStatus(viewer, id);
+  }
+
+  /** Stops future reads; earlier reports keep their provenance. */
+  disconnectSource(viewer: Person, id: string) {
+    const w = this.owned(viewer, id);
+    const epoch = this.store.controlEpoch(viewer, w.business_id);
+    this.store.tx(() => {
+      this.store.stillControls(viewer, epoch);
+      this.db
+        .prepare(
+          "UPDATE import_source_connections SET disconnected_at = ?, disconnected_by = ? WHERE workspace_id = ? AND disconnected_at IS NULL",
+        )
+        .run(now(), viewer.id, w.id);
+    });
+    return this.sourceStatus(viewer, id);
+  }
+
+  /**
+   * Reads the connected repository at a ref (pinned to one commit) and records a new immutable
+   * inspection and report. Fenced on the owner before and after the read: a sale while it runs
+   * stores and shows nothing. Retryable failures (rate limit, timeout) record nothing.
+   */
+  async inspectSource(viewer: Person, id: string, input: Record<string, unknown>) {
+    const w = this.owned(viewer, id);
+    const key = text(input.idempotency_key, IMPORT_LIMITS.key, "The request key");
+    if (!key) bad("A request key is required (idempotency_key)");
+    if (!this.sources)
+      throw new HttpError(409, "No source connection is configured on this server");
+    const a = this.activeConnection(w.id);
+    if (!a) bad("Connect a source first", 409);
+    const epoch = this.store.controlEpoch(viewer, w.business_id);
+    const active = a as NonNullable<typeof a>;
+    if (active.connected_by !== viewer.id || active.owner_generation !== epoch.generation)
+      throw new HttpError(
+        409,
+        "This connection was made by someone else or before the business changed hands. Connect your own to read it.",
+        "connection_not_yours",
+      );
+    const conn = this.sources.connections.find((c) => c.id === active.connection_id);
+    if (!conn)
+      throw new HttpError(409, "That connection is no longer configured here", "connection_gone");
+    const ref = validRef(input.ref);
+    if (!ref) bad("Name a branch, tag or commit");
+    const existing = this.db
+      .prepare(
+        "SELECT number FROM import_inspections WHERE workspace_id = ? AND idempotency_key = ?",
+      )
+      .get(w.id, key) as { number: number } | undefined;
+    if (existing) return { created: false, outcome: null, view: this.view(viewer, w.id) };
+    const token = conn.kind === "public" ? null : this.sources.credential(conn);
+    if (conn.kind !== "public" && !token)
+      throw new HttpError(
+        409,
+        "This connection's credential isn't configured on this server",
+        "credential_missing",
+      );
+    const out = await this.sources.reader.read(conn, active.repository, ref as string, token);
+    // After the await: still this owner, same generation, same connection, or nothing is kept.
+    this.store.stillControls(viewer, epoch, { handover: "allow" });
+    if (!out.ok) return { created: false, outcome: out, view: this.view(viewer, w.id) };
+    const r = out.read;
+    const facts = r.manifest.state === "read" ? inspectPackageJson(r.manifest.content) : null;
+    const { content: _omit, ...manifestMeta } =
+      r.manifest.state === "read" ? r.manifest : { ...r.manifest, content: "" };
+    const provenance: SourceProvenance = {
+      connection: r.connection,
+      repository: r.repository,
+      ref: r.ref,
+      commit: r.commit,
+      manifest: manifestMeta,
+      deployments: r.deployments,
+      unread: r.unread,
+      usage: r.usage,
+      read_at: r.read_at,
+      api_version: r.api_version,
+    };
+    let created = false;
+    this.store.tx(() => {
+      const again = this.db
+        .prepare(
+          "SELECT number FROM import_inspections WHERE workspace_id = ? AND idempotency_key = ?",
+        )
+        .get(w.id, key);
+      if (again) return;
+      this.store.stillControls(viewer, epoch, { handover: "allow" });
+      const still = this.activeConnection(w.id);
+      if (!still || still.id !== active.id)
+        throw new HttpError(
+          409,
+          "The connection changed while reading; nothing was saved",
+          "connection_changed",
+        );
+      const digest = sha256(
+        r.manifest.state === "read" ? r.manifest.content : `unread:${r.commit.sha}`,
+      );
+      this.recordSource(
+        viewer,
+        w.id,
+        w.business_id,
+        digest,
+        r.manifest.state === "read" ? r.manifest.bytes : 0,
+        facts,
+        key,
+        provenance,
+      );
+      created = true;
+    });
+    return { created, outcome: { ok: true as const }, view: this.view(viewer, w.id) };
+  }
+
+  private recordSource(
+    viewer: Person,
+    workspaceId: string,
+    businessId: string,
+    digest: string,
+    bytes: number,
+    facts: InspectionFacts | null,
+    key: string,
+    source: SourceProvenance,
+  ) {
+    const n =
+      ((
+        this.db
+          .prepare("SELECT MAX(number) AS n FROM import_inspections WHERE workspace_id = ?")
+          .get(workspaceId) as { n: number | null }
+      ).n ?? 0) + 1;
+    const t = now();
+    this.db
+      .prepare(
+        "INSERT INTO import_inspections (workspace_id, number, inspector, inspector_version, input_digest, input_bytes, facts, idempotency_key, requested_by, created_at, source) VALUES (?, ?, 'github-source', '1', ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        workspaceId,
+        n,
+        digest,
+        bytes,
+        JSON.stringify(facts),
+        key,
+        viewer.id,
+        t,
+        JSON.stringify(source),
+      );
+    const report = readiness(facts, n, this.assertions(workspaceId), source);
+    this.db
+      .prepare(
+        "INSERT INTO import_reports (workspace_id, number, inspection_number, report, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(workspaceId, n, n, JSON.stringify(report), t);
+    this.db.prepare("UPDATE import_workspaces SET updated_at = ? WHERE id = ?").run(t, workspaceId);
+    this.event("import.inspected", businessId, viewer.id, {
+      workspace: workspaceId,
+      inspection: n,
+      inspector: "github-source@1",
+      digest,
+      commit: source.commit.sha,
+      dependencies: facts?.counts.total ?? null,
+    });
   }
 
   private event(type: string, subject: string, actor: string, payload: object) {
@@ -878,11 +1228,20 @@ export class Imports {
     const generation = this.store.controlEpoch(viewer, w.business_id).generation;
     const inspections = this.db
       .prepare(
-        "SELECT number, inspector, inspector_version, input_digest, input_bytes, facts, created_at, requested_by FROM import_inspections WHERE workspace_id = ? ORDER BY number DESC",
+        "SELECT number, inspector, inspector_version, input_digest, input_bytes, facts, created_at, requested_by, source FROM import_inspections WHERE workspace_id = ? ORDER BY number DESC",
       )
       .all(w.id) as unknown as InspectionRow[];
     const head = inspections[0];
-    const facts = head ? (JSON.parse(head.facts) as InspectionFacts) : null;
+    const facts = head ? (JSON.parse(head.facts) as InspectionFacts | null) : null;
+    const sourceOf = (i: InspectionRow | undefined) =>
+      i?.source ? (JSON.parse(i.source) as SourceProvenance) : null;
+    const headSource = sourceOf(head);
+    // Job 004b: the newest two connected reads, compared (a recheck shows what changed).
+    const reads = inspections.filter((i) => i.source);
+    const comparison =
+      reads.length >= 2
+        ? compareSourceReads(reads[1] as InspectionRow, reads[0] as InspectionRow)
+        : null;
     const assertions = this.assertions(w.id);
     const versions = Object.fromEntries(
       (
@@ -934,15 +1293,27 @@ export class Imports {
               input_bytes: head.input_bytes,
               created_at: head.created_at,
               facts,
+              /** Job 004b: where a connected read came from; null for a supplied manifest. */
+              provenance: headSource,
             }
           : null,
+        comparison,
         history: inspections.map((i) => ({
           number: i.number,
           inspector: i.inspector,
           inspector_version: i.inspector_version,
           input_digest: i.input_digest,
           input_bytes: i.input_bytes,
-          dependency_count: (JSON.parse(i.facts) as InspectionFacts).counts.total,
+          dependency_count: (JSON.parse(i.facts) as InspectionFacts | null)?.counts.total ?? null,
+          source: sourceOf(i)
+            ? {
+                repository: sourceOf(i)?.repository.full_name,
+                commit: sourceOf(i)?.commit.sha,
+                ref: sourceOf(i)?.ref,
+                manifest: sourceOf(i)?.manifest.state,
+                fixture: sourceOf(i)?.connection.fixture,
+              }
+            : null,
           by: this.name(i.requested_by),
           created_at: i.created_at,
         })),
@@ -954,7 +1325,7 @@ export class Imports {
         version: versions[c] ?? 0,
       })),
       report: {
-        live: readiness(facts, head?.number ?? null, assertions),
+        live: readiness(facts, head?.number ?? null, assertions, headSource),
         history: reports.map((r) => {
           const rep = JSON.parse(r.report) as Report;
           return {
@@ -1262,4 +1633,43 @@ export class Imports {
     });
     return this.view(viewer, w.id);
   }
+}
+
+/**
+ * Job 004b: what changed between two connected reads (older, newer): the commit, the manifest's
+ * dependencies (added, removed, changed range) and the deployment claims. Facts only; no judgement.
+ */
+function compareSourceReads(older: InspectionRow, newer: InspectionRow) {
+  const s0 = JSON.parse(older.source ?? "null") as SourceProvenance | null;
+  const s1 = JSON.parse(newer.source ?? "null") as SourceProvenance | null;
+  const f0 = JSON.parse(older.facts) as InspectionFacts | null;
+  const f1 = JSON.parse(newer.facts) as InspectionFacts | null;
+  const deps = (f: InspectionFacts | null) =>
+    new Map((f?.dependencies ?? []).map((d) => [`${d.group}:${d.name}`, d.ref ?? d.ref_kind]));
+  const a = deps(f0);
+  const b = deps(f1);
+  const added = [...b.keys()].filter((k) => !a.has(k));
+  const removed = [...a.keys()].filter((k) => !b.has(k));
+  const changed = [...b.keys()].filter((k) => a.has(k) && a.get(k) !== b.get(k));
+  const claims = (s: SourceProvenance | null) =>
+    s?.deployments.state === "read"
+      ? s.deployments.records
+          .map((d) => `${d.environment}:${d.statuses[0]?.state ?? "none"}`)
+          .sort()
+      : null;
+  return {
+    from: { number: older.number, commit: s0?.commit.sha ?? null, ref: s0?.ref ?? null },
+    to: { number: newer.number, commit: s1?.commit.sha ?? null, ref: s1?.ref ?? null },
+    commit_changed: s0?.commit.sha !== s1?.commit.sha,
+    manifest: { from: s0?.manifest.state ?? null, to: s1?.manifest.state ?? null },
+    dependencies:
+      f0 && f1
+        ? {
+            added: added.map((k) => ({ key: k, ref: b.get(k) })),
+            removed: removed.map((k) => ({ key: k, ref: a.get(k) })),
+            changed: changed.map((k) => ({ key: k, from: a.get(k), to: b.get(k) })),
+          }
+        : null,
+    deployment_claims: { from: claims(s0), to: claims(s1) },
+  };
 }

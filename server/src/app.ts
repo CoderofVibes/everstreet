@@ -22,7 +22,7 @@ import { digitalDesk } from "./digitalDesk.ts";
 import { Evaluations } from "./evaluations.ts";
 import { StoppedError } from "./fence.ts";
 import type { AccountSignIn } from "./identity.ts";
-import { type ImportInspector, Imports } from "./imports.ts";
+import { type ImportInspector, type ImportSourceOptions, Imports } from "./imports.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { customerOperations } from "./operations.ts";
 import { Opportunities } from "./opportunities.ts";
@@ -59,6 +59,8 @@ export interface AppOptions {
   runtime?: ManagedRuntime;
   /** Import inspectors (job 004a); the local package.json inspector if not given. */
   importInspectors?: ImportInspector[];
+  /** Job 004b: configured read-only source connections for import workspaces. */
+  importSources?: ImportSourceOptions | null;
   /**
    * Read-only business-v3 observations (job 003h): an injected view transport and the
    * operator's bindings. Unset: v3 reads are unavailable and no business is bound.
@@ -124,7 +126,12 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const authoring = new Authoring(store.db, store, products, builds, () =>
     proposalBudget(builds.provider),
   );
-  const imports = new Imports(store.db, store, options.importInspectors);
+  const imports = new Imports(
+    store.db,
+    store,
+    options.importInspectors,
+    options.importSources ?? null,
+  );
   const opportunities = new Opportunities(store.db, store, community, products);
   const v3 = new V3Observations(store.db, store, options.v3);
   const v3Intents = new V3Intents(store.db, store, v3);
@@ -394,6 +401,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.patch("/api/imports/:id", async (c) =>
     c.json(imports.update(me(c), c.req.param("id"), await body(c))),
   );
+  // Job 004b: connect a configured read-only source, read it at a pinned commit, disconnect.
+  app.get("/api/imports/:id/source", (c) => c.json(imports.sourceStatus(me(c), c.req.param("id"))));
+  app.post("/api/imports/:id/source/connect", async (c) =>
+    c.json(imports.connectSource(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/imports/:id/source/disconnect", (c) =>
+    c.json(imports.disconnectSource(me(c), c.req.param("id"))),
+  );
+  app.post("/api/imports/:id/source/inspections", async (c) => {
+    const r = await imports.inspectSource(me(c), c.req.param("id"), await body(c));
+    return c.json(r, r.created ? 201 : 200);
+  });
   app.post("/api/imports/:id/inspections", async (c) => {
     const { created, view } = await imports.inspect(me(c), c.req.param("id"), await body(c));
     return c.json({ ...view, created }, created ? 201 : 200);
