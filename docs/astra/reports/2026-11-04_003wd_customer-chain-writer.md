@@ -8,6 +8,8 @@ Job: `docs/astra/jobs/2026-11-04_003wd_customer-chain-writer.md`.
 - `43a823a`: Astra's CompositionFirstSliceReview update and CustomerWriterReview, with INDEX.
 - `77a272a`: the modal correction.
 - `99cba15`: the writer, the interface change, configuration, tests and APPLICATION_COMPOSITION §8.
+- `0a80cef`: Astra's overlap appendix, the queued 003we row and its brief (003we is not dispatched).
+- `47649b7`: the overlap correction (§3a).
 
 **Status: in review.** The 003w parent stays **partial**: 003w-e (wallet and device use key) and
 003w-f (the integrated 100/20/80 restart journey and the rehearsal packet) are required next.
@@ -30,7 +32,11 @@ rules, including the exact reproduced case, and the rendered initial-focus targe
 test environment. Astra's mounted browser repeat (CompositionFirstSliceReview, preview 94285)
 confirmed it.
 
-## 2. The writer: design first (APPLICATION_COMPOSITION §8)
+## 2. The writer (APPLICATION_COMPOSITION §8)
+
+Honest order: the callers and contract methods below were read before coding, but §8 itself was
+appended after the first module and then corrected twice, after Astra's two counterexamples (§3
+and §3a). It describes the final behaviour.
 
 **Callers read.**
 - `CustomerUses.submit` and the unit step mark intent "unknown" under their lease, and treat the
@@ -60,8 +66,9 @@ None is payable, so the deposit is 0 and gas is 100 Tgas. There is no unguarded 
   | `failure` | Answers `refused` with its `E_` code. |
   | `signed` | Reads its own **FINAL** status by hash, or rebroadcasts the **same bytes** while valid. Otherwise it **stays unknown** (`needs_reconciliation` after the validity window). |
 
-- **Fresh nonce.** Only allowed when those exact bytes' **first** broadcast was refused at
-  admission for a used nonce or an expired block hash.
+- **Fresh nonce.** Only allowed when a used-nonce or expired-hash admission refusal reached the
+  **sole** sender of those bytes. Every send is durably claimed first (`broadcasts`), and `invalid`
+  is a compare-and-set requiring `broadcasts = 1` (§3a).
 - **Refusals before effects:**
   - a changed payload: `E_PAYLOAD_MISMATCH`;
   - a changed signer or key: `E_SIGNER_CHANGED`;
@@ -86,9 +93,41 @@ None is payable, so the deposit is 0 and gas is 100 Tgas. There is no unguarded 
 
 **§8 status.** Design §8 is written and matches the code.
 
+## 3a. The second counterexample: overlapping first broadcast (after `99cba15`)
+
+**What Astra showed.** My "first broadcast, so nothing else had the bytes" was false: the attempt
+row is visible before the first send is awaited.
+1. A concurrent retry reads it, finds no status, and rebroadcasts the identical bytes.
+2. Its copy lands, but its answer is lost.
+3. The first send's late InvalidNonce then marked the attempt invalid, and the next call signed a
+   **fresh** transaction.
+
+**Reproduced first** through the public writer, on two independent connections with the
+synthetic chain holding the first send. Before the correction the next call sent a third
+transaction with a new nonce.
+
+**Corrected:**
+- Every send of an attempt's bytes, by any connection or process, first claims it durably
+  (`UPDATE … SET broadcasts = broadcasts + 1 WHERE state = 'signed' RETURNING broadcasts`). A
+  crash after the claim counts as a send.
+- `invalid` (the only route to a fresh nonce) is a compare-and-set requiring `broadcasts = 1`, by
+  the sender whose claim was that one. With another copy sent, the refusal proves nothing, and the
+  attempt stays unknown.
+- A sender whose claim finds a terminal state doesn't send.
+- `success`, `failure` and `invalid` are written only over `signed`. A late reply answers from the
+  durable state and never undoes it.
+
+**Regressions:**
+- the exact overlap (now unknown, then the landed transaction is found: one nonce, two sends of
+  the same bytes);
+- a late first-send InvalidNonce after a success recorded meanwhile (the success stands; no third
+  send).
+
+The earlier 17 still pass, including the sole-sender proof.
+
 ## 4. Evidence
 
-**`server/test/customerWriter.test.ts`, 17 tests.** A synthetic JSON-RPC testnet independently
+**`server/test/customerWriter.test.ts`, 19 tests** (17 plus the two overlap regressions). A synthetic JSON-RPC testnet independently
 decodes Borsh, verifies the ed25519 signature, and checks the nonce and inclusion. Keys are newly
 generated; the database is disposable, over separate connections.
 - **Exact transactions:**
@@ -123,7 +162,7 @@ generated; the database is disposable, over separate connections.
 - A writer is refused outside configured mode.
 
 **Checks:**
-- **`npm run check`:** exit 0, lint and types clean. 1259 passed and 1 skipped (1260), across 130
+- **`npm run check`:** exit 0, lint and types clean. 1261 passed and 1 skipped (1262), across 130
   passed and 1 skipped files.
 - **`npm run web:build`:** 886.08 kB JS, 72.52 kB CSS.
 
