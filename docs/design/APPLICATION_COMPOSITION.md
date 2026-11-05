@@ -575,3 +575,45 @@ Nothing here has been executed. It needs Tony's explicit yes, as part of the 003
    - Then delete the local key.
 7. **Evidence.** Transaction hashes, readback blocks, screenshots, and the gaps observed.
 8. **Cleanup.** Revoke the remaining keys. No mainnet, no spending beyond testnet faucet tokens.
+
+### 9.11 Corrections from 003wea (Astra's browser handoff and reviews)
+
+**The harness's customer page.** The harness now publishes its fictional business. The public
+offer route correctly requires that, and public access is unchanged.
+- **Time.** The harness's chain double and server follow this computer's clock, moving only
+  forward, so the browser's own envelope check agrees with the server's deadlines.
+- **Controls:**
+  - cancel next;
+  - lose next;
+  - delay next wallet answer (0–30000 ms, once);
+  - switch the wallet's account.
+- **Evidence (`server/test/wallet-harness-browser.test.ts`).** The page's own code (customerHttp,
+  api, readKeys, SignInController, DeviceKeys, CustomerWorkspace on the browser's clock) runs
+  public offer → sign-in → enroll → prepare → check → device signature → authorize → reserved.
+  It is still not composeApplication and not live NEAR.
+
+**Revocation is reviewed like enrollment** (requirement 5).
+- `prepareRevoke` gives:
+  - the exact `revoke_key`;
+  - the acting account and gas;
+  - the plain consequence: new requests and the current serving window stop now, and uses
+    already signed can still settle until their settlement deadline;
+  - **which key** (public key and epoch) the review is for.
+- `revoke` sends only if the request **and** that observed key, epoch, registration and account
+  are unchanged. Otherwise the new key is shown, unsent.
+- **Limit:** the contract's `revoke_key` is slot-based. This is a client comparison against a
+  fresh read, not an atomic on-chain guarantee. A guarded contract method (revoke only at the
+  reviewed epoch) would close the window between the read and inclusion. That is a contract
+  change, recorded as a follow-up and not made here.
+
+**SessionProvider runs `SessionModel`** (web/src/sessionModel.ts).
+- Every change of who is acting bumps an identity generation, and a `/me` answer from an older
+  generation, or one overtaken by a newer refresh, never changes who is acting.
+- Sign-out clears at once and settles a pending sign-in prompt. If the server couldn't be told,
+  a refresh reads what it says.
+- A sign-in completion whose refresh was overtaken answers `stale`.
+
+**Panel lifetime.** `deviceView` owns one controller and one store connection per offer view.
+- Disposing it closes a connection whose open resolves late, and refuses further opens.
+- An offer, account or unmount change clears any request under review, busy and error state,
+  and withdraws the authorizer.

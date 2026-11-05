@@ -71,8 +71,10 @@ WalletSignInReview:
 **5. Install and revoke requests.**
 - **Exact requests:** `install_key {plan_id, slot, pk, max_hold_units 1, max_units_per_day}` and
   `revoke_key {plan_id, slot}`, each exactly 1 yoctoNEAR and 30 Tgas.
-- **Two steps.** The real key and its exact request are shown first. Only that reviewed request is
-  sent; a changed one is shown again, unsent.
+- **Two steps, enrollment only at 7f6fc0b.** The real key and its exact request are shown first,
+  and only that reviewed request is sent; a changed one is shown again, unsent. Correction
+  (Astra): revocation was then still sent straight from its button. 003wea (`96620c1`) adds
+  the same review to revocation, bound to the observed key and epoch.
 - **Persist first.** The intent is stored before the wallet is asked, and the readback decides.
 - **Recovery.** A retry re-asks with the **same** key.
 - **Across tabs,** an atomic IndexedDB claim keeps one key identity.

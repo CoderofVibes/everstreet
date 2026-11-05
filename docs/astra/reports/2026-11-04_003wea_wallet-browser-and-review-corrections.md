@@ -1,0 +1,159 @@
+# 003wea Wallet browser and review corrections: report
+
+Job: `docs/astra/jobs/2026-11-04_003wea_wallet-browser-and-review-corrections.md`.
+
+**Status: in review.** The harness is ready for Astra's actual UI pass. 003we stays partial: the
+fresh-customer purchase is the next child (003web, queued), and 003wf is queued after all 003we
+children.
+
+## Commits
+
+| Commit | What it holds |
+|---|---|
+| `871f82c` | Astra's WalletSignInReview, DeviceKeyReview, ConfiguredJourneyPlanning, the 003wea and 003wf briefs, INDEX and JOBS, and the four probes. Committed after `npm run check` passed (1316 passed and 1 skipped) |
+| `b7605da` | JOBS: 003wea taken |
+| `96620c1` | The corrections and their regressions |
+| Final docs commit | Design §9.11, the 003we report's correction, JOBS, and Astra's later paths (see the end) |
+
+## 1. The harness's customer page (Astra's actual browser failure)
+
+**Reproduced first:**
+- The page's own code (`customerHttp.offer` over `fetch`, routed to the harness site) got
+  **"No such product offer"**, because the harness never published its business.
+- The full page path failed with it.
+
+**Fixed:**
+- The harness publishes the fictional business, as the customer preview does. The public route's
+  rule is unchanged.
+
+**The clock:**
+- The harness's chain double and server now follow this computer's clock, forward only, synced on
+  every API call and transaction.
+- **Mutant:** with the sync removed but publishing kept, the browser's own envelope check fails
+  with **"The time to authorize this request has passed."** So both fixes are needed.
+
+**Evidence: `wallet-harness-browser.test.ts`.** The page's code, start to finish:
+- public offer;
+- `api` sign-in through `SignInController`;
+- `DeviceKeys` with the real `readKeys` over fake-indexeddb;
+- `CustomerWorkspace` with the default (browser) clock: prepare, then `check ok`, then device
+  signature, then authorize, ending **reserved** with one `open_hold`.
+
+Not composeApplication, and not live NEAR.
+
+**Controls (on `:8815`):**
+- `cancel-next`, `lose-next` and `account/<id>` (as before);
+- **`delay-next/<ms>`**, new: 0–30000, applied once to the next wallet answer, with out-of-range
+  values refused (tested).
+
+**Bounded smoke at `96620c1`:**
+- Ports 8814/8815 were free first.
+- The public offer answered (Ledgerline, active) and the page carried the CSP
+  `connect-src 'self'`.
+- `delay-next/40000` was refused and `500` accepted.
+- It stopped itself at the 1-minute bound, and both ports were free afterwards.
+
+No browser was started by me.
+
+## 2. Exact revocation consent
+
+**Source-confirmed (Astra) and fixed.** Revocation used to be sent straight from its button.
+- **`prepareRevoke`** gives:
+  - the exact `revoke_key` request;
+  - whether the key is this device's;
+  - the acting account;
+  - the observed key (public key and epoch).
+
+  Nothing is sent.
+- **The panel's review** shows all of it in readable terms: account, contract, what it does, plan,
+  slot, deposit, gas, and the raw call under "The exact request". It explains: *new requests and
+  the current serving window stop now; uses already signed can still settle until their
+  deadline.* The explicit action is "Ask my wallet to revoke exactly this".
+- **Astra's revoke probe** (a replacement key under an old review) failed first, then passed.
+  `revoke` now sends only if the call **and** the observed key, epoch, registration and account
+  are unchanged; otherwise the new key is shown, unsent.
+- **My regression** does the same over the real route and the contract-produced entitlement:
+  nothing is sent until re-reviewed, then exactly one request.
+- **Limit (in §9.11):** `revoke_key` is slot-based. This is a client comparison, not an atomic
+  on-chain guarantee. A guarded contract method is a recorded follow-up.
+- **The 003we report's requirement 5 is corrected:** at `7f6fc0b` the two-step review applied
+  only to enrollment.
+
+## 3. SessionProvider orderings
+
+**Reproduced first.** SessionProvider's logic was extracted unchanged into `SessionModel`, which
+the provider now runs. Against it, with deterministic deferred answers:
+- **an old `/me` after sign-out** restored the ended identity;
+- **a delayed logout answer** cleared a newer sign-in;
+- **an older refresh** switched back after a newer sign-in;
+- **a pending sign-in prompt** was never settled by sign-out (it timed out);
+- **sign-out** cleared only after its answer.
+
+**Fixed:**
+- an identity generation, bumped by every change of who is acting, fences each refresh answer, and
+  so does the latest-refresh order;
+- sign-out clears at once and settles the prompt;
+- a failed sign-out call refreshes from the server;
+- a replaced prompt is settled with null.
+
+**Astra's session-model probe** (an old dialog completion after a logout or a newer account)
+failed until `settle` answered `stale` for an overtaken refresh. It passes now.
+
+**One regression of my own, caught and fixed:** three web suites that server-render the provider
+(`booksRefresh`, `operatingWorkspace`, `publicPage`) needed `useSyncExternalStore`'s server
+snapshot.
+
+**Unchanged:** private pages still remount per person, and the server cancellation and
+cookie/attempt tests are untouched.
+
+## 4. Panel lifetime
+
+**`deviceView`** owns one controller and one store connection per offer view.
+- Dispose retires the controller, closes a connection whose open resolves only later, and refuses
+  later opens. This is tested with a held open.
+- An offer, account or unmount change clears the review, busy, note and error state, and
+  withdraws the authorizer.
+
+**Evidence status:** this is a source-identified risk with a new owned-lifetime helper and its
+regression. It is not a browser reproduction: there is no DOM here.
+
+**Unchanged:** the real store's two-handle claim, update and delete, with no weak fallback
+(Astra's storage probes still pass).
+
+## Checks
+
+- **`npm run check`:** exit 0. Lint (389 files) is clean, with no warnings: the BigInt min carries
+  a `biome-ignore`, not the invalid `Math.min` autofix. Types pass. 1332 passed and 1 skipped
+  (1333), across 143 passed and 1 skipped files.
+- **`npm run web:build`:** exit 0. The main chunk is 916.97 kB (it was 911.63 kB), with the wallet
+  chunks lazy as before.
+
+**Nothing live:** no wallet, real transaction, provider, host, credential, legacy main, Day One,
+research, deployment, spending or push. The worker stays disabled.
+
+## Remaining browser gates (Astra's actual UI pass)
+
+- Run `npm run web:build`, then `npx tsx scripts/wallet-harness.ts [--minutes N]`. Check that
+  ports 8814/8815 are free first.
+- **Real `setupWalletSelector`** with the injected module, then sign-in.
+- **On the product page:**
+  - make the key, review, enroll;
+  - prepare, authorize, use;
+  - review and revoke (this device's, and a lost slot);
+  - then late, lost and cancelled answers through the controls;
+  - then an account switch and sign-out during an action.
+- **Phone width, keyboard and focus** on the two review blocks.
+- **Unverified here:** the React effects of the panel in a browser (no DOM tests).
+
+## Still required (unchanged)
+
+- **003web**, the fresh-customer purchase:
+  - a quoted storage deposit;
+  - token balance and registration;
+  - the purchase sequence;
+  - the purchase UI;
+  - recovery from an uncertain purchase.
+- **003wf**, queued after all 003we children.
+- **A guarded revoke contract method** (an assessment, a follow-up).
+- **The real wallet and testnet rehearsal** (§9.10, prepared, not run).
+- **Also retained:** 002f1, 004b, 005c, 005d, 006a and all of M6. All six milestones are open.
