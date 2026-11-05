@@ -885,3 +885,101 @@ What follows from the graph:
   the workspace, with the two panels side by side when there is room and no card inside a card.
   The document draft stays editable meanwhile. Once this device is ready the section folds to
   its heading (Show reopens it), unless it was needed earlier in the same view.
+
+## 11. Revoke the reviewed key at execution (job 003wec)
+
+**Design.** Written before this job's code. The brief is
+`docs/astra/jobs/2026-11-04_003wec_guarded-device-revocation.md`; it closes the limit §9.11
+recorded: `revoke_key(plan_id, slot)` revokes whatever key is active in that slot when the
+transaction runs, so a review of one key could revoke a replacement installed meanwhile (another
+device, or this account after unregister and a new shell). The client's fresh-read comparison
+narrows the window but can't be atomic with inclusion.
+
+### 11.1 The contract (business-v3)
+
+**`revoke_key_guarded(plan_id, slot, reg_id: U64, epoch: u32, pk: String)`**, `#[payable]`.
+Every check runs before any mutation, in this order, and a refusal changes nothing:
+1. exactly 1 yoctoNEAR (`assert_one_yocto`, as now);
+2. the caller's own entitlement for the plan (`E_NOT_CUSTOMER`; a sponsor or anyone else can't);
+3. the slot is 0–3 (`E_ARGS`);
+4. `pk` is 64 hex characters (`E_ARGS`; it is compared, not installed, so no point validation);
+5. the entitlement's registration is `reg_id` (`E_STALE_REVIEW: the registration changed since
+   this was reviewed`): a new shell reuses slot numbers and epochs from 1;
+6. the slot's key is active (`E_KEY: that key is not active`; a replay after success lands here);
+7. the slot's epoch is `epoch` and its public key is `pk` (`E_STALE_REVIEW: the key in this slot
+   changed since this was reviewed`). The epoch alone already separates a reinstall of the same
+   key (epoch +2); the key is named too so the request states exactly which key it removes.
+
+Then exactly what `revoke_key` does today, through one shared private step: the epoch rises by
+one (checked, `E_OVERFLOW`), the slot becomes revoked, and an active hold opened under that slot
+stops serving now (`serve_until = min(serve_until, now)`); uses already signed still settle until
+the hold's settle deadline. No units, holds, accounting, other slots, storage or sale state are
+touched; there is no state migration (the arguments are checked against stored fields).
+It emits `key_revoked` with `plan_id`, `slot`, `reg_id` and the slot's new `epoch`.
+
+**`revoke_key` stays, unchanged and documented as unguarded**, for existing integrations and
+tests. The customer product never sends it (11.3).
+
+**Capability: `get_key_terms() -> { version: 1, guarded_revoke: true }`**, a view with no
+arguments. A contract without it (every deployed business today) doesn't have the guarded
+method. Deploying it means a new business account (the contract is born locked); that is a
+later, separately authorized rehearsal, not part of this job.
+
+### 11.2 The server
+
+- The transport's view allowlist gains `get_key_terms` with no arguments.
+- `GET /api/customer/offers/:offer/keys` reads it at the SAME pinned block as the entitlement
+  (an answer from another block, or anything but exactly `{version: 1, guarded_revoke: true}`,
+  counts as unsupported) and adds `guarded_revoke: boolean` to the readback. A missing view is
+  `false`, never an error: reading keys and authorizing uses still work on an older contract.
+
+### 11.3 The browser (web/src/deviceKey.ts, DeviceKeyPanel)
+
+- **The request names the key.** `revokeCall` becomes
+  `revoke_key_guarded {plan_id, slot, reg_id, epoch, pk}` from the reviewed observation. Two
+  reviews of different keys now differ in their bytes, and the immutable review (§9.11) carries
+  the call and the observation together, as before.
+- **No downgrade.** If the readback says `guarded_revoke: false`, `prepareRevoke` and `revoke`
+  refuse in plain words (the business's contract can't make sure only the reviewed key is
+  removed; its owner needs to upgrade it; nothing is sent). A failed or refused guarded call is
+  never retried as `revoke_key`.
+- **Sending:** still only under a review whose observation equals a fresh one; then the reviewed
+  call itself is sent (not a rebuilt one). This device's record is marked `intent: revoke` only
+  if it holds the reviewed key.
+- **After the wallet answers (or doesn't):** a fresh readback decides.
+  - The reviewed key (that epoch and public key) is no longer active: done. If another key is
+    active in the slot now, the answer says so and that it was not revoked.
+  - This device's stored key is deleted only if it IS the reviewed key, and only that stored
+    record (another tab's replacement record is never deleted).
+  - Still active at the reviewed epoch: not confirmed (perhaps still processing) or cancelled.
+    The review stays valid, so a lost answer is recovered by checking again; asking again sends
+    the same guarded request, which the contract accepts at most once.
+- **The review shows** the key's public key, registration and epoch with the request, and says
+  the contract refuses it if the slot holds another key by then.
+
+### 11.4 The doubles and harness
+
+- `applyKeyCall` (the harness and the route double) applies `revoke_key_guarded` by 11.1's rules,
+  and `FixtureChain` answers `get_key_terms` (with a switch for an older contract).
+- **Anchored to the contract:** a Rust test writes `server/test/fixtures/v3/guarded-revoke.json`
+  (each case's call, its refusal code or success, and the resulting key slots), and a server test
+  replays every case through `applyKeyCall` and compares.
+- The wallet harness gains nothing new for this job beyond the double; its later browser review
+  (guarded revoke, stale refusal and a new review, lost answer) waits for the applicable approval
+  and isn't run here.
+
+### 11.5 Evidence plan
+
+- **Rust:** the legacy method revoking a replacement under a stale review (characterized as the
+  defect); the guarded method refusing it; the same public key reinstalled at a later epoch; a
+  new registration with the slot and epoch reused; wrong account, deposit, slot and malformed key;
+  replay; an inactive key; epoch overflow. Every refusal through `W::refuse` (state unchanged,
+  byte for byte). A guarded success with an open hold: serving stops now, the signed use still
+  settles, the other slot and all accounting invariants hold.
+- **Server and browser:** the readback's capability (supported, missing view, wrong shape);
+  controller tests for a stale review after a newer prepare, a changed answer, a concurrent
+  replacement between review and send and a delayed wallet answer (the contract refuses; the
+  replacement stays active and its local record stays); an older contract refused without any
+  send; lost-answer recovery. The earlier Astra revoke probe stays.
+- `cargo test`, `cargo clippy`, the wasm build, `npm run check` and the web build, once, on the
+  final code.
