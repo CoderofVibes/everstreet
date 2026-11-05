@@ -46,10 +46,17 @@ const forward = (channel: "rpc" | "model", allowed: (url: string) => boolean) =>
 // LIFECYCLE_CLOCK_OFFSET_MS ahead, e.g. so retained results are past their retention. Off unless set.
 const offset = Number(process.env.LIFECYCLE_CLOCK_OFFSET_MS ?? 0);
 if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("bad LIFECYCLE_CLOCK_OFFSET_MS");
+// Job 003wf2 (brief item 8): the configured sale review harness (scripts/sale-harness-configured.ts)
+// names its synthetic Wallet Selector module, as composeApplication's `walletHarness` dependency
+// (never a config field). Off unless set; the tests never set it.
+const harnessLabel = process.env.ENTRY_WALLET_HARNESS_LABEL;
+if (harnessLabel !== undefined && !/^[\w .()-]{1,80}$/.test(harnessLabel))
+  throw new Error("bad ENTRY_WALLET_HARNESS_LABEL");
 const running = runServer(
   config,
   {
     ...(offset ? { now: () => Date.now() + offset } : {}),
+    ...(harnessLabel ? { walletHarness: { label: harnessLabel } } : {}),
     fetch: forward("rpc", (u) => u === RPC) as FetchLike,
     fetchLabel: "synthetic RPC (lifecycle test)",
     modelFetch: forward("model", (u) => MODEL_PATHS.has(u)) as typeof fetch,
@@ -63,3 +70,5 @@ const running = runServer(
 );
 process.on("SIGINT", () => void running.stop());
 process.on("SIGTERM", () => void running.stop());
+// The parent is gone (its IPC channel closed): stop the same way, so no child outlives it.
+process.on("disconnect", () => void running.stop());

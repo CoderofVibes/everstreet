@@ -22,7 +22,14 @@ import {
   toBaseUnits,
   tokenAmount,
 } from "../saleCalls.ts";
-import { SaleFlow, type SaleFlowState, saleNext, saleSentence, saleSteps } from "../saleFlow.ts";
+import {
+  currentSale,
+  SaleFlow,
+  type SaleFlowState,
+  saleNext,
+  saleSentence,
+  saleSteps,
+} from "../saleFlow.ts";
 import { useSession } from "../session.tsx";
 
 const EMPTY: SaleFlowState = {
@@ -698,16 +705,62 @@ function LiveTerms({ s }: { s: SaleSetup }) {
   );
 }
 
-function Continuity({ s }: { s: SaleSetup }) {
+/**
+ * Who holds authority now, from the contract reading (Astra's 23:42 review): after a close, the
+ * CLOSED deal's record and the CURRENT owner and operators are shown apart, never pre-proposal
+ * guidance. A live deal (even after an earlier close) is the current one; history stays history.
+ */
+function CurrentAuthority({ s }: { s: SaleSetup }) {
+  const platform = s.platform_operator;
+  const ops = s.control.operators.filter((o) => o.generation === s.control.generation);
+  const metering = platform ? ops.some((o) => o.account === platform && (o.caps & 1) !== 0) : null;
+  return (
+    <ul>
+      <li>
+        Now, at block {s.block.height}: <span className="mono wrap">{s.control.owner}</span> owns
+        the business's contract (generation {s.control.generation}).
+      </li>
+      <li>
+        {ops.length > 0
+          ? `Operators now: ${ops.map((o) => `${o.account} (${caps(o.caps)})`).join("; ")}.`
+          : "No operator is appointed now."}
+      </li>
+      {metering === false && (
+        <li className="error-text">
+          The platform's metering account isn't appointed: customers' new uses pause until the owner
+          appoints it.
+        </li>
+      )}
+    </ul>
+  );
+}
+
+export function Continuity({ s }: { s: SaleSetup }) {
   const d = s.control.live_deal;
   const p = s.party;
   const platform = s.platform_operator;
   const granted =
     d && platform ? d.grants.some((g) => g.account === platform && (g.caps & 1) !== 0) : null;
+  const c = currentSale(s);
+  const ended = c.kind === "ended" ? c.outcome : null;
   return (
     <aside className="sale-continuity" aria-label="What changes and what stays">
       <section>
-        <h2 className="sale-h3">Authority the buyer receives</h2>
+        <h2 className="sale-h3">
+          {d
+            ? "Authority the buyer receives"
+            : ended?.status === "closed"
+              ? `Authority after deal ${ended.seq} closed`
+              : "Authority now"}
+        </h2>
+        {!d && ended && (
+          <p className="sale-closed-terms">
+            {ended.status === "closed"
+              ? `Deal ${ended.seq}, version ${ended.version} closed on the contract: ${ended.seller} sold the business to ${ended.buyer}; the owner role moved to generation ${ended.generation_after}. Those terms are finished; what holds now is read below.`
+              : `Deal ${ended.seq}, version ${ended.version} ${ended.status === "aborted" ? "was aborted" : `was ${ended.status}`}: no authority changed with it. No sale is in progress.`}
+          </p>
+        )}
+        {!d && ended && <CurrentAuthority s={s} />}
         {d ? (
           <ul>
             <li>
@@ -726,7 +779,7 @@ function Continuity({ s }: { s: SaleSetup }) {
               </li>
             )}
           </ul>
-        ) : (
+        ) : ended ? null : (
           <p className="muted">
             No sale is proposed at this reading. Once terms are proposed, this shows exactly what
             they give the buyer; a draft you are editing isn't shown here until you review it.

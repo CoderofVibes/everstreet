@@ -11,13 +11,16 @@
 import "fake-indexeddb/auto";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { saleHarness } from "../../scripts/lib/saleHarness.ts";
 import { WALLET_SCRIPT } from "../../scripts/lib/walletHarness.ts";
 import type { Json } from "../../server/test/customer-world.ts";
-import { BUYER, proposal, SELLER } from "../../server/test/sale-world.ts";
+import { BUYER, proposal, SELLER, saleWorld } from "../../server/test/sale-world.ts";
 import { App } from "../src/App.tsx";
+import { Continuity } from "../src/pages/SaleRoom.tsx";
 import { Router } from "../src/router.tsx";
+import type { SaleSetup } from "../src/saleApi.ts";
 import { SessionProvider } from "../src/session.tsx";
 
 const ORIGIN = "http://127.0.0.1:8814";
@@ -371,5 +374,55 @@ describe("003wf2 the sale room page", () => {
     );
     expect(text()).not.toContain("isn't finished yet");
     expect(h.controls.sent.length).toBe(sentBefore);
+  });
+});
+
+describe("003wf2 the authority panel follows the CURRENT reading (Astra 23:42)", () => {
+  const aside = (s: SaleSetup) =>
+    new DOMParser().parseFromString(
+      renderToStaticMarkup(createElement(Continuity, { s })),
+      "text/html",
+    ).body.textContent ?? "";
+  it("no sale, a live deal, a closed deal, an ended deal, and a later live deal after a close", async () => {
+    const s = await saleWorld();
+    const none = (await s.setup(s.ava)).body as SaleSetup;
+    expect(aside(none)).toContain("No sale is proposed at this reading");
+    await s.act(s.ava, SELLER, "propose", proposal());
+    const live = (await s.setup(s.ava)).body as SaleSetup;
+    expect(aside(live)).toContain("Authority the buyer receives");
+    expect(aside(live)).toContain("From deal 1, version 1");
+    await s.act(s.noah, BUYER, "register");
+    await s.act(s.noah, BUYER, "fund");
+    await s.act(s.noah, BUYER, "accept");
+    await s.act(s.ava, SELLER, "accept");
+    // After the close: the closed terms, then what holds NOW; never pre-proposal guidance.
+    const closed = (await s.setup(s.ava)).body as SaleSetup;
+    const c = aside(closed);
+    expect(c).toContain("Authority after deal 1 closed");
+    expect(c).toContain(`${SELLER} sold the business to ${BUYER}`);
+    expect(c).toContain("Those terms are finished; what holds now is read below.");
+    expect(c).toContain(`${BUYER} owns the business's contract (generation 2)`);
+    expect(c).toContain("Operators now: meter.near (metering)");
+    expect(c).not.toContain("No sale is proposed");
+    expect(c).not.toContain("Authority the buyer receives");
+    // The same reading with the platform's operator gone: the pause is stated as current fact.
+    const noOp = structuredClone(closed);
+    noOp.control.operators = [];
+    expect(aside(noOp)).toContain("No operator is appointed now.");
+    expect(aside(noOp)).toContain("customers' new uses pause until the owner appoints it");
+    // An ended (not closed) deal changed no authority.
+    const cancelled = structuredClone(closed);
+    cancelled.outcomes = cancelled.outcomes.map((o) => ({ ...o, status: "cancelled" as const }));
+    expect(aside(cancelled)).toContain("Authority now");
+    expect(aside(cancelled)).toContain("was cancelled: no authority changed with it");
+    // A later live deal is the current one; the earlier close is history, not its authority.
+    const later = structuredClone(closed);
+    later.control.live_deal = {
+      ...(live.control.live_deal as NonNullable<SaleSetup["control"]["live_deal"]>),
+      seq: "2",
+    };
+    expect(aside(later)).toContain("Authority the buyer receives");
+    expect(aside(later)).toContain("From deal 2, version 1");
+    expect(aside(later)).not.toContain("Authority after deal 1 closed");
   });
 });
