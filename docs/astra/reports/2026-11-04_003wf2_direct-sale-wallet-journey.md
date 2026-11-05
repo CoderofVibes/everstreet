@@ -22,12 +22,17 @@ no external provider, no spending, no push.
 | `aad6452` | Browser: `/sales/:business`, `SaleFlow`, browser-side re-derivation; effects/progress/account-switch fixes |
 | `33e99c4` | Finite browser harness and its test |
 | `dba88aa` | Repeat sales: proceeds claims bound to the sale they collect |
+| `ec6c23e` | This report; JOBS review |
+| `1ae7fd0` | DirectSaleBrowserReview: the terms form in the established form system; no draft shown as terms; jsdom page test |
 
-## Verification (final tree, before this report)
+## Verification (final tree)
 
-- `npm run check` at `dba88aa`: lint and types clean; main suite **1460 passed, 1 skipped**;
+- `npm run check` at `1ae7fd0`: lint and types clean; main suite **1461 passed, 1 skipped**;
   protected-store phase **12/12**; process phase (lifecycle + sale) **24/24**; exit 0.
-- `npm run web:build`: passes (main chunk 983.24 kB).
+- `npm run web:build`: passes (main chunk ≈983 kB).
+- Page test (jsdom): the actual App, router, session, SaleRoom and the real `selectorWallet`
+  with the harness's injected module; the seller fills the labelled form, the review takes focus,
+  one proposal is sent and shown. This is not a visual review: Astra's 1440/1280/390 pass is due.
 - Rust (WSL, `CARGO_TARGET_DIR=$HOME/everstreet-target`) at `ec1b7f8`: business-v3 **85 passed**
   (79 before, 6 new); `cargo clippy --all-targets` **0 warnings**; wasm32 release build passes.
   The contract hasn't changed since. Not deployed (needs a new business account and Tony's yes).
@@ -63,7 +68,10 @@ customer+sale state; post-close roles; claimant registration); addendum (accept/
 reversible; envelope validation incl. the negative-amount probe; claim return path; single ask;
 check CAS); follow-ups (refund children; empty transfer status; terminal-only effects with retry;
 current-deal progress; buyer not shown the seller's collection; account switch at the send
-boundary; repeat-sale proceeds). The check scheduling correction is in `npm test`.
+boundary; repeat-sale proceeds); browser review (terms form layout in the established form
+system; no empty terms described as a draft's consequences). The check scheduling correction is
+in `npm test`. The form fix still needs Astra's visual recheck after a rebuild (`npm run
+web:build`, then restart the harness).
 
 ## Limitations and open gates (none hidden)
 
