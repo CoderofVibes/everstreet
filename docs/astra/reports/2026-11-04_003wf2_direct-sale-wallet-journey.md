@@ -29,7 +29,9 @@ no external provider, no spending, no push.
 | `d5ecbc6` | Astra's 23:42/23:49 notes; JOBS taken for the configured-composition continuation |
 | `ae3de0f` | Configured-composition harness, its tests and the after-close authority panel |
 | `41bd228` | Configured harness: explicit budget and `/usage` counters, answered producer failures, ordered failure cleanup, cumulative scenario, budget and startup-failure tests |
-| (next) | Astra's 23:54–00:07 notes; this report and JOBS |
+| `46286d6` | Astra's 23:54–00:07 notes; this report and JOBS |
+| `4a7953e` | Role wording from the deal shown (00:21); lint warnings tidied |
+| (next) | Astra's 00:20–00:26 notes; this report and JOBS |
 
 ## Verification (final tree)
 
@@ -355,6 +357,59 @@ later live deal after a close) and the configured page test.
   transport labels.
 - **Scope:** this closes the harness provenance gap only. The parent 003wf matrix stays open (see
   below).
+
+## Role wording (DirectSaleBrowserReview 00:21) and lint tidy (`4a7953e`)
+
+**The defect.** In Astra's configured browser pass, the buyer who revisited `/sales` after the
+close was told "you are the seller". The page's `roleWords` put `roles.seller` first, and that
+flag is the new owner's permission to propose a resale, not their part in the deal shown.
+
+**The fix.** `saleRoleWords` (`web/src/saleFlow.ts`, pure) takes identity from the deal the page
+shows (`currentSale`):
+
+| Deal shown | This account | Label |
+|---|---|---|
+| Live deal | its named seller | "the seller" |
+| Live deal | its named buyer | "the buyer" |
+| Closed deal | its buyer | "the new owner (buyer in deal N)" |
+| Closed deal | its seller | "the former seller" |
+| Ended, not closed | its buyer, with no seller permission | "the buyer in deal N (it was cancelled / expired / aborted)" |
+| None of the above | — | former seller, then new owner, then seller (only with no live deal shown), then buyer; otherwise "a participant" |
+
+**Permission unchanged.** `roles`, the server and `saleNext` are untouched. The new owner still
+has `roles.seller: true` and is still offered "Prepare terms".
+
+**Tests.**
+- **Real setups** (`saleRoom.test.tsx`):
+  - Before and during deal 1: Ava is "the seller", Noah "the buyer".
+  - After the close: Noah is "the new owner (buyer in deal 1)", with `seller: true` and
+    `new_owner: true`. Ava is "the former seller".
+  - A **later live deal 2** proposed by Noah to `stranger.near`: Noah is "the seller", Ava is
+    still "the former seller", and the stranger is "the buyer".
+- **Page header (fixture page):** the closed buyer sees "you are the new owner (buyer in deal 1)",
+  never "you are the seller", and "Prepare terms" is still offered.
+- **Configured-composition page test:** after the close, the seller's header says "former
+  seller". The buyer, revisiting, sees the new-owner label, no "seller" label, and "Prepare
+  terms".
+
+**Lint.** The two unused-variable warnings are gone:
+- `SaleActions.requested` keeps its `this.own(viewer, id)` authorization call, now a plain
+  statement with a comment.
+- The controller test's unused `port()` parameter is dropped.
+
+`biome check .` now reports no warnings.
+
+**Verification.**
+- `npm run check` once, Nov 5 00:24:30 – 00:27:14: lint 0 warnings and 0 errors; types clean;
+  main suite **1470 passed, 1 skipped**; protected-store **12/12**; process phase **31/31**; exit 0.
+- Focused runs: page and controller 18/18; configured page 3/3.
+- `npm run web:build` at **00:24:28**, while Astra's configured preview (8814/8815) was live. Her
+  00:26 note records the effect: a page loaded before the rebuild asked for a hashed asset the
+  rebuild had removed, and one reload recovered. Vite empties `web/dist` on build, so a rebuild
+  under a live preview can do this. I didn't change that setting in this bounded pass.
+- The preview itself wasn't stopped, restarted or driven, and nothing competed for its ports.
+- **No browser checks by Claude.** Astra's independent visual recheck of the new-owner header
+  remains.
 
 ## Limitations and open gates (none hidden)
 

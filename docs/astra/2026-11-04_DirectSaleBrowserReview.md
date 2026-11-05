@@ -234,3 +234,63 @@ These are preview resource/cleanup requirements, not extra platform scope. No ne
 permission changes. Do not run the pending customer device enrollment/revocation browser tests.
 
 Astra00:07: configured preview8961 now active for20minutes on8814/8815, child56416, business2ac3b6b8-1310-42bd-a8ba-63aa1ccd65d7. Parent/child384MiB heap caps; sourceae3de0f plus current budget/cleanup corrections. Do not stop/restart it or launch competing listeners; isolated ephemeral test ports are fine. Actual browser verification starting; no whole-job acceptance.
+
+## Configured browser journey and independent full check — Nov5,00:20 Pacific
+
+Head46286d6/code41bd228. Claude6643 exited0. Astra independently npm run check81555 exited0:
+1468main+1skip,12protected-store,31process. Lint has2existing warnings (unused p/s); no errors,
+types pass. This corrects earlier shorthand 'lint clean'; warnings are not hidden.
+
+Configured preview8961/browser2/tab67 runs normal entry/configured composition with synthetic
+RPC/wallet/model transports, not createApp fixture injection. Seller Ava (ava-founder.near)
+proposed250TUSD to noah-buyer.near with meter.testnet, domain exclusion; Notnow kept draft and
+returned focus. Actual proposal/registration confirmed. Funding reply lost; unrelated registration
+ID rejected, reload preserved History, original EifV6uQKzmfrRyqs5UJXN3hrfJQsVjsdj2xK3A388cEM
+confirmed without resend. Buyer accepted; seller closing reply lost. Explicit Apply reconciled;
+reload and original EeTMRdMQiD2wRsL4JLUErUjW8gjhcD5yfegXcveiZ2pv recovery confirmed/already-applied.
+Seller registered, first claim transfer deliberately failed and showed restored/owed250; reviewed
+new collection then paid (zBeFe1Eizp7P1siSphQuwcu7MeB6PDZubQkNAxXKWcr), nothing owed, no false paid
+on the failed attempt. Closed authority section correctly distinguishes deal terms/current owner.
+Actual1440aftercare screenshot readable, client/scroll1425/1425. All are synthetic evidence.
+
+Direct navigation to former seller's old business desk denied ('No such business'). Signing in
+as buyer opens the same business desk with released/offered product, operating charts and studio
+link. One existing Cara fixture-authorized use via CONTROL CLI (not browser device enrollment)
+returned reserved/fulfilled. Buyer actual browser saw1use/1usable/$0.00015customer runtime cost,
+initially awaiting settlement, then after background maintenance1charged/0waiting. No manual
+unit reconciliation was used. This proves that bounded configured service/bookkeeping continuation;
+it does not prove the full100/20/80/79 parent journey or unperformed customer browser enrollment.
+Preview remains finite until~00:27; no other preview or writer. RemainingUI/parent gates preserved.
+
+## New-owner role wording — Nov5,00:21 Pacific
+
+Actual configured buyer revisits /sales after close: header says YOU ARE THE SELLER while the
+same page describes the deal bought by noah-buyer.near. This is because seller permission to
+propose a future resale precedes new_owner/buyer in roleWords. The permission is valid; the
+identity label for the currently displayed closed deal is misleading. Label the closed deal's
+buyer as new owner (or buyer/new owner), and only call them seller for a later live sale where
+they are actually the named seller. Keep their Prepare terms ability; do not change authority.
+Add the specific current-closed-buyer and later-live-seller counterexamples.390aftercare layout
+has no horizontal overflow(client/scroll375/375); payout correctly Not shown to buyer.
+
+## Customer read-only continuity — Nov5,00:26 Pacific
+
+Configured preview8961: signed buyer out and selected existing fictional Cara. Public product
+entry remained reachable under new owner Noah. First sign-in attempt hit missing dynamic asset
+while Claude rebuilt web/dist; one reload/retry recovered. This is recorded as a live-preview
+asset-version change, not a verified stable-build sign-in defect.
+
+Ordinary Cara sign-in then showed99uses ready, existing other-device key, and the completed
+post-sale use in Recent uses. No Make this device key/enrollment/revocation action was taken.
+Opened existing use e10c17bb-4d43-48ac-9044-721492e8ea51 and Show my result: exactly1unit charged,
+99free/1used, private structured invoice result with vendorStackline/SH-1042/412.50USD and expiry.
+This verifies customer read-only access and post-sale result/units from the configured synthetic
+service scenario. It does not close the pending browser authorization gate or the full parent
+100/20/80/79 journey. The public fixture page's legacy 'bookings and refund rights' transfer copy
+should be audited in the broader digital storefront pass; don't silently claim it describes all
+digital rights. No extra storefront implementation dispatched in003wf2.
+
+Claude5627 is the sole active bounded role-wording continuation, samec64c374e session, exact
+Opus5.5/high, init model/API-none verified. Predecessor6643 terminal0 and exact-session CIMabsent.
+Role correction page/controller18 and configured-page3 pass per builder; independent visual
+new-owner recheck remains. Main earlier independentfullcheck46286d6 passed as recorded above.
