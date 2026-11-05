@@ -1,7 +1,8 @@
-# Direct acquisition through the customer's own wallet
+# Direct acquisition through each participant's own wallet
 
-**QUEUED, not dispatched.** Next proposed003wf child after003wf1 lifecycle corrections pass
-Astra review. Do not start while the current writer runs. P0/L. All parent003wf requirements,
+**DISPATCH NOW, November4 at21:50 Pacific.** Next003wf child after003wf1 lifecycle corrections passed
+Astra review (ConfiguredLifecycleAccepted, final222e49f). Prior writer71521 exited and its exact
+process is absent. P0/L. All parent003wf requirements,
 Gated acquisition and six milestones remain; this child completes the Direct sale surface.
 
 ## Product outcome
@@ -120,3 +121,4 @@ Opus5.5/high subscription, no duplicate writers, no API budget or model substitu
 wallet/provider/transaction, credentials, deployment, spending, public release/push/submission,
 research contents, Day One or worker-host work. All tests bounded and synthetic/keyless; all
 previews/processes finite with exact cleanup. No research assessment or source copying.
+
