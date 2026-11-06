@@ -35,6 +35,8 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **006c successor rehearsal BUILT (plan step 6, part 2)** (db92082): docs/design/SUCCESSOR_REHEARSAL.md (§5 as built). Plan step 6 is complete; both parts returned for Astra review. NEXT: plan step 7 (the demo account with the fictional founder and the rich dashboard; Fable for its visual design).
+
 - **Team and cooperative authority BUILT (plan step 6, part 1)** (195f19b): docs/design/TEAM_AUTHORITY.md (§5 as built). Business teams (invite by account, accept, case worker/viewer on the case board, revoke, sale ends the team) and buying-team representative, positions and history. Returned for Astra review in JOBS.md. NEXT: 006c successor rehearsal (plan step 6, part 2).
 
 - **006a web apps BUILT (plan step 5)**: see docs/design/WEB_APP_RELEASE.md §7 "as built". Free access at a stable address or an N-day pass (one unit, charged when access starts) pinned to the bought release; update, rollback, withdrawal; real releases closed until the worker passes, stand-ins labelled (harness/tests only). Evidence: web-app-release.test.ts, web-app-sale.test.ts, webAppPass.test.tsx; harness `--product quote-app`. Commits 59d1de9, 3c6f8d1; browser pass done (limits in JOBS.md); 006a returned for Astra review. NEXT: plan step 6 (team/co-op ownership, then 006c).
