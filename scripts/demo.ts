@@ -50,6 +50,14 @@ const people: Record<string, string> = {
   [BUYER.account]: w.noah.id,
 };
 for (const [i, c] of CUSTOMERS.entries()) people[c.account] = (w.customers[i] as { id: string }).id;
+// A newcomer with nothing yet (fictional), for first-day walkthroughs.
+const NEWCOMER = { id: "person-rosa-lind", name: "Rosa Lind", account: "rosa.near" };
+w.db
+  .prepare(
+    "INSERT INTO people (id, display_name, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
+  )
+  .run(NEWCOMER.id, NEWCOMER.name, new Date().toISOString());
+people[NEWCOMER.account] = NEWCOMER.id;
 for (const [account, person] of Object.entries(people))
   w.db
     .prepare(
