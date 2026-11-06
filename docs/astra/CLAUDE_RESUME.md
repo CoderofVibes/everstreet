@@ -35,6 +35,8 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **Step 7 data side BUILT** (5cc3c26): `npx tsx scripts/demo.ts` (launch config "demo", port 8820, controls 8821) runs Delphine Marsh's 30 simulated days through the real routes (138 requests; Ledgerline v2, Priya joins Relaydesk, rehearsal, Signalwatch sale funded) and serves it with synthetic-wallet sign-in. Dashboard data: GET /api/me/dashboard (server/src/dashboard.ts). NEXT: Fable mockups (2-3 directions, screenshots desktop+phone) for Tony to choose; then the real dashboard page.
+
 - **Step 7 data plan written:** docs/design/DEMO_ACCOUNT.md (founder Delphine Marsh, chosen Nov 5 after Tony asked for another name than Marisol Teague; 3 businesses, Signalwatch mid-sale; 30 simulated days through the real flows; synthetic chain needs a multi-contract router; one portfolio dashboard read before visual work). Building next.
 
 - **Step 7 design process (Tony, Nov 5 late):** Fable (separate agent, model fable; this session stays Opus 5.5) starts from Tony's mockup, Astra's visual direction, styles.css and the dataviz rules; makes 2-3 static directions with fictional data, renders and screenshots them (desktop + phone) and revises; **Tony chooses the direction himself**; then it is built on the real simulated history and Fable does the visual pass on the real pages. Data side first.
