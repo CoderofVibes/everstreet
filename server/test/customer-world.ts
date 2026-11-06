@@ -494,7 +494,10 @@ export class FixtureChain {
     }
     const hash = base58(
       createHash("sha256")
-        .update(`fixture-tx-${++this.txCount}`)
+        // Step 7: unique across several synthetic contracts (the default one keeps its hashes).
+        .update(
+          `fixture-tx-${++this.txCount}${this.business === BUSINESS ? "" : `-${this.business}`}`,
+        )
         .digest(),
     );
     const deposit = BigInt(call.deposit);

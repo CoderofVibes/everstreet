@@ -17,6 +17,7 @@ import { Community, type Constraints, interpret } from "./community.ts";
 import { customerAccess } from "./customerAccess.ts";
 import { CustomerPurchases } from "./customerPurchase.ts";
 import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
+import { dashboard } from "./dashboard.ts";
 import { HANDOVER_REFUSAL } from "./db.ts";
 import { Deals } from "./deals.ts";
 import { digitalDesk } from "./digitalDesk.ts";
@@ -1211,6 +1212,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
 
   // ---------- job 005d: the viewer's portfolio (owned, considering, former; private notes) ----------
   app.get("/api/me/portfolio", (c) => c.json(portfolio.view(me(c))));
+  // Step 7 (DEMO_ACCOUNT.md §3): the owner's portfolio dashboard, as data (last N days).
+  app.get("/api/me/dashboard", (c) =>
+    c.json(dashboard(store.db, me(c), { days: Number(c.req.query("days") ?? 30) })),
+  );
   app.put("/api/me/portfolio/:businessId/note", async (c) =>
     c.json(portfolio.setNote(me(c), c.req.param("businessId"), await body(c))),
   );

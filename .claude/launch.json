@@ -74,6 +74,17 @@
         "quote-app"
       ],
       "port": 8814
+    },
+    {
+      "name": "demo",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "scripts/demo.ts",
+        "--minutes",
+        "120"
+      ],
+      "port": 8820
     }
   ]
 }
