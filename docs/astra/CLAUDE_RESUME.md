@@ -35,7 +35,7 @@ visual direction), then Opus builds.
 
 ## Now
 
-- **006a web apps BUILT (plan step 5)**: see docs/design/WEB_APP_RELEASE.md §7 "as built". Free access at a stable address or an N-day pass (one unit, charged when access starts) pinned to the bought release; update, rollback, withdrawal; real releases closed until the worker passes, stand-ins labelled (harness/tests only). Evidence: web-app-release.test.ts, web-app-sale.test.ts, webAppPass.test.tsx; harness `--product quote-app`. NEXT: browser pass on the quote-app harness, then JOBS 006a to review; then plan step 6 (team/co-op, 006c).
+- **006a web apps BUILT (plan step 5)**: see docs/design/WEB_APP_RELEASE.md §7 "as built". Free access at a stable address or an N-day pass (one unit, charged when access starts) pinned to the bought release; update, rollback, withdrawal; real releases closed until the worker passes, stand-ins labelled (harness/tests only). Evidence: web-app-release.test.ts, web-app-sale.test.ts, webAppPass.test.tsx; harness `--product quote-app`. Commits 59d1de9, 3c6f8d1; browser pass done (limits in JOBS.md); 006a returned for Astra review. NEXT: plan step 6 (team/co-op ownership, then 006c).
 
 - **Astra's three correction jobs returned for review** (Nov 5 late): 006b2 session boundaries (d502c78), Relaydesk versioned cases + bounded compiler (d3fb77f), amount provenance (9412446), and the Stage C browser pass fixes (fc9165a) on the new relaydesk harness (`--product relaydesk`). Browser limits recorded in JOBS.md (no real browser zoom or reduced-motion emulation in the pane). NEXT after Astra's review: 006a web apps (plan step 5).
 
