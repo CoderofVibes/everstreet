@@ -1,0 +1,1889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio briefing · Delphine Marsh · Everstreet (mockup B, fictional)</title>
+<style>
+/* Everstreet tokens (web/src/styles.css, job 001f). Copied so this file stands alone. */
+:root {
+  --canvas: #f4f6fb; --surface: #ffffff; --surface-2: #f8f9fc;
+  --ink: #17243c; --ink-raised: #22314d; --ink-line: #33425f;
+  --text: #17243c; --text-2: #3b4860; --text-3: #566178;
+  --line: #dce1eb; --line-strong: #bcc4d4;
+  --cobalt: #3155d9; --cobalt-hover: #2645bd; --cobalt-ink: #2846c4; --cobalt-soft: #ebeffd; --cobalt-line: #c7d2f7; --on-cobalt: #ffffff;
+  --warm: #f3c49d; --warm-soft: #fcefe3; --warm-ink: #7a3f10;
+  --on-ink: #f2f5fb; --on-ink-2: #aeb8cc; --accent-on-ink: #afc2ff;
+  --success: #1e7a4c; --success-soft: #e5f3eb; --success-line: #b5dcc5;
+  --amber: #8a4b00; --amber-soft: #fff3e0; --amber-line: #f3d3a4;
+  --error: #b42318; --error-soft: #fdeceb; --focus: #3155d9;
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "SF Pro Text", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, "SF Pro Display", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", "Cascadia Mono", SFMono-Regular, Consolas, monospace;
+  --radius: 10px; --radius-sm: 8px; --radius-lg: 14px; --radius-xl: 20px;
+  --shadow-1: 0 1px 2px rgba(23, 36, 60, 0.06);
+  --shadow-2: 0 1px 2px rgba(23, 36, 60, 0.05), 0 10px 28px rgba(23, 36, 60, 0.08);
+  --glass: rgba(255, 255, 255, 0.78); --glass-edge: rgba(23, 36, 60, 0.08);
+  --data-primary: #3155d9; --data-primary-soft: #dbe3fb;
+  --data-returned: #0f766e; --data-returned-soft: #d3eeeb;
+  --data-founder: #9d2a7c; --data-founder-soft: #f5dcee;
+  --data-cost: #5b6b86; --data-cost-soft: #e3e8f0;
+  /* SHOWCASE_SPEC 6.3: refusal is slate with a cross pattern, not error red (contrast pending). */
+  --data-refused: #5b6b86; --data-refused-soft: #e3e8f0;
+  --data-incomplete: #8a4b00; --data-incomplete-soft: #fff3e0;
+  --motion: 180ms; --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--canvas); color: var(--text); font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; }
+a { color: var(--cobalt-ink); text-underline-offset: 2px; }
+a:hover { color: var(--cobalt-hover); }
+h1, h2, h3, h4 { line-height: 1.2; margin: 0 0 0.5em; letter-spacing: -0.01em; font-weight: 650; font-family: var(--display); }
+p { margin: 0 0 0.75em; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.mono { font-family: var(--mono); font-size: 0.92em; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.skip { position: absolute; left: 16px; top: -40px; background: var(--surface); padding: 8px 12px; border-radius: 8px; z-index: 50; }
+.skip:focus { top: 12px; }
+
+/* ---------- shell (the app's header) ---------- */
+.env-strip { background: var(--ink); color: var(--on-ink-2); font-size: 12.5px; padding: 6px 32px; display: flex; gap: 16px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+.env-strip strong { color: var(--accent-on-ink); font-weight: 600; }
+.site-header { position: sticky; top: 0; z-index: 30; background: var(--glass); -webkit-backdrop-filter: blur(16px) saturate(150%); backdrop-filter: blur(16px) saturate(150%); border-bottom: 1px solid var(--glass-edge); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .site-header { background: var(--surface); } }
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) { .site-header { background: var(--surface); backdrop-filter: none; } }
+.site-header-inner { max-width: 1320px; margin: 0 auto; padding: 14px 32px; min-height: 68px; display: flex; align-items: center; gap: 28px; }
+.wordmark { font: 700 19px/1 var(--display); letter-spacing: -0.02em; color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 10px; flex: none; }
+.wordmark svg { width: 28px; height: 28px; }
+.primary-nav { display: flex; gap: 4px; }
+.primary-nav a { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 999px; color: var(--text-2); text-decoration: none; font-weight: 600; font-size: 15px; }
+.primary-nav a:hover { background: var(--surface-2); color: var(--ink); }
+.primary-nav a[aria-current="page"] { background: var(--cobalt-soft); color: var(--cobalt-ink); box-shadow: inset 0 0 0 1px var(--cobalt-line); }
+.utilities { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.util { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; color: var(--text-2); text-decoration: none; font-size: 14px; font-weight: 550; }
+.acting-button { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px 4px 4px; cursor: pointer; font-size: 14px; color: var(--text-2); }
+.acting-button b { color: var(--ink); font-weight: 600; }
+.avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: var(--accent-on-ink); display: grid; place-items: center; font-weight: 700; font-size: 12px; flex: none; }
+.icon { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.icon.sm { width: 15px; height: 15px; }
+@media (max-width: 980px) {
+  .env-strip { padding: 6px 16px; }
+  .site-header-inner { flex-wrap: wrap; gap: 10px 12px; padding: 10px 16px; }
+  .utilities { margin-left: auto; }
+  .util { display: none; }
+  .acting-button { padding-right: 10px; }
+  .acting-button .acting-word { display: none; }
+  .primary-nav { order: 3; width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .primary-nav a { justify-content: center; padding: 8px 4px; font-size: 13.5px; }
+}
+
+/* ---------- the briefing ---------- */
+.brief { max-width: 1064px; margin: 0 auto; padding: 40px 32px 72px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 288px; gap: 24px 56px; align-items: start; }
+.row > .main { min-width: 0; }
+.margin { font-size: 13.5px; color: var(--text-2); }
+.margin h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin: 4px 0 8px; font-weight: 650; }
+.margin p { margin: 0 0 10px; }
+.margin dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
+.margin dt { color: var(--text-3); }
+.margin dd { margin: 0; color: var(--text); }
+@media (max-width: 960px) {
+  .brief { padding: 28px 16px 56px; }
+  .row { grid-template-columns: minmax(0, 1fr); }
+  .margin { border-top: 1px dashed var(--line-strong); padding-top: 14px; }
+}
+
+.dateline { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 13.5px; color: var(--text-3); margin-bottom: 18px; }
+.dateline .sep { color: var(--line-strong); }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; border: 1px solid; }
+.chip-demo { background: var(--warm-soft); color: var(--warm-ink); border-color: var(--warm); }
+.chip-ok { background: var(--success-soft); color: var(--success); border-color: var(--success-line); }
+.chip-warn { background: var(--amber-soft); color: var(--amber); border-color: var(--amber-line); }
+.chip-info { background: var(--cobalt-soft); color: var(--cobalt-ink); border-color: var(--cobalt-line); }
+.chip-quiet { background: var(--surface); color: var(--text-2); border-color: var(--line-strong); }
+h1.title { font-size: 46px; font-weight: 680; letter-spacing: -0.025em; line-height: 1.08; margin: 0 0 18px; max-width: 24ch; }
+.lede { font-size: 20px; line-height: 1.5; color: var(--text); max-width: 62ch; margin: 0 0 8px; }
+.lede p { margin: 0 0 14px; }
+.fig { font-weight: 650; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.fig.key { background: linear-gradient(transparent 55%, var(--warm-soft) 55%); box-shadow: inset 0 -1px var(--warm); padding: 0 2px; }
+.prose { max-width: 66ch; font-size: 16px; line-height: 1.6; }
+.prose p { margin: 0 0 12px; }
+
+/* at a glance */
+.glance { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 18px 20px; margin: 28px 0 0; padding: 22px 0 0; border-top: 1px solid var(--ink); }
+.glance > div { border-left: 1px solid var(--line); padding-left: 14px; min-width: 0; }
+.glance .k { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-3); font-weight: 650; margin-bottom: 6px; }
+.glance .v { font: 650 24px/1.15 var(--display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.glance .v .u { font-size: 14px; font-weight: 550; color: var(--text-2); letter-spacing: 0; margin-left: 5px; }
+.glance .v small { display: block; font-size: 13.5px; font-weight: 550; color: var(--text-2); letter-spacing: 0; margin-top: 2px; }
+.glance .v.na { font-size: 19px; color: var(--text-2); padding-top: 3px; }
+.glance .c { font-size: 12.5px; color: var(--text-3); margin-top: 6px; line-height: 1.4; }
+.glance .c b { font-weight: 600; color: var(--text-2); }
+@media (max-width: 960px) { .glance { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .glance { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; } .glance .v { font-size: 21px; } h1.title { font-size: 36px; } .lede { font-size: 18px; } }
+
+/* sections */
+.section { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line-strong); }
+.section > .row + .row { margin-top: 24px; }
+.eyebrow { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-3); font-weight: 650; margin: 0 0 8px; display: flex; align-items: center; gap: 10px; }
+.eyebrow .n { font-family: var(--mono); color: var(--cobalt-ink); }
+h2.sh { font-size: 30px; font-weight: 660; letter-spacing: -0.02em; margin: 0 0 14px; max-width: 24ch; }
+h3.bh { font-size: 23px; font-weight: 650; letter-spacing: -0.015em; margin: 0 0 12px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+h3.bh .type { font-size: 14px; font-weight: 550; color: var(--text-3); letter-spacing: 0; }
+
+/* today */
+.today { list-style: none; margin: 0; padding: 0; counter-reset: t; max-width: 66ch; }
+.today li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); counter-increment: t; }
+.today li:first-child { border-top: 0; padding-top: 4px; }
+.today .num { font: 600 22px/1.1 var(--display); color: var(--cobalt-ink); font-variant-numeric: tabular-nums; }
+.today .num::before { content: counter(t); }
+.today .what { font-size: 16.5px; line-height: 1.45; }
+.today .what b { font-weight: 650; }
+.today .where { margin-top: 4px; font-size: 14px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.today .where a { font-weight: 600; }
+
+/* small multiples */
+.row.wide { grid-template-columns: minmax(0, 1fr); }
+.row.wide .margin { border-top: 0; padding-top: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 32px; margin-top: 10px; }
+.row.wide .margin h3 { grid-column: 1 / -1; }
+@media (max-width: 760px) { .row.wide .margin { grid-template-columns: minmax(0, 1fr); } }
+.multiples { display: grid; gap: 6px; }
+.sm { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 24px; align-items: end; padding: 12px 0 10px; border-top: 1px solid var(--line); }
+.sm:first-child { border-top: 0; }
+.sm .who { align-self: start; padding-top: 2px; }
+.sm .who .name { font-weight: 650; font-size: 15.5px; display: flex; align-items: center; gap: 8px; }
+.sm .who .tot { font-family: var(--mono); font-size: 13px; color: var(--text-2); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.sm .who .note { font-size: 12.5px; color: var(--text-3); margin-top: 2px; line-height: 1.35; }
+.sm .chart { min-width: 0; }
+.sm svg { display: block; width: 100%; height: auto; overflow: visible; }
+.sm svg text { font-family: var(--mono); font-size: 11px; fill: var(--text-2); }
+.sm svg .lbl { fill: var(--ink); font-weight: 600; }
+.sm svg .axis { stroke: var(--line-strong); }
+.sm svg .zero { stroke: var(--line-strong); }
+.sm svg .marker { stroke: var(--ink); stroke-dasharray: 3 3; }
+.sm.cost { border-top: 1px dashed var(--line-strong); margin-top: 6px; padding-top: 14px; }
+.sw { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+.sw-data-primary { background: var(--data-primary); }
+.sw-data-returned { background: repeating-linear-gradient(135deg, var(--data-returned) 0 2px, var(--data-returned-soft) 2px 5px); border: 1px solid var(--data-returned); }
+.sw-data-founder { background: radial-gradient(var(--data-founder) 1.2px, var(--data-founder-soft) 1.6px) 0 0 / 5px 5px; border: 1px solid var(--data-founder); }
+.sw-data-cost { background: repeating-linear-gradient(0deg, var(--data-cost) 0 1.5px, var(--data-cost-soft) 1.5px 4px); border: 1px solid var(--data-cost); }
+.sw-data-refused { background: repeating-linear-gradient(45deg, var(--data-refused) 0 1.5px, transparent 1.5px 5px), repeating-linear-gradient(-45deg, var(--data-refused) 0 1.5px, var(--data-refused-soft) 1.5px 5px); border: 1px solid var(--data-refused); }
+.sw-data-incomplete { background: repeating-linear-gradient(135deg, var(--data-incomplete) 0 2px, var(--data-incomplete-soft) 2px 5px); border: 1px solid var(--data-incomplete); }
+@media (max-width: 560px) {
+  .sm { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .sm .who { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; }
+}
+details.tbl { margin-top: 14px; font-size: 13.5px; }
+details.tbl summary { cursor: pointer; color: var(--cobalt-ink); font-weight: 600; }
+details.tbl table { border-collapse: collapse; margin-top: 10px; font-family: var(--mono); font-size: 12.5px; width: 100%; max-width: 560px; }
+details.tbl th, details.tbl td { text-align: right; padding: 3px 8px; border-bottom: 1px solid var(--line); }
+details.tbl th:first-child, details.tbl td:first-child { text-align: left; }
+
+/* businesses */
+.biz { margin-top: 40px; padding-top: 28px; border-top: 1px dashed var(--line-strong); }
+.biz:first-of-type { margin-top: 8px; padding-top: 0; border-top: 0; }
+.facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; font-size: 13.5px; }
+.facts dt { color: var(--text-3); white-space: nowrap; }
+.facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.facts dd .mono { font-size: 12.5px; }
+.facts dd .sub { color: var(--text-3); }
+.ok { color: var(--success); font-weight: 600; }
+.warn { color: var(--amber); font-weight: 600; }
+
+/* quality bar (Ledgerline) */
+.qbar { margin: 14px 0 8px; }
+.qbar .bar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line-strong); background: var(--surface); }
+.qbar .seg { position: relative; min-width: 0; display: flex; align-items: center; justify-content: center; font: 600 12px var(--mono); }
+.qbar .seg.delivered { background: var(--data-primary); color: var(--on-cobalt); }
+.qbar .seg.refused { background: repeating-linear-gradient(45deg, var(--data-refused) 0 1.5px, transparent 1.5px 6px), repeating-linear-gradient(-45deg, var(--data-refused) 0 1.5px, var(--data-refused-soft) 1.5px 6px); color: var(--ink); border-left: 1px solid var(--surface); }
+.qbar .seg.incomplete { background: repeating-linear-gradient(135deg, var(--data-incomplete) 0 2px, var(--data-incomplete-soft) 2px 6px); color: var(--ink); border-left: 1px solid var(--surface); }
+.qbar .seg span { background: rgba(255,255,255,0.85); color: var(--ink); padding: 1px 6px; border-radius: 4px; }
+.qbar .seg.delivered span { background: transparent; color: var(--on-cobalt); }
+.legend { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13.5px; color: var(--text-2); }
+.legend li { display: inline-flex; align-items: center; gap: 7px; }
+.legend b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* desk (Relaydesk) */
+.desk { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0 8px; }
+@media (max-width: 560px) { .desk { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stage { border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 8px 12px; min-width: 0; }
+.stage .k { font-size: 11.5px; white-space: nowrap; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 650; }
+.stage .v { font: 650 22px/1.1 var(--display); color: var(--ink); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.stage .v small { font-size: 13px; color: var(--text-2); font-weight: 550; }
+.stage.done { border-style: solid; background: var(--success-soft); border-color: var(--success-line); }
+.stage.open { border-color: var(--amber-line); background: var(--amber-soft); }
+.arrow { align-self: center; color: var(--text-3); }
+
+/* the sale story card (Signalwatch) */
+.story { margin: 16px 0 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-2); padding: 22px 24px 20px; }
+.story .st-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 8px; }
+.story h4 { font-size: 18px; margin: 0; }
+.story .st-text { font-size: 15.5px; line-height: 1.55; max-width: 60ch; }
+.steps { list-style: none; margin: 18px 0 14px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; position: relative; }
+.steps li { position: relative; padding: 26px 6px 0 0; font-size: 12.5px; line-height: 1.3; color: var(--text-2); }
+.steps li::before { content: ""; position: absolute; left: 0; top: 8px; width: 16px; height: 16px; border-radius: 50%; box-sizing: border-box; background: var(--surface); border: 2px solid var(--line-strong); }
+.steps li::after { content: ""; position: absolute; left: 16px; right: 0; top: 15px; height: 2px; background: var(--line); }
+.steps li:last-child::after { display: none; }
+.steps li.done::before { background: var(--cobalt); border-color: var(--cobalt); }
+.steps li.done::after { background: var(--cobalt); }
+.steps li.done { color: var(--ink); }
+.steps li.pending::before { border: 2px dashed var(--ink-line); background: transparent; }
+.steps li b { display: block; color: var(--ink); font-weight: 650; }
+.steps li .st { display: block; color: var(--text-3); }
+.steps li.done .st { color: var(--cobalt-ink); }
+.story .facts { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 640px) {
+  .story .facts { grid-template-columns: auto 1fr; }
+  .steps { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .steps li { padding: 2px 0 2px 28px; }
+  .steps li::before { top: 4px; }
+  .steps li::after { left: 7px; right: auto; top: 20px; bottom: -4px; width: 2px; height: auto; }
+}
+
+/* ownership */
+table.own { border-collapse: collapse; width: 100%; font-size: 14px; }
+table.own th, table.own td { text-align: left; padding: 10px 12px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.own th { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); font-weight: 650; border-bottom-color: var(--line-strong); }
+table.own td.n { font-weight: 650; }
+table.own .mono { font-size: 13px; }
+@media (max-width: 560px) {
+  table.own th:nth-child(3), table.own td:nth-child(3), table.own .you { display: none; }
+  table.own { font-size: 13px; }
+  table.own th, table.own td { padding: 8px 6px 8px 0; overflow-wrap: anywhere; }
+  table.own .mono { font-size: 12px; }
+  table.own .chip { font-size: 11.5px; padding: 1px 7px; white-space: nowrap; }
+}
+
+/* about */
+.about { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--ink); font-size: 13.5px; color: var(--text-2); }
+.about dl { margin: 10px 0 0; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 8px 18px; max-width: 900px; }
+.about dt { color: var(--text-3); }
+.about dd { margin: 0; }
+@media (max-width: 560px) { .about dl { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .about dd { margin-bottom: 8px; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the briefing</a>
+<div class="env-strip" role="status"><span><strong>Demo founder</strong> · Simulated history on a synthetic chain · Fictional people and businesses</span><span>Mockup B · Editorial briefing</span></div>
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="wordmark" href="#"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#17243c"/><path d="M9 23V9h13M9 16h10M9 23h14" stroke="#afc2ff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>Everstreet</a>
+    <nav class="primary-nav" aria-label="Main">
+      <a href="#">Discover</a><a href="#">Build</a><a href="#" aria-current="page">Operate</a><a href="#">Acquire</a>
+    </nav>
+    <div class="utilities">
+      <a class="util" href="#">My activity</a>
+      <a class="util" href="#">Inbox</a>
+      <button type="button" class="acting-button" aria-haspopup="menu" aria-expanded="false"><span class="avatar" aria-hidden="true">DM</span><span><span class="acting-word">Acting as </span><b>Delphine Marsh</b></span><svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="brief" tabindex="-1">
+  <!-- 1. The month -->
+  <section aria-labelledby="h-month">
+    <div class="dateline" id="dateline"></div>
+    <h1 class="title" id="h-month">Delphine, here is your month.</h1>
+    <div class="lede" id="lede"></div>
+    <div class="glance" id="glance" aria-label="The month at a glance"></div>
+  </section>
+
+  <!-- 2. Today -->
+  <section class="section" aria-labelledby="h-today">
+    <div class="row">
+      <div class="main">
+        <p class="eyebrow"><span class="n">1</span> Today</p>
+        <h2 class="sh" id="h-today">Three things want you.</h2>
+        <ol class="today" id="today"></ol>
+      </div>
+      <aside class="margin" id="today-margin"></aside>
+    </div>
+  </section>
+
+  <!-- 3. Revenue over time -->
+  <section class="section" aria-labelledby="h-rev">
+    <div class="row wide">
+      <div class="main">
+        <p class="eyebrow"><span class="n">2</span> Day by day</p>
+        <h2 class="sh" id="h-rev">Revenue, one line per business.</h2>
+        <div class="multiples" id="multiples"></div>
+        <details class="tbl" id="daily-table"><summary>The daily figures as a table</summary></details>
+      </div>
+      <aside class="margin" id="rev-margin"></aside>
+    </div>
+  </section>
+
+  <!-- 4. Each business -->
+  <section class="section" aria-labelledby="h-biz">
+    <p class="eyebrow"><span class="n">3</span> The three businesses</p>
+    <h2 class="sh" id="h-biz">Each one, in a paragraph and its facts.</h2>
+    <div id="businesses"></div>
+  </section>
+
+  <!-- 5. Ownership -->
+  <section class="section" aria-labelledby="h-own">
+    <div class="row">
+      <div class="main">
+        <p class="eyebrow"><span class="n">4</span> On NEAR</p>
+        <h2 class="sh" id="h-own">Who holds what.</h2>
+        <table class="own" id="own"></table>
+      </div>
+      <aside class="margin" id="own-margin"></aside>
+    </div>
+  </section>
+
+  <footer class="about" id="about"></footer>
+</main>
+
+<script>
+/* The exact answer of GET /api/me/dashboard for Delphine's simulated month (design/dashboard/sample-dashboard.json). */
+const DATA = {
+  "note": "FICTIONAL: Delphine Marsh's simulated month (synthetic chain, stand-in models). Shape of GET /api/me/dashboard.",
+  "as_of": "2026-11-06T02:13:51.468Z",
+  "period": {
+    "days": 30,
+    "from": "2026-10-08",
+    "to": "2026-11-06"
+  },
+  "days": [
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-11",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26",
+    "2026-10-27",
+    "2026-10-28",
+    "2026-10-29",
+    "2026-10-30",
+    "2026-10-31",
+    "2026-11-01",
+    "2026-11-02",
+    "2026-11-03",
+    "2026-11-04",
+    "2026-11-05",
+    "2026-11-06"
+  ],
+  "tokens": {
+    "tusd.near": {
+      "symbol": "TUSD",
+      "name": "Test USD (fixture)",
+      "decimals": 6,
+      "block_height": "1783",
+      "observed_at": "2026-10-31T12:08:00.690Z",
+      "changed": false,
+      "reason": null
+    }
+  },
+  "totals": {
+    "revenue": {
+      "tusd.near": "137000000"
+    },
+    "compute_microcents": "15120000"
+  },
+  "businesses": [
+    {
+      "id": "20031168-06dc-4073-895a-e541374f8e48",
+      "name": "Ledgerline",
+      "slug": "ledgerline",
+      "role": "owner",
+      "product": "AI API",
+      "release": {
+        "number": 2,
+        "activated_at": "2026-10-15T11:58:36.237Z",
+        "digest": "f1eeb5a26550e9d296437ae3c8b90e77f2c17cfc6888c2f1adcd7b54bffaf9cf"
+      },
+      "daily": [
+        {
+          "day": "2026-10-08",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 1,
+          "compute_microcents": "150000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-09",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 1,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-10",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 2,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-11",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "150000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-12",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-13",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-14",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-15",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-16",
+          "revenue": {
+            "tusd.near": "1200000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-17",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 2,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-18",
+          "revenue": {
+            "tusd.near": "1600000"
+          },
+          "delivered": 4,
+          "not_charged": 0,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-19",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-20",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-21",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-22",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 3,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-23",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 1,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-24",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 1,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-25",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 2,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-26",
+          "revenue": {
+            "tusd.near": "1200000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-27",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-28",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-29",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 2,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-30",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 2,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-31",
+          "revenue": {
+            "tusd.near": "1600000"
+          },
+          "delivered": 4,
+          "not_charged": 0,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-01",
+          "revenue": {
+            "tusd.near": "2000000"
+          },
+          "delivered": 5,
+          "not_charged": 0,
+          "compute_microcents": "750000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-02",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-03",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 2,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-04",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-05",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-06",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        }
+      ],
+      "totals": {
+        "revenue": {
+          "tusd.near": "22000000"
+        },
+        "pending": {},
+        "delivered": 55,
+        "not_charged": 25,
+        "compute_microcents": "12000000",
+        "compute_unknown_calls": 0
+      },
+      "credits": {
+        "value": "137600000",
+        "asset": "tusd.near",
+        "units": 344,
+        "block_height": "1981",
+        "observed_at": "2026-11-05T11:10:38.445Z"
+      },
+      "network_fees": null,
+      "ownership": {
+        "generation": 1,
+        "owner_account": "delphine.near",
+        "transfers": 0,
+        "last_transfer_at": null,
+        "sale_in_progress": false
+      },
+      "rehearsal": null,
+      "founded_at": "2026-10-07T00:00:00.476Z",
+      "customers": {
+        "active": 3,
+        "returning": 3,
+        "new": 2
+      },
+      "not_charged_reasons": [
+        {
+          "outcome": "refused",
+          "n": 15
+        },
+        {
+          "outcome": "incomplete",
+          "n": 10
+        }
+      ],
+      "success_rate": 0.688,
+      "cost_per_delivered_microcents": "218181",
+      "credits_runway_days": 141,
+      "cases": null,
+      "releases": [
+        {
+          "activated_at": "2026-10-07T00:00:00.566Z",
+          "retired_at": "2026-10-15T11:58:36.237Z",
+          "state": "retired",
+          "number": 1
+        },
+        {
+          "activated_at": "2026-10-15T11:58:36.237Z",
+          "retired_at": null,
+          "state": "active",
+          "number": 2
+        }
+      ],
+      "team_members": 0,
+      "sale": null,
+      "attention": [
+        {
+          "kind": "rehearsal",
+          "text": "No successor rehearsal yet: rehearse the handover",
+          "link": "/desk/20031168-06dc-4073-895a-e541374f8e48/rehearsal"
+        }
+      ]
+    },
+    {
+      "id": "b6fa11e4-6286-4a0b-af41-5a78fdc5090f",
+      "name": "Relaydesk",
+      "slug": "relaydesk",
+      "role": "owner",
+      "product": "SaaS workflow",
+      "release": {
+        "number": 1,
+        "activated_at": "2026-10-07T00:00:00.659Z",
+        "digest": "e9f65820bf62dc32ccb202a673a55246fcdf1e430bae1928fc6e162768c56feb"
+      },
+      "daily": [
+        {
+          "day": "2026-10-08",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-09",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-10",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-11",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-12",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-13",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-14",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-15",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-16",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-17",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-18",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-19",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-20",
+          "revenue": {
+            "tusd.near": "4500000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-21",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-22",
+          "revenue": {
+            "tusd.near": "4500000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-23",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-24",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-25",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-26",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-27",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-28",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-29",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-30",
+          "revenue": {
+            "tusd.near": "4500000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-31",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-01",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-02",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-03",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-04",
+          "revenue": {
+            "tusd.near": "6000000"
+          },
+          "delivered": 4,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-05",
+          "revenue": {
+            "tusd.near": "4500000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-06",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        }
+      ],
+      "totals": {
+        "revenue": {
+          "tusd.near": "63000000"
+        },
+        "pending": {},
+        "delivered": 42,
+        "not_charged": 0,
+        "compute_microcents": "0",
+        "compute_unknown_calls": 0
+      },
+      "credits": {
+        "value": "535500000",
+        "asset": "tusd.near",
+        "units": 357,
+        "block_height": "1982",
+        "observed_at": "2026-11-05T11:10:38.449Z"
+      },
+      "network_fees": null,
+      "ownership": {
+        "generation": 1,
+        "owner_account": "delphine.near",
+        "transfers": 0,
+        "last_transfer_at": null,
+        "sale_in_progress": false
+      },
+      "rehearsal": {
+        "state": "passed",
+        "finished_at": "2026-10-26T12:34:06.118Z"
+      },
+      "founded_at": "2026-10-07T00:00:00.570Z",
+      "customers": {
+        "active": 4,
+        "returning": 4,
+        "new": 3
+      },
+      "not_charged_reasons": [],
+      "success_rate": 1,
+      "cost_per_delivered_microcents": "0",
+      "credits_runway_days": 208,
+      "cases": {
+        "open": 4,
+        "open_by_stage": {
+          "assigned": 3,
+          "received": 1
+        },
+        "opened_in_period": 42,
+        "resolved_in_period": 39,
+        "median_hours_to_resolve": 47.6
+      },
+      "releases": [
+        {
+          "activated_at": "2026-10-07T00:00:00.659Z",
+          "retired_at": null,
+          "state": "active",
+          "number": 1
+        }
+      ],
+      "team_members": 1,
+      "sale": null,
+      "attention": [
+        {
+          "kind": "open_cases",
+          "text": "4 open customer requests",
+          "link": "/desk/b6fa11e4-6286-4a0b-af41-5a78fdc5090f"
+        }
+      ]
+    },
+    {
+      "id": "69471902-6572-4d19-a3fb-1f10d0f29f7e",
+      "name": "Signalwatch",
+      "slug": "signalwatch",
+      "role": "owner",
+      "product": "Agent service",
+      "release": {
+        "number": 1,
+        "activated_at": "2026-10-07T00:00:00.713Z",
+        "digest": "453948209d39d3934bcb247b39067f30189962fcdaffe2a5beab1a5378a42145"
+      },
+      "daily": [
+        {
+          "day": "2026-10-08",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-09",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-10",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-11",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-12",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-13",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-14",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-15",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-16",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-17",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-18",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-19",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-20",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-21",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-22",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-23",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-24",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-25",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-26",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-27",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-28",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-29",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-30",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-31",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-01",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-02",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-03",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-04",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-05",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-06",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        }
+      ],
+      "totals": {
+        "revenue": {
+          "tusd.near": "52000000"
+        },
+        "pending": {},
+        "delivered": 13,
+        "not_charged": 0,
+        "compute_microcents": "3120000",
+        "compute_unknown_calls": 0
+      },
+      "credits": {
+        "value": "1544000000",
+        "asset": "tusd.near",
+        "units": 386,
+        "block_height": "1983",
+        "observed_at": "2026-11-05T11:10:38.454Z"
+      },
+      "network_fees": null,
+      "ownership": {
+        "generation": 1,
+        "owner_account": "delphine.near",
+        "transfers": 0,
+        "last_transfer_at": null,
+        "sale_in_progress": true
+      },
+      "rehearsal": null,
+      "founded_at": "2026-10-07T00:00:00.572Z",
+      "customers": {
+        "active": 2,
+        "returning": 2,
+        "new": 1
+      },
+      "not_charged_reasons": [],
+      "success_rate": 1,
+      "cost_per_delivered_microcents": "240000",
+      "credits_runway_days": 2702,
+      "cases": null,
+      "releases": [
+        {
+          "activated_at": "2026-10-07T00:00:00.713Z",
+          "retired_at": null,
+          "state": "active",
+          "number": 1
+        }
+      ],
+      "team_members": 0,
+      "sale": {
+        "state": "proposed",
+        "buyer": "buyer.near",
+        "price": "180000000",
+        "escrow": "180000000",
+        "seller_accepted": false,
+        "buyer_accepted": false,
+        "expires_at": "2026-11-21T12:08:00.625Z",
+        "asset": "tusd.near"
+      },
+      "attention": [
+        {
+          "kind": "sale",
+          "text": "A sale is in progress: its terms wait for acceptance",
+          "link": "/sales/69471902-6572-4d19-a3fb-1f10d0f29f7e"
+        }
+      ]
+    }
+  ],
+  "definitions": {
+    "revenue": "Earned: units the contract charged for delivered results, times the price of the offer each request used, in that offer's token. Pending charges aren't counted.",
+    "compute": "Known compute cost of customer requests (USD). Calls whose cost isn't known yet are counted separately, never as zero.",
+    "credits": "Prepaid customer uses not yet used, as the business contract's treasury showed at its latest observation here.",
+    "network_fees": "Not recorded: Everstreet doesn't keep the NEAR fees of its own transactions yet, so none is shown.",
+    "customers": "Active: customers who sent a request in the period. Returning: on two or more days. New: their first request ever was in the period.",
+    "success_rate": "Delivered (charged) requests out of all requests that finished in the period.",
+    "runway": "How many days the prepaid credits would last at the last 7 days' pace of delivered uses.",
+    "cases": "A SaaS workflow's cases: open by stage, and the median time from request to resolved.",
+    "totals": "Totals add businesses only within the same token. Tokens and USD are never added together."
+  }
+};
+
+/* ---------- formatting (exact base units in, readable text out) ---------- */
+const TOKEN = "tusd.near";
+const DEC = DATA.tokens[TOKEN].decimals;
+function group(s) { return s.replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+function tusd(base, places = 2) {               // "137000000" -> "137.00"
+  const s = String(base).padStart(DEC + 1, "0");
+  const int = s.slice(0, s.length - DEC), frac = s.slice(s.length - DEC);
+  return group(int) + (places ? "." + frac.slice(0, places) : "");
+}
+const tusdN = (base) => Number(base) / 10 ** DEC;
+function usdFromMicrocents(mc) {               // 15120000 microcents = 15.12 cents = $0.15
+  const cents = Number(mc) / 1e6;
+  if (cents === 0) return "$0.00";
+  if (cents < 1) return (Math.round(cents * 100) / 100) + "¢";
+  return "$" + (cents / 100).toFixed(2);
+}
+const centsExact = (mc) => (Number(mc) / 1e6).toFixed(2) + " cents";
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function day(iso) { const d = new Date(iso); return MONTHS[d.getUTCMonth()] + " " + d.getUTCDate(); }
+function dayYear(iso) { const d = new Date(iso); return day(iso) + ", " + d.getUTCFullYear(); }
+function stamp(iso) { const d = new Date(iso); return day(iso) + ", " + String(d.getUTCHours()).padStart(2,"0") + ":" + String(d.getUTCMinutes()).padStart(2,"0") + " UTC"; }
+function daysBetween(a, b) { return Math.round((new Date(b) - new Date(a)) / 864e5); }
+function runway(days) {
+  if (days == null) return "unknown";
+  if (days >= 365) return "over a year";
+  if (days >= 60) return "about " + Math.round(days / 30) + " months (" + days + " days)";
+  return days + " days";
+}
+const pct = (x) => Math.round(x * 100) + "%";
+const n = (x) => group(String(x));
+const plural = (k, one, many) => k + " " + (k === 1 ? one : many);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ---------- derived figures (all within one token; USD kept apart) ---------- */
+const B = DATA.businesses;
+const byName = Object.fromEntries(B.map((b) => [b.name, b]));
+const L = byName.Ledgerline, R = byName.Relaydesk, S = byName.Signalwatch;
+const sum = (f) => B.reduce((a, b) => a + f(b), 0);
+const delivered = sum((b) => b.totals.delivered);
+const notCharged = sum((b) => b.totals.not_charged);
+const finished = delivered + notCharged;
+const customers = { active: sum((b) => b.customers.active), new: sum((b) => b.customers.new), returning: sum((b) => b.customers.returning) };
+const creditUnits = sum((b) => b.credits.units);
+const creditValue = B.reduce((a, b) => a + BigInt(b.credits.value), 0n).toString();
+const unknownCalls = sum((b) => b.totals.compute_unknown_calls);
+const creditsObserved = B.map((b) => b.credits.observed_at).sort().at(-1);
+const creditBlocks = B.map((b) => Number(b.credits.block_height)).sort((a, b) => a - b);
+const asOf = DATA.as_of;
+const SERIES = { Ledgerline: "primary", Relaydesk: "returned", Signalwatch: "founder" };
+const UNIT = { Ledgerline: ["invoice", "invoices"], Relaydesk: ["request", "requests"], Signalwatch: ["analysis", "analyses"] };
+const PRICE = { Ledgerline: "0.40", Relaydesk: "1.50", Signalwatch: "4.00" };
+const fig = (t, key) => `<b class="fig${key ? " key" : ""}">${t}</b>`;
+
+/* ---------- 1. the month ---------- */
+document.getElementById("dateline").innerHTML = `
+  <span>Portfolio briefing</span><span class="sep">·</span>
+  <span>${dayYear(DATA.period.from)} to ${dayYear(DATA.period.to)}, ${DATA.period.days} days</span><span class="sep">·</span>
+  <span>As of ${stamp(asOf)}</span>
+  <span class="chip chip-demo">Simulated history · Fictional</span>`;
+
+const lastSignal = [...S.daily].reverse().find((d) => d.delivered > 0).day;
+document.getElementById("lede").innerHTML = `
+  <p>Across Ledgerline, Relaydesk and Signalwatch you earned ${fig(tusd(DATA.totals.revenue[TOKEN]) + " TUSD", true)}
+  from ${fig(n(delivered) + " delivered requests")}, ${pct(delivered / finished)} of the ${n(finished)} that finished.
+  ${fig(n(customers.active) + " customers")} were active, ${customers.new} of them new this month, and every one came back on more than one day.</p>
+  <p>Known compute cost came to ${fig(usdFromMicrocents(DATA.totals.compute_microcents) + " USD")}, kept apart from TUSD and never netted against it.
+  Your customers still hold ${fig(n(creditUnits) + " prepaid uses")} worth ${tusd(creditValue)} TUSD, a promise that follows each business to whoever owns it.</p>`;
+
+const sources = {
+  contract: "Business contract",
+  runtime: "Runtime records",
+  app: "App records",
+};
+document.getElementById("glance").innerHTML = [
+  ["Earned revenue", `${tusd(DATA.totals.revenue[TOKEN])}<span class="u">TUSD</span> <small>three businesses, one token</small>`, `<b>${sources.contract}</b> · as of ${stamp(asOf)}`],
+  ["Delivered", `${n(delivered)} <small>${pct(delivered / finished)} of ${n(finished)} finished</small>`, `<b>${sources.runtime}</b> · as of ${stamp(asOf)}`],
+  ["Active customers", `${customers.active} <small>${customers.new} new · ${customers.returning} returning</small>`, `<b>${sources.app}</b> · per business · as of ${stamp(asOf)}`],
+  ["Compute cost", `${usdFromMicrocents(DATA.totals.compute_microcents)}<span class="u">USD</span> <small>known · ${unknownCalls} calls with cost unknown</small>`, `<b>${sources.runtime}</b> · as of ${stamp(asOf)}`],
+  ["Network fees", `<span class="na-v">Not recorded</span>`, `Everstreet doesn't keep its NEAR fees yet; none is shown, not 0`],
+  ["Prepaid credits", `${n(creditUnits)} <small>uses · ${tusd(creditValue)} TUSD</small>`, `<b>${sources.contract}</b> treasury · seen ${stamp(creditsObserved)}, blocks ${creditBlocks[0]}–${creditBlocks.at(-1)}`],
+].map(([k, v, c]) => `<div><div class="k">${k}</div><div class="v${v.startsWith("<span class=\"na-v\"") ? " na" : ""}">${v}</div><div class="c">${c}</div></div>`).join("");
+
+/* ---------- 2. today ---------- */
+const ACTION = {
+  open_cases: (b) => ["Desk", `Open ${b.name}'s desk`],
+  sale: (b) => ["Sale", `Review the terms`],
+  rehearsal: (b) => ["Handover", `Rehearse ${b.name}'s handover`],
+};
+const ORDER = { open_cases: 0, sale: 1, rehearsal: 2 };
+const attention = B.flatMap((b) => b.attention.map((a) => ({ ...a, b }))).sort((x, y) => ORDER[x.kind] - ORDER[y.kind]);
+function why(a) {
+  if (a.kind === "open_cases") {
+    const st = a.b.cases.open_by_stage;
+    return `${st.assigned} assigned, ${st.received} just received. Priya and you work the desk.`;
+  }
+  if (a.kind === "sale") return `Noah Brandt offers ${tusd(a.b.sale.price)} TUSD, already in escrow. Neither of you has accepted; the offer lapses on ${day(a.b.sale.expires_at)}, in ${daysBetween(asOf, a.b.sale.expires_at)} days.`;
+  if (a.kind === "rehearsal") return `A buyer will ask for it. Relaydesk's passed on ${day(R.rehearsal.finished_at)}; ${a.b.name} has none.`;
+  return "";
+}
+document.getElementById("today").innerHTML = attention.map((a) => {
+  const [kind, label] = ACTION[a.kind](a.b);
+  return `<li><span class="num" aria-hidden="true"></span><div>
+    <div class="what"><b>${a.b.name}:</b> ${esc(a.text)}. ${why(a)}</div>
+    <div class="where"><span class="chip chip-quiet">${kind}</span><a href="${esc(a.link)}">${label} →</a></div></div></li>`;
+}).join("");
+document.getElementById("today-margin").innerHTML = `
+  <h3>Why these three</h3>
+  <p>Attention belongs to the person who can act. Open requests are yours and Priya's; the sale waits on both sides; a rehearsal is yours to run.</p>
+  <p>Listed as of ${stamp(asOf)}. Each link opens the place where the work is done.</p>`;
+
+/* ---------- 3. small multiples ---------- */
+const DAYS = DATA.days;
+const dailyOf = (b) => b.daily.map((d) => tusdN(d.revenue[TOKEN]));
+const sharedMax = Math.max(...B.flatMap(dailyOf));
+const releaseIdx = DAYS.indexOf(L.release.activated_at.slice(0, 10));
+const computeDaily = DAYS.map((_, i) => B.reduce((a, b) => a + Number(b.daily[i].compute_microcents) / 1e6, 0)); // cents
+const costMax = Math.max(...computeDaily);
+
+function patternDefs(id, key, color, soft) {
+  const p = (inner) => `<pattern id="${id}" patternUnits="userSpaceOnUse" width="5" height="5">${inner}</pattern>`;
+  if (key === "returned") return p(`<rect width="5" height="5" fill="${soft}"/><path d="M0 5L5 0" stroke="${color}" stroke-width="1.6"/>`);
+  if (key === "founder") return p(`<rect width="5" height="5" fill="${soft}"/><circle cx="2.5" cy="2.5" r="1.2" fill="${color}"/>`);
+  if (key === "cost") return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="4" height="4"><rect width="4" height="4" fill="${soft}"/><rect width="4" height="1.5" fill="${color}"/></pattern>`;
+  return "";
+}
+const COLOR = { primary: ["#3155d9", "#dbe3fb"], returned: ["#0f766e", "#d3eeeb"], founder: ["#9d2a7c", "#f5dcee"], cost: ["#5b6b86", "#e3e8f0"] };
+
+function sparkline(el, values, { key, max, unit, label, marker, id }) {
+  const W = Math.max(240, el.clientWidth), H = 112, top = 24, bottom = 18, right = 10;
+  const plotW = W - right, plotH = H - top - bottom;
+  const slot = plotW / values.length, bw = Math.max(3, slot * 0.68);
+  const y = (v) => top + plotH - (v / max) * plotH;
+  const [color, soft] = COLOR[key];
+  const fill = key === "primary" ? color : `url(#${id}-p)`;
+  const peak = values.indexOf(Math.max(...values));
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(label)}"><defs>${patternDefs(id + "-p", key, color, soft)}</defs>`;
+  s += `<line class="zero" x1="0" x2="${plotW}" y1="${top + plotH + 0.5}" y2="${top + plotH + 0.5}" stroke-width="1"/>`;
+  values.forEach((v, i) => {
+    const x = i * slot + (slot - bw) / 2;
+    if (v > 0) s += `<rect x="${x.toFixed(1)}" y="${y(v).toFixed(1)}" width="${bw.toFixed(1)}" height="${(top + plotH - y(v)).toFixed(1)}" fill="${fill}" stroke="${color}" stroke-width="1"/>`;
+    else s += `<rect x="${x.toFixed(1)}" y="${top + plotH - 2}" width="${bw.toFixed(1)}" height="2" fill="${color}" opacity="0.35"/>`;
+  });
+  // direct label on the peak day
+  if (values[peak] > 0) {
+    const px = peak * slot + slot / 2, anchor = px > plotW - 60 ? "end" : px < 60 ? "start" : "middle";
+    s += `<text class="lbl" x="${px.toFixed(1)}" y="${(y(values[peak]) - 5).toFixed(1)}" text-anchor="${anchor}">${unit(values[peak])} · ${day(DAYS[peak])}</text>`;
+  }
+  // labelled release marker
+  if (marker) {
+    const mx = marker.index * slot + 1;
+    s += `<line class="marker" x1="${mx}" x2="${mx}" y1="${top - 2}" y2="${top + plotH}" stroke-width="1.2"/>`;
+    s += `<text x="${mx + 5}" y="${top - 6}" fill="#17243c">${esc(marker.label)}</text>`;
+  }
+  // x axis dates
+  [0, 7, 14, 21, values.length - 1].forEach((i) => {
+    const x = i * slot + slot / 2, anchor = i === 0 ? "start" : i === values.length - 1 ? "end" : "middle";
+    s += `<text x="${(i === 0 ? 0 : i === values.length - 1 ? plotW : x).toFixed(1)}" y="${H - 3}" text-anchor="${anchor}">${day(DAYS[i])}</text>`;
+  });
+  s += `</svg>`;
+  el.innerHTML = s;
+}
+
+function renderMultiples() {
+  const host = document.getElementById("multiples");
+  const rows = B.map((b) => {
+    const vals = dailyOf(b);
+    const quiet = b.name === "Signalwatch" ? `Nothing delivered since ${day(lastSignal)}.` : b.name === "Ledgerline" ? `Release 2 live from ${day(L.release.activated_at)}.` : `${b.totals.delivered} delivered, none refused.`;
+    return { b, vals, quiet };
+  });
+  host.innerHTML = rows.map(({ b, quiet }) => `
+    <div class="sm"><div class="who">
+      <div class="name"><span class="sw sw-data-${SERIES[b.name]}" aria-hidden="true"></span>${b.name}</div>
+      <div class="tot">${tusd(b.totals.revenue[TOKEN])} TUSD</div>
+      <div class="note">${quiet}</div>
+    </div><div class="chart" id="sm-${b.slug}"></div></div>`).join("") + `
+    <div class="sm cost"><div class="who">
+      <div class="name"><span class="sw sw-data-cost" aria-hidden="true"></span>Compute cost</div>
+      <div class="tot">${usdFromMicrocents(DATA.totals.compute_microcents)} USD</div>
+      <div class="note">USD cents a day, on its own scale. Relaydesk has no model cost.</div>
+    </div><div class="chart" id="sm-cost"></div></div>`;
+  rows.forEach(({ b, vals }) => sparkline(document.getElementById("sm-" + b.slug), vals, {
+    key: SERIES[b.name], max: sharedMax, id: "sp-" + b.slug,
+    unit: (v) => v.toFixed(2) + " TUSD",
+    label: `${b.name}: daily earned revenue in TUSD over ${DAYS.length} days, ${tusd(b.totals.revenue[TOKEN])} TUSD in all. Shared scale, 0 to ${sharedMax.toFixed(2)} TUSD a day.`,
+    marker: b.name === "Ledgerline" ? { index: releaseIdx, label: `Release 2 · ${day(L.release.activated_at)}` } : null,
+  }));
+  sparkline(document.getElementById("sm-cost"), computeDaily, {
+    key: "cost", max: costMax, id: "sp-cost",
+    unit: (v) => v.toFixed(2) + "¢",
+    label: `Known compute cost in USD cents a day, all businesses, ${usdFromMicrocents(DATA.totals.compute_microcents)} in all. Its own scale, 0 to ${costMax.toFixed(2)} cents.`,
+  });
+}
+renderMultiples();
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(renderMultiples, 120); });
+
+document.getElementById("rev-margin").innerHTML = `
+  <h3>How to read it</h3>
+  <p>Each bar is one day's earned TUSD; the three business rows share one scale (0 to ${sharedMax.toFixed(2)} TUSD a day) so a tall bar means the same thing on every row. The peak day is labelled.</p>
+  <p>Compute is in US cents and sits on its own row and scale: it is never on the TUSD axis.</p>
+  <p>A low tick is a day with nothing earned. ${day(DAYS.at(-1))} is only ${new Date(asOf).getUTCHours()} hours old.</p>`;
+
+const tbl = document.getElementById("daily-table");
+tbl.insertAdjacentHTML("beforeend", `<table><thead><tr><th scope="col">Day</th>${B.map((b) => `<th scope="col">${b.name} TUSD</th>`).join("")}<th scope="col">Compute ¢</th></tr></thead><tbody>${
+  DAYS.map((d, i) => `<tr><td>${day(d)}</td>${B.map((b) => `<td>${tusd(b.daily[i].revenue[TOKEN])}</td>`).join("")}<td>${computeDaily[i].toFixed(2)}</td></tr>`).join("")}</tbody></table>`);
+
+/* ---------- 4. the businesses ---------- */
+function rehearsalText(b) {
+  if (!b.rehearsal) return `<span class="warn">None yet</span> <span class="sub">· a buyer will ask</span>`;
+  return `<span class="ok">Passed</span> <span class="sub">· ${day(b.rehearsal.finished_at)}</span>`;
+}
+function teamText(b) {
+  if (b.name === "Relaydesk") return `You and Priya <span class="sub">(case worker)</span>`;
+  return b.team_members === 0 ? `Just you` : `You and ${b.team_members} others`;
+}
+function computeText(b) {
+  if (b.totals.compute_microcents === "0" && b.product === "SaaS workflow") return `No model cost`;
+  const per = Number(b.cost_per_delivered_microcents) / 1e6;
+  return `${usdFromMicrocents(b.totals.compute_microcents)} USD known <span class="sub">· ${b.totals.compute_unknown_calls} unknown · ${per.toFixed(2)}¢ per delivered</span>`;
+}
+function facts(b) {
+  const u = UNIT[b.name];
+  return `<dl class="facts">
+    <dt>Product</dt><dd>${b.product} · ${PRICE[b.name]} TUSD per ${u[0]}</dd>
+    <dt>Release</dt><dd><span class="mono">${b.release.number}</span> · live since ${day(b.release.activated_at)} <span class="sub mono">· ${b.release.digest.slice(0, 8)}</span></dd>
+    <dt>Delivered</dt><dd>${b.totals.delivered} ${u[1]} · ${pct(b.success_rate)} of ${b.totals.delivered + b.totals.not_charged} finished</dd>
+    <dt>Customers</dt><dd>${b.customers.active} active <span class="sub">· ${b.customers.new} new · ${b.customers.returning} returning</span></dd>
+    <dt>Credits</dt><dd>${n(b.credits.units)} prepaid ${u[1]} · ${tusd(b.credits.value)} TUSD <span class="sub">· lasts ${runway(b.credits_runway_days)} at the current pace</span></dd>
+    <dt>Compute</dt><dd>${computeText(b)}</dd>
+    <dt>Network fees</dt><dd>Not recorded</dd>
+    <dt>Team</dt><dd>${teamText(b)}</dd>
+    <dt>Rehearsal</dt><dd>${rehearsalText(b)}</dd>
+    <dt>Ownership</dt><dd><span class="mono">${b.ownership.owner_account}</span> · generation ${b.ownership.generation} · ${b.ownership.transfers === 0 ? "never transferred" : plural(b.ownership.transfers, "transfer", "transfers")}${b.ownership.sale_in_progress ? ` · <span class="warn">sale in progress</span>` : ""}</dd>
+  </dl>`;
+}
+
+const ledgerlineStory = () => {
+  const reasons = Object.fromEntries(L.not_charged_reasons.map((r) => [r.outcome, r.n]));
+  const total = L.totals.delivered + L.totals.not_charged;
+  return `
+  <p>Ledgerline read ${fig(n(L.totals.delivered) + " invoices")} and earned ${fig(tusd(L.totals.revenue[TOKEN]) + " TUSD")} at 0.40 each.
+  Another ${L.totals.not_charged} finished without a charge: ${reasons.refused} were refused and ${reasons.incomplete} came back incomplete. A refused invoice is never charged, so the ${pct(L.success_rate)} delivered share is also the share your customers paid for.</p>
+  <p>Release 2 went live on ${day(L.release.activated_at)}. Three customers used it this month, two of them for the first time, and they still hold ${n(L.credits.units)} prepaid invoices: ${runway(L.credits_runway_days)} at last week's pace.</p>
+  <div class="qbar" role="img" aria-label="Of ${total} invoices that finished: ${L.totals.delivered} delivered and charged, ${reasons.refused} refused (never charged), ${reasons.incomplete} incomplete (not charged).">
+    <div class="bar">
+      <div class="seg delivered" style="flex:${L.totals.delivered}"><span>${L.totals.delivered}</span></div>
+      <div class="seg refused" style="flex:${reasons.refused}"><span>${reasons.refused}</span></div>
+      <div class="seg incomplete" style="flex:${reasons.incomplete}"><span>${reasons.incomplete}</span></div>
+    </div>
+    <ul class="legend" aria-hidden="true">
+      <li><span class="sw sw-data-primary"></span><b>${L.totals.delivered}</b> delivered, charged</li>
+      <li><span class="sw sw-data-refused"></span><b>${reasons.refused}</b> refused, never charged</li>
+      <li><span class="sw sw-data-incomplete"></span><b>${reasons.incomplete}</b> incomplete, not charged</li>
+    </ul>
+  </div>`;
+};
+
+const relaydeskStory = () => {
+  const c = R.cases;
+  return `
+  <p>Relaydesk took ${fig(c.opened_in_period + " requests")} and resolved ${fig(c.resolved_in_period)} of them, earning ${fig(tusd(R.totals.revenue[TOKEN]) + " TUSD")} at 1.50 a request with nothing refused.
+  Four are open this morning: ${c.open_by_stage.assigned} assigned and ${c.open_by_stage.received} just received. The median request took ${c.median_hours_to_resolve} hours to resolve, about ${Math.round(c.median_hours_to_resolve / 24)} days.</p>
+  <p>Priya works the desk with you, and a successor rehearsal passed on ${day(R.rehearsal.finished_at)}: of the three, this is the one ready to hand over. It runs no model, so it has no compute cost.</p>
+  <div class="desk" role="img" aria-label="Open cases by stage: ${c.open_by_stage.received} received, ${c.open_by_stage.assigned} assigned. Resolved this month: ${c.resolved_in_period} of ${c.opened_in_period} opened. Median ${c.median_hours_to_resolve} hours to resolve.">
+    <div class="stage open"><div class="k">Received</div><div class="v">${c.open_by_stage.received} <small>open</small></div></div>
+    <div class="stage open"><div class="k">Assigned</div><div class="v">${c.open_by_stage.assigned} <small>open</small></div></div>
+    <div class="stage done"><div class="k">Resolved</div><div class="v">${c.resolved_in_period} <small>of ${c.opened_in_period} opened</small></div></div>
+    <div class="stage"><div class="k">Median to resolve</div><div class="v">${c.median_hours_to_resolve} <small>hours</small></div></div>
+  </div>`;
+};
+
+const signalwatchStory = () => {
+  const s = S.sale;
+  const left = daysBetween(asOf, s.expires_at);
+  return `
+  <p>Signalwatch ran ${fig(S.totals.delivered + " analyses")} for ${fig(tusd(S.totals.revenue[TOKEN]) + " TUSD")}, every one delivered, and nothing since ${day(lastSignal)}.
+  Its two customers hold ${n(S.credits.units)} prepaid analyses worth ${tusd(S.credits.value)} TUSD: at the current pace, ${runway(S.credits_runway_days)} of work owed.</p>
+  <div class="story" aria-labelledby="sale-h">
+    <div class="st-head"><h4 id="sale-h">A sale is in progress</h4><span class="chip chip-warn">Proposed · awaiting both acceptances</span></div>
+    <p class="st-text"><b>Noah Brandt</b> (<span class="mono">${s.buyer}</span>) has offered <b class="fig">${tusd(s.price)} TUSD</b> for Signalwatch and the full amount is funded in escrow.
+    Neither of you has accepted yet. If both do before <b>${day(s.expires_at)}</b> (${left} days from now), Noah takes ownership and operations; your two customers' ${n(S.credits.units)} prepaid analyses and their history carry over untouched. If not, the escrow returns to Noah and nothing changes.</p>
+    <ol class="steps" aria-label="Sale steps">
+      <li class="done"><b>Proposed</b><span class="st">Direct sale, ${tusd(s.price)} TUSD</span></li>
+      <li class="done"><b>Escrow funded</b><span class="st">${tusd(s.escrow)} of ${tusd(s.price)} TUSD</span></li>
+      <li class="pending"><b>You accept</b><span class="st">${s.seller_accepted ? "Accepted" : "Not yet"}</span></li>
+      <li class="pending"><b>Noah accepts</b><span class="st">${s.buyer_accepted ? "Accepted" : "Not yet"}</span></li>
+      <li class="pending"><b>Ownership moves</b><span class="st">Generation ${S.ownership.generation + 1}</span></li>
+    </ol>
+    <dl class="facts">
+      <dt>Buyer</dt><dd>Noah Brandt · <span class="mono">${s.buyer}</span></dd>
+      <dt>Expires</dt><dd>${stamp(s.expires_at)}</dd>
+      <dt>Price</dt><dd><span title="${s.price} base units, 6 decimals">${tusd(s.price)} TUSD</span> <span class="sub">· Direct sale</span></dd>
+      <dt>Escrow</dt><dd><span class="ok">Funded</span> · ${tusd(s.escrow)} TUSD</dd>
+      <dt>Carries over</dt><dd>${n(S.credits.units)} prepaid analyses, ${tusd(S.credits.value)} TUSD, and all history</dd>
+      <dt>Your side</dt><dd><a href="/sales/${S.id}">Review the terms →</a></dd>
+    </dl>
+  </div>`;
+};
+
+const STORY = { Ledgerline: ledgerlineStory, Relaydesk: relaydeskStory, Signalwatch: signalwatchStory };
+document.getElementById("businesses").innerHTML = B.map((b) => `
+  <article class="biz row" aria-labelledby="b-${b.slug}">
+    <div class="main">
+      <h3 class="bh" id="b-${b.slug}"><span class="sw sw-data-${SERIES[b.name]}" aria-hidden="true"></span>${b.name} <span class="type">${b.product}${b.ownership.sale_in_progress ? " · mid-sale" : ""}</span></h3>
+      <div class="prose">${STORY[b.name]()}</div>
+    </div>
+    <aside class="margin"><h3>The facts</h3>${facts(b)}</aside>
+  </article>`).join("");
+
+/* ---------- 5. ownership ---------- */
+document.getElementById("own").innerHTML = `
+  <thead><tr><th scope="col">Business</th><th scope="col">Owner account</th><th scope="col">Generation</th><th scope="col">Transfers</th><th scope="col">State</th></tr></thead>
+  <tbody>${B.map((b) => `<tr>
+    <td class="n">${b.name}</td>
+    <td><span class="mono">${b.ownership.owner_account}</span> <span class="sub you">(you)</span></td>
+    <td><span class="mono">${b.ownership.generation}</span></td>
+    <td>${b.ownership.transfers === 0 ? "None yet" : b.ownership.transfers}</td>
+    <td>${b.ownership.sale_in_progress ? `<span class="chip chip-warn">Sale proposed</span>` : b.rehearsal ? `<span class="chip chip-ok">Rehearsed</span>` : `<span class="chip chip-quiet">Not rehearsed</span>`}</td>
+  </tr>`).join("")}</tbody>`;
+document.getElementById("own-margin").innerHTML = `
+  <h3>What a transfer does</h3>
+  <p>Control of the business account moves to the buyer and the generation counts up. Customers' prepaid uses, results and history stay with the business.</p>
+  <p>No business of yours has changed hands yet; Signalwatch would be the first.</p>`;
+
+/* ---------- about ---------- */
+document.getElementById("about").innerHTML = `
+  <strong>About these figures.</strong> Simulated history: fictional people and businesses on a synthetic chain with stand-in models. Nothing on this page is real money or a real customer.
+  <dl>
+    <dt>Business contract</dt><dd>Earned revenue (charges for delivered results, in each offer's token) and prepaid credits (the treasury at its latest observation: ${stamp(creditsObserved)}, blocks ${creditBlocks.join(", ")}). ${DATA.tokens[TOKEN].name} has ${DEC} decimals: ${DATA.totals.revenue[TOKEN]} base units is ${tusd(DATA.totals.revenue[TOKEN])} TUSD.</dd>
+    <dt>Runtime records</dt><dd>Delivered and not-charged requests, known compute cost in USD (${DATA.totals.compute_microcents} microcents is ${centsExact(DATA.totals.compute_microcents)}; a million microcents is one cent) and the count of calls whose cost isn't known yet, which are never counted as zero.</dd>
+    <dt>App records</dt><dd>Customers, cases, team members, rehearsals and releases.</dd>
+    <dt>Network fees</dt><dd>Not recorded. Everstreet doesn't keep the NEAR fees of its own transactions yet.</dd>
+    <dt>Totals</dt><dd>Add businesses only within the same token. TUSD and USD are never added, compared on one axis or turned into a profit.</dd>
+    <dt>As of</dt><dd>${stamp(asOf)}, covering ${dayYear(DATA.period.from)} to ${dayYear(DATA.period.to)}.</dd>
+  </dl>`;
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<!-- Phone render frame: headless Chrome on Windows will not open a window narrower than 500 px,
+     so `shot.mjs ... phone.png 390 H` crops a 500 px layout. This page puts index.html in a
+     390 px iframe, so the crop at 390 px shows the real 390 px layout. Not part of the mockup. -->
+<html lang="en"><head><meta charset="utf-8"><title>index.html at 390 px</title>
+<style>html,body{margin:0;background:#fff}iframe{display:block;width:390px;height:100vh;border:0}</style>
+</head><body><iframe src="index.html" title="Portfolio mockup at 390 px"></iframe></body></html>

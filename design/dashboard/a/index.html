@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio · Everstreet (mockup A, Operator's cockpit)</title>
+<style>
+/* ===== Everstreet tokens (web/src/styles.css) ===== */
+:root {
+  --canvas:#f4f6fb; --surface:#ffffff; --surface-2:#f8f9fc;
+  --ink:#17243c; --ink-raised:#22314d; --ink-line:#33425f;
+  --text:#17243c; --text-2:#3b4860; --text-3:#566178;
+  --line:#dce1eb; --line-strong:#bcc4d4;
+  --cobalt:#3155d9; --cobalt-hover:#2645bd; --cobalt-ink:#2846c4; --cobalt-soft:#ebeffd; --cobalt-line:#c7d2f7; --on-cobalt:#fff;
+  --warm:#f3c49d; --warm-soft:#fcefe3; --warm-ink:#7a3f10;
+  --on-ink:#f2f5fb; --on-ink-2:#aeb8cc; --accent-on-ink:#afc2ff;
+  --success:#1e7a4c; --success-soft:#e5f3eb; --success-line:#b5dcc5;
+  --amber:#8a4b00; --amber-soft:#fff3e0; --amber-line:#f3d3a4;
+  --error:#b42318; --error-soft:#fdeceb; --focus:#3155d9;
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"SF Pro Text",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --display:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"SF Pro Display",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"Cascadia Code","Cascadia Mono",SFMono-Regular,Consolas,monospace;
+  --radius:10px; --radius-sm:8px; --radius-lg:14px; --radius-xl:20px;
+  --shadow-1:0 1px 2px rgba(23,36,60,.06);
+  --shadow-2:0 1px 2px rgba(23,36,60,.05),0 10px 28px rgba(23,36,60,.08);
+  --glass:rgba(255,255,255,.78); --glass-edge:rgba(23,36,60,.08);
+  --data-primary:#3155d9; --data-primary-soft:#dbe3fb;
+  --data-returned:#0f766e; --data-returned-soft:#d3eeeb;
+  --data-founder:#9d2a7c; --data-founder-soft:#f5dcee;
+  --data-cost:#5b6b86; --data-cost-soft:#e3e8f0;
+  --motion:180ms; --ease:cubic-bezier(.2,0,0,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--canvas);color:var(--text);font:14.5px/1.5 var(--sans);-webkit-font-smoothing:antialiased;font-feature-settings:"cv11","ss01","tnum"}
+a{color:var(--cobalt-ink);text-underline-offset:2px}
+a:hover{color:var(--cobalt-hover)}
+h1,h2,h3,h4{line-height:1.2;margin:0;letter-spacing:-.01em;font-weight:650;font-family:var(--display)}
+p{margin:0}
+button{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:6px}
+.mono{font-family:var(--mono);font-size:.92em}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.icon{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.icon.sm{width:15px;height:15px}
+.muted{color:var(--text-3)}
+.num{font-variant-numeric:tabular-nums}
+
+/* ===== shell ===== */
+.env-strip{background:var(--ink);color:var(--on-ink-2);font-size:12.5px;padding:6px 32px;display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+.env-strip strong{color:var(--accent-on-ink);font-weight:600}
+.env-strip .fict{color:var(--warm);font-weight:600}
+.site-header{position:sticky;top:0;z-index:30;background:var(--glass);-webkit-backdrop-filter:blur(16px) saturate(150%);backdrop-filter:blur(16px) saturate(150%);border-bottom:1px solid var(--glass-edge)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.site-header{background:var(--surface)}}
+@media (prefers-reduced-transparency:reduce),(forced-colors:active){.site-header{background:var(--surface);backdrop-filter:none}}
+.site-header-inner{max-width:1376px;margin:0 auto;padding:12px 32px;min-height:64px;display:flex;align-items:center;gap:28px}
+.wordmark{font:700 19px/1 var(--display);letter-spacing:-.02em;color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;gap:10px;flex:none}
+.wordmark svg{width:28px;height:28px}
+.primary-nav{display:flex;gap:4px}
+.primary-nav a{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:999px;color:var(--text-2);text-decoration:none;font-weight:600;font-size:15px}
+.primary-nav a:hover{background:var(--surface-2);color:var(--ink)}
+.primary-nav a[aria-current="page"]{background:var(--cobalt-soft);color:var(--cobalt-ink);box-shadow:inset 0 0 0 1px var(--cobalt-line)}
+.utilities{margin-left:auto;display:flex;align-items:center;gap:10px}
+.pill{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:2px 9px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);color:var(--text-2);font-weight:550;line-height:1.5}
+.pill.success{background:var(--success-soft);border-color:var(--success-line);color:var(--success)}
+.pill.caution{background:var(--amber-soft);border-color:var(--amber-line);color:var(--amber)}
+.pill.blue{background:var(--cobalt-soft);border-color:#c4d6fb;color:var(--cobalt-ink)}
+.pill.warm{background:var(--warm-soft);border-color:var(--warm);color:var(--warm-ink)}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.acting-button{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 14px 4px 4px;cursor:pointer;font-size:14px}
+.acting-button .muted{font-size:13px}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--ink);color:var(--accent-on-ink);display:grid;place-items:center;font-weight:700;font-size:12px;flex:none}
+
+/* ===== page ===== */
+.page{max-width:1376px;margin:0 auto;padding:22px 32px 48px}
+.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:18px}
+.page-head h1{font-size:34px;letter-spacing:-.025em;font-weight:680}
+.page-head .lede{color:var(--text-2);font-size:15px;margin-top:4px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.control{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 12px;border-radius:var(--radius-sm);border:1px solid var(--line-strong);background:var(--surface);font-size:13.5px;font-weight:550;color:var(--text)}
+.control .muted{font-weight:500}
+.asof{font-size:12.5px;color:var(--text-3)}
+
+/* summary strip */
+.strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-1);margin-bottom:18px}
+.fig{padding:14px 18px 12px;border-left:1px solid var(--line);min-width:0}
+.fig:first-child{border-left:0}
+.fig .label{font-size:12.5px;color:var(--text-2);font-weight:600;display:flex;align-items:center;gap:6px}
+.fig .value{font:650 25px/1.15 var(--display);letter-spacing:-.02em;margin:5px 0 3px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.fig .value small{font-size:14px;font-weight:600;color:var(--text-2);letter-spacing:0;margin-left:2px}
+.fig .value.unknown{color:var(--text-2);font-size:19px;padding-top:4px}
+.fig .sub{font-size:12.5px;color:var(--text-2);line-height:1.35}
+.fig .src{font-size:11.5px;color:var(--text-3);margin-top:7px;display:grid;gap:3px;justify-items:start;line-height:1.3}
+.src-tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.02em;padding:0 5px;border-radius:4px;border:1px solid var(--line);background:var(--surface-2);color:var(--text-2);white-space:nowrap}
+
+/* grid */
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:18px;align-items:start}
+.col{display:grid;gap:18px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px 20px;box-shadow:var(--shadow-1);min-width:0}
+.card-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.card-head h2{font-size:17px}
+.card-head .sub{font-size:12.5px;color:var(--text-3);margin-top:2px}
+.card-head .right{font-size:13px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+
+/* legend and chart */
+.legend{display:flex;gap:6px 18px;flex-wrap:wrap;font-size:13px;color:var(--text-2);margin:2px 0 8px}
+.legend li{list-style:none;display:inline-flex;align-items:center;gap:7px}
+.legend ul{margin:0;padding:0;display:contents}
+.legend b{color:var(--text);font-weight:600}
+.legend .num{color:var(--text-3)}
+.sw{display:inline-block;width:14px;height:11px;border-radius:2px;flex:none}
+/* the same patterns draw the legend swatches and the segmented bars */
+.sw-relaydesk,.seg-relaydesk{background:var(--data-primary)}
+.sw-signalwatch,.seg-signalwatch{background:repeating-linear-gradient(135deg,var(--data-returned) 0 2px,var(--data-returned-soft) 2px 5px);border:1px solid var(--data-returned)}
+.sw-ledgerline,.seg-ledgerline{background:radial-gradient(var(--data-founder) 1.2px,var(--data-founder-soft) 1.6px) 0 0/5px 5px;border:1px solid var(--data-founder)}
+.sw-cost,.seg-cost{background:repeating-linear-gradient(0deg,var(--data-cost) 0 1.5px,var(--data-cost-soft) 1.5px 4px);border:1px solid var(--data-cost)}
+.sw-refused,.seg-refused{background:repeating-linear-gradient(45deg,var(--data-cost) 0 1px,transparent 1px 4px),repeating-linear-gradient(-45deg,var(--data-cost) 0 1px,var(--data-cost-soft) 1px 4px);border:1px solid var(--data-cost)}
+.sw-incomplete,.seg-incomplete{background:var(--data-cost-soft);border:1px solid var(--data-cost)}
+.sw-stage1,.seg-stage1{background:var(--data-primary-soft);border:1px solid var(--data-primary)}
+.sw-stage2,.seg-stage2{background:var(--data-primary)}
+.sw-marker{width:0;height:12px;border-left:2px solid var(--ink-line);border-radius:0}
+.sw-partial{background:repeating-linear-gradient(45deg,#bcc4d4 0 1px,transparent 1px 5px);border:1px solid var(--line-strong)}
+.table-wrap{overflow-x:auto}
+.chart{position:relative;outline-offset:4px}
+.chart svg{display:block;width:100%;height:auto;font-family:var(--sans)}
+.chart .ax{font-size:11.5px;fill:var(--text-3)}
+.chart .ax-title{font-size:11px;fill:var(--text-3);font-weight:600;letter-spacing:.04em}
+.chart .grid-line{stroke:var(--line);stroke-width:1}
+.chart .base{stroke:var(--line-strong);stroke-width:1}
+.chart .marker{stroke:var(--ink-line);stroke-width:1.5}
+.chart .marker-label{font-size:11.5px;fill:var(--text);font-weight:600}
+.chart .dlabel{font-size:11.5px;fill:var(--text);font-weight:600}
+.chart .hit{fill:transparent;cursor:crosshair}
+.chart .focus-day{fill:var(--cobalt);opacity:.08}
+.chart .partial{fill:url(#partialHatch)}
+.chart .partial-label{font-size:10.5px;fill:var(--text-3)}
+.tip{position:absolute;z-index:5;pointer-events:none;background:var(--ink);color:var(--on-ink);font-size:12.5px;line-height:1.4;padding:8px 10px;border-radius:8px;box-shadow:var(--shadow-2);min-width:176px;display:none}
+.tip.show{display:block}
+.tip b{display:block;color:#fff;font-weight:650;margin-bottom:2px}
+.tip .row{display:flex;justify-content:space-between;gap:14px}
+.tip .row span:first-child{color:var(--on-ink-2)}
+.tip .row.total{border-top:1px solid rgba(255,255,255,.18);margin-top:4px;padding-top:4px}
+.tip .note{color:var(--warm);font-size:11.5px;margin-top:3px}
+.chart-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--text-3);margin-top:6px}
+details.table-view{margin-top:8px;font-size:13px}
+details.table-view summary{cursor:pointer;color:var(--cobalt-ink);font-weight:600;font-size:13px;width:max-content}
+details.table-view table{margin-top:8px;width:100%}
+.small-multiples{display:grid;gap:14px}
+.sm-title{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-bottom:2px}
+.sm-title b{font-weight:600}
+
+/* tables */
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11.5px;color:var(--text-3);font-weight:600;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--line-strong)}
+tbody tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+td .name{font-weight:650;color:var(--text);display:block}
+td .sub{display:block;color:var(--text-3);font-size:12px;margin-top:1px}
+td .mono{font-size:12px}
+.biz-table{font-size:12.5px}
+.biz-table td{padding:10px 7px}
+.biz-table th{padding:8px 7px;font-size:11px}
+.biz-table td .sub{font-size:11.5px}
+.biz-table .nowrap,.biz-table .sub{white-space:nowrap}
+.state{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;white-space:nowrap}
+.state .icon{width:13px;height:13px;stroke-width:2.2}
+.state.ok{color:var(--success)}
+.state.todo{color:var(--amber)}
+.state.sale{color:var(--cobalt-ink)}
+.state.none{color:var(--text-3);font-weight:500}
+
+/* attention */
+.att{list-style:none;margin:0;padding:0;display:grid}
+.att li{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;padding:11px 0;border-top:1px solid var(--line)}
+.att li:first-child{border-top:0;padding-top:2px}
+.att .ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:var(--cobalt-soft);color:var(--cobalt-ink)}
+.att .ic.amber{background:var(--amber-soft);color:var(--amber)}
+.att .ic.warm{background:var(--warm-soft);color:var(--warm-ink)}
+.att .t{display:block;font-weight:600;font-size:13.5px;line-height:1.3}
+.att .w{display:block;font-size:12px;color:var(--text-3);margin-top:2px;line-height:1.35}
+.att a.go{font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;display:inline-flex;align-items:center;gap:3px;margin-top:5px}
+
+/* sale */
+.sale .terms{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13px;margin:8px 0 12px}
+.sale .terms dt{color:var(--text-3);margin:0}
+.sale .terms dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.sale .terms dd .muted{font-weight:500}
+.steps{list-style:none;margin:0;padding:0;display:grid}
+.steps li{display:grid;grid-template-columns:20px 1fr;gap:10px;align-items:start;position:relative;padding:0 0 12px;font-size:13px}
+.steps li::before{content:"";position:absolute;left:9px;top:18px;bottom:-2px;width:2px;background:var(--line)}
+.steps li:last-child::before{display:none}
+.steps .ring{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;position:relative;z-index:1}
+.steps .done .ring{background:var(--success);color:#fff}
+.steps .done .ring .icon{width:12px;height:12px;stroke-width:2.6}
+.steps .pending .ring{border:2px solid var(--line-strong);background:var(--surface)}
+.steps .pending.next .ring{border-color:var(--cobalt);border-style:dashed}
+.steps .lbl{font-weight:600;line-height:1.3;padding-top:1px}
+.steps .pending .lbl{color:var(--text-2);font-weight:550}
+.steps .when{font-size:12px;color:var(--text-3)}
+.carry{background:var(--success-soft);border:1px solid var(--success-line);color:var(--success);border-radius:var(--radius-sm);padding:9px 11px;font-size:12.5px;line-height:1.4;margin-top:4px;display:flex;gap:8px}
+.carry .icon{width:16px;height:16px;flex:none;margin-top:1px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border-radius:var(--radius-sm);border:1px solid transparent;font-weight:600;font-size:13.5px;cursor:pointer;text-decoration:none;white-space:nowrap}
+.btn-primary{background:var(--cobalt);color:var(--on-cobalt);border-color:var(--cobalt);box-shadow:0 1px 2px rgba(49,85,217,.25)}
+.btn-primary:hover{background:var(--cobalt-hover);color:#fff}
+.btn-secondary{background:var(--surface);color:var(--text);border-color:var(--line-strong)}
+.sale .actions{display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap}
+.sale .actions .muted{font-size:12px}
+
+/* ownership */
+.own{list-style:none;margin:0;padding:0}
+.own li{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+.own li:first-child{border-top:0;padding-top:0}
+.own .n{font-weight:650}
+.own .acct{font-family:var(--mono);font-size:12px;color:var(--text-2);grid-column:1}
+.own .meta{font-size:12px;color:var(--text-3);grid-column:1}
+.own .st{grid-column:2;grid-row:1/4;align-self:center}
+.own-foot{font-size:12.5px;color:var(--text-3);margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+
+/* desk and quality */
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:6px 0 12px}
+.kpi .v{font:650 21px/1.15 var(--display);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi .v small{font-size:13px;font-weight:600;color:var(--text-2);letter-spacing:0}
+.kpi .l{font-size:12px;color:var(--text-3);margin-top:2px;line-height:1.3}
+.segbar{display:flex;height:18px;border-radius:4px;overflow:hidden;gap:2px;margin:6px 0 6px}
+.segbar span{display:block;min-width:2px}
+.seg-legend{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2)}
+.seg-legend span{display:inline-flex;align-items:center;gap:6px}
+.seg-legend b{color:var(--text);font-weight:600}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px;margin-top:10px}
+.facts dt{color:var(--text-3)}
+.facts dd{margin:0;font-weight:550}
+.note{font-size:12.5px;color:var(--text-3);margin-top:8px;line-height:1.4}
+
+/* footer */
+.foot{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);font-size:12.5px;color:var(--text-3);display:grid;gap:4px;line-height:1.45}
+.foot b{color:var(--text-2);font-weight:600}
+
+/* ===== compact ===== */
+@media (max-width:1180px){
+  .strip{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .fig:nth-child(4){border-left:0}
+  .fig:nth-child(n+4){border-top:1px solid var(--line)}
+  .grid{grid-template-columns:minmax(0,1fr) 320px}
+}
+@media (max-width:980px){
+  .site-header-inner{flex-wrap:wrap;gap:10px 12px;padding:10px 16px}
+  .primary-nav{order:3;width:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+  .primary-nav a{justify-content:center;padding:8px 4px;font-size:13.5px}
+  .utilities .pill.hide-sm{display:none}
+  .env-strip{padding:6px 16px}
+  .grid{grid-template-columns:1fr}
+  .two{grid-template-columns:1fr}
+  /* one column: what needs you today comes first, then the figures, then the sale and ownership */
+  .grid aside{display:contents}
+  #att-card{order:-1}
+}
+@media (max-width:700px){
+  .page{padding:16px 14px 40px}
+  .page-head h1{font-size:28px}
+  .strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .fig{padding:12px 14px 10px}
+  .fig:nth-child(odd){border-left:0}
+  .fig:nth-child(even){border-left:1px solid var(--line)}
+  .fig:nth-child(n+3){border-top:1px solid var(--line)}
+  .fig .value{font-size:22px}
+  .card{padding:14px 14px;border-radius:12px}
+  .kpis{grid-template-columns:repeat(3,1fr);gap:8px}
+  .kpi .v{font-size:19px}
+  .acting-button .muted{display:none}
+  .acting-button{padding-right:10px}
+  .env-strip{font-size:12px;gap:4px 12px}
+  /* the businesses table becomes one block per business */
+  .biz-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  .biz-table tr{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .biz-table tr:last-child{border-bottom:0}
+  .biz-table td{border:0;padding:0;display:block}
+  .biz-table td.r{text-align:left}
+  .biz-table td.full{grid-column:1/-1}
+  .biz-table .nowrap,.biz-table .sub{white-space:normal}
+  .biz-table td[data-l]::before{content:attr(data-l);display:block;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="env-strip" role="note">
+  <span><strong>Demo founder</strong> · Simulated history on a synthetic chain · <span class="fict">Fictional</span> people, businesses, tokens and models</span>
+  <span>Local preview · nothing here is real money or real customers</span>
+</div>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="wordmark" href="#" aria-label="Everstreet home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#17243c"/><path d="M9 23V9h13M9 16h10M9 23h14" stroke="#afc2ff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Everstreet
+    </a>
+    <nav class="primary-nav" aria-label="Primary">
+      <a href="#">Discover</a>
+      <a href="#">Build</a>
+      <a href="#" aria-current="page">Operate</a>
+      <a href="#">Acquire</a>
+    </nav>
+    <div class="utilities">
+      <span class="pill success hide-sm"><span class="dot"></span>Synthetic chain</span>
+      <span class="pill warm">Simulated history · Fictional</span>
+      <button class="acting-button" type="button" aria-haspopup="menu" aria-expanded="false">
+        <span class="avatar" aria-hidden="true">DM</span>
+        <span><span class="muted">Acting as </span><strong>Delphine Marsh</strong></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="page" id="main">
+  <div class="page-head">
+    <div>
+      <h1>Portfolio</h1>
+      <p class="lede">Three businesses, from launch to handover. <span id="lede-month"></span></p>
+    </div>
+    <div class="controls" aria-label="View controls">
+      <span class="control"><svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Last 30 days <span class="muted" id="period-range"></span></span>
+      <span class="control">3 businesses <span class="muted">· all owned</span></span>
+      <span class="asof" id="asof"></span>
+    </div>
+  </div>
+
+  <section class="strip" aria-label="The month at a glance" id="strip"></section>
+
+  <div class="grid">
+    <div class="col">
+
+      <section class="card" aria-labelledby="rev-h">
+        <div class="card-head">
+          <div>
+            <h2 id="rev-h">Earned revenue by day</h2>
+            <div class="sub">TUSD charged for delivered results, per business · pending charges not counted</div>
+          </div>
+          <div class="right"><span class="src-tag">contract</span><a href="#">Open records →</a></div>
+        </div>
+        <div class="legend" id="rev-legend"></div>
+        <div class="chart" id="rev-chart" tabindex="0" role="group" aria-label="Daily earned revenue chart, 30 days. Use left and right arrow keys to read each day; the figures are also in the table below."></div>
+        <div class="chart-foot"><span id="rev-foot"></span><span>Release markers show the day a new release went live.</span></div>
+        <details class="table-view"><summary>Daily figures as a table</summary><div id="rev-table"></div></details>
+      </section>
+
+      <section class="card" aria-labelledby="cost-h">
+        <div class="card-head">
+          <div>
+            <h2 id="cost-h">Known compute cost by day</h2>
+            <div class="sub">USD, from runtime records · its own axis, never added to TUSD</div>
+          </div>
+          <div class="right"><span class="src-tag">runtime records</span><span class="muted" id="cost-unknown"></span></div>
+        </div>
+        <div class="legend" id="cost-legend"></div>
+        <div class="chart" id="cost-chart" tabindex="0" role="group" aria-label="Daily known compute cost chart in US cents, 30 days. Use left and right arrow keys to read each day; the figures are also in the table below."></div>
+        <details class="table-view"><summary>Daily figures as a table</summary><div id="cost-table"></div></details>
+      </section>
+
+      <section class="card" aria-labelledby="biz-h">
+        <div class="card-head">
+          <div>
+            <h2 id="biz-h">Your businesses</h2>
+            <div class="sub">Each row is one business on its own contract; figures are this period's</div>
+          </div>
+          <div class="right"><span class="src-tag">contract</span><span class="src-tag">runtime</span><span class="src-tag">app</span></div>
+        </div>
+        <div id="biz-table"></div>
+      </section>
+
+      <div class="two">
+        <section class="card" aria-labelledby="desk-h">
+          <div class="card-head">
+            <div><h2 id="desk-h">Relaydesk's desk</h2><div class="sub">Support cases this period</div></div>
+            <div class="right"><span class="src-tag">app records</span></div>
+          </div>
+          <div id="desk"></div>
+        </section>
+        <section class="card" aria-labelledby="ql-h">
+          <div class="card-head">
+            <div><h2 id="ql-h">Ledgerline's quality</h2><div class="sub">Every finished request, and whether it was charged</div></div>
+            <div class="right"><span class="src-tag">contract</span><span class="src-tag">runtime</span></div>
+          </div>
+          <div id="quality"></div>
+        </section>
+      </div>
+    </div>
+
+    <aside class="col" aria-label="Today">
+      <section class="card" id="att-card" aria-labelledby="att-h">
+        <div class="card-head"><h2 id="att-h">Needs attention today</h2><span class="pill" id="att-count"></span></div>
+        <ul class="att" id="att"></ul>
+      </section>
+
+      <section class="card sale" aria-labelledby="sale-h">
+        <div class="card-head">
+          <div><h2 id="sale-h">Sale in progress</h2><div class="sub">Signalwatch · Direct sale</div></div>
+          <span class="pill caution">Awaiting acceptance</span>
+        </div>
+        <div id="sale"></div>
+      </section>
+
+      <section class="card" aria-labelledby="own-h">
+        <div class="card-head">
+          <div><h2 id="own-h">Ownership on NEAR</h2><div class="sub">Who controls each business contract</div></div>
+          <div class="right"><span class="src-tag">synthetic chain</span></div>
+        </div>
+        <ul class="own" id="own"></ul>
+        <div class="own-foot" id="own-foot"></div>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="foot" id="foot"></footer>
+</main>
+
+<script>
+// ===== The exact answer of GET /api/me/dashboard for Delphine Marsh's simulated month (fictional) =====
+const DATA = {"note":"FICTIONAL: Delphine Marsh's simulated month (synthetic chain, stand-in models). Shape of GET /api/me/dashboard.","as_of":"2026-11-06T02:13:51.468Z","period":{"days":30,"from":"2026-10-08","to":"2026-11-06"},"days":["2026-10-08","2026-10-09","2026-10-10","2026-10-11","2026-10-12","2026-10-13","2026-10-14","2026-10-15","2026-10-16","2026-10-17","2026-10-18","2026-10-19","2026-10-20","2026-10-21","2026-10-22","2026-10-23","2026-10-24","2026-10-25","2026-10-26","2026-10-27","2026-10-28","2026-10-29","2026-10-30","2026-10-31","2026-11-01","2026-11-02","2026-11-03","2026-11-04","2026-11-05","2026-11-06"],"tokens":{"tusd.near":{"symbol":"TUSD","name":"Test USD (fixture)","decimals":6,"block_height":"1783","observed_at":"2026-10-31T12:08:00.690Z","changed":false,"reason":null}},"totals":{"revenue":{"tusd.near":"137000000"},"compute_microcents":"15120000"},"businesses":[{"id":"20031168-06dc-4073-895a-e541374f8e48","name":"Ledgerline","slug":"ledgerline","role":"owner","product":"AI API","release":{"number":2,"activated_at":"2026-10-15T11:58:36.237Z","digest":"f1eeb5a26550e9d296437ae3c8b90e77f2c17cfc6888c2f1adcd7b54bffaf9cf"},"daily":[{"day":"2026-10-08","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":1,"compute_microcents":"150000","compute_unknown_calls":0},{"day":"2026-10-09","revenue":{"tusd.near":"400000"},"delivered":1,"not_charged":1,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-10-10","revenue":{"tusd.near":"400000"},"delivered":1,"not_charged":2,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-10-11","revenue":{"tusd.near":"400000"},"delivered":1,"not_charged":0,"compute_microcents":"150000","compute_unknown_calls":0},{"day":"2026-10-12","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":1,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-10-13","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":1,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-10-14","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":0,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-10-15","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":0,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-10-16","revenue":{"tusd.near":"1200000"},"delivered":3,"not_charged":0,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-10-17","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":2,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-10-18","revenue":{"tusd.near":"1600000"},"delivered":4,"not_charged":0,"compute_microcents":"600000","compute_unknown_calls":0},{"day":"2026-10-19","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":0,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-10-20","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":1,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-10-21","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":0,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-10-22","revenue":{"tusd.near":"400000"},"delivered":1,"not_charged":3,"compute_microcents":"600000","compute_unknown_calls":0},{"day":"2026-10-23","revenue":{"tusd.near":"400000"},"delivered":1,"not_charged":1,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-10-24","revenue":{"tusd.near":"400000"},"delivered":1,"not_charged":1,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-10-25","revenue":{"tusd.near":"400000"},"delivered":1,"not_charged":2,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-10-26","revenue":{"tusd.near":"1200000"},"delivered":3,"not_charged":0,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-10-27","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":1,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-10-28","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":0,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-10-29","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":2,"compute_microcents":"600000","compute_unknown_calls":0},{"day":"2026-10-30","revenue":{"tusd.near":"400000"},"delivered":1,"not_charged":2,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-10-31","revenue":{"tusd.near":"1600000"},"delivered":4,"not_charged":0,"compute_microcents":"600000","compute_unknown_calls":0},{"day":"2026-11-01","revenue":{"tusd.near":"2000000"},"delivered":5,"not_charged":0,"compute_microcents":"750000","compute_unknown_calls":0},{"day":"2026-11-02","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":1,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-11-03","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":2,"compute_microcents":"600000","compute_unknown_calls":0},{"day":"2026-11-04","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":1,"compute_microcents":"450000","compute_unknown_calls":0},{"day":"2026-11-05","revenue":{"tusd.near":"800000"},"delivered":2,"not_charged":0,"compute_microcents":"300000","compute_unknown_calls":0},{"day":"2026-11-06","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0}],"totals":{"revenue":{"tusd.near":"22000000"},"pending":{},"delivered":55,"not_charged":25,"compute_microcents":"12000000","compute_unknown_calls":0},"credits":{"value":"137600000","asset":"tusd.near","units":344,"block_height":"1981","observed_at":"2026-11-05T11:10:38.445Z"},"network_fees":null,"ownership":{"generation":1,"owner_account":"delphine.near","transfers":0,"last_transfer_at":null,"sale_in_progress":false},"rehearsal":null,"founded_at":"2026-10-07T00:00:00.476Z","customers":{"active":3,"returning":3,"new":2},"not_charged_reasons":[{"outcome":"refused","n":15},{"outcome":"incomplete","n":10}],"success_rate":0.688,"cost_per_delivered_microcents":"218181","credits_runway_days":141,"cases":null,"releases":[{"activated_at":"2026-10-07T00:00:00.566Z","retired_at":"2026-10-15T11:58:36.237Z","state":"retired","number":1},{"activated_at":"2026-10-15T11:58:36.237Z","retired_at":null,"state":"active","number":2}],"team_members":0,"sale":null,"attention":[{"kind":"rehearsal","text":"No successor rehearsal yet: rehearse the handover","link":"/desk/20031168-06dc-4073-895a-e541374f8e48/rehearsal"}]},{"id":"b6fa11e4-6286-4a0b-af41-5a78fdc5090f","name":"Relaydesk","slug":"relaydesk","role":"owner","product":"SaaS workflow","release":{"number":1,"activated_at":"2026-10-07T00:00:00.659Z","digest":"e9f65820bf62dc32ccb202a673a55246fcdf1e430bae1928fc6e162768c56feb"},"daily":[{"day":"2026-10-08","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-09","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-10","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-11","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-12","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-13","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-14","revenue":{"tusd.near":"3000000"},"delivered":2,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-15","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-16","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-17","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-18","revenue":{"tusd.near":"3000000"},"delivered":2,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-19","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-20","revenue":{"tusd.near":"4500000"},"delivered":3,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-21","revenue":{"tusd.near":"3000000"},"delivered":2,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-22","revenue":{"tusd.near":"4500000"},"delivered":3,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-23","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-24","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-25","revenue":{"tusd.near":"3000000"},"delivered":2,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-26","revenue":{"tusd.near":"3000000"},"delivered":2,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-27","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-28","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-29","revenue":{"tusd.near":"3000000"},"delivered":2,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-30","revenue":{"tusd.near":"4500000"},"delivered":3,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-31","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-01","revenue":{"tusd.near":"3000000"},"delivered":2,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-02","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-03","revenue":{"tusd.near":"1500000"},"delivered":1,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-04","revenue":{"tusd.near":"6000000"},"delivered":4,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-05","revenue":{"tusd.near":"4500000"},"delivered":3,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-06","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0}],"totals":{"revenue":{"tusd.near":"63000000"},"pending":{},"delivered":42,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},"credits":{"value":"535500000","asset":"tusd.near","units":357,"block_height":"1982","observed_at":"2026-11-05T11:10:38.449Z"},"network_fees":null,"ownership":{"generation":1,"owner_account":"delphine.near","transfers":0,"last_transfer_at":null,"sale_in_progress":false},"rehearsal":{"state":"passed","finished_at":"2026-10-26T12:34:06.118Z"},"founded_at":"2026-10-07T00:00:00.570Z","customers":{"active":4,"returning":4,"new":3},"not_charged_reasons":[],"success_rate":1,"cost_per_delivered_microcents":"0","credits_runway_days":208,"cases":{"open":4,"open_by_stage":{"assigned":3,"received":1},"opened_in_period":42,"resolved_in_period":39,"median_hours_to_resolve":47.6},"releases":[{"activated_at":"2026-10-07T00:00:00.659Z","retired_at":null,"state":"active","number":1}],"team_members":1,"sale":null,"attention":[{"kind":"open_cases","text":"4 open customer requests","link":"/desk/b6fa11e4-6286-4a0b-af41-5a78fdc5090f"}]},{"id":"69471902-6572-4d19-a3fb-1f10d0f29f7e","name":"Signalwatch","slug":"signalwatch","role":"owner","product":"Agent service","release":{"number":1,"activated_at":"2026-10-07T00:00:00.713Z","digest":"453948209d39d3934bcb247b39067f30189962fcdaffe2a5beab1a5378a42145"},"daily":[{"day":"2026-10-08","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-09","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-10","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-11","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-12","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-13","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-14","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-15","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-16","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-17","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-18","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-19","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-20","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-21","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-22","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-23","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-24","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-10-25","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-26","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-27","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-28","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-29","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-30","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-10-31","revenue":{"tusd.near":"4000000"},"delivered":1,"not_charged":0,"compute_microcents":"240000","compute_unknown_calls":0},{"day":"2026-11-01","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-02","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-03","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-04","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-05","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0},{"day":"2026-11-06","revenue":{"tusd.near":"0"},"delivered":0,"not_charged":0,"compute_microcents":"0","compute_unknown_calls":0}],"totals":{"revenue":{"tusd.near":"52000000"},"pending":{},"delivered":13,"not_charged":0,"compute_microcents":"3120000","compute_unknown_calls":0},"credits":{"value":"1544000000","asset":"tusd.near","units":386,"block_height":"1983","observed_at":"2026-11-05T11:10:38.454Z"},"network_fees":null,"ownership":{"generation":1,"owner_account":"delphine.near","transfers":0,"last_transfer_at":null,"sale_in_progress":true},"rehearsal":null,"founded_at":"2026-10-07T00:00:00.572Z","customers":{"active":2,"returning":2,"new":1},"not_charged_reasons":[],"success_rate":1,"cost_per_delivered_microcents":"240000","credits_runway_days":2702,"cases":null,"releases":[{"activated_at":"2026-10-07T00:00:00.713Z","retired_at":null,"state":"active","number":1}],"team_members":0,"sale":{"state":"proposed","buyer":"buyer.near","price":"180000000","escrow":"180000000","seller_accepted":false,"buyer_accepted":false,"expires_at":"2026-11-21T12:08:00.625Z","asset":"tusd.near"},"attention":[{"kind":"sale","text":"A sale is in progress: its terms wait for acceptance","link":"/sales/69471902-6572-4d19-a3fb-1f10d0f29f7e"}]}],"definitions":{"revenue":"Earned: units the contract charged for delivered results, times the price of the offer each request used, in that offer's token. Pending charges aren't counted.","compute":"Known compute cost of customer requests (USD). Calls whose cost isn't known yet are counted separately, never as zero.","credits":"Prepaid customer uses not yet used, as the business contract's treasury showed at its latest observation here.","network_fees":"Not recorded: Everstreet doesn't keep the NEAR fees of its own transactions yet, so none is shown.","customers":"Active: customers who sent a request in the period. Returning: on two or more days. New: their first request ever was in the period.","success_rate":"Delivered (charged) requests out of all requests that finished in the period.","runway":"How many days the prepaid credits would last at the last 7 days' pace of delivered uses.","cases":"A SaaS workflow's cases: open by stage, and the median time from request to resolved.","totals":"Totals add businesses only within the same token. Tokens and USD are never added together."}};
+
+// ===== helpers =====
+const TOKEN = "tusd.near";
+const BIZ_STYLE = {
+  // colour follows the business everywhere; the pattern carries identity without colour
+  relaydesk:  { color: "var(--data-primary)",  soft: "var(--data-primary-soft)",  hex: "#3155d9", softHex: "#dbe3fb", pattern: "solid",   sw: "sw-relaydesk" },
+  signalwatch:{ color: "var(--data-returned)", soft: "var(--data-returned-soft)", hex: "#0f766e", softHex: "#d3eeeb", pattern: "stripes", sw: "sw-signalwatch" },
+  ledgerline: { color: "var(--data-founder)",  soft: "var(--data-founder-soft)",  hex: "#9d2a7c", softHex: "#f5dcee", pattern: "dots",    sw: "sw-ledgerline" },
+};
+// stack order, bottom to top: adjacent pairs stay apart under colour-vision deficiency
+const STACK = ["signalwatch", "relaydesk", "ledgerline"];
+const byId = Object.fromEntries(DATA.businesses.map(b => [b.slug, b]));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const tusd = (base, d = 2) => (Number(base) / 1e6).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const tusdNum = base => Number(base) / 1e6;
+const cents = mc => Number(mc) / 1e6;                       // microcents -> cents
+const usd = mc => "$" + (Number(mc) / 1e8).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const centsStr = mc => cents(mc).toLocaleString("en-US", { maximumFractionDigits: 2 }) + "¢";
+const grp = n => Number(n).toLocaleString("en-US");
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const dShort = iso => { const d = new Date(iso); return MON[d.getUTCMonth()] + " " + d.getUTCDate(); };
+const dLong = iso => { const d = new Date(iso); return MON[d.getUTCMonth()] + " " + d.getUTCDate() + ", " + d.getUTCFullYear(); };
+const dTime = iso => { const d = new Date(iso); return dShort(iso) + ", " + String(d.getUTCHours()).padStart(2,"0") + ":" + String(d.getUTCMinutes()).padStart(2,"0") + " UTC"; };
+const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 864e5);
+const pct = x => Math.round(x * 100) + "%";
+const runway = days => days > 365 ? "over a year" : days >= 60 ? "about " + Math.round(days / 30) + " months" : days + " days";
+const asOf = DATA.as_of;
+const dayIndex = iso => DATA.days.indexOf(iso.slice(0, 10));
+
+// ===== page head =====
+document.getElementById("lede-month").textContent = "Simulated history for " + DATA.period.days + " days, " + dShort(DATA.period.from) + " to " + dLong(DATA.period.to) + ".";
+document.getElementById("period-range").textContent = "· " + dShort(DATA.period.from) + " – " + dShort(DATA.period.to);
+document.getElementById("asof").textContent = "As of " + dTime(asOf);
+
+// ===== summary strip =====
+(function strip() {
+  const B = DATA.businesses;
+  const sum = f => B.reduce((a, b) => a + f(b), 0);
+  const delivered = sum(b => b.totals.delivered), notCharged = sum(b => b.totals.not_charged);
+  const finished = delivered + notCharged;
+  const active = sum(b => b.customers.active), fresh = sum(b => b.customers.new), ret = sum(b => b.customers.returning);
+  const unknownCalls = sum(b => b.totals.compute_unknown_calls);
+  const creditUnits = sum(b => b.credits.units), creditVal = sum(b => Number(b.credits.value));
+  const obs = B.map(b => b.credits.observed_at).sort().pop();
+  const blocks = B.map(b => Number(b.credits.block_height));
+  const tok = DATA.tokens[TOKEN];
+  const figs = [
+    { label: "Earned revenue", value: tusd(DATA.totals.revenue[TOKEN]), unit: "TUSD",
+      sub: B.map(b => b.name + " " + tusd(b.totals.revenue[TOKEN], 0)).join(" · "),
+      src: "contract", fresh: "as of " + dTime(asOf), exact: DATA.totals.revenue[TOKEN] + " base units, 6 decimals" },
+    { label: "Delivered", value: grp(delivered), unit: "requests",
+      sub: pct(delivered / finished) + " of " + finished + " finished · " + notCharged + " not charged",
+      src: "contract + runtime", fresh: "as of " + dTime(asOf) },
+    { label: "Active customers", value: grp(active), unit: "",
+      sub: fresh + " new · " + ret + " returning · counted per business",
+      src: "app records", fresh: "as of " + dTime(asOf) },
+    { label: "Known compute cost", value: usd(DATA.totals.compute_microcents), unit: "USD",
+      sub: centsStr(DATA.totals.compute_microcents) + " exact · " + unknownCalls + " calls with unknown cost",
+      src: "runtime records", fresh: "as of " + dTime(asOf), exact: DATA.totals.compute_microcents + " microcents" },
+    { label: "Prepaid credits", value: grp(creditUnits), unit: "uses",
+      sub: tusd(creditVal) + " TUSD still owed to customers",
+      src: "contract", fresh: "observed " + dTime(obs) + " · blocks " + Math.min(...blocks) + "–" + Math.max(...blocks) },
+    { label: "Network fees", value: "Not recorded", unknown: true, unit: "",
+      sub: "Everstreet doesn't keep the NEAR fees of its own transactions yet",
+      src: "synthetic chain", fresh: "no observation" },
+  ];
+  document.getElementById("strip").innerHTML = figs.map(f => `
+    <div class="fig">
+      <div class="label">${f.label}</div>
+      <div class="value ${f.unknown ? "unknown" : "num"}"${f.exact ? ` title="${esc(f.exact)}"` : ""}>${f.value}${f.unit ? `<small>${f.unit}</small>` : ""}</div>
+      <div class="sub">${esc(f.sub)}</div>
+      <div class="src"><span class="src-tag">${f.src}</span><span>${esc(f.fresh)}</span></div>
+    </div>`).join("");
+})();
+
+// ===== chart engine =====
+function svgDefs(id) {
+  const p = [];
+  for (const k of Object.keys(BIZ_STYLE)) {
+    const s = BIZ_STYLE[k];
+    if (s.pattern === "stripes") p.push(`<pattern id="${id}-${k}" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(135)"><rect width="5" height="5" fill="${s.softHex}"/><rect width="2" height="5" fill="${s.hex}"/></pattern>`);
+    if (s.pattern === "dots") p.push(`<pattern id="${id}-${k}" patternUnits="userSpaceOnUse" width="5" height="5"><rect width="5" height="5" fill="${s.softHex}"/><circle cx="2.5" cy="2.5" r="1.25" fill="${s.hex}"/></pattern>`);
+  }
+  p.push(`<pattern id="${id}-cost" patternUnits="userSpaceOnUse" width="4" height="4"><rect width="4" height="4" fill="#e3e8f0"/><rect width="4" height="1.5" fill="#5b6b86"/></pattern>`);
+  p.push(`<pattern id="partialHatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><rect width="6" height="6" fill="transparent"/><rect width="1" height="6" fill="#bcc4d4"/></pattern>`);
+  return `<defs>${p.join("")}</defs>`;
+}
+const fillFor = (id, key) => BIZ_STYLE[key] && BIZ_STYLE[key].pattern === "solid" ? BIZ_STYLE[key].hex : `url(#${id}-${key})`;
+const niceMax = m => { if (m <= 0) return 1; const e = Math.pow(10, Math.floor(Math.log10(m))); const f = m / e; const n = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10; return n * e; };
+const ticksFor = (max, divisions = 4) => Array.from({ length: divisions + 1 }, (_, i) => i * max / divisions);
+const fmtTick = (v, unit) => unit === "¢" ? (v === 0 ? "0" : v.toLocaleString("en-US", { maximumFractionDigits: 2 }) + "¢") : v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+
+/** Stacked daily columns. series: [{key,name,values:number[]}] bottom first. */
+function stackedChart(el, opts) {
+  const { id, series, unit, axisTitle, marker, height, partialLast, labelMax, tipFmt } = opts;
+  const W = Math.max(280, el.clientWidth), H = height;
+  const m = { l: unit === "¢" ? 46 : 40, r: 10, t: marker ? 40 : 30, b: 26 };
+  const n = DATA.days.length, iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const slot = iw / n, bw = Math.min(24, Math.max(5, Math.round(slot * 0.62)));
+  const totals = DATA.days.map((_, i) => series.reduce((a, s) => a + s.values[i], 0));
+  const max = niceMax(Math.max(...totals));
+  const y = v => m.t + ih - (v / max) * ih;
+  const x = i => m.l + i * slot + slot / 2;
+  const ticks = ticksFor(max, ih < 80 ? 2 : 4);
+  let out = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">${svgDefs(id)}`;
+  // gridlines + axis
+  for (const t of ticks) out += `<line class="grid-line" x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/><text class="ax" x="${m.l - 6}" y="${y(t) + 4}" text-anchor="end">${fmtTick(t, unit)}</text>`;
+  out += `<text class="ax-title" x="0" y="12" text-anchor="start">${esc(axisTitle)}</text>`;
+  out += `<line class="base" x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}"/>`;
+  // partial day hatch
+  if (partialLast) out += `<rect class="partial" x="${m.l + (n - 1) * slot}" y="${m.t}" width="${slot}" height="${ih}"/>`;
+  // x labels every 7 days
+  for (let i = 0; i < n; i += 7) out += `<text class="ax" x="${x(i)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : "middle"}">${dShort(DATA.days[i])}</text>`;
+  // columns
+  const GAP = 2;
+  for (let i = 0; i < n; i++) {
+    let acc = 0; const segs = [];
+    for (const s of series) { if (s.values[i] > 0) { segs.push({ s, from: acc, to: acc + s.values[i] }); acc += s.values[i]; } }
+    segs.forEach((g, k) => {
+      const x0 = x(i) - bw / 2, top = y(g.to), bot = y(g.from) - (k > 0 ? GAP : 0);
+      const h = Math.max(1, bot - top);
+      const last = k === segs.length - 1;
+      const r = last ? Math.min(4, bw / 2, h) : 0;
+      const d = `M${x0} ${bot} V${top + r} a${r} ${r} 0 0 1 ${r} -${r} H${x0 + bw - r} a${r} ${r} 0 0 1 ${r} ${r} V${bot} Z`;
+      out += `<path d="${d}" fill="${fillFor(id, g.s.key)}" ${BIZ_STYLE[g.s.key] && BIZ_STYLE[g.s.key].pattern !== "solid" ? `stroke="${BIZ_STYLE[g.s.key].hex}" stroke-width="1"` : ""}/>`;
+    });
+  }
+  // release marker
+  if (marker) {
+    // at the start of the release day: everything to the right ran on the new release
+    const mx = m.l + marker.index * slot, lab = esc(marker.label);
+    const anchor = marker.index > n * 0.6 ? "end" : "start", lx = anchor === "start" ? mx + 6 : mx - 6;
+    out += `<line class="marker" x1="${mx}" x2="${mx}" y1="${m.t - 6}" y2="${y(0)}"/><path d="M${mx - 4} ${m.t - 10} h8 l-4 6 z" fill="#33425f"/><text class="marker-label" x="${lx}" y="${m.t - 10}" text-anchor="${anchor}">${lab}</text>`;
+  }
+  // direct label on the biggest day
+  if (labelMax) {
+    const i = totals.indexOf(Math.max(...totals));
+    out += `<text class="dlabel" x="${x(i)}" y="${y(totals[i]) - 6}" text-anchor="middle">${labelMax(totals[i])}</text>`;
+  }
+  out += `<rect id="${id}-focus" class="focus-day" x="0" y="${m.t}" width="${slot}" height="${ih}" style="display:none"/>`;
+  for (let i = 0; i < n; i++) out += `<rect class="hit" data-i="${i}" x="${m.l + i * slot}" y="${m.t}" width="${slot}" height="${ih}"/>`;
+  out += `</svg><div class="tip" id="${id}-tip" role="status" aria-live="polite"></div>`;
+  el.innerHTML = out;
+
+  // hover + keyboard
+  const tip = el.querySelector(`#${id}-tip`), focus = el.querySelector(`#${id}-focus`);
+  let active = -1;
+  const show = i => {
+    active = i;
+    focus.setAttribute("x", m.l + i * slot); focus.style.display = "";
+    tip.innerHTML = tipFmt(i, totals[i]);
+    tip.classList.add("show");
+    const left = (m.l + i * slot) / W * el.clientWidth;
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(el.clientWidth - tw, left + (left + tw + 16 > el.clientWidth ? -tw + slot : slot + 6))) + "px";
+    tip.style.top = Math.max(0, m.t * (el.clientHeight / H)) + "px";
+  };
+  const hide = () => { active = -1; focus.style.display = "none"; tip.classList.remove("show"); };
+  el.querySelectorAll(".hit").forEach(r => { r.addEventListener("mouseenter", () => show(+r.dataset.i)); });
+  el.addEventListener("mouseleave", hide);
+  el.addEventListener("keydown", e => {
+    if (e.key === "ArrowRight") { e.preventDefault(); show(Math.min(n - 1, active < 0 ? n - 1 : active + 1)); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); show(Math.max(0, active < 0 ? n - 1 : active - 1)); }
+    else if (e.key === "Home") { e.preventDefault(); show(0); }
+    else if (e.key === "End") { e.preventDefault(); show(n - 1); }
+    else if (e.key === "Escape") hide();
+  });
+  el.addEventListener("blur", hide);
+}
+
+/** One small chart per business (phone). */
+function smallMultiples(el, opts) {
+  const { id, series, unit, height, marker, fmtTotal, tipFmt } = opts;
+  el.innerHTML = `<div class="small-multiples">${series.map(s => `
+    <div><div class="sm-title"><span><span class="sw ${BIZ_STYLE[s.key].sw}" aria-hidden="true"></span> <b>${esc(s.name)}</b></span><span class="num">${fmtTotal(s)}</span></div><div class="chart" id="${id}-${s.key}" tabindex="0" role="group" aria-label="${esc(s.name)} daily chart. Arrow keys read each day."></div></div>`).join("")}</div>`;
+  for (const s of series) {
+    stackedChart(el.querySelector(`#${id}-${s.key}`), {
+      id: id + "-" + s.key, series: [s], unit, axisTitle: unit === "¢" ? "US cents" : "TUSD", height,
+      marker: marker && marker.key === s.key ? marker : null, partialLast: true,
+      labelMax: null, tipFmt: (i, t) => tipFmt(i, t, s),
+    });
+  }
+}
+
+// ===== revenue chart =====
+const revSeries = STACK.map(k => ({ key: k, name: byId[k].name, values: byId[k].daily.map(d => tusdNum(d.revenue[TOKEN])) }));
+const releaseIdx = dayIndex(byId.ledgerline.release.activated_at);
+const revMarker = { index: releaseIdx, key: "ledgerline", label: "Ledgerline release 2 · " + dShort(byId.ledgerline.release.activated_at) };
+document.getElementById("rev-legend").innerHTML = `<ul>${STACK.slice().reverse().map(k => `<li><span class="sw ${BIZ_STYLE[k].sw}" aria-hidden="true"></span><b>${byId[k].name}</b> <span class="num">${tusd(byId[k].totals.revenue[TOKEN])} TUSD</span></li>`).join("")}<li><span class="sw sw-marker" aria-hidden="true"></span>Release went live</li><li><span class="sw sw-partial" aria-hidden="true"></span>Today, partial</li></ul>`;
+const revTip = (i, total, only) => {
+  const rows = (only ? [only] : revSeries.slice().reverse()).map(s => `<div class="row"><span>${esc(s.name)}</span><span>${s.values[i].toFixed(2)} TUSD</span></div>`).join("");
+  const partial = i === DATA.days.length - 1 ? `<div class="note">Today, counted to ${dTime(asOf).split(", ")[1]}</div>` : "";
+  const rel = i === releaseIdx ? `<div class="note">Ledgerline release 2 went live</div>` : "";
+  return `<b>${dLong(DATA.days[i])}</b>${rows}${only ? "" : `<div class="row total"><span>All three</span><span>${total.toFixed(2)} TUSD</span></div>`}${rel}${partial}`;
+};
+function renderRevenue() {
+  const el = document.getElementById("rev-chart");
+  if (el.clientWidth < 560) smallMultiples(el, { id: "rv", series: revSeries.slice().reverse(), unit: "TUSD", height: 118, marker: revMarker, fmtTotal: s => tusd(byId[s.key].totals.revenue[TOKEN]) + " TUSD", tipFmt: revTip });
+  else stackedChart(el, { id: "rv", series: revSeries, unit: "TUSD", axisTitle: "TUSD", height: 290, marker: revMarker, partialLast: true, labelMax: t => t.toFixed(2) + " TUSD", tipFmt: revTip });
+}
+document.getElementById("rev-foot").textContent = "Busiest day " + (() => { const t = DATA.days.map((_, i) => revSeries.reduce((a, s) => a + s.values[i], 0)); const i = t.indexOf(Math.max(...t)); return dShort(DATA.days[i]) + " (" + t[i].toFixed(2) + " TUSD)"; })() + " · " + dShort(DATA.days[DATA.days.length - 1]) + " is today, counted to " + dTime(asOf).split(", ")[1] + ".";
+document.getElementById("rev-table").innerHTML = `<table><thead><tr><th>Day</th>${STACK.slice().reverse().map(k => `<th class="r">${byId[k].name}</th>`).join("")}<th class="r">All (TUSD)</th></tr></thead><tbody>${DATA.days.map((d, i) => `<tr><td>${dShort(d)}${i === releaseIdx ? ' <span class="muted">· Ledgerline release 2</span>' : ""}${i === DATA.days.length - 1 ? ' <span class="muted">· partial</span>' : ""}</td>${STACK.slice().reverse().map(k => `<td class="r num">${tusd(byId[k].daily[i].revenue[TOKEN])}</td>`).join("")}<td class="r num"><b>${revSeries.reduce((a, s) => a + s.values[i], 0).toFixed(2)}</b></td></tr>`).join("")}</tbody></table>`;
+
+// ===== compute chart (USD cents) =====
+const costKeys = STACK.filter(k => Number(byId[k].totals.compute_microcents) > 0);
+const costSeries = costKeys.map(k => ({ key: k, name: byId[k].name, values: byId[k].daily.map(d => cents(d.compute_microcents)) }));
+document.getElementById("cost-legend").innerHTML = `<ul>${costKeys.slice().reverse().map(k => `<li><span class="sw ${BIZ_STYLE[k].sw}" aria-hidden="true"></span><b>${byId[k].name}</b> <span class="num">${usd(byId[k].totals.compute_microcents)} (${centsStr(byId[k].totals.compute_microcents)})</span></li>`).join("")}<li><span class="sw" style="background:var(--surface);border:1px dashed var(--line-strong)" aria-hidden="true"></span><b>Relaydesk</b> <span class="num">no model cost</span></li></ul>`;
+const costTip = (i, total, only) => {
+  const rows = (only ? [only] : costSeries.slice().reverse()).map(s => `<div class="row"><span>${esc(s.name)}</span><span>${s.values[i].toFixed(2)}¢</span></div>`).join("");
+  return `<b>${dLong(DATA.days[i])}</b>${rows}<div class="row"><span>Relaydesk</span><span>no model cost</span></div>${only ? "" : `<div class="row total"><span>Known total</span><span>${total.toFixed(2)}¢</span></div>`}<div class="row"><span>Unknown-cost calls</span><span>${DATA.businesses.reduce((a, b) => a + b.daily[i].compute_unknown_calls, 0)}</span></div>`;
+};
+function renderCost() {
+  const el = document.getElementById("cost-chart");
+  // two businesses only (Relaydesk has no model cost), so the stack stays readable even on a phone
+  stackedChart(el, { id: "ct", series: costSeries, unit: "¢", axisTitle: "US cents", height: el.clientWidth < 560 ? 130 : 150, partialLast: true, labelMax: null, tipFmt: costTip });
+}
+document.getElementById("cost-unknown").textContent = DATA.businesses.reduce((a, b) => a + b.totals.compute_unknown_calls, 0) + " calls with unknown cost";
+document.getElementById("cost-table").innerHTML = `<table><thead><tr><th>Day</th>${costKeys.slice().reverse().map(k => `<th class="r">${byId[k].name}</th>`).join("")}<th class="r">Known total (¢)</th><th class="r">Unknown-cost calls</th></tr></thead><tbody>${DATA.days.map((d, i) => `<tr><td>${dShort(d)}</td>${costKeys.slice().reverse().map(k => `<td class="r num">${cents(byId[k].daily[i].compute_microcents).toFixed(2)}</td>`).join("")}<td class="r num"><b>${costSeries.reduce((a, s) => a + s.values[i], 0).toFixed(2)}</b></td><td class="r num">${DATA.businesses.reduce((a, b) => a + b.daily[i].compute_unknown_calls, 0)}</td></tr>`).join("")}</tbody></table>`;
+
+// ===== businesses table =====
+(function bizTable() {
+  const ic = {
+    check: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    dash: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg>',
+    clock: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+    tag: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l9-9h9v9l-9 9z"/><circle cx="16" cy="8" r="1.4"/></svg>',
+  };
+  const rows = DATA.businesses.map(b => {
+    const finished = b.totals.delivered + b.totals.not_charged;
+    const reh = b.rehearsal ? `<span class="state ok">${ic.check}Passed ${dShort(b.rehearsal.finished_at)}</span>` : `<span class="state todo">${ic.dash}Not rehearsed</span>`;
+    const team = b.team_members ? `You + ${b.slug === "relaydesk" ? "Priya" : b.team_members}` : "Just you";
+    const own = b.ownership.sale_in_progress
+      ? `<span class="state sale">${ic.tag}Sale in progress</span><span class="sub">you · gen ${b.ownership.generation}</span>`
+      : `<span class="state none">You</span><span class="sub">gen ${b.ownership.generation} · no transfers</span>`;
+    return `<tr>
+      <td class="full nowrap" data-l="Business"><span class="name"><span class="sw ${BIZ_STYLE[b.slug].sw}" aria-hidden="true" style="margin-right:6px;vertical-align:-1px"></span>${esc(b.name)}</span><span class="sub">${esc(b.product)}</span></td>
+      <td class="nowrap" data-l="Release"><span class="mono">r${b.release.number}</span><span class="sub">${dShort(b.release.activated_at)} · <span class="mono">${b.release.digest.slice(0, 7)}</span></span></td>
+      <td class="r num nowrap" data-l="Delivered">${b.totals.delivered}<span class="sub">${pct(b.success_rate)} of ${finished}</span></td>
+      <td class="r num nowrap" data-l="Customers">${b.customers.active}<span class="sub">${b.customers.new} new · ${b.customers.returning} returning</span></td>
+      <td class="r num nowrap" data-l="Earned">${tusd(b.totals.revenue[TOKEN])} TUSD<span class="sub">${Number(b.totals.compute_microcents) === 0 ? "no model cost" : "compute " + usd(b.totals.compute_microcents) + " USD"}</span></td>
+      <td class="r num nowrap" data-l="Credits"><span title="${b.credits.value} base units, block ${b.credits.block_height}">${grp(b.credits.units)} uses</span><span class="sub">${tusd(b.credits.value)} TUSD · ${runway(b.credits_runway_days)}</span></td>
+      <td class="nowrap" data-l="Rehearsal · team">${reh}<span class="sub">${team}</span></td>
+      <td class="nowrap" data-l="Control">${own}</td>
+    </tr>`;
+  }).join("");
+  document.getElementById("biz-table").innerHTML = `<div class="table-wrap"><table class="biz-table"><thead><tr><th>Business</th><th>Release</th><th class="r">Delivered</th><th class="r">Customers</th><th class="r">Earned</th><th class="r">Credits · runway</th><th>Rehearsal · team</th><th>Control</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+})();
+
+// ===== Relaydesk's desk =====
+(function desk() {
+  const b = byId.relaydesk, c = b.cases;
+  const stages = ["received", "assigned", "in progress", "waiting"].filter(s => c.open_by_stage[s] != null).map(s => ({ s, n: c.open_by_stage[s] }));
+  const total = stages.reduce((a, x) => a + x.n, 0);
+  document.getElementById("desk").innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="v num">${c.open}</div><div class="l">open now</div></div>
+      <div class="kpi"><div class="v num">${c.resolved_in_period}<small> / ${c.opened_in_period}</small></div><div class="l">resolved of opened this period</div></div>
+      <div class="kpi"><div class="v num">${(c.median_hours_to_resolve / 24).toFixed(1)}<small> days</small></div><div class="l">median to resolve (${c.median_hours_to_resolve} h)</div></div>
+    </div>
+    <div style="font-size:12.5px;color:var(--text-2)">Open cases by stage</div>
+    <div class="segbar" role="img" aria-label="${stages.map(x => x.n + " " + x.s).join(", ")}">${stages.map((x, i) => `<span class="seg-stage${i + 1}" style="flex:${x.n}" title="${x.n} ${x.s}"></span>`).join("")}</div>
+    <div class="seg-legend">${stages.map((x, i) => `<span><span class="sw sw-stage${i + 1}" aria-hidden="true"></span><b>${x.n}</b> ${x.s}</span>`).join("")}</div>
+    <dl class="facts">
+      <dt>Team</dt><dd>Priya (case worker) works cases with you</dd>
+      <dt>Rehearsal</dt><dd><span class="state ok">Successor rehearsal passed ${dShort(b.rehearsal.finished_at)}</span></dd>
+      <dt>Model cost</dt><dd>None: Relaydesk runs no model</dd>
+    </dl>`;
+})();
+
+// ===== Ledgerline's quality =====
+(function quality() {
+  const b = byId.ledgerline;
+  const finished = b.totals.delivered + b.totals.not_charged;
+  const reasons = b.not_charged_reasons;
+  const segs = [{ k: "Delivered and charged", n: b.totals.delivered, cls: "ledgerline" }]
+    .concat(reasons.map(r => ({ k: r.outcome === "refused" ? "Refused (never charged)" : r.outcome[0].toUpperCase() + r.outcome.slice(1) + " (not charged)", n: r.n, cls: r.outcome === "refused" ? "refused" : "incomplete" })));
+  document.getElementById("quality").innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="v num">${pct(b.success_rate)}</div><div class="l">delivered of ${finished} finished</div></div>
+      <div class="kpi"><div class="v num">${b.totals.not_charged}</div><div class="l">not charged</div></div>
+      <div class="kpi"><div class="v num">${centsStr(b.cost_per_delivered_microcents)}</div><div class="l">compute per delivered invoice</div></div>
+    </div>
+    <div style="font-size:12.5px;color:var(--text-2)">Finished requests</div>
+    <div class="segbar" role="img" aria-label="${segs.map(x => x.n + " " + x.k).join(", ")}">${segs.map(x => `<span class="seg-${x.cls}" style="flex:${x.n}" title="${x.n} ${x.k}"></span>`).join("")}</div>
+    <div class="seg-legend">${segs.map(x => `<span><span class="sw sw-${x.cls}" aria-hidden="true"></span><b>${x.n}</b> ${x.k}</span>`).join("")}</div>
+    <dl class="facts">
+      <dt>Release</dt><dd>r2 live since ${dShort(b.release.activated_at)} · r1 retired the same day</dd>
+      <dt>Price</dt><dd>0.40 TUSD per delivered invoice; a refused one costs the customer nothing</dd>
+      <dt>Compute</dt><dd>${usd(b.totals.compute_microcents)} USD known (${centsStr(b.totals.compute_microcents)}) · ${b.totals.compute_unknown_calls} unknown-cost calls</dd>
+    </dl>`;
+})();
+
+// ===== needs attention =====
+(function attention() {
+  const items = [];
+  for (const b of DATA.businesses) for (const a of b.attention) items.push({ ...a, biz: b });
+  const order = { open_cases: 0, sale: 1, rehearsal: 2 };
+  items.sort((p, q) => order[p.kind] - order[q.kind]);
+  const meta = {
+    open_cases: { ic: "amber", svg: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v10H9l-5 4z"/></svg>', go: "Open the desk", where: b => `${b.name} · ${b.cases.open_by_stage.received} received, ${b.cases.open_by_stage.assigned} assigned` },
+    sale: { ic: "", svg: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l9-9h9v9l-9 9z"/><circle cx="16" cy="8" r="1.4"/></svg>', go: "Review terms", where: b => `${b.name} · ${tusd(b.sale.price, 0)} TUSD in escrow · expires ${dShort(b.sale.expires_at)} (${daysBetween(asOf, b.sale.expires_at)} days)` },
+    rehearsal: { ic: "warm", svg: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>', go: "Rehearse handover", where: b => `${b.name} · a buyer can't yet see a passed rehearsal` },
+  };
+  document.getElementById("att").innerHTML = items.map(a => `<li>
+    <span class="ic ${meta[a.kind].ic}" aria-hidden="true">${meta[a.kind].svg}</span>
+    <span><span class="t">${esc(a.text)}</span><span class="w">${esc(meta[a.kind].where(a.biz))}</span><a class="go" href="${esc(a.link)}">${meta[a.kind].go} <span aria-hidden="true">→</span></a></span>
+  </li>`).join("");
+  document.getElementById("att-count").textContent = items.length + " items";
+})();
+
+// ===== the sale =====
+(function sale() {
+  const b = byId.signalwatch, s = b.sale;
+  const check = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  const steps = [
+    { l: "Terms proposed", done: true, when: `Direct sale, ${tusd(s.price, 0)} TUSD` },
+    { l: "Escrow funded by the buyer", done: true, when: `${tusd(s.escrow)} TUSD held, the full price` },
+    { l: "You accept the terms", done: s.seller_accepted, next: true, when: "Not yet" },
+    { l: "Noah Brandt accepts", done: s.buyer_accepted, when: "Not yet" },
+    { l: "Ownership transfers on NEAR", done: false, when: "Generation 1 → 2" },
+  ];
+  document.getElementById("sale").innerHTML = `
+    <dl class="terms">
+      <dt>Buyer</dt><dd>Noah Brandt <span class="muted mono">${esc(s.buyer)}</span></dd>
+      <dt>Price</dt><dd title="${s.price} base units">${tusd(s.price)} TUSD</dd>
+      <dt>Escrow</dt><dd>${tusd(s.escrow)} TUSD <span class="muted">funded</span></dd>
+      <dt>Expires</dt><dd>${dTime(s.expires_at)} <span class="muted">· in ${daysBetween(asOf, s.expires_at)} days</span></dd>
+      <dt>State</dt><dd><span class="mono">${esc(s.state)}</span> <span class="muted">· neither side has accepted</span></dd>
+    </dl>
+    <ol class="steps" aria-label="Sale steps">${steps.map(st => `<li class="${st.done ? "done" : "pending" + (st.next && !st.done ? " next" : "")}"><span class="ring" aria-hidden="true">${st.done ? check : ""}</span><span><span class="lbl">${esc(st.l)}</span><br><span class="when">${st.done ? "Done · " : ""}${esc(st.when)}</span></span></li>`).join("")}</ol>
+    <div class="carry"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 3 6.2"/><path d="M4 18v-5h5"/></svg><span>Customers keep what they paid for: <b>${grp(b.credits.units)} prepaid analyses</b> (${tusd(b.credits.value)} TUSD) and ${b.customers.active} active customers carry over to the new owner.</span></div>
+    <div class="actions"><a class="btn btn-primary" href="/sales/${b.id}">Review terms</a><span class="muted">Nothing changes until both sides accept.</span></div>`;
+})();
+
+// ===== ownership =====
+(function ownership() {
+  const tag = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l9-9h9v9l-9 9z"/><circle cx="16" cy="8" r="1.4"/></svg>';
+  document.getElementById("own").innerHTML = DATA.businesses.map(b => `<li>
+    <span class="n">${esc(b.name)}</span>
+    <span class="acct">${esc(b.ownership.owner_account)}</span>
+    <span class="meta">Gen ${b.ownership.generation} · ${b.ownership.transfers === 0 ? "never changed hands" : b.ownership.transfers + " transfers"} · since ${dShort(b.founded_at)}</span>
+    <span class="st">${b.ownership.sale_in_progress ? `<span class="state sale">${tag}Sale in progress</span>` : `<span class="pill">You</span>`}</span>
+  </li>`).join("");
+  const transfers = DATA.businesses.reduce((a, b) => a + b.ownership.transfers, 0);
+  document.getElementById("own-foot").innerHTML = `All three were founded here by <span class="mono">delphine.near</span>; ${transfers === 0 ? "no transfer has happened yet" : transfers + " transfers so far"}. Customer entitlements live in each business contract and survive a transfer.`;
+})();
+
+// ===== footer =====
+(function foot() {
+  const tok = DATA.tokens[TOKEN];
+  document.getElementById("foot").innerHTML = `
+    <div><b>Fictional · Simulated history.</b> ${esc(DATA.note.replace(/^FICTIONAL: /, ""))}</div>
+    <div><b>Exact amounts.</b> TUSD is <span class="mono">${esc(TOKEN)}</span> (${esc(tok.name)}, ${tok.decimals} decimals): <span class="mono">${DATA.totals.revenue[TOKEN]}</span> base units = ${tusd(DATA.totals.revenue[TOKEN])} TUSD. Compute is USD in microcents: <span class="mono">${DATA.totals.compute_microcents}</span> = ${centsStr(DATA.totals.compute_microcents)} = ${usd(DATA.totals.compute_microcents)}. Token last observed at block ${tok.block_height}, ${dTime(tok.observed_at)}.</div>
+    <div><b>Never mixed.</b> TUSD and USD are never added, compared on one axis or turned into a profit. Unknown values are shown as unknown, never as 0.</div>`;
+})();
+
+// ===== render charts, re-render on resize =====
+function renderAll() { renderRevenue(); renderCost(); }
+renderAll();
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(renderAll, 120); });
+</script>
+</body>
+</html>
