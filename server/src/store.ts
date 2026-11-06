@@ -503,7 +503,7 @@ export class Store {
     return (
       this.db
         .prepare(
-          "SELECT p.id, p.step, p.updated_at, b.id AS business_id, b.name, b.slug, b.stage, b.published_at FROM projects p JOIN businesses b ON b.id = p.business_id WHERE b.owner_id = ? ORDER BY p.updated_at DESC",
+          "SELECT p.id, p.step, p.updated_at, b.id AS business_id, b.name, b.slug, b.stage, b.published_at, EXISTS (SELECT 1 FROM product_projects pp WHERE pp.business_id = b.id) AS product_studio FROM projects p JOIN businesses b ON b.id = p.business_id WHERE b.owner_id = ? ORDER BY p.updated_at DESC",
         )
         .all(owner.id) as unknown as {
         id: string;
@@ -513,8 +513,13 @@ export class Store {
         slug: string;
         stage: string;
         published_at: string | null;
+        product_studio: number;
       }[]
-    ).map((p) => ({ ...p, inquiries: this.inquiryCount(p.business_id) }));
+    ).map((p) => ({
+      ...p,
+      product_studio: p.product_studio === 1,
+      inquiries: this.inquiryCount(p.business_id),
+    }));
   }
 
   explore(viewer: Person, projectId: string, answers: ExploreAnswers) {

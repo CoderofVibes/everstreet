@@ -113,8 +113,7 @@ export function validPricing(p: BuildPricing | null | undefined): p is BuildPric
 export const NO_BUILD_PROVIDER: BuildAvailability = {
   available: false,
   provider: null,
-  reason:
-    "Generated builds are not connected in this environment. Nothing is generated, run or tested by AI here yet; shape the brief and prototype by hand and every saved revision is kept.",
+  reason: "AI builds are not connected here.",
 };
 
 export function buildAvailability(provider: BuildProvider | null | undefined): BuildAvailability {

@@ -617,8 +617,7 @@ export function BuildsView({
       )}
       {!list.availability.available && (
         <p className="notice">
-          <strong>No build provider is connected.</strong> {list.availability.reason} Builds can't
-          be started here, and none is simulated.
+          <strong>Builds can't be started here.</strong> {list.availability.reason}
         </p>
       )}
       {list.engine !== "workflow" && list.engine !== "analysis" && (

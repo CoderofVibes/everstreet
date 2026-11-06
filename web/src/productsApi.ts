@@ -407,7 +407,9 @@ export const PRICE_LABEL: Record<PriceModel, string> = {
 export function priceText(price: Brief["price"]): string | null {
   if (price.model === "undecided") return null;
   if (price.model === "free") return "Free";
-  if (price.amount_cents === null) return null;
+  // First-use review #22: a chosen kind without an amount says so, never "not decided yet".
+  if (price.amount_cents === null)
+    return `${{ per_use: "Per use", monthly: "Monthly", one_time: "One-time" }[price.model]}, amount not set`;
   const amount = (price.amount_cents / 100).toLocaleString("en-US", {
     style: "currency",
     currency: "USD",

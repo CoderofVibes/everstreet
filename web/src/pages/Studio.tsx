@@ -286,7 +286,8 @@ export function Studio({ id }: { id: string }) {
                 type="button"
                 key={s}
                 className={`step${s === current ? " current" : idx < cur ? " done" : ""}`}
-                onClick={() => (idx <= cur || s !== "publish" ? goStep(s) : undefined)}
+                // First-use review #33: every step opens (Publish says what's still missing).
+                onClick={() => goStep(s)}
                 aria-current={s === current ? "step" : undefined}
               >
                 {idx + 1}. {STEP_LABEL[s]}
@@ -338,7 +339,16 @@ export function Studio({ id }: { id: string }) {
                 <strong>Still to decide</strong>
                 <ul className="missing-list" style={{ marginTop: 8 }}>
                   {project.missing.map((m) => (
-                    <li key={m}>{m}</li>
+                    <li key={m}>
+                      {/* Review #31: each item opens the questions where it's answered. */}
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => goStep("interview")}
+                      >
+                        {m}
+                      </button>
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -492,7 +502,15 @@ function Interview({
   onDone: () => void;
 }) {
   const [values, setValues] = useState<Answers>(project.answers);
-  const [index, setIndex] = useState(0);
+  // First-use review #31: coming back opens the first question still unanswered (or the last,
+  // where the confirmation is), not question 1.
+  const [index, setIndex] = useState(() => {
+    const open = QUESTIONS.findIndex((q) => {
+      const a = project.answers[q.key];
+      return a === undefined || a === "" || a === false;
+    });
+    return open >= 0 ? open : project.missing.length > 0 ? QUESTIONS.length - 1 : 0;
+  });
   const [dirty, setDirty] = useState(false);
   const q = QUESTIONS[index] as (typeof QUESTIONS)[number];
   const set = (k: string, val: string | boolean) => {
@@ -569,7 +587,8 @@ function Yours({
     headline: project.owner.headline,
     bio: project.owner.bio,
     problem: project.idea.problem,
-    why_me: project.idea.why_me,
+    // Review #32: starts from the experience answer for real, not as grey placeholder text.
+    why_me: project.idea.why_me || project.idea.evidence || "",
     ask: project.idea.ask,
     title: project.offer.title,
   });
@@ -654,12 +673,11 @@ function Yours({
             onChange={(e) => setV({ ...v, problem: e.target.value })}
           />
         </Field>
-        <Field label="Why you" hint="Pulled from your experience answer; edit it here">
+        <Field label="Why you" hint="From your experience answer">
           <textarea
             className="input"
             value={v.why_me}
             onChange={(e) => setV({ ...v, why_me: e.target.value })}
-            placeholder={project.idea.evidence}
           />
         </Field>
         <Field

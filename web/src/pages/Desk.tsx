@@ -104,7 +104,7 @@ export function DeskList() {
           {rows.map((r) => (
             <Link
               key={r.id}
-              to={r.published_at ? `/desk/${r.business_id}` : `/studio/${r.id}`}
+              to={r.published_at || r.product_studio ? `/desk/${r.business_id}` : `/studio/${r.id}`}
               className="card link biz-row"
             >
               <div>

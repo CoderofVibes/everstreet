@@ -92,7 +92,8 @@ export function Composer({
         name: name.trim() || undefined,
         business_id: business || undefined,
       });
-      go(`/build/${view.project.id}`);
+      // First-use review #20: a new project opens on its brief, where the person's words went.
+      go(`/build/${view.project.id}?view=brief`);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -215,7 +216,9 @@ export function Composer({
         )}
         <span className="spacer" />
         <button type="submit" className="btn btn-primary" disabled={busy || !ready.canSubmit}>
-          {busy ? "Creating…" : "Start building"} <Icon name="arrowRight" size="sm" />
+          {/* First-use review #16: signed out, the button says what happens. */}
+          {busy ? "Creating…" : person ? "Start building" : "Sign in and start"}{" "}
+          <Icon name="arrowRight" size="sm" />
         </button>
       </div>
       {error && (
@@ -280,7 +283,7 @@ export function ReadFailed({
 }
 
 export function BuildHome() {
-  const { person, requireSignIn } = useSession();
+  const { person } = useSession();
   const list = useActorRead(person?.id ?? null, fetchProjects);
   const projects = list.state.data;
   const preset = new URLSearchParams(window.location.search).get("business") ?? undefined;
@@ -291,48 +294,33 @@ export function BuildHome() {
       <h1 className="display" style={{ fontSize: 32, margin: "0 0 6px" }}>
         Build a digital product
       </h1>
-      <p className="muted" style={{ fontSize: 16, maxWidth: "70ch", marginBottom: 20 }}>
-        Describe the idea, pick a foundation, and shape a brief and a working prototype. Every save
-        is a revision you can return to, and the project belongs to your business, so it moves with
-        the business if you ever sell.
-      </p>
       <Composer variant="full" businessId={preset} />
 
-      <section className="home-section" style={{ marginTop: 36 }}>
-        <div className="section-head">
-          <div>
-            <h2>Your product projects</h2>
-            <p>Private to you as the owner of each business.</p>
+      {person && (
+        <section className="home-section" style={{ marginTop: 36 }}>
+          <div className="section-head">
+            <div>
+              <h2>Your product projects</h2>
+            </div>
           </div>
-        </div>
-        {!person ? (
-          <div className="card empty">
-            <h2>Sign in to see your projects</h2>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => requireSignIn("Sign in to see your product projects.")}
-            >
-              Sign in or join
-            </button>
-          </div>
-        ) : projects === null && list.state.status === "loading" ? (
-          <p className="muted">Loading your projects…</p>
-        ) : projects === null ? (
-          <ReadFailed what="your projects" error={list.state.error} onRetry={list.retry} />
-        ) : projects.length === 0 ? (
-          <div className="card empty">
-            <h2>No product projects yet</h2>
-            <p>Describe an idea above to start your first one.</p>
-          </div>
-        ) : (
-          <div className="project-grid">
-            {projects.map((p) => (
-              <ProjectCard key={p.id} p={p} />
-            ))}
-          </div>
-        )}
-      </section>
+          {projects === null && list.state.status === "loading" ? (
+            <p className="muted">Loading your projects…</p>
+          ) : projects === null ? (
+            <ReadFailed what="your projects" error={list.state.error} onRetry={list.retry} />
+          ) : projects.length === 0 ? (
+            <div className="card empty">
+              <h2>No product projects yet</h2>
+              <p>Describe an idea above to start your first one.</p>
+            </div>
+          ) : (
+            <div className="project-grid">
+              {projects.map((p) => (
+                <ProjectCard key={p.id} p={p} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

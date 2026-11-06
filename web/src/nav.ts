@@ -16,7 +16,8 @@ export const SUBNAV: Record<Destination, { label: string; to: string }[]> = {
   discover: [
     { label: "Home", to: "/" },
     { label: "Explore", to: "/explore" },
-    { label: "Requests", to: "/opportunities" },
+    // First-use review #12: what people asked for, apart from "Find a solution".
+    { label: "Asked for", to: "/opportunities" },
     { label: "Find a solution", to: "/find" },
   ],
   build: [
@@ -90,5 +91,7 @@ export function destinationOf(rawPath: string): Destination | null {
 /** Whether a link is the current page (Home only on "/"; others on their own subtree). */
 export function isCurrent(to: string, rawPath: string): boolean {
   const path = rawPath.split(/[?#]/)[0] ?? "/";
+  // Review #30: the offer wizard (/studio/…) is part of "Start a business".
+  if (to === "/start" && under(path, "/studio")) return true;
   return to === "/" ? path === "/" : under(path, to);
 }

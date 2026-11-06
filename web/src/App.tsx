@@ -129,9 +129,12 @@ function ActingContext() {
       >
         <Avatar name={person.display_name} />
         <span>
-          <span className="muted" style={{ fontSize: 13 }}>
-            Acting as{" "}
-          </span>
+          {/* Review #17: "Acting as" only where you can switch people (the local preview). */}
+          {localPreview && (
+            <span className="muted" style={{ fontSize: 13 }}>
+              Acting as{" "}
+            </span>
+          )}
           <strong>{person.display_name}</strong>
         </span>
       </button>

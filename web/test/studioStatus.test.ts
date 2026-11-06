@@ -42,7 +42,7 @@ describe("001b status projection", () => {
     expect(s.next?.label).toBe("Build a version");
     const off = projectStatus({ ...base, build: { available: false, reason: "No provider" } });
     expect(by(off).build).toMatchObject({ tone: "blocked" });
-    expect(by(off).build?.value).toMatch(/isn't connected here: No provider/);
+    expect(by(off).build?.value).toBe("Not available here");
     // Review #19: a way forward, never a dead end.
     expect(off.next).toEqual({
       label: "Offer it as a service instead",

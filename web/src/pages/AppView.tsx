@@ -366,8 +366,11 @@ export function AppView({
   headRevision,
   scope,
   onShapeBrief,
+  buildAvailable,
 }: {
   projectId: string;
+  /** Review #26: whether this project can be built here (from its studio view). */
+  buildAvailable?: boolean;
   headRevision: number;
   /** person:project:owner-epoch (the parent's scope fence). */
   scope: string;
@@ -683,139 +686,149 @@ export function AppView({
           <AppRelease projectId={projectId} versions={c.versions} selected={selected} />
         </div>
 
-        <aside className="app-composer" aria-label="Change the web app">
-          <div className="ctx-head">
-            <span className="ctx-kicker">Assistant · code</span>
-            <h3 className="ctx-title">Change the web app</h3>
-          </div>
-          <div className="app-composer-body">
-            <p className="muted app-note">
-              This writes new code for the app as a new version. It uses this business's AI budget;
-              logic checks cost nothing.
-              {onShapeBrief && (
-                <>
-                  {" "}
-                  To change the business brief instead,{" "}
-                  <button type="button" className="link-btn" onClick={onShapeBrief}>
-                    shape the brief
+        {/* First-use review #26: with no build provider, nothing here can be generated. */}
+        {buildAvailable === false ? (
+          <aside className="app-composer" aria-label="Change the web app">
+            <div className="ctx-head">
+              <h3 className="ctx-title">Change the web app</h3>
+            </div>
+            <p className="notice">AI builds are not connected here.</p>
+          </aside>
+        ) : (
+          <aside className="app-composer" aria-label="Change the web app">
+            <div className="ctx-head">
+              <span className="ctx-kicker">Assistant · code</span>
+              <h3 className="ctx-title">Change the web app</h3>
+            </div>
+            <div className="app-composer-body">
+              <p className="muted app-note">
+                This writes new code for the app as a new version. It uses this business's AI
+                budget; logic checks cost nothing.
+                {onShapeBrief && (
+                  <>
+                    {" "}
+                    To change the business brief instead,{" "}
+                    <button type="button" className="link-btn" onClick={onShapeBrief}>
+                      shape the brief
+                    </button>
+                    .
+                  </>
+                )}
+              </p>
+              {g.pending && g.unanswered ? (
+                <div className="notice" role="status">
+                  <p>{g.notice ?? "Your earlier generation request didn't get an answer."}</p>
+                  <p className="muted app-note">Asked: “{g.pending.instructions.slice(0, 200)}”</p>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={g.busy}
+                    onClick={submit}
+                  >
+                    Recover my request
                   </button>
-                  .
-                </>
+                </div>
+              ) : null}
+              <label className="field">
+                <span>{current ? "What should change in the app?" : "Describe the app"}</span>
+                <textarea
+                  id={COMPOSER_ID}
+                  className="input"
+                  rows={4}
+                  maxLength={2000}
+                  value={g.draft}
+                  onChange={(e) => gen.setDraft(e.target.value)}
+                />
+              </label>
+              {current && selected && !selected.current && (
+                <p className="muted app-note">
+                  A change starts from the current version ({current.number}), not the one shown.
+                </p>
               )}
-            </p>
-            {g.pending && g.unanswered ? (
-              <div className="notice" role="status">
-                <p>{g.notice ?? "Your earlier generation request didn't get an answer."}</p>
-                <p className="muted app-note">Asked: “{g.pending.instructions.slice(0, 200)}”</p>
+              <label className="field app-budget">
+                <span>Spend at most (cents of this business's AI budget)</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={100000}
+                  value={costCents}
+                  onChange={(e) =>
+                    setCostCents(
+                      Math.max(1, Math.min(100_000, Math.floor(Number(e.target.value) || 1))),
+                    )
+                  }
+                />
+                <small className="muted">
+                  Up to {BUDGET.max_input_tokens.toLocaleString()} input and{" "}
+                  {BUDGET.max_output_tokens.toLocaleString()} output tokens, {BUDGET.max_seconds}{" "}
+                  seconds. The provider's prices decide whether this limit fits.
+                </small>
+              </label>
+              <div className="app-actions">
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={g.busy}
+                  disabled={g.busy || jobLive || g.pending !== null || !g.draft.trim()}
                   onClick={submit}
                 >
-                  Recover my request
+                  {current ? "Generate a changed version" : "Generate the first version"}
                 </button>
-              </div>
-            ) : null}
-            <label className="field">
-              <span>{current ? "What should change in the app?" : "Describe the app"}</span>
-              <textarea
-                id={COMPOSER_ID}
-                className="input"
-                rows={4}
-                maxLength={2000}
-                value={g.draft}
-                onChange={(e) => gen.setDraft(e.target.value)}
-              />
-            </label>
-            {current && selected && !selected.current && (
-              <p className="muted app-note">
-                A change starts from the current version ({current.number}), not the one shown.
-              </p>
-            )}
-            <label className="field app-budget">
-              <span>Spend at most (cents of this business's AI budget)</span>
-              <input
-                className="input"
-                type="number"
-                min={1}
-                max={100000}
-                value={costCents}
-                onChange={(e) =>
-                  setCostCents(
-                    Math.max(1, Math.min(100_000, Math.floor(Number(e.target.value) || 1))),
-                  )
-                }
-              />
-              <small className="muted">
-                Up to {BUDGET.max_input_tokens.toLocaleString()} input and{" "}
-                {BUDGET.max_output_tokens.toLocaleString()} output tokens, {BUDGET.max_seconds}{" "}
-                seconds. The provider's prices decide whether this limit fits.
-              </small>
-            </label>
-            <div className="app-actions">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={g.busy || jobLive || g.pending !== null || !g.draft.trim()}
-                onClick={submit}
-              >
-                {current ? "Generate a changed version" : "Generate the first version"}
-              </button>
-              {jobLive && (
-                <button
-                  type="button"
-                  className="btn btn-quiet"
-                  disabled={g.busy}
-                  onClick={() => void gen.cancel()}
-                >
-                  Cancel the generation
-                </button>
-              )}
-            </div>
-            {g.job && (
-              <div className="notice" role="status">
-                <p>
-                  {g.job.state === "unknown"
-                    ? "A generation you started is still known here; reading its progress…"
-                    : jobLive
-                      ? `Generating: ${g.job.state}.`
-                      : g.job.state === "succeeded"
-                        ? "The new version is ready on the stage."
-                        : `The generation ended (${g.job.state})${g.job.failure ? `: ${g.job.failure.detail}` : "."}`}
-                  {g.readFailed && " Its progress couldn't be read just now."}
-                  {pollStopped && jobLive && " Automatic checking has stopped."}
-                </p>
                 {jobLive && (
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm"
+                    className="btn btn-quiet"
                     disabled={g.busy}
-                    onClick={() => void checkProgress()}
+                    onClick={() => void gen.cancel()}
                   >
-                    Check progress
+                    Cancel the generation
                   </button>
                 )}
               </div>
-            )}
-            {g.notice && !g.unanswered && <p className="notice">{g.notice}</p>}
-          </div>
-          {selected && selectedWords && (
-            <div className="app-composer-checks">
-              <h4>Logic checks for version {selected.number}</h4>
-              <p className="muted app-note">
-                {selectedWords.detail} They run this version's own declared cases on its logic
-                module in an isolated worker; they don't check the screens.
-              </p>
-              {selectedCheck && (
-                <CheckDetails
-                  check={selectedCheck}
-                  onCancel={() => act(() => appApi.cancelCheck(selectedCheck.id))}
-                />
+              {g.job && (
+                <div className="notice" role="status">
+                  <p>
+                    {g.job.state === "unknown"
+                      ? "A generation you started is still known here; reading its progress…"
+                      : jobLive
+                        ? `Generating: ${g.job.state}.`
+                        : g.job.state === "succeeded"
+                          ? "The new version is ready on the stage."
+                          : `The generation ended (${g.job.state})${g.job.failure ? `: ${g.job.failure.detail}` : "."}`}
+                    {g.readFailed && " Its progress couldn't be read just now."}
+                    {pollStopped && jobLive && " Automatic checking has stopped."}
+                  </p>
+                  {jobLive && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={g.busy}
+                      onClick={() => void checkProgress()}
+                    >
+                      Check progress
+                    </button>
+                  )}
+                </div>
               )}
+              {g.notice && !g.unanswered && <p className="notice">{g.notice}</p>}
             </div>
-          )}
-        </aside>
+            {selected && selectedWords && (
+              <div className="app-composer-checks">
+                <h4>Logic checks for version {selected.number}</h4>
+                <p className="muted app-note">
+                  {selectedWords.detail} They run this version's own declared cases on its logic
+                  module in an isolated worker; they don't check the screens.
+                </p>
+                {selectedCheck && (
+                  <CheckDetails
+                    check={selectedCheck}
+                    onCancel={() => act(() => appApi.cancelCheck(selectedCheck.id))}
+                  />
+                )}
+              </div>
+            )}
+          </aside>
+        )}
       </div>
     </div>
   );

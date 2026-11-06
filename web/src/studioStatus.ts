@@ -89,7 +89,7 @@ export function projectStatus(s: StatusInput): StudioStatus {
           }`
         : s.build.available
           ? "No build yet"
-          : `No build yet; building isn't connected here${s.build.reason ? `: ${s.build.reason}` : ""}`,
+          : "Not available here",
       tone: cand ? "done" : s.build.available ? "now" : "blocked",
       target: { tab: "builds" },
     });

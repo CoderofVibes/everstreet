@@ -289,8 +289,8 @@ export function Home() {
               <p>Open requests posted on the need board.</p>
             </div>
             <span className="spacer" />
-            <Link to="/explore" className="btn btn-secondary btn-sm">
-              Need board
+            <Link to="/opportunities" className="btn btn-secondary btn-sm">
+              All requests
             </Link>
           </div>
           <div className="shelf">

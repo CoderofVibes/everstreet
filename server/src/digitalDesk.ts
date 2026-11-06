@@ -57,6 +57,22 @@ export function liveDeal(
   }
 }
 
+/**
+ * First-use review #52: whether this business's live product can be rehearsed here (a SaaS
+ * workflow, or a web app sold as a pass), the same cases successorRehearsal.ts accepts.
+ */
+export function rehearsable(db: Db, businessId: string): boolean {
+  return !!db
+    .prepare(
+      `SELECT 1 FROM runtime_releases r JOIN build_artifacts a ON a.job_id = r.artifact_job
+         LEFT JOIN app_release_terms t ON t.release_id = r.id
+        WHERE r.business_id = ? AND r.state = 'active'
+          AND (a.kind = 'workflow_spec' OR (a.kind = 'web_app_bundle' AND t.access = 'pass'))
+        LIMIT 1`,
+    )
+    .get(businessId);
+}
+
 const isDigits = (s: unknown): s is string => typeof s === "string" && /^[0-9]{1,40}$/.test(s);
 
 export function digitalDesk(
@@ -310,6 +326,7 @@ export function digitalDesk(
     as_of: iso,
     kind,
     page: { published: b.published_at !== null },
+    rehearsable: rehearsable(db, businessId),
     products: { total: totalProducts, shown: products },
     imports: { total: imports },
     legacy_offering: { configured: legacyConfigured, title: legacy?.title.trim() || null },

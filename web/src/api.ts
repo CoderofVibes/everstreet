@@ -421,6 +421,8 @@ export const api = {
         slug: string;
         stage: string;
         published_at: string | null;
+        /** Review #18: a product-studio business (its own studio, not the offer wizard). */
+        product_studio?: boolean;
         inquiries: number;
       }[];
     }>("/api/projects"),

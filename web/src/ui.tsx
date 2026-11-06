@@ -190,16 +190,12 @@ export function VerifiedSignInNotice({
       <div className="dialog">
         <h2 id="signin-title">Sign in with your NEAR account</h2>
         <p className="muted">{reason}</p>
-        <p>
-          Here, signing in means proving you control a NEAR testnet account with your wallet. A name
-          alone isn't an account.
-        </p>
         {available ? (
           <>
-            <p>
-              Your wallet shows a short message from Everstreet to sign. Signing it proves the
-              account is yours. It sends no transaction, spends nothing, and doesn't let Everstreet
-              act for you; using a service on this device is a separate step you approve later.
+            {/* First-use review #17: one line; the button is what matters. */}
+            <p className="muted">
+              Your wallet signs a short message: it sends no transaction, spends nothing, and using
+              a service on this device is a separate step.
             </p>
             {synthetic && (
               <p className="pill caution">

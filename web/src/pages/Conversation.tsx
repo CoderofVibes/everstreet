@@ -388,7 +388,7 @@ export function ConversationPanel({
 
       {!available ? (
         <div className="notice">
-          <strong>AI drafting isn't connected here.</strong> {conv.availability.reason}
+          <strong>AI drafting isn't available here.</strong>
           <div style={{ marginTop: 8 }}>
             <button type="button" className="btn btn-secondary btn-sm" onClick={onManual}>
               Edit the brief yourself

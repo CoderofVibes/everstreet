@@ -119,27 +119,18 @@ export function SamplePanel({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
             <summary>Show the invoice text</summary>
             <pre>{shown.input}</pre>
           </details>
-          <div className="sample-would">
-            <strong>What a real run would record</strong>
-            <ul>
-              <li>
-                {shown.charged_on_a_real_run
-                  ? "One unit reserved, then charged, because a result was delivered."
-                  : "One unit reserved, then returned: a refusal is never charged."}
-              </li>
-              <li>
-                The AI provider's compute cost, in USD, once it is reported. The stand-in has none.
-              </li>
-              <li>The result kept for the customer only, for the offer's retention period.</li>
-            </ul>
-            <p className="small muted">{samples.charging_rule}</p>
-          </div>
+          {/* First-use review #8: one line, in plain words. */}
+          <p className="sample-would">
+            {shown.charged_on_a_real_run
+              ? "A real run would charge one use for this result."
+              : "A real run would charge nothing: a refusal is never charged."}
+          </p>
           <div className="row sample-actions">
             <Link to="/example/ledgerline?tab=operate" className="btn btn-secondary btn-sm">
-              Follow it into Operate
+              See the owner's view
             </Link>
             <Link to="/example/ledgerline?tab=acquire" className="btn btn-secondary btn-sm">
-              Follow it into Acquire
+              See the sale
             </Link>
             <button type="button" className="btn btn-quiet btn-sm" onClick={() => setShown(null)}>
               Try another sample
@@ -244,24 +235,11 @@ export function RelaydeskSample() {
           ) : (
             <p className="notice info">{shown.result.reason}.</p>
           )}
-          <div className="sample-would">
-            <strong>What a real request would record</strong>
-            <ul>
-              <li>
-                {shown.charged_on_a_real_run
-                  ? "One unit reserved, then charged, because the request was accepted."
-                  : "One unit reserved, then returned: a refused request is never charged."}
-              </li>
-              {shown.charged_on_a_real_run && (
-                <li>
-                  One case in {stages[0]?.label}. The business's current owner moves it one stage at
-                  a time, and the customer sees each step.
-                </li>
-              )}
-              <li>No AI compute: the workflow engine runs without a model.</li>
-            </ul>
-            <p className="small muted">{relaydesk.charging_rule}</p>
-          </div>
+          <p className="sample-would">
+            {shown.charged_on_a_real_run
+              ? `A real request would charge one use and open a case in ${stages[0]?.label ?? "its first stage"}.`
+              : "A real request would charge nothing: a refused request is never charged."}
+          </p>
           <div className="row sample-actions">
             <button type="button" className="btn btn-quiet btn-sm" onClick={() => setShown(null)}>
               Try another sample
@@ -376,22 +354,11 @@ export function SignalwatchSample() {
             <summary>Show the release notes</summary>
             <pre>{shown.notes}</pre>
           </details>
-          <div className="sample-would">
-            <strong>What a real request would record</strong>
-            <ul>
-              <li>
-                {shown.charged_on_a_real_run
-                  ? "One unit reserved, then charged, because an analysis was delivered."
-                  : "One unit reserved, then returned: a refusal is never charged."}
-              </li>
-              <li>
-                Every quote checked word for word against the notes; an answer that quotes anything
-                else is never shown.
-              </li>
-              <li>The AI provider's compute cost, once reported. The stand-in has none.</li>
-            </ul>
-            <p className="small muted">{signalwatch.charging_rule}</p>
-          </div>
+          <p className="sample-would">
+            {shown.charged_on_a_real_run
+              ? "A real request would charge one use for this analysis."
+              : "A real request would charge nothing: a refusal is never charged."}
+          </p>
           <div className="row sample-actions">
             <button type="button" className="btn btn-quiet btn-sm" onClick={() => setShown(null)}>
               Try another sample
@@ -411,9 +378,6 @@ export function ExampleBusinesses() {
       <div className="section-head">
         <h2 id="examples-h">Example businesses</h2>
       </div>
-      <p className="muted small">
-        Examples to learn from, apart from real listings. They are never offered for sale.
-      </p>
       <div className="example-grid">
         <article className="example-card">
           <p className="example-eyebrow">Example business · sample data</p>
@@ -425,10 +389,10 @@ export function ExampleBusinesses() {
               Try a sample
             </a>
             <Link to="/example/ledgerline?tab=operate" className="btn btn-quiet btn-sm">
-              Operate
+              How it ran
             </Link>
             <Link to="/example/ledgerline?tab=acquire" className="btn btn-quiet btn-sm">
-              Acquire
+              How it was sold
             </Link>
           </div>
         </article>
@@ -582,29 +546,21 @@ function LedgerlineExample({ tab }: { tab: string }) {
               <span className="small muted">
                 100 uses at {amount(x.figures.unit_price.value)} each
               </span>
-              <span className="prov">derived: contract views × the offer's price</span>
             </div>
             <div className="card">
               <span className="muted small">Earned (uses charged by the contract)</span>
               <strong>{amount(x.figures.earned_by_end.value)}</strong>
               <span className="small muted">uses the contract charged, at the end of the run</span>
-              <span className="prov">derived: contract views × the offer's price</span>
             </div>
             <div className="card">
               <span className="muted small">Still owed to the customer at the sale</span>
               <strong>{x.figures.owed_at_close.value} uses</strong>
               <Source s={x.figures.owed_at_close.source} />
             </div>
-            <div className="card">
-              <span className="muted small">AI compute</span>
-              <strong>not shown</strong>
-              <span className="small muted">the run used a stand-in model, which has no cost</span>
-              <Source s="stand_in_model" />
-            </div>
           </div>
           <div className="scroll-x">
             <table className="table">
-              <caption>The customer's uses at each checkpoint (contract views, final)</caption>
+              <caption>The customer's uses over time</caption>
               <thead>
                 <tr>
                   <th scope="col">Checkpoint</th>
@@ -640,10 +596,8 @@ function LedgerlineExample({ tab }: { tab: string }) {
               <h3>The buyer took control of</h3>
               <ul>
                 <li>
-                  the business contract: owner {x.figures.control_before.role} (generation{" "}
-                  {x.figures.control_before.generation}) → {x.figures.control_after.role}{" "}
-                  (generation {x.figures.control_after.generation}){" "}
-                  <Source s="near_testnet_final" />
+                  the business contract: {x.figures.control_before.role} →{" "}
+                  {x.figures.control_after.role} <Source s="near_testnet_final" />
                 </li>
                 <li>the product, its releases and the customer offer</li>
                 <li>
@@ -652,8 +606,7 @@ function LedgerlineExample({ tab }: { tab: string }) {
                 </li>
               </ul>
               <p className="small">
-                The former owner was refused afterwards:{" "}
-                {(x.refusals as Json[]).map((r) => `${r.status}`).join(", ")}{" "}
+                The former owner's {(x.refusals as Json[]).length} later attempts were refused{" "}
                 <Source s="rehearsal_app_record" />
               </p>
             </div>
@@ -688,11 +641,6 @@ function LedgerlineExample({ tab }: { tab: string }) {
             </ul>
           </details>
         </section>
-      )}
-      {x && tab !== "try" && (
-        <p className="small muted">
-          Check this record yourself: <span className="mono">{x.record.reproduce}</span>
-        </p>
       )}
     </div>
   );

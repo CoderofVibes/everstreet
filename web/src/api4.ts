@@ -154,6 +154,8 @@ export interface DigitalDeskView {
   imports: { total: number };
   legacy_offering: { configured: boolean; title: string | null };
   work: DeskWorkItem[];
+  /** Review #52: whether a successor rehearsal can be run for its live product. */
+  rehearsable?: boolean;
   current: OpsCurrent;
   settlement: Operations["settlement"];
 }

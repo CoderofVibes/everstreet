@@ -278,7 +278,7 @@ export function DigitalWorkspace({
           <Link to={`/desk/${b.id}/team`}>Team</Link>
           <Link to={`/desk/${b.id}/continuity`}>Ownership and continuity</Link>
           <Link to={`/desk/${b.id}/handover`}>Sale and handover</Link>
-          <Link to={`/desk/${b.id}/rehearsal`}>Successor rehearsal</Link>
+          {digital.rehearsable && <Link to={`/desk/${b.id}/rehearsal`}>Successor rehearsal</Link>}
         </nav>
       </header>
 

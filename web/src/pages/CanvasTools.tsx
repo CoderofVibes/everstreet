@@ -177,6 +177,11 @@ export function BriefSectionEditor({
       </fieldset>
       {needsAmount && (
         <div className="grid-2" style={{ gap: 8, marginTop: 6 }}>
+          {/* First-use review #22: the amount is a labelled, required field. */}
+          <label htmlFor="brief-amount" className="mini-label" style={{ gridColumn: "1 / -1" }}>
+            Amount (US$)
+            {brief.price.amount_cents === null && <span className="req"> · required</span>}
+          </label>
           <MoneyInput
             id="brief-amount"
             cents={brief.price.amount_cents}
@@ -200,10 +205,9 @@ export function BriefSectionEditor({
         style={{ marginTop: 6 }}
         maxLength={600}
         value={brief.price.note}
-        placeholder="Note, e.g. prepaid packs of 100"
+        placeholder="Note (optional)"
         onChange={(e) => set({ price: { ...brief.price, note: e.target.value } })}
       />
-      <p className="edit-why">An assumption to test, not a published price.</p>
     </div>
   );
 }

@@ -90,7 +90,8 @@ export function ProductLines({ d, businessId }: { d: DigitalDeskView; businessId
               {id.title}
             </Link>
             <span className="muted"> · {PRODUCT_STATUS_LABEL[p.status]}</span>
-            {id.draft && <span className="muted"> · draft differs</span>}
+            {/* Review #54: say what differs. */}
+            {id.draft && <span className="muted"> · brief has unreleased changes</span>}
           </li>
         );
       })}

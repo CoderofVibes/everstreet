@@ -11,6 +11,7 @@
 // Totals across businesses are summed only within the same asset; tokens and USD never mix.
 
 import type { Db } from "./db.ts";
+import { rehearsable } from "./digitalDesk.ts";
 import type { Person } from "./store.ts";
 import { tokenMetaOf } from "./tokenMeta.ts";
 
@@ -539,7 +540,7 @@ export function dashboard(
         text: "A sale is in progress: its terms wait for acceptance",
         link: `/sales/${b.id}`,
       });
-    else if (!rehearsal)
+    else if (!rehearsal && rehearsable(db, b.id))
       attention.push({
         kind: "rehearsal",
         text: "No successor rehearsal yet: rehearse the handover",

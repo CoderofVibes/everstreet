@@ -275,16 +275,18 @@ function BriefDoc({ view, brief, starter }: { view: StudioView; brief: Brief; st
         <dd>
           {price ?? none}
           {brief.price.note && <span className="muted"> · {brief.price.note}</span>}
-          <div className="muted" style={{ fontSize: 13 }}>
-            An assumption to test, not a published price.
-          </div>
         </dd>
         <dt>Foundation</dt>
         <dd>
           {view.foundation.label}: {view.foundation.summary}
         </dd>
-        <dt>Where it started</dt>
-        <dd className="muted">“{view.project.idea}”</dd>
+        {/* Review #23: shown only when it differs from the problem it became. */}
+        {view.project.idea.trim() !== brief.problem.trim() && (
+          <>
+            <dt>Where it started</dt>
+            <dd className="muted">“{view.project.idea}”</dd>
+          </>
+        )}
       </dl>
     </article>
   );
@@ -1332,7 +1334,12 @@ export function ProductStudio({ id }: { id: string }) {
           <div className="crumbs">
             <Link to="/build">Product studio</Link>
             <span aria-hidden="true">/</span>
-            <Link to={`/desk/${view.business.id}`}>{view.business.name}</Link>
+            {/* Review #24: "Recipe Reader / Recipe Reader" reads as a mistake. */}
+            <Link to={`/desk/${view.business.id}`}>
+              {view.business.name === (brief.name || "Untitled product")
+                ? "Business desk"
+                : view.business.name}
+            </Link>
           </div>
           <h1>{brief.name || "Untitled product"}</h1>
         </div>
@@ -1671,6 +1678,7 @@ export function ProductStudio({ id }: { id: string }) {
                     scope={scope}
                     projectId={view.project.id}
                     headRevision={view.head.number}
+                    buildAvailable={view.build.available}
                     onShapeBrief={() => {
                       setTab("brief");
                       setEditorOpen(true);

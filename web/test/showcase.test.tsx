@@ -59,7 +59,7 @@ describe("the sample panel", () => {
     await act(async () => notInvoice.click());
     await act(async () => (document.querySelector("form") as HTMLFormElement).requestSubmit());
     expect(text()).toMatch(/Refused/);
-    expect(text()).toMatch(/returned: a refusal is never charged/);
+    expect(text()).toMatch(/a refusal is never charged/);
     expect(calls).toEqual([]);
   });
 
@@ -144,7 +144,8 @@ describe("the Ledgerline example page", () => {
     );
     for (let i = 0; i < 50 && !/took control/.test(text()); i++)
       await act(async () => new Promise((r) => setTimeout(r, 10)));
-    expect(text()).toMatch(/founder \(generation 1\) → buyer \(generation 2\)/);
+    // First-use review #10: "founder → buyer", without unexplained generations.
+    expect(text()).toMatch(/founder → buyer/);
     expect(text()).toMatch(/left 79/);
   });
 });

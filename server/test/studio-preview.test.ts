@@ -71,7 +71,7 @@ describe("001b studio preview: released, failed and draft products, from real re
     // 3. A brief only, with building unavailable: prototype only, no next build step offered.
     const d = await statusOf(p.projects.draft);
     expect(d.s.chip.label).toBe("Prototype only");
-    expect(items(d.s).build).toMatch(/building isn't connected here/);
+    expect(items(d.s).build).toBe("Not available here");
     // First-use review #19: a way forward, never a dead end.
     expect(d.s.next).toEqual({
       label: "Offer it as a service instead",

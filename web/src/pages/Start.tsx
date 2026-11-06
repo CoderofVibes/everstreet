@@ -41,8 +41,9 @@ export function Start() {
   }, [person]);
 
   const begin = async (route: Project["route"]) => {
-    if (route === "started" && !name.trim()) {
-      setPicked("started");
+    // First-use review #29: choosing a card asks first (a name); nothing is created by a click.
+    if (picked !== route || (route === "started" && !name.trim())) {
+      setPicked(route);
       return;
     }
     if (
@@ -62,7 +63,8 @@ export function Start() {
     }
   };
 
-  const unfinished = existing.filter((p) => !p.published_at);
+  // Review #18: product-studio projects belong to the studio, not this wizard's list.
+  const unfinished = existing.filter((p) => !p.published_at && !p.product_studio);
 
   return (
     <div className="page">
@@ -106,17 +108,21 @@ export function Start() {
         ))}
       </div>
 
-      {picked === "started" && (
+      {picked && (
         <form
           className="card"
           style={{ marginTop: 20, maxWidth: 560 }}
           onSubmit={(e) => {
             e.preventDefault();
-            begin("started");
+            begin(picked);
           }}
         >
           <label className="field">
-            <span>What is your business called?</span>
+            <span>
+              {picked === "started"
+                ? "What is your business called?"
+                : "A name (optional; change it any time)"}
+            </span>
             <input
               className="input"
               // biome-ignore lint/a11y/noAutofocus: the field the person just asked for
@@ -126,8 +132,12 @@ export function Start() {
               placeholder="e.g. Juniper Print Studio"
             />
           </label>
-          <button className="btn btn-primary" type="submit" disabled={!name.trim() || busy}>
-            Continue
+          <button
+            className="btn btn-primary"
+            type="submit"
+            disabled={(picked === "started" && !name.trim()) || busy}
+          >
+            Start
           </button>
         </form>
       )}

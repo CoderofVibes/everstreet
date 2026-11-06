@@ -13,7 +13,6 @@ describe("003w-b/e1 verified sign-in dialog", () => {
       <VerifiedSignInNotice reason="Sign in to open your product project." onClose={() => {}} />,
     );
     expect(html).toContain("Sign in with your NEAR account");
-    expect(html).toContain("A name alone isn&#x27;t an account");
     expect(html).toContain("isn&#x27;t set up on this server");
     expect(html).not.toContain("Continue with");
     expect(html).not.toContain("<input");

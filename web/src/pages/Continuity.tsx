@@ -90,7 +90,6 @@ function attention(v: ContinuityView, stale: boolean, access: string): string[] 
   if (!v.history.complete)
     out.push(`${v.history.missing_count} earlier deal(s) ended without being observed here.`);
   if (v.transport === "unavailable") out.push("Refreshing isn't available on this server.");
-  if (v.control.live_deal) out.push(`A sale is ${v.control.live_deal.state}.`);
   return out;
 }
 
@@ -193,7 +192,7 @@ export function Continuity({ id }: { id: string }) {
       <RefreshPanel c={c} blocked={blocked} />
 
       {v.state === "observed" && (
-        <ObservedSections v={v} age={fresh?.age_ms ?? 0} stale={Boolean(fresh?.stale)} />
+        <ObservedSections v={v} age={fresh?.age_ms ?? 0} stale={Boolean(fresh?.stale)} id={id} />
       )}
       {v.state === "never_observed" && (
         <section className="card">
@@ -231,7 +230,7 @@ function RefreshPanel({ c, blocked }: { c: ContinuityController; blocked: string
             inputMode="numeric"
             maxLength={6}
             value={s.month}
-            placeholder="202611"
+            placeholder="e.g. 202611"
             onChange={(e) => c.setMonth(e.target.value)}
           />
         </label>
@@ -267,7 +266,17 @@ function RefreshPanel({ c, blocked }: { c: ContinuityController; blocked: string
   );
 }
 
-function ObservedSections({ v, age, stale }: { v: Observed; age: number; stale: boolean }) {
+function ObservedSections({
+  v,
+  age,
+  stale,
+  id,
+}: {
+  v: Observed;
+  age: number;
+  stale: boolean;
+  id: string;
+}) {
   const t = v.treasury;
   const d = v.control.live_deal;
   return (
@@ -331,7 +340,7 @@ function ObservedSections({ v, age, stale }: { v: Observed; age: number; stale: 
               <dd>
                 <Amount v={t.available} asset={t.asset} token={v.token} />
               </dd>
-              <dt>Of which the owner can withdraw now</dt>
+              <dt>Withdrawable by the owner</dt>
               <dd>
                 <Amount v={t.withdrawable} asset={t.asset} token={v.token} />
               </dd>
@@ -358,38 +367,44 @@ function ObservedSections({ v, age, stale }: { v: Observed; age: number; stale: 
             {!d ? (
               <p style={{ margin: 0 }}>No sale is in progress at the observed block.</p>
             ) : (
-              <dl className="facts">
-                <dt>Deal</dt>
-                <dd>
-                  Number {d.seq}, terms version {d.version}: {d.state}
-                </dd>
-                <dt>Buyer</dt>
-                <dd className="mono" style={{ overflowWrap: "anywhere" }}>
-                  {d.buyer}
-                </dd>
-                <dt>Price</dt>
-                <dd>
-                  <Amount v={d.price} asset={t.asset} token={v.token} />
-                </dd>
-                <dt>Escrow</dt>
-                <dd>
-                  <Amount v={d.escrow} asset={t.asset} token={v.token} />
-                </dd>
-                <dt>Accepted by</dt>
-                <dd>
-                  {[d.seller_accepted && "seller", d.buyer_accepted && "buyer"]
-                    .filter(Boolean)
-                    .join(" and ") || "nobody yet"}
-                </dd>
-                <dt>Offer open until</dt>
-                <dd>{msDate(d.expires_at_ms) ?? "not set"}</dd>
-                {d.state === "closing" && (
-                  <>
-                    <dt>Closer's deadline</dt>
-                    <dd>{msDate(d.deadline_ms) ?? "not set"}</dd>
-                  </>
-                )}
-              </dl>
+              <>
+                {/* First-use review #53: where the sale is acted on. */}
+                <Link to={`/sales/${id}`} className="btn btn-secondary btn-sm">
+                  Open the sale
+                </Link>
+                <dl className="facts">
+                  <dt>Deal</dt>
+                  <dd>
+                    Number {d.seq}, terms version {d.version}: {d.state}
+                  </dd>
+                  <dt>Buyer</dt>
+                  <dd className="mono" style={{ overflowWrap: "anywhere" }}>
+                    {d.buyer}
+                  </dd>
+                  <dt>Price</dt>
+                  <dd>
+                    <Amount v={d.price} asset={t.asset} token={v.token} />
+                  </dd>
+                  <dt>Escrow</dt>
+                  <dd>
+                    <Amount v={d.escrow} asset={t.asset} token={v.token} />
+                  </dd>
+                  <dt>Accepted by</dt>
+                  <dd>
+                    {[d.seller_accepted && "seller", d.buyer_accepted && "buyer"]
+                      .filter(Boolean)
+                      .join(" and ") || "nobody yet"}
+                  </dd>
+                  <dt>Offer open until</dt>
+                  <dd>{msDate(d.expires_at_ms) ?? "not set"}</dd>
+                  {d.state === "closing" && (
+                    <>
+                      <dt>Closer's deadline</dt>
+                      <dd>{msDate(d.deadline_ms) ?? "not set"}</dd>
+                    </>
+                  )}
+                </dl>
+              </>
             )}
           </section>
 
