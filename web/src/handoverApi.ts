@@ -363,6 +363,10 @@ export function parseRefresh(raw: unknown): RefreshAnswer {
  * Whether a contract deadline had passed when the evidence was read (job 003s1). "0" means unset.
  * It describes the reading only: whether a sale can still be accepted is for the contract to show.
  */
+/** Attack review note 10: the terms may keep the seller on as an operator; say so where grants show. */
+export const sellerMark = (account: string, seller: string | null | undefined) =>
+  seller && account === seller ? " · the seller" : "";
+
 export function elapsedAt(deadlineMs: string, observedAt: string): boolean {
   const at = Date.parse(observedAt);
   if (!/^[0-9]{1,20}$/.test(deadlineMs) || deadlineMs === "0" || Number.isNaN(at)) return false;

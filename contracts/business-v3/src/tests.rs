@@ -1042,10 +1042,13 @@ fn s09_a_sponsor_pays_for_storage_and_gets_no_authority() {
     assert_eq!((e.storage_payer.as_str(), e.key_states[0], e.free.0), (SPONSOR, 1, 100));
     // Once bought or keyed, only the customer may unregister.
     w.refuse(SPONSOR, 1, "E_NOT_CUSTOMER", |b| b.unregister(id(CARA), 1));
-    // An untouched shell can be taken back by its sponsor, deposit returned to the sponsor.
+    // Attack review 2026-11-06: paying for a shell gives no power, not even to delete it. The
+    // business (owner or a METERING operator of this generation) clears an unbought shell, and
+    // the deposit goes back to the sponsor.
     w.shell(DEV, SPONSOR);
     w.refuse(STRANGER, 1, "E_NOT_CUSTOMER", |b| b.unregister(id(DEV), 1));
-    let (_, d) = w.measured(SPONSOR, 1, |b| b.unregister(id(DEV), 1));
+    w.refuse(SPONSOR, 1, "E_NOT_CUSTOMER", |b| b.unregister(id(DEV), 1));
+    let (_, d) = w.measured(FOUNDER, 1, |b| b.unregister(id(DEV), 1));
     assert!(d < 0);
     assert!(w.b.get_entitlement(id(DEV), 1).is_none());
 }
@@ -5082,4 +5085,84 @@ fn plan_setup_matches_server_fixture() {
     });
     let actual = serde_json::to_string_pretty(&doc).unwrap() + "\n";
     fixture("plan-setup", include_str!("../../../server/test/fixtures/v3/plan-setup.json"), actual);
+}
+
+// ---------- attack review 2026-11-06 (reports/2026-11-06_attack-review.md) ----------
+
+/// Finding 1: a former owner who sponsored a customer's shell keeps no power over it after a
+/// sale; the new owner can clear it, and the deposit still goes to whoever paid.
+#[test]
+fn ar1_a_former_owner_cannot_delete_customers_shells_after_a_sale() {
+    let mut w = W::new();
+    w.shell(DEV, FOUNDER);
+    w.sell(FOUNDER, BUYER, 10 * P, &[]);
+    w.refuse(FOUNDER, 1, "E_NOT_CUSTOMER", |b| b.unregister(id(DEV), 1));
+    // The old operator lost METERING with the generation.
+    w.refuse(METER, 1, "E_NOT_CUSTOMER", |b| b.unregister(id(DEV), 1));
+    let (_, d) = w.measured(BUYER, 1, |b| b.unregister(id(DEV), 1));
+    assert!(d < 0);
+    assert!(w.b.get_entitlement(id(DEV), 1).is_none());
+}
+
+/// Finding 2: a key installed on a shell nobody bought no longer locks the sponsor's deposit;
+/// a shell the customer paid for themselves stays theirs alone.
+#[test]
+fn ar2_a_key_on_an_unbought_shell_does_not_lock_the_deposit() {
+    let mut w = W::new();
+    w.shell(DEV, FOUNDER);
+    w.call(DEV, 1, |b| b.install_key(1, 0, pk(&key(3)), 1, 1));
+    let (_, d) = w.measured(METER, 1, |b| b.unregister(id(DEV), 1));
+    assert!(d < 0);
+    assert!(w.b.get_entitlement(id(DEV), 1).is_none());
+    w.shell(DANA, DANA);
+    w.refuse(FOUNDER, 1, "E_NOT_CUSTOMER", |b| b.unregister(id(DANA), 1));
+    w.refuse(METER, 1, "E_NOT_CUSTOMER", |b| b.unregister(id(DANA), 1));
+    // Bought shells were already the customer's alone.
+    let k = key(1);
+    w.shell(SPONSOR, FOUNDER);
+    w.buy(SPONSOR, 1, 1, Some((0, &k)));
+    w.refuse(FOUNDER, 1, "E_NOT_CUSTOMER", |b| b.unregister(id(SPONSOR), 1));
+}
+
+/// Finding 3: customers together can hold at most 14 payout slots, so refunds from many
+/// accounts can't stall the owner's withdrawals.
+#[test]
+fn ar3_customers_cannot_take_every_payout_slot() {
+    let (mut w, _) = happy();
+    let k = key(1);
+    w.refund(CARA, 1);
+    w.refund(CARA, 1);
+    // Customers the invariant check knows about (it sums over `accounts()`).
+    let lc = long('c');
+    for c in [DEV, lc.as_str(), MORE[0], MORE[1], MORE[2], MORE[3]] {
+        w.shell(c, c);
+        w.buy(c, 10, 1, Some((0, &k)));
+        w.refund(c, 1);
+        w.refund(c, 1);
+    }
+    assert_eq!(w.b.get_pending().len(), 14);
+    w.shell(SPONSOR, SPONSOR);
+    w.buy(SPONSOR, 10, 1, None);
+    w.refuse(SPONSOR, 1, "E_BUSY: 14 customer", |b| b.refund_units(1, U64(1)));
+    // The owner still gets a slot.
+    w.withdraw(FOUNDER, 1);
+    assert_eq!(w.b.get_pending().len(), 15);
+    // One customer payout settles: the next customer refund goes through.
+    let p = w.b.get_pending();
+    let c = p.iter().find(|p| p.kind == "refund").unwrap();
+    let (slot, pid) = (c.slot, c.payout_id.0);
+    assert!(w.callback(slot, pid, true));
+    w.refund(SPONSOR, 1);
+}
+
+/// Finding 4: the business can't be its own owner, token or closer; a closer that can never
+/// sign would make every Gated sale fail.
+#[test]
+fn ar4_the_business_cannot_be_its_own_owner_token_or_closer() {
+    near_sdk::mock::with_mocked_blockchain(|b| drop(b.take_storage()));
+    testing_env!(ctx(FOUNDER, 0, T0).build());
+    for (owner, asset, closer) in [(BIZ, TOKEN, None), (FOUNDER, BIZ, None), (FOUNDER, TOKEN, Some(BIZ))] {
+        let m = panic_message(|| Business::new("studio".into(), id(owner), id(asset), rules(), closer.map(id)));
+        assert!(m.contains("E_ARGS"), "{m}");
+    }
 }

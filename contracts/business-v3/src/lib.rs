@@ -66,6 +66,9 @@ pub const MAX_SETTLE_GRACE_MS: u64 = 3_600_000;
 /// available to customers.
 pub const MAX_PARTY_PENDING_TOTAL: usize = 4;
 pub const MAX_PARTY_PENDING_EACH: u16 = 2;
+/// Customer payouts in flight or stranded across the business at once; the other 2 of the 16
+/// slots stay open for owner and party payouts.
+pub const MAX_CUSTOMER_PENDING_TOTAL: usize = 14;
 const DAY_MS: u64 = 86_400_000;
 
 pub const METERING: u8 = 1;
@@ -1226,8 +1229,10 @@ impl Business {
             "E_ARGS: the hold TTL ceiling must be 60 s to 1 hour"
         );
         require!(rules.max_settle_grace_ms.0 <= MAX_SETTLE_GRACE_MS, "E_ARGS: the settle grace ceiling must be at most 1 hour");
+        let me = env::current_account_id();
+        require!(owner != me && asset != me, "E_ARGS: the owner and the token must be other accounts");
         if let Some(c) = &closer {
-            require!(*c != owner && *c != asset, "E_ARGS: the closer must be its own account");
+            require!(*c != owner && *c != asset && *c != me, "E_ARGS: the closer must be its own account");
         }
         let mut b = Self {
             name,
@@ -1576,14 +1581,19 @@ impl Business {
     }
 
     /// Deletes an entitlement with nothing left in it and returns its storage deposit to whoever
-    /// paid. The customer may; the sponsor may only for a shell never bought or keyed.
+    /// paid. The customer may. A shell someone else paid for and that was never bought may also be
+    /// cleared by the current owner or a current-generation METERING operator; the deposit still
+    /// goes to the payer. Paying for a shell gives no power of its own, so a sponsor who later
+    /// loses control of the business (a former owner) can't delete customers' shells (attack
+    /// review 2026-11-06, findings 1 and 2).
     #[payable]
     pub fn unregister(&mut self, customer: AccountId, plan_id: u32) {
         assert_one_yocto();
         let key = (customer.clone(), plan_id);
         let e = *self.entitlements.get(&key).unwrap_or_else(|| env::panic_str("E_ARGS: no such entitlement"));
         let caller = env::predecessor_account_id();
-        let allowed = caller == customer || (e.storage_payer.is(&caller) && e.purchased == 0 && !e.ever_keyed);
+        let allowed = caller == customer
+            || (e.purchased == 0 && !e.storage_payer.is(&customer) && self.is_metering(&caller));
         require!(allowed, "E_NOT_CUSTOMER: only the customer can unregister this");
         require!(e.free == 0, "E_UNITS: refund the free units first");
         require!(!e.hold.active, "E_HOLD_ACTIVE: a hold is open");
@@ -1783,7 +1793,7 @@ impl Business {
         require!(units.0 >= 1 && units.0 <= e.free, "E_UNITS: more than the free units");
         require!(e.pending_refs < MAX_CUSTOMER_PENDING, "E_PENDING_REFS: two payouts already in flight");
         let amount = mul(units.0, plan.unit_price.0);
-        let slot = self.free_slot();
+        let slot = self.customer_slot();
         let payout_id = self.next_payout_id();
         e.free -= units.0;
         e.refunded += units.0;
@@ -1801,7 +1811,7 @@ impl Business {
         let (key, mut e) = self.own_entitlement(plan_id);
         require!(e.claim > 0, "E_FUNDS: nothing to claim");
         require!(e.pending_refs < MAX_CUSTOMER_PENDING, "E_PENDING_REFS: two payouts already in flight");
-        let slot = self.free_slot();
+        let slot = self.customer_slot();
         let payout_id = self.next_payout_id();
         let amount = e.claim;
         e.claim = 0;
@@ -2614,14 +2624,15 @@ impl Business {
     /// The owner, or an operator holding METERING granted in the current generation.
     fn require_metering(&self) {
         let who = env::predecessor_account_id();
-        if self.owner.is(&who) {
-            return;
-        }
-        let ok = self
-            .operators
-            .iter()
-            .any(|s| s.caps & METERING != 0 && s.generation == self.generation && s.account.is(&who));
-        require!(ok, "E_NOT_OPERATOR: needs METERING in the current generation");
+        require!(self.is_metering(&who), "E_NOT_OPERATOR: needs METERING in the current generation");
+    }
+
+    fn is_metering(&self, who: &AccountId) -> bool {
+        self.owner.is(who)
+            || self
+                .operators
+                .iter()
+                .any(|s| s.caps & METERING != 0 && s.generation == self.generation && s.account.is(who))
     }
 
     // ---------- 003g helpers ----------
@@ -2985,6 +2996,21 @@ impl Business {
         e.hold = Hold::empty();
     }
 
+    /// A free slot for a customer payout. Customers together may hold at most
+    /// `MAX_CUSTOMER_PENDING_TOTAL` slots, so many customer accounts can't stall every owner and
+    /// party payout (attack review 2026-11-06, finding 3).
+    fn customer_slot(&self) -> u8 {
+        let customer_slots = (0..PAYOUT_SLOTS)
+            .filter_map(|i| self.slots.get(&i))
+            .filter(|s| s.state != SLOT_FREE && s.is_customer())
+            .count();
+        require!(
+            customer_slots < MAX_CUSTOMER_PENDING_TOTAL,
+            "E_BUSY: 14 customer payouts are already in flight; try again shortly"
+        );
+        self.free_slot()
+    }
+
     fn free_slot(&self) -> u8 {
         (0..PAYOUT_SLOTS)
             .find(|i| self.slots.get(i).is_some_and(|s| s.state == SLOT_FREE))
@@ -3132,3 +3158,6 @@ impl Business {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod attack_tests;

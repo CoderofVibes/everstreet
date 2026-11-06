@@ -15,6 +15,7 @@ import {
   type ObservedDeal,
   type ReconcileAnswer,
   type SaleEvidence,
+  sellerMark,
 } from "../handoverApi.ts";
 import { type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link } from "../router.tsx";
@@ -95,7 +96,8 @@ export function Continuity({ ev }: { ev: SaleEvidence }) {
                 {d.grants.map((g, i) => (
                   <span key={g.account}>
                     {i > 0 && "; "}
-                    <span className="mono wrap">{g.account}</span> ({caps(g.caps)})
+                    <span className="mono wrap">{g.account}</span> ({caps(g.caps)}
+                    {sellerMark(g.account, d.seller)})
                   </span>
                 ))}
                 . Any other operator, including the platform's metering account, needs the new owner
@@ -181,7 +183,7 @@ function DealTerms({ d, asset, ev }: { d: ObservedDeal; asset: string; ev: SaleE
         <dt>Offer open until</dt>
         <dd>
           {msDate(d.expires_at_ms) ?? "not set"}
-          {o && elapsedAt(d.expires_at_ms, o.observed_at) && (
+          {o && d.state !== "closing" && elapsedAt(d.expires_at_ms, o.observed_at) && (
             <div className="error-text" style={{ fontSize: 13 }}>
               Already passed when this was read. That doesn't show how the sale ended: only a later
               reading of the contract's outcome does, and acceptance may no longer be possible.
@@ -214,6 +216,7 @@ function DealTerms({ d, asset, ev }: { d: ObservedDeal; asset: string; ev: SaleE
             : d.grants.map((g) => (
                 <div key={g.account}>
                   <span className="mono wrap">{g.account}</span> · {caps(g.caps)}
+                  {sellerMark(g.account, d.seller)}
                 </div>
               ))}
           <div className="muted" style={{ fontSize: 13 }}>

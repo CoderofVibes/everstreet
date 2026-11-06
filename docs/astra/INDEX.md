@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-06 | [Review debrief from Claude](reports/2026-11-06_ReviewDebrief.md) | First-use review (81 findings, 78 fixed) and contract attack review (0 critical/high/medium; 4 low fixed); safety-case draft at docs/SAFETY_CASE.md | For Astra: shape the safety case for judges; decide dark mode; consider cold review as a standing step |
 | 2026-11-05 | [Agent, presentation and Relaydesk review](2026-11-05_AgentPresentationRelaydeskReview.md) | Independent review of three jobs and Relaydesk at f817fef | Three correction jobs open. Signalwatch continues. |
 | 2026-11-05 | [Independent build assessment](2026-11-05_IndependentBuildAssessment.md) | Tony requested build verdicts, ten showcase decisions and remaining-work order | Core synthetic journey narrowly accepted; agent/presentation/evidence corrections queued; external gates retained |
 | 2026-11-05 | [Direct Claude build handoff](handoffs/2026-11-05/CLAUDE_START_PROMPT.md) | Tony requested a larger Claude-led job to conserve usage; full vision and build plan plus current-state packet | Prepared only; paused goal unchanged; activation by Tony's direct instruction; no builder launched |

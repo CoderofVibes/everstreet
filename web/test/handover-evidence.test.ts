@@ -16,7 +16,7 @@ import {
 } from "../../server/test/v3-fixture-transport.ts";
 import { ApiError } from "../src/api.ts";
 import { OwnerHandover, reviewProblem } from "../src/handover.ts";
-import { elapsedAt, type HandoverPort } from "../src/handoverApi.ts";
+import { elapsedAt, type HandoverPort, sellerMark } from "../src/handoverApi.ts";
 
 type Caller = CustomerWorld["owner"];
 
@@ -180,5 +180,13 @@ describe("003s1 deadlines are labelled relative to the reading", () => {
     expect(elapsedAt(String(Date.parse(at) + 60_000), at)).toBe(false);
     expect(elapsedAt("0", at)).toBe(false);
     expect(elapsedAt("1793664000000", "not a time")).toBe(false);
+  });
+});
+
+describe("attack review note 10: a seller kept on as an operator", () => {
+  it("is marked wherever grants show", () => {
+    expect(sellerMark("founder.near", "founder.near")).toBe(" · the seller");
+    expect(sellerMark("meter.near", "founder.near")).toBe("");
+    expect(sellerMark("founder.near", null)).toBe("");
   });
 });

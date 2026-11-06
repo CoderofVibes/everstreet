@@ -6,6 +6,7 @@
 // transaction, a close or a payout that its own evidence doesn't show.
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { sellerMark } from "../handoverApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import {
   type SaleAction,
@@ -381,7 +382,12 @@ export function ReviewSummary({ p, s }: { p: SalePreview; s: SaleSetup }) {
           <dd>
             {grants.length === 0
               ? "None: after the close, customers' new uses pause until the new owner appoints metering."
-              : grants.map((g) => `${g.account} (${caps(g.caps)})`).join("; ")}
+              : grants
+                  .map(
+                    (g) =>
+                      `${g.account} (${caps(g.caps)}${sellerMark(g.account, live?.seller ?? s.control.owner)})`,
+                  )
+                  .join("; ")}
           </dd>
         </>
       )}
@@ -910,7 +916,7 @@ export function Continuity({ s }: { s: SaleSetup }) {
             </li>
             <li>
               {d.grants.length > 0
-                ? `Operators named in these terms: ${d.grants.map((g) => `${g.account} (${caps(g.caps)})`).join("; ")}. Every other operator ends with the close.`
+                ? `Operators named in these terms: ${d.grants.map((g) => `${g.account} (${caps(g.caps)}${sellerMark(g.account, d.seller)})`).join("; ")}. Every other operator ends with the close.`
                 : "These terms name no operator: every earlier operator ends with the close."}
             </li>
             {granted === false && (
