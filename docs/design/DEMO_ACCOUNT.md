@@ -8,8 +8,8 @@ sums across currencies. The visual design comes after the data (Fable mockups; T
 
 ## 1. Who and what (all fictional)
 
-- **Founder:** Marisol Teague (provisional name in the plan), signed in through the synthetic
-  wallet as `marisol.near` in the demo harness. No password: the "credential" is the harness's
+- **Founder:** Delphine Marsh, signed in through the synthetic
+  wallet as `delphine.near` in the demo harness. No password: the "credential" is the harness's
   ephemeral key, which lives in the demo's own directory and is never printed.
 - **Businesses:** Ledgerline (AI invoice API, extraction on the labelled stand-in model),
   Relaydesk (SaaS workflow), Signalwatch (agent service on the stand-in analyst). Each has its own
@@ -34,7 +34,14 @@ from charged units, compute expense from runtime usage, network fees and custome
 synthetic contract. Nothing is typed in to match the mockup; if a number looks wrong, the flow is
 fixed, not the number.
 
-**The one engineering change:** the synthetic customer world binds one business contract today. The
+**Simulated time.** Records are timestamped with the process clock, so the demo runs in its own
+process on a simulated clock: it starts 30 days before the real present and advances one day at a
+time, so every record a flow writes carries the simulated day it happened on; the synthetic chain
+follows the same clock (its blocks are timestamped by it). The clock ends at the real present and
+then runs in real time while the same process serves the demo (the synthetic chain lives in its
+memory). Nothing is backdated after the fact.
+
+**The other engineering change:** the synthetic customer world binds one business contract today. The
 demo needs three contracts in one database, so the synthetic chain grows a router (one synthetic
 contract per business account behind the same reader, writer and sale transports).
 
