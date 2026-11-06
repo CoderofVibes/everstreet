@@ -60,6 +60,13 @@ const CLASS: Record<string, Class> = {
   "POST /api/product-projects/:id/releases/:rid/rollback": "gated_owner",
   "POST /api/product-projects/:id/releases/app-terms": "gated_owner",
   "POST /api/product-projects/:id/releases/withdraw": "gated_owner",
+  "POST /api/businesses/:id/members": "gated_owner",
+  "POST /api/businesses/:id/members/:member/role": "gated_owner",
+  "POST /api/businesses/:id/members/:member/revoke": "allowed_recovery",
+  "POST /api/me/teams/:member/respond": "not_business",
+  "POST /api/me/teams/:member/leave": "not_business",
+  "POST /api/acquire/buyers/:id/representative": "not_business",
+  "POST /api/acquire/buyers/:id/positions/:listing": "not_business",
   "POST /api/imports": "gated_owner",
   "PATCH /api/imports/:id": "gated_owner",
   "POST /api/imports/:id/inspections": "gated_owner",
@@ -239,6 +246,12 @@ function gatedCalls(ids: {
   const calls: [string, string, string, Json][] = [
     ["PATCH /api/businesses/:id", "PATCH", b, { name: "Renamed during the closing" }],
     ["PATCH /api/businesses/:id/idea", "PATCH", `${b}/idea`, { summary: "x" }],
+    [
+      "POST /api/businesses/:id/members",
+      "POST",
+      `${b}/members`,
+      { account: "teammate.testnet", role: "viewer" },
+    ],
     ["PATCH /api/businesses/:id/listing", "PATCH", `${b}/listing`, { mode: "open" }],
     ["PATCH /api/businesses/:id/offer", "PATCH", `${b}/offer`, { headline: "x" }],
     [

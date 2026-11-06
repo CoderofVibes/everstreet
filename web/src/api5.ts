@@ -122,6 +122,12 @@ export interface Workspace {
   };
   role: "research" | "evidence" | "approve";
   members: { person_id: string; name: string; role: string; lead: boolean }[];
+  /** Plan step 6: who signs for the team (their linked NEAR account), or nobody yet. */
+  representative?: { person_id: string; name: string; account: string; set_at: string } | null;
+  /** Members' recorded positions per candidate: a discussion record, not a vote. */
+  positions?: Record<string, { name: string; position: string; note: string; at: string }[]>;
+  team_history?: { at: string; kind: string; detail: string; name: string | null }[];
+  team_is_not?: string;
   mandates: {
     id: string;
     name: string;
@@ -361,6 +367,10 @@ export const api5 = {
     call<Workspace>(`/api/acquire/buyers/${id}`, "PATCH", b),
   addMember: (id: string, person_id: string, role: string) =>
     call<Workspace>(`/api/acquire/buyers/${id}/members`, "POST", { person_id, role }),
+  setRepresentative: (id: string, person_id: string) =>
+    call<Workspace>(`/api/acquire/buyers/${id}/representative`, "POST", { person_id }),
+  recordPosition: (id: string, listing: string, position: string, note: string) =>
+    call<Workspace>(`/api/acquire/buyers/${id}/positions/${listing}`, "POST", { position, note }),
   removeMember: (id: string, personId: string) =>
     call<Workspace>(`/api/acquire/buyers/${id}/members/${personId}`, "DELETE"),
   saveMandate: (id: string, m: { id?: string; name: string; text: string; criteria: Criteria }) =>

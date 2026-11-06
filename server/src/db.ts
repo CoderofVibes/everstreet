@@ -707,6 +707,48 @@ CREATE TRIGGER IF NOT EXISTS workflow_case_events_no_delete
   BEFORE DELETE ON workflow_case_events BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 `;
 
+/** Plan step 6 (TEAM_AUTHORITY.md §2): business teams. App membership only, never control. */
+export const BUSINESS_MEMBERS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS business_members (
+  id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
+  invite_account TEXT, invite_person TEXT REFERENCES people(id), person_id TEXT REFERENCES people(id),
+  role TEXT NOT NULL CHECK (role IN ('case_worker','viewer')),
+  state TEXT NOT NULL CHECK (state IN ('invited','active','declined','revoked','left')),
+  owner_generation INTEGER NOT NULL, invited_by TEXT NOT NULL REFERENCES people(id),
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  CHECK ((invite_account IS NULL) <> (invite_person IS NULL))
+) STRICT;
+CREATE INDEX IF NOT EXISTS business_members_business ON business_members(business_id, owner_generation, state);
+CREATE INDEX IF NOT EXISTS business_members_person ON business_members(person_id, state);
+CREATE TABLE IF NOT EXISTS business_member_events (
+  seq INTEGER PRIMARY KEY, member_id TEXT NOT NULL REFERENCES business_members(id), at TEXT NOT NULL,
+  kind TEXT NOT NULL, actor_id TEXT NOT NULL, detail TEXT NOT NULL DEFAULT ''
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS business_member_events_no_update BEFORE UPDATE ON business_member_events
+BEGIN SELECT RAISE(ABORT, 'member events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS business_member_events_no_delete BEFORE DELETE ON business_member_events
+BEGIN SELECT RAISE(ABORT, 'member events are append-only'); END;
+-- §3: buying teams (cooperatives included): membership history, the named representative (who
+-- signs for the team), and members' recorded positions on a candidate (not binding).
+CREATE TABLE IF NOT EXISTS buyer_member_events (
+  seq INTEGER PRIMARY KEY, buyer_id TEXT NOT NULL REFERENCES buyers(id), person_id TEXT NOT NULL,
+  at TEXT NOT NULL, kind TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', actor_id TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS buyer_member_events_no_update BEFORE UPDATE ON buyer_member_events
+BEGIN SELECT RAISE(ABORT, 'buying team events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS buyer_member_events_no_delete BEFORE DELETE ON buyer_member_events
+BEGIN SELECT RAISE(ABORT, 'buying team events are append-only'); END;
+CREATE TABLE IF NOT EXISTS buyer_representatives (
+  buyer_id TEXT PRIMARY KEY REFERENCES buyers(id), person_id TEXT NOT NULL REFERENCES people(id),
+  account TEXT NOT NULL, set_by TEXT NOT NULL, set_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS buyer_positions (
+  buyer_id TEXT NOT NULL REFERENCES buyers(id), listing_id TEXT NOT NULL, person_id TEXT NOT NULL,
+  position TEXT NOT NULL CHECK (position IN ('support','object','abstain')), note TEXT NOT NULL,
+  at TEXT NOT NULL, PRIMARY KEY (buyer_id, listing_id, person_id)
+) STRICT;
+`;
+
 /** 006a (WEB_APP_RELEASE.md): web app release terms, stable app ids and access passes. */
 export const APP_TERMS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS app_release_terms (
@@ -736,6 +778,7 @@ export function openDb(path: string) {
   db.exec(SCHEMA);
   db.exec(WORKFLOW_CASES_SCHEMA);
   db.exec(APP_TERMS_SCHEMA);
+  db.exec(BUSINESS_MEMBERS_SCHEMA);
   // Columns added after the first release: attribution of how a response arrived.
   const cols = db.prepare("PRAGMA table_info(inquiries)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "source")) {

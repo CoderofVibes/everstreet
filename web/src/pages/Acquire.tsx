@@ -20,6 +20,7 @@ import {
 import { Link } from "../router.tsx";
 import { scopeList } from "../scopes.ts";
 import { useSession } from "../session.tsx";
+import { ago } from "../via.ts";
 import { DealsList } from "./Deal.tsx";
 
 const FAMILIES: [string, string][] = [
@@ -435,7 +436,164 @@ function SearchTab({ ws, onChange }: { ws: Workspace | null; onChange: () => voi
   );
 }
 
-function CompareTab({ ws }: { ws: Workspace }) {
+/** Plan step 6 (TEAM_AUTHORITY.md §3): who signs for the team; only the lead names them. */
+function Representative({ ws, onChange }: { ws: Workspace; onChange: (w?: Workspace) => void }) {
+  const { person } = useSession();
+  const lead = ws.members.find((m) => m.lead);
+  const isLead = !!person && lead?.person_id === person.id;
+  const [pick, setPick] = useState(ws.representative?.person_id ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const rep = ws.representative ?? null;
+  return (
+    <div style={{ margin: "0 0 10px", fontSize: 14 }}>
+      <div>
+        <strong>Signs for the team:</strong>{" "}
+        {rep ? (
+          <>
+            {rep.name} <span className="mono muted">{rep.account}</span>
+          </>
+        ) : (
+          <span className="muted">nobody named yet</span>
+        )}
+      </div>
+      {isLead && (
+        <div className="row" style={{ marginTop: 6, gap: 6 }}>
+          <select
+            className="input"
+            aria-label="Who signs for the team"
+            value={pick}
+            onChange={(e) => setPick(e.target.value)}
+          >
+            <option value="">Choose who signs…</option>
+            {ws.members.map((m) => (
+              <option key={m.person_id} value={m.person_id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={!pick}
+            onClick={async () => {
+              setError(null);
+              try {
+                onChange(await api5.setRepresentative(ws.buyer.id, pick));
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
+          >
+            Name them
+          </button>
+        </div>
+      )}
+      {error && (
+        <p className="notice error" role="status">
+          {error}
+        </p>
+      )}
+      {(ws.team_history ?? []).length > 0 && (
+        <details style={{ marginTop: 6 }}>
+          <summary>Team history</summary>
+          <ul className="muted" style={{ paddingLeft: 18 }}>
+            {(ws.team_history ?? []).map((e) => (
+              <li key={`${e.at}-${e.kind}-${e.name}`}>
+                {TEAM_EVENT[e.kind] ?? e.kind}: {e.name ?? "someone"}
+                {e.kind === "representative" ? ` (${e.detail})` : ""} · {ago(e.at)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+const TEAM_EVENT: Record<string, string> = {
+  added: "Added",
+  role_changed: "Role changed",
+  removed: "Removed",
+  representative: "Named to sign for the team",
+  representative_cleared: "No longer signs for the team",
+};
+const POSITION_WORDS: Record<string, string> = {
+  support: "Supports",
+  object: "Objects",
+  abstain: "Abstains",
+};
+
+/** Members' recorded positions on one candidate: a record for discussion, never a vote. */
+function Positions({
+  ws,
+  listingId,
+  onChange,
+}: {
+  ws: Workspace;
+  listingId: string;
+  onChange: (w?: Workspace) => void;
+}) {
+  const [position, setPosition] = useState("support");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const list = ws.positions?.[listingId] ?? [];
+  return (
+    <div className="muted" style={{ fontSize: 14, margin: "4px 0 10px 28px" }}>
+      {list.length > 0 ? (
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          {list.map((p) => (
+            <li key={p.name}>
+              {p.name}: {POSITION_WORDS[p.position] ?? p.position}
+              {p.note ? ` · "${p.note}"` : ""} · {ago(p.at)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <span>No positions recorded.</span>
+      )}
+      {ws.role === "approve" && (
+        <div className="row" style={{ gap: 6, marginTop: 4 }}>
+          <select
+            className="input"
+            aria-label="Your position"
+            value={position}
+            onChange={(e) => setPosition(e.target.value)}
+          >
+            <option value="support">Support</option>
+            <option value="object">Object</option>
+            <option value="abstain">Abstain</option>
+          </select>
+          <input
+            className="input"
+            aria-label="Why (optional)"
+            placeholder="Why (optional)"
+            value={note}
+            maxLength={300}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-quiet btn-sm"
+            onClick={async () => {
+              setError(null);
+              try {
+                onChange(await api5.recordPosition(ws.buyer.id, listingId, position, note));
+                setNote("");
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
+          >
+            Record my position
+          </button>
+        </div>
+      )}
+      {error && <span className="notice error">{error}</span>}
+    </div>
+  );
+}
+
+function CompareTab({ ws, onChange }: { ws: Workspace; onChange: (w?: Workspace) => void }) {
   const [ids, setIds] = useState<string[]>(ws.shortlist.slice(0, 3).map((c) => c.listing_id));
   const [data, setData] = useState<{ candidates: Candidate[]; basis: string } | null>(null);
   useEffect(() => {
@@ -482,6 +640,19 @@ function CompareTab({ ws }: { ws: Workspace }) {
               <span className="muted">· {c.family_label}</span>
             </span>
           </label>
+        ))}
+      </section>
+      <section className="card" aria-labelledby="team-positions">
+        <h2 id="team-positions">Team positions</h2>
+        <p className="muted" style={{ fontSize: 14 }}>
+          A record for discussing each candidate. It binds nobody: the person who signs for the team
+          decides in their own wallet.
+        </p>
+        {ws.shortlist.map((c) => (
+          <div key={c.listing_id}>
+            <strong>{c.title}</strong>
+            <Positions ws={ws} listingId={c.listing_id} onChange={onChange} />
+          </div>
         ))}
       </section>
       {data && data.candidates.length > 0 && (
@@ -725,9 +896,10 @@ function ProfileTab({
         <section className="card" style={{ padding: 18 }}>
           <strong>Team</strong>
           <p className="muted" style={{ fontSize: 14, margin: "6px 0 10px" }}>
-            Being on the team doesn't make someone the person who can accept a sale; that is agreed
-            per deal.
+            {ws.team_is_not ??
+              "Being on the team doesn't make someone the person who can accept a sale; that is agreed per deal."}
           </p>
+          <Representative ws={ws} onChange={onChange} />
           {ws.members.map((m) => (
             <div
               key={m.person_id}
@@ -944,7 +1116,7 @@ export function Acquire() {
         ))}
       </div>
       {tab === "search" && <SearchTab ws={ws} onChange={refresh} />}
-      {tab === "compare" && <CompareTab ws={ws} />}
+      {tab === "compare" && <CompareTab ws={ws} onChange={(w) => (w ? setWs(w) : refresh())} />}
       {tab === "requests" && <RequestsTab ws={ws} onChange={refresh} />}
       {tab === "profile" && (
         <ProfileTab ws={ws} meta={meta} onChange={(w) => (w ? setWs(w) : refresh())} />

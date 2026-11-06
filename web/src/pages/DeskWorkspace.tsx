@@ -279,6 +279,7 @@ export function DigitalWorkspace({
         <nav className="ws-links" aria-label="This business">
           {b.published_at && <Link to={`/b/${b.slug}`}>Public page</Link>}
           <Link to={`/desk/${b.id}/value`}>Value</Link>
+          <Link to={`/desk/${b.id}/team`}>Team</Link>
           <Link to={`/desk/${b.id}/continuity`}>Ownership and continuity</Link>
           <Link to={`/desk/${b.id}/handover`}>Sale and handover</Link>
         </nav>

@@ -1468,3 +1468,42 @@ ul.plain { margin: 0; padding-left: 18px; }
 .an-quote { margin: 0; padding: 6px 10px; border-left: 3px solid var(--line-strong); background: var(--surface-2); font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wf-group { display: grid; gap: 8px; }
 .wf-group-head { margin: 4px 0 0; font-size: 13.5px; color: var(--ink-2); font-weight: 600; }
+
+/* Plan step 6: the owner's Team page. */
+.team-invite {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+.team-roles {
+  display: grid;
+  gap: 6px;
+}
+.team-role {
+  display: block;
+  font-size: 14px;
+}
+.team-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.team-member {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.team-member > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.team-actions {
+  gap: 8px;
+  flex-wrap: wrap;
+}

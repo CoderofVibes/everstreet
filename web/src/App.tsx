@@ -43,6 +43,7 @@ import { ExamplePage } from "./pages/Showcase.tsx";
 import { SignInReturn } from "./pages/SignInReturn.tsx";
 import { Start } from "./pages/Start.tsx";
 import { Studio } from "./pages/Studio.tsx";
+import { TeamPage, TeamWorkspacePage } from "./pages/Team.tsx";
 import { Value } from "./pages/Value.tsx";
 import { WriterHistoryPage } from "./pages/WriterHistory.tsx";
 import { previewLabel } from "./previewLabel.ts";
@@ -282,6 +283,18 @@ function Routes() {
   // Job 005b: keyed by actor and business, like the other private pages.
   if (helping)
     return <Helping key={`${person?.id ?? "anon"}:${helping.id}`} id={helping.id as string} />;
+  // Plan step 6: the owner's team, and a member's workspace.
+  const team = match("/desk/:id/team", path);
+  if (team)
+    return <TeamPage key={`${person?.id ?? "anon"}:${team.id}`} businessId={team.id as string} />;
+  const teamWs = match("/team/:id", path);
+  if (teamWs)
+    return (
+      <TeamWorkspacePage
+        key={`${person?.id ?? "anon"}:${teamWs.id}`}
+        businessId={teamWs.id as string}
+      />
+    );
   const desk = match("/desk/:id", path);
   // Job 003t: keyed by who is acting and which business, so the books and their operations
   // figures are cleared on a switch and a late answer for the previous view lands nowhere.

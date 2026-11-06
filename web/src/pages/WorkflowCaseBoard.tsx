@@ -31,7 +31,17 @@ export function groupByStages(cases: CaseView[]) {
   return [...groups.filter(current), ...groups.filter((g) => !current(g))];
 }
 
-export function WorkflowCaseBoard({ businessId }: { businessId: string }) {
+export function WorkflowCaseBoard({
+  businessId,
+  canMove = true,
+  member = false,
+}: {
+  businessId: string;
+  /** Plan step 6: a viewer member reads cases only (the server refuses a move anyway). */
+  canMove?: boolean;
+  /** Shown in a team member's workspace: say why there is nothing, never just render nothing. */
+  member?: boolean;
+}) {
   const { person, sessionEpoch } = useSession();
   // Relaydesk correction: bound to the session AND the business. An in-place change of either
   // drops what was shown (and any open case's private details) at once; a late answer for the
@@ -42,6 +52,14 @@ export function WorkflowCaseBoard({ businessId }: { businessId: string }) {
   const board = read.state.data;
   const shownOpen = open && open.scope === scope ? open.id : null;
 
+  if (member && read.state.status === "refused")
+    return (
+      <p className="notice" role="status">
+        You aren't on this business's team now, so its cases aren't shown.
+      </p>
+    );
+  if (member && board && !board.has_workflow)
+    return <p className="muted">This business has no case board yet.</p>;
   if (!scope || !board?.has_workflow) return null; // the board is optional on the desk
   const openCount = board.cases.filter((c) => !c.closed_at).length;
   // Each case keeps the stages of the release it was opened under; a workflow that changed
@@ -117,6 +135,7 @@ export function WorkflowCaseBoard({ businessId }: { businessId: string }) {
           requestId={shownOpen}
           onMoved={read.retry}
           onClose={() => setOpen(null)}
+          canMove={canMove}
         />
       )}
     </section>
@@ -128,11 +147,13 @@ function CaseDetailPanel({
   requestId,
   onMoved,
   onClose,
+  canMove = true,
 }: {
   businessId: string;
   requestId: string;
   onMoved: () => void;
   onClose: () => void;
+  canMove?: boolean;
 }) {
   const [d, setD] = useState<CaseDetail | null>(null);
   const [note, setNote] = useState("");
@@ -210,7 +231,12 @@ function CaseDetailPanel({
                 </li>
               ))}
             </ol>
-            {d.case.next ? (
+            {d.case.next && !canMove ? (
+              <p className="muted">
+                Next: {d.case.next.label}. Your role reads cases; moving them needs the case worker
+                role.
+              </p>
+            ) : d.case.next ? (
               <div className="wf-move">
                 <label className="field">
                   <span>Note for the customer (optional)</span>

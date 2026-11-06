@@ -16,6 +16,7 @@ import { BOOKS_BASIS, type Books, financialMonth, revenueOf } from "./books.ts";
 import type { Chain } from "./chain.ts";
 import type { Db } from "./db.ts";
 import { discloseLegacy, LEGACY_LIMITS, LEGACY_NOTE, legacySource } from "./legacyCustomers.ts";
+import { accountsOfPerson } from "./members.ts";
 import { type PerformanceEvidence, performanceEvidence } from "./performanceEvidence.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { type Estimate, estimate, type Overrides, type Valuation, withOverrides } from "./value.ts";
@@ -467,6 +468,11 @@ export class Acquisitions {
       skills: b.skills,
       budget_basis: b.budget_basis,
       members: this.members(buyerId).map((m) => ({ name: m.name, role: m.role, lead: m.lead })),
+      // Plan step 6: who signs for the team, so a seller knows which account will act on chain.
+      representative: (() => {
+        const r = this.representative(buyerId);
+        return r ? { name: r.name, account: r.account } : null;
+      })(),
     };
   }
 
@@ -476,20 +482,163 @@ export class Acquisitions {
     const b = this.buyerRow(buyerId) as BuyerRow;
     if (personId === b.owner_id) throw new HttpError(409, "They lead this team already");
     this.store.person(personId);
-    this.db
-      .prepare(
-        "INSERT INTO buyer_members (buyer_id, person_id, role, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(buyer_id, person_id) DO UPDATE SET role = excluded.role",
-      )
-      .run(buyerId, personId, role, now());
+    this.store.tx(() => {
+      const before = this.db
+        .prepare("SELECT role FROM buyer_members WHERE buyer_id = ? AND person_id = ?")
+        .get(buyerId, personId) as { role: Role } | undefined;
+      this.db
+        .prepare(
+          "INSERT INTO buyer_members (buyer_id, person_id, role, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(buyer_id, person_id) DO UPDATE SET role = excluded.role",
+        )
+        .run(buyerId, personId, role, now());
+      // Plan step 6 (TEAM_AUTHORITY.md §3): every change of the team is recorded.
+      if (before?.role !== role)
+        this.teamEvent(buyerId, personId, before ? "role_changed" : "added", role, viewer.id);
+    });
     return this.workspace(viewer, buyerId);
   }
 
   removeMember(viewer: Person, buyerId: string, personId: string) {
     this.role(viewer, buyerId, "approve");
-    this.db
-      .prepare("DELETE FROM buyer_members WHERE buyer_id = ? AND person_id = ?")
-      .run(buyerId, personId);
+    this.store.tx(() => {
+      const gone = this.db
+        .prepare("DELETE FROM buyer_members WHERE buyer_id = ? AND person_id = ?")
+        .run(buyerId, personId);
+      if (gone.changes) {
+        this.teamEvent(buyerId, personId, "removed", "", viewer.id);
+        // A removed member can't remain the person who signs for the team.
+        const rep = this.db
+          .prepare("DELETE FROM buyer_representatives WHERE buyer_id = ? AND person_id = ?")
+          .run(buyerId, personId);
+        if (rep.changes) this.teamEvent(buyerId, personId, "representative_cleared", "", viewer.id);
+        this.db
+          .prepare("DELETE FROM buyer_positions WHERE buyer_id = ? AND person_id = ?")
+          .run(buyerId, personId);
+      }
+    });
     return this.workspace(viewer, buyerId);
+  }
+
+  private teamEvent(
+    buyerId: string,
+    personId: string,
+    kind: string,
+    detail: string,
+    actor: string,
+  ) {
+    this.db
+      .prepare(
+        "INSERT INTO buyer_member_events (buyer_id, person_id, at, kind, detail, actor_id) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(buyerId, personId, now(), kind, detail, actor);
+  }
+
+  /** The person who signs for the team (TEAM_AUTHORITY.md §3), with the account that signs. */
+  private representative(buyerId: string) {
+    const r = this.db
+      .prepare(
+        "SELECT r.person_id, r.account, r.set_at, p.display_name FROM buyer_representatives r JOIN people p ON p.id = r.person_id WHERE r.buyer_id = ?",
+      )
+      .get(buyerId) as
+      | { person_id: string; account: string; set_at: string; display_name: string }
+      | undefined;
+    return r
+      ? { person_id: r.person_id, name: r.display_name, account: r.account, set_at: r.set_at }
+      : null;
+  }
+
+  /**
+   * The lead names who signs for the team: the lead or a member, by the NEAR account linked to
+   * them. It records who acts on chain for the team; it gives nobody a share of anything.
+   */
+  setRepresentative(viewer: Person, buyerId: string, input: { person_id?: unknown }) {
+    this.role(viewer, buyerId, "approve");
+    const b = this.buyerRow(buyerId) as BuyerRow;
+    if (b.owner_id !== viewer.id)
+      throw new HttpError(403, "Only the team's lead names who signs for it", "not_lead");
+    const personId = typeof input.person_id === "string" ? input.person_id : "";
+    const onTeam =
+      personId === b.owner_id ||
+      !!this.db
+        .prepare("SELECT 1 FROM buyer_members WHERE buyer_id = ? AND person_id = ?")
+        .get(buyerId, personId);
+    if (!onTeam) throw new HttpError(404, "They aren't on this team");
+    const account = accountsOfPerson(this.db, personId)[0];
+    if (!account)
+      throw new HttpError(
+        409,
+        "They need a NEAR account linked to Everstreet first: that account is what signs",
+        "no_account",
+      );
+    this.store.tx(() => {
+      this.db
+        .prepare(
+          "INSERT INTO buyer_representatives (buyer_id, person_id, account, set_by, set_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(buyer_id) DO UPDATE SET person_id = excluded.person_id, account = excluded.account, set_by = excluded.set_by, set_at = excluded.set_at",
+        )
+        .run(buyerId, personId, account, viewer.id, now());
+      this.teamEvent(buyerId, personId, "representative", account, viewer.id);
+    });
+    return this.workspace(viewer, buyerId);
+  }
+
+  /** A member's recorded position on a candidate: a discussion aid, never a binding vote. */
+  recordPosition(
+    viewer: Person,
+    buyerId: string,
+    listingId: string,
+    input: { position?: unknown; note?: unknown },
+  ) {
+    this.role(viewer, buyerId, "approve");
+    const position = input.position;
+    if (position !== "support" && position !== "object" && position !== "abstain")
+      throw new HttpError(400, "Support, object or abstain", "bad_position");
+    const row = this.listingRow(listingId);
+    if (!row || !this.visibleTo(row, buyerId)) throw new HttpError(404, "No such business");
+    const note = typeof input.note === "string" ? input.note.trim().slice(0, 300) : "";
+    this.store.tx(() => {
+      this.db
+        .prepare(
+          "INSERT INTO buyer_positions (buyer_id, listing_id, person_id, position, note, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(buyer_id, listing_id, person_id) DO UPDATE SET position = excluded.position, note = excluded.note, at = excluded.at",
+        )
+        .run(buyerId, listingId, viewer.id, position, note, now());
+      this.teamEvent(buyerId, viewer.id, "position", `${listingId}:${position}`, viewer.id);
+    });
+    return this.workspace(viewer, buyerId);
+  }
+
+  private positions(buyerId: string) {
+    const rows = this.db
+      .prepare(
+        "SELECT x.listing_id, x.position, x.note, x.at, p.display_name FROM buyer_positions x JOIN people p ON p.id = x.person_id WHERE x.buyer_id = ? ORDER BY x.at",
+      )
+      .all(buyerId) as {
+      listing_id: string;
+      position: string;
+      note: string;
+      at: string;
+      display_name: string;
+    }[];
+    const out: Record<string, { name: string; position: string; note: string; at: string }[]> = {};
+    for (const r of rows) {
+      out[r.listing_id] ??= [];
+      out[r.listing_id]?.push({
+        name: r.display_name,
+        position: r.position,
+        note: r.note,
+        at: r.at,
+      });
+    }
+    return out;
+  }
+
+  private history(buyerId: string) {
+    return (
+      this.db
+        .prepare(
+          "SELECT e.at, e.kind, e.detail, p.display_name AS name FROM buyer_member_events e LEFT JOIN people p ON p.id = e.person_id WHERE e.buyer_id = ? ORDER BY e.seq DESC LIMIT 30",
+        )
+        .all(buyerId) as { at: string; kind: string; detail: string; name: string | null }[]
+    ).filter((e) => e.kind !== "position");
   }
 
   async workspace(viewer: Person, buyerId: string) {
@@ -533,6 +682,12 @@ export class Acquisitions {
       },
       role,
       members: this.members(buyerId),
+      // Plan step 6 (TEAM_AUTHORITY.md §3): who signs, members' positions, and the team's history.
+      representative: this.representative(buyerId),
+      positions: this.positions(buyerId),
+      team_history: this.history(buyerId),
+      team_is_not:
+        "A buying team shares research and evidence. It isn't a joint owner or a fund: the representative's own wallet signs for the team, and members' positions are a record for discussion, not a binding vote.",
       mandates,
       shortlist,
       requests: this.requestsOfBuyer(buyerId),

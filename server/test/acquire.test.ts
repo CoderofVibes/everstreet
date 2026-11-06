@@ -359,3 +359,83 @@ describe("access to evidence", () => {
     expect((await g.w.anon(`/api/acquire/rooms/${g.id}`)).status).toBe(401);
   });
 });
+
+describe("plan step 6: a buying team's representative, positions and history", () => {
+  const link = (m: Awaited<ReturnType<typeof market>>, personId: string, account: string) =>
+    m.w.store.db
+      .prepare(
+        "INSERT INTO chain_accounts (owner_kind, owner_id, account_id, tx, created_at) VALUES ('person', ?, ?, 'fixture', ?)",
+      )
+      .run(personId, account, new Date().toISOString());
+
+  it("the lead names who signs; members record positions that bind nobody; every change is recorded", async () => {
+    const m = await market();
+    await list(m);
+    const listingId = (await search(m.owen, m.buyerId)).body.results[0].listing_id as string;
+    // Sam can't sign until a NEAR account is linked to him; only the lead names the signer.
+    const none = await m.owen(`/api/acquire/buyers/${m.buyerId}/representative`, "POST", {
+      person_id: m.sam.id,
+    });
+    expect([none.status, none.body.code]).toEqual([409, "no_account"]);
+    link(m, m.sam.id, "sam.near");
+    await m.owen(`/api/acquire/buyers/${m.buyerId}/members`, "POST", {
+      person_id: m.sam.id,
+      role: "approve",
+    });
+    const bySam = await m.sam(`/api/acquire/buyers/${m.buyerId}/representative`, "POST", {
+      person_id: m.sam.id,
+    });
+    expect([bySam.status, bySam.body.code]).toEqual([403, "not_lead"]);
+    const set = await m.owen(`/api/acquire/buyers/${m.buyerId}/representative`, "POST", {
+      person_id: m.sam.id,
+    });
+    expect(set.body.representative).toMatchObject({ name: "Sam Lee", account: "sam.near" });
+    expect(set.body.team_is_not).toMatch(/isn't a joint owner or a fund/);
+    // Positions: the approve role records one; it's shown to the team as a record only.
+    const pos = await m.sam(`/api/acquire/buyers/${m.buyerId}/positions/${listingId}`, "POST", {
+      position: "support",
+      note: "The numbers hold up.",
+    });
+    expect(pos.body.positions[listingId]).toEqual([
+      expect.objectContaining({
+        name: "Sam Lee",
+        position: "support",
+        note: "The numbers hold up.",
+      }),
+    ]);
+    expect(
+      (
+        await m.owen(`/api/acquire/buyers/${m.buyerId}/positions/${listingId}`, "POST", {
+          position: "maybe",
+        })
+      ).body.code,
+    ).toBe("bad_position");
+    // The seller sees which account will sign for the team when it asks for access.
+    await m.owen(`/api/acquire/listings/${listingId}/requests`, "POST", {
+      buyer_id: m.buyerId,
+      categories: ["financials"],
+      purpose: "Check the numbers",
+      days: 7,
+    });
+    const seller = (await m.nadia(`/api/businesses/${m.paperfin.id}/listing`)).body;
+    expect(seller.requests[0].buyer.representative).toEqual({
+      name: "Sam Lee",
+      account: "sam.near",
+    });
+    // Removing Sam clears the signer and his position; the history keeps all of it.
+    const out = await m.owen(`/api/acquire/buyers/${m.buyerId}/members/${m.sam.id}`, "DELETE");
+    expect(out.body.representative).toBeNull();
+    expect(out.body.positions[listingId]).toBeUndefined();
+    expect(out.body.team_history.map((e: Json) => e.kind).reverse()).toEqual([
+      "added",
+      "role_changed",
+      "representative",
+      "removed",
+      "representative_cleared",
+    ]);
+    expect((await m.sam(`/api/acquire/buyers/${m.buyerId}`)).status).toBe(404);
+    expect(() => m.w.store.db.prepare("DELETE FROM buyer_member_events").run()).toThrow(
+      /append-only/,
+    );
+  });
+});

@@ -157,8 +157,16 @@ export async function saleHarness(opts: {
   w.state.store.db
     .prepare("UPDATE businesses SET name = ?, slug = ?, published_at = ? WHERE id = ?")
     .run(
-      opts.product === "quote-app" ? "Lumen Parse" : "Ledgerline Invoice Reader",
-      opts.product === "quote-app" ? "lumen-parse" : "ledgerline",
+      opts.product === "quote-app"
+        ? "Lumen Parse"
+        : opts.product === "relaydesk"
+          ? "Relaydesk"
+          : "Ledgerline Invoice Reader",
+      opts.product === "quote-app"
+        ? "lumen-parse"
+        : opts.product === "relaydesk"
+          ? "relaydesk"
+          : "ledgerline",
       new Date().toISOString(),
       w.f.business,
     );

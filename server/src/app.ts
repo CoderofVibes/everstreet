@@ -30,6 +30,7 @@ import { verifyRecord } from "./handoverVerify.ts";
 import type { AccountSignIn } from "./identity.ts";
 import { type ImportInspector, type ImportSourceOptions, Imports } from "./imports.ts";
 import { ManagedRuntime } from "./invocations.ts";
+import { Members } from "./members.ts";
 import { customerOperations } from "./operations.ts";
 import { Opportunities } from "./opportunities.ts";
 import { Payments } from "./payments.ts";
@@ -153,9 +154,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const runtime = options.runtime ?? new ManagedRuntime(store.db, store, null);
   const customerUses = new CustomerUses(store.db, store, v3, options.customer, runtime);
   // The workflow engine: one case per accepted request, worked by the business's current owner.
-  const workflowCases = new WorkflowCases(store.db, store, {
-    load: (id) => customerUses.submissionFields(id),
-  });
+  // Plan step 6: business teams (app membership, never control; TEAM_AUTHORITY.md).
+  const members = new Members(store.db, store, options.localPreview === true);
+  const workflowCases = new WorkflowCases(
+    store.db,
+    store,
+    { load: (id) => customerUses.submissionFields(id) },
+    members,
+  );
   const agentAccess = new AgentAccess(
     store.db,
     store,
@@ -497,7 +503,29 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/businesses/:id/customer-offers/:offer/retire", (c) =>
     c.json(customerUses.retireOffer(me(c), c.req.param("id"), c.req.param("offer"))),
   );
-  // The workflow engine (WORKFLOW_ENGINE.md §5): the owner's case board, one case, and a move.
+  // Plan step 6 (TEAM_AUTHORITY.md §2): the owner's team; the invitee's and member's side.
+  app.get("/api/businesses/:id/members", (c) => c.json(members.list(me(c), c.req.param("id"))));
+  app.post("/api/businesses/:id/members", async (c) =>
+    c.json(members.invite(me(c), c.req.param("id"), await body(c)), 201),
+  );
+  app.post("/api/businesses/:id/members/:member/role", async (c) =>
+    c.json(members.setRole(me(c), c.req.param("id"), c.req.param("member"), await body(c))),
+  );
+  app.post("/api/businesses/:id/members/:member/revoke", (c) =>
+    c.json(members.revoke(me(c), c.req.param("id"), c.req.param("member"))),
+  );
+  app.get("/api/me/teams", (c) => c.json(members.mine(me(c))));
+  app.post("/api/me/teams/:member/respond", async (c) =>
+    c.json(members.respond(me(c), c.req.param("member"), await body(c))),
+  );
+  app.post("/api/me/teams/:member/leave", (c) =>
+    c.json(members.leave(me(c), c.req.param("member"))),
+  );
+  app.get("/api/businesses/:id/workspace", (c) =>
+    c.json(members.workspace(me(c), c.req.param("id"))),
+  );
+  // The workflow engine (WORKFLOW_ENGINE.md §5): the case board, one case, and a move (the owner
+  // and, since plan step 6, the team members whose role allows it).
   app.get("/api/businesses/:id/workflow-cases", (c) =>
     c.json(workflowCases.list(me(c), c.req.param("id"))),
   );
@@ -1369,6 +1397,15 @@ export function everstreetApi(store: Store, options: AppOptions) {
       ),
     );
   });
+  // Plan step 6 (TEAM_AUTHORITY.md §3): who signs for a buying team; members' positions.
+  app.post("/api/acquire/buyers/:id/representative", async (c) =>
+    c.json(await acquire.setRepresentative(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/acquire/buyers/:id/positions/:listing", async (c) =>
+    c.json(
+      await acquire.recordPosition(me(c), c.req.param("id"), c.req.param("listing"), await body(c)),
+    ),
+  );
   app.delete("/api/acquire/buyers/:id/members/:personId", async (c) =>
     c.json(await acquire.removeMember(me(c), c.req.param("id"), c.req.param("personId"))),
   );

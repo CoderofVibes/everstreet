@@ -9,6 +9,7 @@ import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { money } from "../ui.tsx";
 import { ago, when } from "../via.ts";
+import { MyTeamsSection } from "./Team.tsx";
 
 type ActivityData = Awaited<ReturnType<typeof api.activity>>;
 
@@ -381,6 +382,7 @@ export function Activity() {
       <h1 className="display" style={{ fontSize: 40 }}>
         My activity
       </h1>
+      <MyTeamsSection />
       <MyUses />
       <MyHandovers />
       <WalletCard

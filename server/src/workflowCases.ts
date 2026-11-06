@@ -7,6 +7,7 @@
 // seller can't.
 
 import { type Db, WORKFLOW_CASES_SCHEMA } from "./db.ts";
+import type { Members } from "./members.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { validateWorkflowSpec, type WorkflowSpec } from "./workflow.ts";
 
@@ -57,6 +58,8 @@ export class WorkflowCases {
     private readonly store: Store,
     /** Reads a request's submitted fields from its protected copy (the server holds the keys). */
     private readonly content: CaseContent,
+    /** Plan step 6: the owner, or an active team member whose role allows it (members.ts). */
+    private readonly members: Members,
   ) {
     db.exec(WORKFLOW_CASES_SCHEMA);
   }
@@ -117,10 +120,10 @@ export class WorkflowCases {
     };
   }
 
-  // ---------- the business's staff (its current owner) ----------
+  // ---------- the business's staff (its current owner and its team, TEAM_AUTHORITY.md §2) ----------
 
   list(viewer: Person, businessId: string) {
-    this.store.ownedBusiness(viewer, businessId);
+    this.members.staff(viewer, businessId, "cases.read");
     const rows = this.db
       .prepare(
         "SELECT * FROM workflow_cases WHERE business_id = ? ORDER BY closed_at IS NOT NULL, created_at DESC LIMIT 200",
@@ -135,13 +138,13 @@ export class WorkflowCases {
   }
 
   async one(viewer: Person, businessId: string, requestId: string) {
-    this.store.ownedBusiness(viewer, businessId);
+    const epoch = this.members.staff(viewer, businessId, "cases.read");
     const c = this.row(requestId);
     if (!c || c.business_id !== businessId) throw new HttpError(404, "No such case");
-    const epoch = this.store.controlEpoch(viewer, businessId);
     const fields = await this.content.load(requestId).catch(() => null);
-    // Control may have moved while the content was read: nothing is returned then.
-    this.store.stillControls(viewer, epoch, { handover: "allow" });
+    // Control may have moved, or the member been revoked, while the content was read: nothing
+    // is returned then.
+    this.members.still(viewer, epoch, "cases.read");
     const spec = this.specOf(c);
     return {
       case: this.view(c),
@@ -156,13 +159,14 @@ export class WorkflowCases {
     };
   }
 
-  /** The owner moves a case to the NEXT stage only; the final stage closes it. */
+  /** The owner or a case worker moves a case to the NEXT stage only; the final stage closes it. */
   advance(viewer: Person, businessId: string, requestId: string, input: Record<string, unknown>) {
     const to = typeof input.to_stage === "string" ? input.to_stage : "";
     const note = typeof input.note === "string" ? input.note.trim().slice(0, 500) : "";
-    const epoch = this.store.controlEpoch(viewer, businessId);
+    const epoch = this.members.staff(viewer, businessId, "cases.move");
     return this.store.tx(() => {
-      this.store.stillControls(viewer, epoch);
+      // In the write transaction: still the owner or a case worker, under the same owner.
+      this.members.still(viewer, epoch, "cases.move");
       this.store.requireNoHandover(businessId);
       const c = this.row(requestId);
       if (!c || c.business_id !== businessId) throw new HttpError(404, "No such case");
