@@ -82,7 +82,7 @@
         "tsx",
         "scripts/demo.ts",
         "--minutes",
-        "120"
+        "300"
       ],
       "port": 8820
     }

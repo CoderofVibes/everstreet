@@ -329,14 +329,14 @@ export class V3Intents {
     viewer: Person | null,
     businessId: string,
     intentId: string,
-    system?: { handoverId: string; fence?: () => void },
+    system?: { handoverId: string; fence?: () => void } | { watcher: true; fence?: () => void },
   ) {
     const fence = () => system?.fence?.();
     const first = this.row(businessId, intentId);
     const allowed =
       first &&
       (system
-        ? this.handoverNames(first, system.handoverId)
+        ? "watcher" in system || this.handoverNames(first, system.handoverId)
         : viewer !== null &&
           (viewer.id === first.seller_person_id || viewer.id === first.buyer_person_id));
     if (!first || !allowed) bad(404, "No such intent");
@@ -495,7 +495,7 @@ export class V3Intents {
             }),
             t,
           );
-        if (system)
+        if (system && "handoverId" in system)
           this.db
             .prepare(
               "INSERT INTO events (type, subject, actor, payload, at) VALUES ('v3.reconciled_by_handover', ?, 'system:handover', ?, ?)",
@@ -505,6 +505,12 @@ export class V3Intents {
               JSON.stringify({ v3_intent: first.id, handover: system.handoverId }),
               t,
             );
+        else if (system)
+          this.db
+            .prepare(
+              "INSERT INTO events (type, subject, actor, payload, at) VALUES ('v3.reconciled_by_watcher', ?, 'system:watcher', ?, ?)",
+            )
+            .run(businessId, JSON.stringify({ v3_intent: first.id }), t);
         return true;
       });
       // Job 003wf3: the handover follows the same evidence, now that it is applied here.
@@ -513,7 +519,7 @@ export class V3Intents {
         network: first.network,
         account: first.account,
         evidence: { block: s.block, control: s.control, outcomes: s.outcomes },
-        source: system ? "handover_reconcile" : "reconcile",
+        source: system && "handoverId" in system ? "handover_reconcile" : "reconcile",
         now: Date.now(),
       });
       return answer(won ? "applied" : "already", null);
@@ -521,6 +527,44 @@ export class V3Intents {
       if (e instanceof Stale) return answer("conflict", "local_owner_changed");
       throw e;
     }
+  }
+
+  private watchCursor = "";
+
+  /**
+   * Permissions review, finding 1: a sale can close on the contract without anyone telling
+   * Everstreet (the closing acceptance's answer is lost, or it was sent from another wallet), and
+   * until then the seller would still run the business here. Each pass reconciles up to `limit`
+   * recorded intents from fresh chain evidence, through the same checks as a participant's own
+   * reconcile, rotating through them so every one is read within a few passes. Direct sales only:
+   * a Gated sale is closed by the managed handover's closer, whose coordinator applies it with the
+   * steps that follow (this would pre-empt them). Never throws.
+   */
+  async watchPass(limit = 5) {
+    const next = (after: string) =>
+      this.db
+        .prepare(
+          "SELECT id, business_id FROM v3_intents WHERE status = 'recorded' AND id > ? ORDER BY id LIMIT ?",
+        )
+        .all(after, limit) as { id: string; business_id: string }[];
+    let rows = next(this.watchCursor);
+    if (rows.length === 0 && this.watchCursor !== "") rows = next("");
+    const states: ReconcileState[] = [];
+    const gated = (businessId: string) =>
+      this.obs.latest(businessId)?.snapshot.control.close_mode === "gated" ||
+      this.db
+        .prepare("SELECT 1 FROM business_handovers WHERE business_id = ? LIMIT 1")
+        .get(businessId) !== undefined;
+    for (const r of rows) {
+      this.watchCursor = r.id;
+      if (gated(r.business_id)) continue;
+      try {
+        states.push((await this.reconcile(null, r.business_id, r.id, { watcher: true })).state);
+      } catch {
+        // A busy database or a vanished row: the next pass reads it again.
+      }
+    }
+    return states;
   }
 
   /** Whether a stored handover names exactly this intent, deal, version and digest (Q9). */

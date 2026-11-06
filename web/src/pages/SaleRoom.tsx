@@ -933,19 +933,21 @@ export function Continuity({ s }: { s: SaleSetup }) {
           </p>
         )}
       </section>
-      <section>
-        <h2 className="sale-h3">Customer obligations that stay with the business</h2>
-        <ul>
-          <li>
-            Prepaid, not yet used: <Amount base={s.customer_obligations.prepaid_unused} s={s} />
-          </li>
-          <li>
-            Reserved for uses in progress:{" "}
-            <Amount base={s.customer_obligations.reserved_in_use} s={s} />
-          </li>
-          <li>Customers keep their requests, results and units; nobody gains access to them.</li>
-        </ul>
-      </section>
+      {s.customer_obligations && (
+        <section>
+          <h2 className="sale-h3">Customer obligations that stay with the business</h2>
+          <ul>
+            <li>
+              Prepaid, not yet used: <Amount base={s.customer_obligations.prepaid_unused} s={s} />
+            </li>
+            <li>
+              Reserved for uses in progress:{" "}
+              <Amount base={s.customer_obligations.reserved_in_use} s={s} />
+            </li>
+            <li>Customers keep their requests, results and units; nobody gains access to them.</li>
+          </ul>
+        </section>
+      )}
       <section>
         <h2 className="sale-h3">Not included: needs its own verified transfer</h2>
         <p>Domains, provider and model accounts, secrets and anything outside this app.</p>

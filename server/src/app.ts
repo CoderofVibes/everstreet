@@ -1541,7 +1541,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
 
   // ---------- deals: exact terms, both acceptances on NEAR, the handover ----------
 
-  app.get("/api/deals", (c) => c.json({ deals: deals?.mine(me(c)) ?? [] }));
+  // Permissions review, finding 4: sign-in is checked first, even when deals aren't connected.
+  app.get("/api/deals", (c) => {
+    const viewer = me(c);
+    return c.json({ deals: deals?.mine(viewer) ?? [] });
+  });
   app.post("/api/businesses/:id/deals", async (c) => {
     notDuringHandover(c.req.param("id"));
     return c.json(await needDeals().propose(me(c), c.req.param("id"), await body(c)), 201);
@@ -1588,7 +1592,10 @@ export function everstreetApi(store: Store, options: AppOptions) {
     );
   });
 
-  app.get("/api/helping", (c) => c.json({ businesses: payments?.helping(me(c)) ?? [] }));
+  app.get("/api/helping", (c) => {
+    const viewer = me(c);
+    return c.json({ businesses: payments?.helping(viewer) ?? [] });
+  });
   app.get("/api/helping/:id", async (c) =>
     c.json(await needPayments().helperDesk(me(c), c.req.param("id"))),
   );
@@ -1715,5 +1722,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     );
   });
 
-  return app;
+  // Permissions review, finding 1: the composed entry (and the demo) run this on a timer so the
+  // local owner follows the contract even when nobody checks the sale.
+  return Object.assign(app, { reconcileRecordedSales: () => v3Intents.watchPass() });
 }

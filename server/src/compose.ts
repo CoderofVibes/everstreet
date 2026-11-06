@@ -744,6 +744,8 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
 
   // Job 003wf1: durable presence, renewed while this process runs and removed when it stops.
   const PRESENCE_MS = 30_000;
+  /** How often recorded v3 sales are read from the chain (one read per recorded intent, up to 5). */
+  const SALE_WATCH_MS = 15_000;
   const nowMs = () => (deps.now ?? Date.now)();
   const present = () =>
     store.db
@@ -760,6 +762,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         .get(runner, nowMs()),
     );
   let presenceTimer: ReturnType<typeof setInterval> | null = null;
+  let saleWatchTimer: ReturnType<typeof setInterval> | null = null;
   const stoppers: (() => Promise<unknown>)[] = [];
   let stopping: Promise<void> | null = null;
   let started = false;
@@ -827,6 +830,17 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         stoppers.unshift(() => sv.stop());
       }
       coordinator?.start();
+      // Permissions review, finding 1: a sale closed on the contract reaches the local owner
+      // within one interval, even when no participant checks it.
+      let watching = false;
+      saleWatchTimer = setInterval(() => {
+        if (watching) return;
+        watching = true;
+        void api.reconcileRecordedSales().finally(() => {
+          watching = false;
+        });
+      }, SALE_WATCH_MS);
+      saleWatchTimer.unref?.();
     },
     stop() {
       if (stopping) return stopping;
@@ -874,6 +888,7 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
         const requestsRunning = inflight.size;
         // No longer present: a peer may now recover whatever this process left running.
         if (presenceTimer) clearInterval(presenceTimer);
+        if (saleWatchTimer) clearInterval(saleWatchTimer);
         try {
           store.db.prepare("DELETE FROM process_presence WHERE holder = ?").run(holder);
         } catch {

@@ -198,6 +198,19 @@ export class Deals {
     return d;
   }
 
+  /**
+   * Permissions review, finding 5: the deal's parties (seller, accepting account, the buying team)
+   * get the reason they're refused; anyone else gets the same 404 as for a deal that doesn't exist.
+   */
+  private visible(viewer: Person, d: DealRow) {
+    if (viewer.id === d.seller_id || viewer.id === d.representative_id) return;
+    try {
+      this.acquire.role(viewer, d.buyer_id);
+    } catch {
+      throw new HttpError(404, "No such deal");
+    }
+  }
+
   private versions(id: string) {
     return this.db
       .prepare("SELECT * FROM deal_versions WHERE deal_id = ? ORDER BY version")
@@ -545,6 +558,7 @@ export class Deals {
   async fund(viewer: Person, dealId: string) {
     const chain = this.need();
     const d = this.row(dealId);
+    this.visible(viewer, d);
     if (viewer.id !== d.representative_id)
       throw new HttpError(403, "Only the team's accepting account funds the deal");
     const onChain = await chain.getDeal(d.business_account, dealId);
@@ -594,6 +608,7 @@ export class Deals {
   async testDollars(viewer: Person, dealId: string) {
     const chain = this.need();
     const d = this.row(dealId);
+    this.visible(viewer, d);
     if (viewer.id !== d.representative_id)
       throw new HttpError(403, "Only the team's accepting account funds the deal");
     const v = this.versions(dealId).at(-1) as VersionRow;
@@ -618,6 +633,7 @@ export class Deals {
   async withdrawHold(viewer: Person, dealId: string) {
     const chain = this.need();
     const d = this.row(dealId);
+    this.visible(viewer, d);
     if (viewer.id !== d.representative_id)
       throw new HttpError(403, "Only the team's accepting account holds the funds");
     const key = await this.payments.signer(viewer);
@@ -1030,6 +1046,7 @@ export class Deals {
 
   async markItem(viewer: Person, dealId: string, key: string, note: string) {
     const d = this.row(dealId);
+    this.visible(viewer, d);
     if (viewer.id !== d.representative_id && viewer.id !== d.seller_id)
       throw new HttpError(403, "Only the seller or the buyer's accepting account");
     if (d.status !== "closed")

@@ -7,6 +7,10 @@
 //
 // Each command refuses to repeat a write it has already made (idempotent setup; the run refuses
 // an existing run directory). Stop conditions (packet §4) end the run with a partial record.
+//
+// Series 2 (Nov 6 2026): the same examples on new accounts with the contract as fixed after the
+// attack review (reports/2026-11-06_attack-review.md). Series 1's records (Nov 5, the earlier
+// code) are kept in data/evidence/v3-series-1/.
 
 import { type ChildProcess, execFileSync, fork } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -55,15 +59,15 @@ import {
 } from "./lib/rehearsal/journey.ts";
 
 const TOKEN = "tusd.everstreet.testnet";
-const WASM_SHA256 = "f2ec5a4bbefc5f01aea349df25ec98b56c3f1c19399b26731620e775997e778f";
-const CODE_HASH = "HMGhGxrpnKJfxBSwovHmvd1zoKv5nw4hSGp3s6qhxM7C";
+const WASM_SHA256 = "2394b224c743fb057e0c778b420976a78cd622f5d79d0ef496bb54a5549ce431";
+const CODE_HASH = "3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6";
 const CEILING_NEAR = 20;
 const DIRECT = {
-  business: `ledgerline-v3-1.${ROOT}`,
-  founder: `founder-v3.${ROOT}`,
-  buyer: `buyer-v3.${ROOT}`,
-  customer: `cara-v3-1.${ROOT}`,
-  meter: `meter-direct-v3.${ROOT}`,
+  business: `ledgerline-v3-2.${ROOT}`,
+  founder: `founder-v3s2.${ROOT}`,
+  buyer: `buyer-v3s2.${ROOT}`,
+  customer: `cara-v3s2-1.${ROOT}`,
+  meter: `meter-direct-v3s2.${ROOT}`,
 };
 const METER_METHODS = ["open_hold", "settle_hold", "release_hold_for"];
 const RULES = {
@@ -680,31 +684,31 @@ interface Example {
 }
 const GATED: Example = {
   name: "gated",
-  business: `ledgerline-gated-v3-1.${ROOT}`,
-  founder: `founder-v3.${ROOT}`,
-  buyer: `buyer-v3.${ROOT}`,
-  customer: `cara-v3-2.${ROOT}`,
-  prober: `cara-v3-2b.${ROOT}`,
-  meter: `meter-gated-v3.${ROOT}`,
-  closer: `closer-gated-v3.${ROOT}`,
-  register: [`ledgerline-gated-v3-1.${ROOT}`, `cara-v3-2.${ROOT}`, `cara-v3-2b.${ROOT}`],
+  business: `ledgerline-gated-v3-2.${ROOT}`,
+  founder: `founder-v3s2.${ROOT}`,
+  buyer: `buyer-v3s2.${ROOT}`,
+  customer: `cara-v3s2-2.${ROOT}`,
+  prober: `cara-v3s2-2b.${ROOT}`,
+  meter: `meter-gated-v3s2.${ROOT}`,
+  closer: `closer-gated-v3s2.${ROOT}`,
+  register: [`ledgerline-gated-v3-2.${ROOT}`, `cara-v3s2-2.${ROOT}`, `cara-v3s2-2b.${ROOT}`],
   fund: [
-    [`cara-v3-2.${ROOT}`, 20_000_000n],
-    [`cara-v3-2b.${ROOT}`, 1_000_000n],
-    [`buyer-v3.${ROOT}`, 100_000_000n],
+    [`cara-v3s2-2.${ROOT}`, 20_000_000n],
+    [`cara-v3s2-2b.${ROOT}`, 1_000_000n],
+    [`buyer-v3s2.${ROOT}`, 100_000_000n],
   ],
 };
 const RECOVERY: Example = {
   name: "recovery",
-  business: `ledgerline-payout-v3-1.${ROOT}`,
-  founder: `founder-p-v3.${ROOT}`,
-  buyer: `buyer-v3.${ROOT}`,
-  customer: `cara-v3-3.${ROOT}`,
-  meter: `meter-payout-v3.${ROOT}`,
-  register: [`ledgerline-payout-v3-1.${ROOT}`, `cara-v3-3.${ROOT}`],
+  business: `ledgerline-payout-v3-2.${ROOT}`,
+  founder: `founder-p-v3s2.${ROOT}`,
+  buyer: `buyer-v3s2.${ROOT}`,
+  customer: `cara-v3s2-3.${ROOT}`,
+  meter: `meter-payout-v3s2.${ROOT}`,
+  register: [`ledgerline-payout-v3-2.${ROOT}`, `cara-v3s2-3.${ROOT}`],
   fund: [
-    [`cara-v3-3.${ROOT}`, 5_000_000n],
-    [`buyer-v3.${ROOT}`, 100_000_000n],
+    [`cara-v3s2-3.${ROOT}`, 5_000_000n],
+    [`buyer-v3s2.${ROOT}`, 100_000_000n],
   ],
 };
 

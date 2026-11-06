@@ -69,9 +69,11 @@ export function ledgerlineExample(path = DEFAULT_LEDGERLINE_RECORD) {
       if (a === account && ["founder", "buyer", "customer", "operator"].includes(role)) return role;
     return null;
   };
-  // Checkpoints: chain views at final finality (the last of each name: a resumed run repeats some).
+  // Checkpoints: chain views at final finality. A resumed run re-reads some names later, after
+  // more has happened; the first of each name is the one taken when its step completed.
   const byName = new Map<string, Json>();
-  for (const c of r.checkpoints as Json[]) byName.set(String(c.name), c);
+  for (const c of r.checkpoints as Json[])
+    if (!byName.has(String(c.name))) byName.set(String(c.name), c);
   const checkpoints = [...byName.values()].map((c) => {
     const e = (c.views?.entitlement ?? null) as Json | null;
     const ctl = (c.views?.control ?? null) as Json | null;

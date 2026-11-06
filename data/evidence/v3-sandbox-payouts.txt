@@ -1,0 +1,40 @@
+business-v3 on a local NEAR node (near-sandbox 0.3.16, real test token), 2026-11-06.
+Command, in WSL from contracts/: CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbox -- --nocapture
+Source: contracts/business-v3/tests/sandbox.rs
+
+
+running 1 test
+Callback gas by payout kind (CALLBACK_GAS = 10 TGas):
+  refund, paid                                 on_payout  2.420 TGas   ft_transfer  1.680 TGas
+  refund, refused by the token -> claim        on_payout  2.228 TGas   ft_transfer  1.407 TGas
+  customer claim, refused again -> claim       on_payout  2.228 TGas   ft_transfer  1.407 TGas
+  customer claim, paid on retry                on_payout  2.419 TGas   ft_transfer  1.680 TGas
+Refund of 1 unit by attached gas:
+    5 TGas: refused whole, nothing changed
+   10 TGas: refused whole, nothing changed
+   15 TGas: refused whole, nothing changed
+   20 TGas: refused whole, nothing changed
+   21 TGas: refused whole, nothing changed
+   22 TGas: refused whole, nothing changed
+   23 TGas: refused whole, nothing changed
+   24 TGas: refused whole, nothing changed
+   25 TGas: refused whole, nothing changed
+   26 TGas: paid (on_payout 2.420 TGas)
+   27 TGas: paid (on_payout 2.420 TGas)
+   28 TGas: paid (on_payout 2.420 TGas)
+   30 TGas: paid (on_payout 2.420 TGas)
+   35 TGas: paid (on_payout 2.420 TGas)
+   40 TGas: paid (on_payout 2.420 TGas)
+   60 TGas: paid (on_payout 2.420 TGas)
+  100 TGas: paid (on_payout 2.420 TGas)
+  300 TGas: paid (on_payout 2.420 TGas)
+  sale proceeds, refused by the token -> claim on_payout  2.205 TGas   ft_transfer  1.412 TGas
+  sale proceeds, paid on retry                 on_payout  2.396 TGas   ft_transfer  1.681 TGas
+  escrow return, paid                          on_payout  2.396 TGas   ft_transfer  1.681 TGas
+  try 1: refund started at block 403, sale closed at 403, refund settled at 405
+  try 2: refund started at block 432, sale closed at 433, refund settled at 434: the close ran while the refund was in flight
+Worst on_payout: 2.420 TGas of 10 TGas reserved (4.1x margin). Smallest refund that went through: 26 TGas attached.
+test payouts_on_a_real_node_never_stay_stuck ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 56.55s
+

@@ -139,7 +139,8 @@ export interface SaleSetup {
     escrow_returned: string;
     generation_after: number;
   }[];
-  customer_obligations: {
+  /** Null for a past participant (not the owner, not in the live deal). */
+  customer_obligations: null | {
     prepaid_unused: string;
     reserved_in_use: string;
     available: string;

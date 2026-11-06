@@ -188,6 +188,12 @@ console.log(`Demo (simulated history, fictional): http://${HOST}:${PORT}/portfol
 console.log(
   `  Signs in as ${FOUNDER.name} (${FOUNDER.account}). Controls: http://${HOST}:${PORT + 1}/`,
 );
+// A sale closed on the (synthetic) contract reaches the local owner even if nobody checks it.
+setInterval(() => {
+  void (
+    w.state.app as { reconcileRecordedSales?: () => Promise<unknown> }
+  ).reconcileRecordedSales?.();
+}, 15_000).unref();
 const end = () => {
   app.close();
   control.close();

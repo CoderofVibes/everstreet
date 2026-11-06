@@ -217,7 +217,8 @@ export function steps(env: Env, rec: Recorder, settleMs: number) {
         retention_days: 30,
         reviewed_terms: ins.inspection.terms_digest,
       }),
-      201,
+      // 200 with created: false is the same offer returned for the same key (a resumed run).
+      [200, 201],
       "offer",
     ).offer as Json;
   };
@@ -242,26 +243,32 @@ export function steps(env: Env, rec: Recorder, settleMs: number) {
       [200, 201],
       `prepare ${n}`,
     );
-    const e = prep.use.envelope as Json;
+    const e = prep.use.envelope as Json | null;
     const id = prep.use.id as string;
-    const conf = ok(
-      await cara(`/api/customer/uses/${id}/confirm`, "POST", {
-        envelope_digest: e.envelope_digest,
-        hold_signature: key.sign(e.hold.message_hex),
-        use_signature: key.sign(e.use.message_hex),
-      }),
-      200,
-      `confirm ${n}`,
-    );
-    if (conf.use?.state !== "reserved")
-      await until(
-        async () => (await cara(`/api/customer/uses/${id}/reconcile`, "POST")).body,
-        (v) => v.use?.state === "reserved",
-        `use ${n} reserved`,
-        settleMs,
+    // A resumed run asks for a use it already confirmed: no envelope is offered again, and a
+    // delivered use isn't executed twice; it goes straight to waiting for its charge.
+    if (e) {
+      const conf = ok(
+        await cara(`/api/customer/uses/${id}/confirm`, "POST", {
+          envelope_digest: e.envelope_digest,
+          hold_signature: key.sign(e.hold.message_hex),
+          use_signature: key.sign(e.use.message_hex),
+        }),
+        200,
+        `confirm ${n}`,
       );
-    const x = ok(await cara(`/api/customer/uses/${id}/execute`, "POST", {}), 200, `execute ${n}`);
-    expect(x.use?.execution?.fulfilled === true, `use ${n} delivered`, x.use?.execution);
+      if (conf.use?.state !== "reserved")
+        await until(
+          async () => (await cara(`/api/customer/uses/${id}/reconcile`, "POST")).body,
+          (v) => v.use?.state === "reserved",
+          `use ${n} reserved`,
+          settleMs,
+        );
+    }
+    if (prep.use.execution?.fulfilled !== true) {
+      const x = ok(await cara(`/api/customer/uses/${id}/execute`, "POST", {}), 200, `execute ${n}`);
+      expect(x.use?.execution?.fulfilled === true, `use ${n} delivered`, x.use?.execution);
+    }
     await until(
       async () => (await cara(`/api/customer/uses/${id}/units/reconcile`, "POST")).body,
       (v) => v.use?.units?.unit === "charged",
@@ -554,57 +561,70 @@ export async function runDirectSale(
   );
   expect(JSON.stringify(firstAfter) === JSON.stringify(first), "the earlier result unchanged");
 
-  // ---- 6. The buyer's checked update, and a use that names the new release.
-  const nhead = ok(await noah(`/api/product-projects/${project}`), 200, "buyer project")
-    .head as Json;
-  const nrev = ok(
-    await noah(`/api/product-projects/${project}/revisions`, "POST", {
-      base_revision: nhead.number,
-      brief: { ...(nhead.brief as Json), name: "Ledgerline Invoice Reader 2" },
-      prototype: nhead.prototype,
-      note: "Successor update under the new owner",
-    }),
-    [200, 201],
-    "buyer revision",
-  );
-  const job2 = ok(
-    await noah(`/api/product-projects/${project}/builds`, "POST", {
-      idempotency_key: "rehearsal-build-0002",
-      revision: nrev.head.number,
-      budget: BUILD_BUDGET,
-    }),
-    [201, 202],
-    "buyer build",
-  ).job.id as string;
-  await until(
-    async () => (await noah(`/api/product-projects/${project}/builds`)).body,
-    (v) => (v.jobs as Json[]).some((j) => j.id === job2 && j.state === "succeeded"),
-    "the buyer's build",
-    120_000,
-  );
-  const run2 = ok(
-    await noah(`/api/product-projects/${project}/evaluations`, "POST", { artifact_job: job2 }),
-    202,
-    "buyer evaluation",
-  ).run as Json;
-  const done2 = await until(
-    async () => (await noah(`/api/evaluations/${run2.id}`)).body.run,
-    (r) => r?.state !== "running",
-    "the buyer's evaluation",
-    120_000,
-  );
-  const rel2 = ok(
-    await noah(`/api/product-projects/${project}/releases`, "POST", {
-      artifact_job: job2,
-      eval_run: done2.id,
-    }),
-    201,
-    "buyer release",
-  );
+  // ---- 6. The buyer's checked update, and a use that names the new release. A resumed run reuses
+  // the buyer's release if it is already active (its revision, build and evaluation are earlier
+  // in the record) instead of making them again.
+  const releasedBefore = ok(
+    await noah(`/api/product-projects/${project}/releases`),
+    200,
+    "buyer releases",
+  ).active as Json | null;
+  const update = async () => {
+    const nhead = ok(await noah(`/api/product-projects/${project}`), 200, "buyer project")
+      .head as Json;
+    const nrev = ok(
+      await noah(`/api/product-projects/${project}/revisions`, "POST", {
+        base_revision: nhead.number,
+        brief: { ...(nhead.brief as Json), name: "Ledgerline Invoice Reader 2" },
+        prototype: nhead.prototype,
+        note: "Successor update under the new owner",
+      }),
+      [200, 201],
+      "buyer revision",
+    );
+    const job2 = ok(
+      await noah(`/api/product-projects/${project}/builds`, "POST", {
+        idempotency_key: "rehearsal-build-0002",
+        revision: nrev.head.number,
+        budget: BUILD_BUDGET,
+      }),
+      [201, 202],
+      "buyer build",
+    ).job.id as string;
+    await until(
+      async () => (await noah(`/api/product-projects/${project}/builds`)).body,
+      (v) => (v.jobs as Json[]).some((j) => j.id === job2 && j.state === "succeeded"),
+      "the buyer's build",
+      120_000,
+    );
+    const run2 = ok(
+      await noah(`/api/product-projects/${project}/evaluations`, "POST", { artifact_job: job2 }),
+      202,
+      "buyer evaluation",
+    ).run as Json;
+    const done2 = await until(
+      async () => (await noah(`/api/evaluations/${run2.id}`)).body.run,
+      (r) => r?.state !== "running",
+      "the buyer's evaluation",
+      120_000,
+    );
+    return ok(
+      await noah(`/api/product-projects/${project}/releases`, "POST", {
+        artifact_job: job2,
+        eval_run: done2.id,
+      }),
+      201,
+      "buyer release",
+    );
+  };
+  const rel2 =
+    releasedBefore && releasedBefore.artifact_job !== ctx.jobId
+      ? { active: releasedBefore }
+      : await update();
   const offer2 = await s.offerFor(noah, rel2.active.id as string, "rehearsal-offer-0002");
   rec.app("release_2", {
     release: rel2.active.id,
-    artifact_job: job2,
+    artifact_job: rel2.active.artifact_job,
     offer: offer2.id,
     by: "buyer",
   });

@@ -102,9 +102,22 @@ new business account, and recordings made before Nov 6 ran the earlier code.
    capture, with briefs kept in `reports/`.
 4. **Decide dark mode** (#13): build it, or keep light-only as a stated choice.
 
-## Next on Claude's side (unless Tony redirects)
+## Follow-up after your take (Nov 6, later)
 
-- **Sandbox breaks.** Run a full sale on a local NEAR sandbox and break it at each step (dropped
-  network, failed receipt, races, running out of gas), and measure the callback gas.
-- **Screens against testnet.** For each recorded testnet run, compare what Everstreet shows with
-  what the chain says.
+Tony and you agreed on the order; Tony asked for all of it. Your ask #2 above (a "tried and
+refused" link on the sale page) is dropped: the sale screen stays quiet, and the film carries the
+moment (the former owner refused, then the customer's use going through).
+
+**Done:**
+- **Safety case wording.** The payout promise now states what was measured, not an unconditional
+  claim, and the "nothing critical, high or medium" line moved below the promises table, framed as
+  this review's ratings.
+- **Callback gas, measured on a real local NEAR node** (`contracts/business-v3/tests/sandbox.rs`,
+  output in `data/evidence/v3-sandbox-payouts.txt`). The callback used at most 2.4 of its 10
+  reserved TGas across every payout kind, succeeding and failing (4x margin). Refunds sent with
+  every amount of gas from 5 to 300 TGas either failed whole with nothing changed or completed;
+  none stayed in flight. A sale closed between a refund's start and its callback, and the refund
+  still reached the customer. No contract change was needed.
+- **README opening** reshaped to your sequence: what it is and the problem, video placeholder, one
+  route (`npm run demo`), three outcomes linked to evidence, "How we tested these promises", then
+  everything else.

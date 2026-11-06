@@ -5,17 +5,18 @@
     "example": "direct",
     "network": "testnet",
     "label": "NEAR testnet",
-    "commit": "50615a2dbdc3596fe52b46f78640a4f0ad5d3e56",
+    "commit": "c2660e18c0c955c2cde8bd4263cfcb17f2344dbd",
     "contract": {
-      "account": "ledgerline-v3-1.everstreet.testnet",
-      "wasm_sha256": "f2ec5a4bbefc5f01aea349df25ec98b56c3f1c19399b26731620e775997e778f",
-      "code_hash_expected": "HMGhGxrpnKJfxBSwovHmvd1zoKv5nw4hSGp3s6qhxM7C"
+      "account": "ledgerline-v3-2.everstreet.testnet",
+      "wasm_sha256": "2394b224c743fb057e0c778b420976a78cd622f5d79d0ef496bb54a5549ce431",
+      "code_hash_expected": "3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6"
     },
     "accounts": {
-      "founder": "founder-v3.everstreet.testnet",
-      "buyer": "buyer-v3.everstreet.testnet",
-      "customer": "cara-v3-1.everstreet.testnet",
-      "operator": "meter-direct-v3.everstreet.testnet"
+      "founder": "founder-v3s2.everstreet.testnet",
+      "buyer": "buyer-v3s2.everstreet.testnet",
+      "customer": "cara-v3s2-1.everstreet.testnet",
+      "prober": "cara-v3s2-1.everstreet.testnet",
+      "operator": "meter-direct-v3s2.everstreet.testnet"
     },
     "model": "stand-in (scripted answers; no AI provider called)"
   },
@@ -26,11 +27,10 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "release": "4f76d8a4-35d4-4563-b056-127f30dddcc3",
-        "artifact_job": "59ffe3be-04fe-4b49-935c-59812d6f9001",
+        "release": "a1191227-64a4-41a9-85a4-8fdac6c54b24",
+        "artifact_job": "e8f6e269-c9df-4206-930d-0218faf84c94",
         "evaluation": {
           "total": 10,
-          "passed": 10,
           "release_ready": true
         },
         "model": "stand-in (scripted; no AI provider)"
@@ -42,10 +42,10 @@
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-v3.everstreet.testnet"
+        "account": "founder-v3s2.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-v3-1.everstreet.testnet",
+        "receiver": "ledgerline-v3-2.everstreet.testnet",
         "method": "create_plan_guarded",
         "deposit": "900000000000000000000",
         "gas": "30000000000000",
@@ -64,20 +64,20 @@
       },
       "chain": {
         "source": "chain_final",
-        "hash": "FAhRe9EE9ntaFvsrBguehxCEAmiXjiA483sc6z4ZHHsd",
-        "explorer": "https://testnet.nearblocks.io/txns/FAhRe9EE9ntaFvsrBguehxCEAmiXjiA483sc6z4ZHHsd",
+        "hash": "2r9VYgHFsFvLj2d64McYH4n1whXiFmZCjV6krnXttABd",
+        "explorer": "https://testnet.nearblocks.io/txns/2r9VYgHFsFvLj2d64McYH4n1whXiFmZCjV6krnXttABd",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
+            "executor": "ledgerline-v3-2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
               "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"plan_created\",\"data\":[{\"plan_id\":1,\"unit_price\":\"150000\"}]}"
             ]
           },
           {
-            "executor": "founder-v3.everstreet.testnet",
+            "executor": "founder-v3s2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -101,8 +101,8 @@
               "created_generation": 1
             },
             "block": {
-              "height": "276386612",
-              "hash": "4VUVYgnP6aAXpzQQzVS4DqEQxb1kNTXGyKgWKCXNJPGZ"
+              "height": "276522786",
+              "hash": "1kN9mnvhGJLNC4kSQx9i3CfV64PkbCb7zgcrqgYySCp"
             }
           }
         }
@@ -114,35 +114,35 @@
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-v3.everstreet.testnet"
+        "account": "founder-v3s2.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-v3-1.everstreet.testnet",
+        "receiver": "ledgerline-v3-2.everstreet.testnet",
         "method": "appoint_operator_guarded",
         "deposit": "1",
         "gas": "30000000000000",
         "args": {
-          "account": "meter-direct-v3.everstreet.testnet",
+          "account": "meter-direct-v3s2.everstreet.testnet",
           "caps": 1,
           "expected_control_seq": "1"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "534o4tY2CwqgMtk5sMfqFNoHzf6oj8FuLzMsyPeaasyB",
-        "explorer": "https://testnet.nearblocks.io/txns/534o4tY2CwqgMtk5sMfqFNoHzf6oj8FuLzMsyPeaasyB",
+        "hash": "5mxPPjQ6qi8hzqwpYyKCavQ36naTu2jbHCg8HwTAwKhk",
+        "explorer": "https://testnet.nearblocks.io/txns/5mxPPjQ6qi8hzqwpYyKCavQ36naTu2jbHCg8HwTAwKhk",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
+            "executor": "ledgerline-v3-2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"operator_appointed\",\"data\":[{\"account\":\"meter-direct-v3.everstreet.testnet\",\"caps\":1,\"generation\":1}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"operator_appointed\",\"data\":[{\"account\":\"meter-direct-v3s2.everstreet.testnet\",\"caps\":1,\"generation\":1}]}"
             ]
           },
           {
-            "executor": "founder-v3.everstreet.testnet",
+            "executor": "founder-v3s2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -163,45 +163,45 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
         "plan": 1,
         "unit_price": "150000"
       }
     },
     {
       "n": 5,
-      "step": "purchase_step_shell",
+      "step": "purchase_step_shell_customer",
       "kind": "transaction",
       "signer": {
         "role": "customer",
-        "account": "cara-v3-1.everstreet.testnet"
+        "account": "cara-v3s2-1.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-v3-1.everstreet.testnet",
+        "receiver": "ledgerline-v3-2.everstreet.testnet",
         "method": "sponsor_shell",
-        "deposit": "8390000000000000000000",
+        "deposit": "8410000000000000000000",
         "gas": "30000000000000",
         "args": {
-          "customer": "cara-v3-1.everstreet.testnet",
+          "customer": "cara-v3s2-1.everstreet.testnet",
           "plan_id": 1
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "AFJyX3yvWb53pmpVWimQVrYwr2sAyQsfjuofHkmyhF9S",
-        "explorer": "https://testnet.nearblocks.io/txns/AFJyX3yvWb53pmpVWimQVrYwr2sAyQsfjuofHkmyhF9S",
+        "hash": "4TswSWEX4LJDwgmY7kzSqDoVNCrtTDtnWS9cZru21vVY",
+        "explorer": "https://testnet.nearblocks.io/txns/4TswSWEX4LJDwgmY7kzSqDoVNCrtTDtnWS9cZru21vVY",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
+            "executor": "ledgerline-v3-2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"shell_sponsored\",\"data\":[{\"customer\":\"cara-v3-1.everstreet.testnet\",\"plan_id\":1,\"reg_id\":\"1\",\"payer\":\"cara-v3-1.everstreet.testnet\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"shell_sponsored\",\"data\":[{\"customer\":\"cara-v3s2-1.everstreet.testnet\",\"plan_id\":1,\"reg_id\":\"1\",\"payer\":\"cara-v3s2-1.everstreet.testnet\"}]}"
             ]
           },
           {
-            "executor": "cara-v3-1.everstreet.testnet",
+            "executor": "cara-v3s2-1.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -211,11 +211,11 @@
     },
     {
       "n": 6,
-      "step": "purchase_100",
+      "step": "purchase_100_customer",
       "kind": "transaction",
       "signer": {
         "role": "customer",
-        "account": "cara-v3-1.everstreet.testnet"
+        "account": "cara-v3s2-1.everstreet.testnet"
       },
       "call": {
         "receiver": "tusd.everstreet.testnet",
@@ -223,15 +223,15 @@
         "deposit": "1",
         "gas": "100000000000000",
         "args": {
-          "receiver_id": "ledgerline-v3-1.everstreet.testnet",
+          "receiver_id": "ledgerline-v3-2.everstreet.testnet",
           "amount": "15000000",
-          "msg": "{\"buy\":{\"plan_id\":1,\"units\":100,\"purchase_seq\":1,\"install\":{\"slot\":0,\"pk\":\"c1081e6e6f9d375d5f3d2b24864d08c0b4963d401f533a931e0b95eca0b45aac\",\"max_hold_units\":1,\"max_units_per_day\":100},\"reg_id\":\"1\"}}"
+          "msg": "{\"buy\":{\"plan_id\":1,\"units\":100,\"purchase_seq\":1,\"install\":{\"slot\":0,\"pk\":\"610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3\",\"max_hold_units\":1,\"max_units_per_day\":100},\"reg_id\":\"1\"}}"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "EUPu3T6wx8umFFMd6L4Y2VNztjB2dGD3tcnR1PN7GEXM",
-        "explorer": "https://testnet.nearblocks.io/txns/EUPu3T6wx8umFFMd6L4Y2VNztjB2dGD3tcnR1PN7GEXM",
+        "hash": "EmvjwX1AHzefeFW9x9UMYe9B6gmfmehNNZ7JtorP3juX",
+        "explorer": "https://testnet.nearblocks.io/txns/EmvjwX1AHzefeFW9x9UMYe9B6gmfmehNNZ7JtorP3juX",
         "succeeded": true,
         "error": null,
         "receipts": [
@@ -239,18 +239,18 @@
             "executor": "tusd.everstreet.testnet",
             "status": "SuccessReceiptId",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"cara-v3-1.everstreet.testnet\",\"new_owner_id\":\"ledgerline-v3-1.everstreet.testnet\",\"amount\":\"15000000\"}]}"
+              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"cara-v3s2-1.everstreet.testnet\",\"new_owner_id\":\"ledgerline-v3-2.everstreet.testnet\",\"amount\":\"15000000\"}]}"
             ]
           },
           {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
+            "executor": "ledgerline-v3-2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"cara-v3-1.everstreet.testnet\",\"plan_id\":1,\"units\":100,\"amount\":\"15000000\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"cara-v3s2-1.everstreet.testnet\",\"plan_id\":1,\"units\":100,\"amount\":\"15000000\"}]}"
             ]
           },
           {
-            "executor": "cara-v3-1.everstreet.testnet",
+            "executor": "cara-v3s2-1.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
@@ -260,12 +260,12 @@
             "logs": []
           },
           {
-            "executor": "cara-v3-1.everstreet.testnet",
+            "executor": "cara-v3s2-1.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "cara-v3-1.everstreet.testnet",
+            "executor": "cara-v3s2-1.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -286,8 +286,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "d6ef332d-8fca-455d-b413-55309e5a1bc9",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "048f3936-2ee7-4bbb-95c2-ba1948126157",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -298,8 +299,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "198c80fc-d686-4b79-808e-22a13d3891c7",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "e0681455-ca13-458b-b843-abd56b389853",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -310,8 +312,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "ccfaea7e-3bd8-4609-ac8a-4b72596f3eb8",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "0d2cf130-5f92-443f-9004-6b14ec73bfcf",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -322,8 +325,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "beccbe25-8008-4e8a-bc63-24f0bd655d75",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "b8b4d247-21a3-4ba2-81e4-b13e0910a5df",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -334,8 +338,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "eab74948-21c6-4113-b177-59215a93d7a5",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "f3f15b69-6172-4bab-ba71-036d5fb54bec",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -346,8 +351,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "8980ca50-a9f3-4f6d-b7a0-9bd22e530964",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "255cc404-a69c-4f3a-a440-996b1f61f54e",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -358,8 +364,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "2f6ae662-091b-4cd4-a624-80bfd7243323",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "717a9c1b-67c0-4b8d-bed7-c4a8dbcb436d",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -370,8 +377,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "a216d37c-ce76-4115-9cd4-dec586b9ad27",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "81e41ac9-673e-4290-8a01-504a5d79199d",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -382,8 +390,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "eb9e041d-8244-4948-8cf4-3567f2f41076",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "4566206b-60e2-4d37-979c-617262ba1314",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -394,8 +403,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "02c41b48-9553-4386-9eb6-0bf87b8e9850",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "545b8c9f-b00a-4991-9c04-d93a48730747",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -406,8 +416,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "0be6cd02-16ae-45c9-965d-4182fcc04c68",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "0689a28e-168c-4723-8c6d-a169ba9b964a",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -418,8 +429,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "00b6bd6b-1a19-4ef1-b9c3-bde8211cce58",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "3fa82097-079a-4f33-9739-88f18aa40a41",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -430,8 +442,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "0ae20092-e424-4602-aadc-5c35391e6dd2",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "500a6f8a-6fa5-4e22-91cb-b9724087ed21",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -442,8 +455,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "6e53c50c-197c-4a31-b2fe-50f7cec6577f",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "b628ba28-830a-4677-9f20-acf4ec98b611",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -454,8 +468,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "a11b063f-1fc7-4b79-beda-07a6eb4b363a",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "b87ad070-6848-466c-82f6-670798a17ab1",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -466,8 +481,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "06280cca-d1d1-4482-8f2d-46f04f5f0fc9",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "98772d13-76dc-446c-907c-ca71aa69ac44",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -478,8 +494,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "d56f9422-27e6-42ff-997a-e93581c3b297",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "596f0395-81ea-4d91-9418-6cfa544343e1",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -490,8 +507,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "62e05c64-92ff-46e8-b4ed-f646524a37e2",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "9ea9a287-c519-490a-887f-d2ce91ecb428",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -502,8 +520,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "2c6c8f79-1480-491b-ab27-0e322b519812",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "faf4314b-25ff-4a87-adf7-9aa0cfffc819",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -514,8 +533,9 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "41a79075-7060-4662-9ded-16dd6f1f0e2c",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
+        "use": "65f0d346-57a2-40a7-974a-2454936ac7da",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
@@ -526,48 +546,48 @@
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-v3.everstreet.testnet"
+        "account": "founder-v3s2.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-v3-1.everstreet.testnet",
+        "receiver": "ledgerline-v3-2.everstreet.testnet",
         "method": "propose_sale_guarded",
-        "deposit": "2030000000000000000000",
+        "deposit": "2050000000000000000000",
         "gas": "50000000000000",
         "args": {
           "terms": {
-            "buyer": "buyer-v3.everstreet.testnet",
+            "buyer": "buyer-v3s2.everstreet.testnet",
             "price": "250000000",
-            "expires_at_ms": "1794513352801",
+            "expires_at_ms": "1794595402422",
             "close_window_ms": "0",
             "available_floor": "0",
             "grants": [
               [
-                "meter-direct-v3.everstreet.testnet",
+                "meter-direct-v3s2.everstreet.testnet",
                 1
               ]
             ],
-            "terms_hash": "b17a836c2304b2b27326520ae31569a49629b4a07134df46f6995c90a1dad93b"
+            "terms_hash": "ed4d959437fe97a2be6d54a81ed3893221667c26c0b7dfbc63e58ac05021e843"
           },
           "expected_control_seq": "2",
-          "digest": "649436852783e26d3c084bc33a6c63cae0ca9f81fe4cb3e5af39d820034bbd77"
+          "digest": "f1d16bceb3a302cc541b4ab27b942780ea3f6b08fdf388b956d32276e03f9b39"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "HNg4hdHk82mKm3rmu7893SJRCEvyUEKAb6uLZahNMiMj",
-        "explorer": "https://testnet.nearblocks.io/txns/HNg4hdHk82mKm3rmu7893SJRCEvyUEKAb6uLZahNMiMj",
+        "hash": "A2dLgZmjeeuCMmSWPr394mSERcEwP6vHGDq1jCwaHKgH",
+        "explorer": "https://testnet.nearblocks.io/txns/A2dLgZmjeeuCMmSWPr394mSERcEwP6vHGDq1jCwaHKgH",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
+            "executor": "ledgerline-v3-2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_proposed\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3.everstreet.testnet\",\"price\":\"250000000\",\"control_seq\":\"3\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_proposed\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3s2.everstreet.testnet\",\"price\":\"250000000\",\"control_seq\":\"3\"}]}"
             ]
           },
           {
-            "executor": "founder-v3.everstreet.testnet",
+            "executor": "founder-v3s2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -584,157 +604,21 @@
     },
     {
       "n": 28,
-      "step": "resumed",
+      "step": "register_already_satisfied",
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "previous_outcome": {
-          "completed": false,
-          "reason": "prepare register: 409 {\"error\":\"Your account is already registered with this token.\",\"code\":\"registered\"}"
-        },
-        "at": "2026-11-05T20:00:08.199Z",
-        "commit": "56fb9566317223663472568b90b7b3a91fe15a46"
+        "code": "registered",
+        "detail": "Your account is already registered with this token."
       }
     },
     {
       "n": 29,
-      "step": "device_key_lost_revoked",
-      "kind": "transaction",
-      "signer": {
-        "role": "customer",
-        "account": "cara-v3-1.everstreet.testnet"
-      },
-      "call": {
-        "receiver": "ledgerline-v3-1.everstreet.testnet",
-        "method": "revoke_key_guarded",
-        "deposit": "1",
-        "gas": "30000000000000",
-        "args": {
-          "plan_id": 1,
-          "slot": 0,
-          "reg_id": "1",
-          "epoch": 1,
-          "pk": "c1081e6e6f9d375d5f3d2b24864d08c0b4963d401f533a931e0b95eca0b45aac"
-        }
-      },
-      "chain": {
-        "source": "chain_final",
-        "hash": "7qzt3vQ3Rz8PhQCfYYXXweqeLUYQL3h7vx1th72AB2Pp",
-        "explorer": "https://testnet.nearblocks.io/txns/7qzt3vQ3Rz8PhQCfYYXXweqeLUYQL3h7vx1th72AB2Pp",
-        "succeeded": true,
-        "error": null,
-        "receipts": [
-          {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
-            "status": "SuccessValue",
-            "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"key_revoked\",\"data\":[{\"plan_id\":1,\"slot\":0,\"reg_id\":\"1\",\"epoch\":2}]}"
-            ]
-          },
-          {
-            "executor": "cara-v3-1.everstreet.testnet",
-            "status": "SuccessValue",
-            "logs": []
-          }
-        ]
-      },
-      "app": null
-    },
-    {
-      "n": 30,
-      "step": "device_key_replacement_installed",
-      "kind": "transaction",
-      "signer": {
-        "role": "customer",
-        "account": "cara-v3-1.everstreet.testnet"
-      },
-      "call": {
-        "receiver": "ledgerline-v3-1.everstreet.testnet",
-        "method": "install_key",
-        "deposit": "1",
-        "gas": "30000000000000",
-        "args": {
-          "plan_id": 1,
-          "slot": 1,
-          "pk": "97dda739d6766c93b1d7dfbe4051be7bcb52b068a3db7ad521b785a09d5a29bf",
-          "max_hold_units": 1,
-          "max_units_per_day": 100
-        }
-      },
-      "chain": {
-        "source": "chain_final",
-        "hash": "8HJzbS1AC7cWrmz5QoQNM8UDBQppH2tb36gGQrwp8exH",
-        "explorer": "https://testnet.nearblocks.io/txns/8HJzbS1AC7cWrmz5QoQNM8UDBQppH2tb36gGQrwp8exH",
-        "succeeded": true,
-        "error": null,
-        "receipts": [
-          {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
-            "status": "SuccessValue",
-            "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"key_installed\",\"data\":[{\"plan_id\":1,\"slot\":1,\"epoch\":1}]}"
-            ]
-          },
-          {
-            "executor": "cara-v3-1.everstreet.testnet",
-            "status": "SuccessValue",
-            "logs": []
-          }
-        ]
-      },
-      "app": null
-    },
-    {
-      "n": 31,
-      "step": "register_already_satisfied",
-      "kind": "app",
-      "source": "app_recorded",
-      "facts": {
-        "code": "registered",
-        "detail": "Your account is already registered with this token."
-      }
-    },
-    {
-      "n": 32,
-      "step": "resumed",
-      "kind": "app",
-      "source": "app_recorded",
-      "facts": {
-        "previous_outcome": {
-          "completed": false,
-          "reason": "prepare fund: 503 {\"error\":\"NEAR couldn't be read just now; try again.\",\"code\":\"read_failed\"}"
-        },
-        "at": "2026-11-05T20:01:12.565Z",
-        "commit": "c3d7f005a29371f6f8e3b42ef2acb0e6172b239f"
-      }
-    },
-    {
-      "n": 33,
-      "step": "device_key_kept",
-      "kind": "app",
-      "source": "app_recorded",
-      "facts": {
-        "slot": 1,
-        "note": "the key kept privately by the earlier attempt"
-      }
-    },
-    {
-      "n": 34,
-      "step": "register_already_satisfied",
-      "kind": "app",
-      "source": "app_recorded",
-      "facts": {
-        "code": "registered",
-        "detail": "Your account is already registered with this token."
-      }
-    },
-    {
-      "n": 35,
       "step": "fund",
       "kind": "transaction",
       "signer": {
         "role": "buyer",
-        "account": "buyer-v3.everstreet.testnet"
+        "account": "buyer-v3s2.everstreet.testnet"
       },
       "call": {
         "receiver": "tusd.everstreet.testnet",
@@ -742,15 +626,15 @@
         "deposit": "1",
         "gas": "100000000000000",
         "args": {
-          "receiver_id": "ledgerline-v3-1.everstreet.testnet",
+          "receiver_id": "ledgerline-v3-2.everstreet.testnet",
           "amount": "250000000",
           "msg": "{\"fund_deal\":{\"deal_seq\":\"1\",\"version\":1,\"price\":\"250000000\",\"expected_control_seq\":\"3\"}}"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "FtCWs9mh6X6TfGK3FVGd6j2DQwyhHfvxzyGTSMGraaQD",
-        "explorer": "https://testnet.nearblocks.io/txns/FtCWs9mh6X6TfGK3FVGd6j2DQwyhHfvxzyGTSMGraaQD",
+        "hash": "BZ8pVE82AGmu7L68U53XBZvEXXnKVf7KdRG9orr7wJjW",
+        "explorer": "https://testnet.nearblocks.io/txns/BZ8pVE82AGmu7L68U53XBZvEXXnKVf7KdRG9orr7wJjW",
         "succeeded": true,
         "error": null,
         "receipts": [
@@ -758,18 +642,18 @@
             "executor": "tusd.everstreet.testnet",
             "status": "SuccessReceiptId",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"buyer-v3.everstreet.testnet\",\"new_owner_id\":\"ledgerline-v3-1.everstreet.testnet\",\"amount\":\"250000000\"}]}"
+              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"buyer-v3s2.everstreet.testnet\",\"new_owner_id\":\"ledgerline-v3-2.everstreet.testnet\",\"amount\":\"250000000\"}]}"
             ]
           },
           {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
+            "executor": "ledgerline-v3-2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
               "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_funded\",\"data\":[{\"deal_seq\":\"1\",\"amount\":\"250000000\"}]}"
             ]
           },
           {
-            "executor": "buyer-v3.everstreet.testnet",
+            "executor": "buyer-v3s2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
@@ -779,12 +663,12 @@
             "logs": []
           },
           {
-            "executor": "buyer-v3.everstreet.testnet",
+            "executor": "buyer-v3s2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "buyer-v3.everstreet.testnet",
+            "executor": "buyer-v3s2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -800,84 +684,40 @@
       }
     },
     {
-      "n": 36,
-      "step": "resumed",
-      "kind": "app",
-      "source": "app_recorded",
-      "facts": {
-        "previous_outcome": {
-          "completed": false,
-          "reason": "create accept: 503 {\"error\":\"NEAR couldn't be read just now; try again.\",\"code\":\"read_failed\"}"
-        },
-        "at": "2026-11-05T20:03:47.325Z",
-        "commit": "24145a03a25da1f7e9633d5305cce38d240ebeb9"
-      }
-    },
-    {
-      "n": 37,
-      "step": "device_key_kept",
-      "kind": "app",
-      "source": "app_recorded",
-      "facts": {
-        "slot": 1,
-        "note": "the key kept privately by the earlier attempt"
-      }
-    },
-    {
-      "n": 38,
-      "step": "register_already_satisfied",
-      "kind": "app",
-      "source": "app_recorded",
-      "facts": {
-        "code": "registered",
-        "detail": "Your account is already registered with this token."
-      }
-    },
-    {
-      "n": 39,
-      "step": "fund_already_satisfied",
-      "kind": "app",
-      "source": "app_recorded",
-      "facts": {
-        "code": "funded",
-        "detail": "Escrow is already funded for this deal."
-      }
-    },
-    {
-      "n": 40,
+      "n": 30,
       "step": "accept",
       "kind": "transaction",
       "signer": {
         "role": "buyer",
-        "account": "buyer-v3.everstreet.testnet"
+        "account": "buyer-v3s2.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-v3-1.everstreet.testnet",
+        "receiver": "ledgerline-v3-2.everstreet.testnet",
         "method": "accept_sale",
         "deposit": "1",
         "gas": "30000000000000",
         "args": {
           "deal_seq": "1",
           "version": 1,
-          "digest": "649436852783e26d3c084bc33a6c63cae0ca9f81fe4cb3e5af39d820034bbd77"
+          "digest": "f1d16bceb3a302cc541b4ab27b942780ea3f6b08fdf388b956d32276e03f9b39"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "FioNycsN4roXQajjQcMrtwVApAcZo7asmCQF5S88TSqN",
-        "explorer": "https://testnet.nearblocks.io/txns/FioNycsN4roXQajjQcMrtwVApAcZo7asmCQF5S88TSqN",
+        "hash": "BjNyTREBjJPrv4Ko6SG1E3AiwUkR75eeRxEn9ZjkyuhY",
+        "explorer": "https://testnet.nearblocks.io/txns/BjNyTREBjJPrv4Ko6SG1E3AiwUkR75eeRxEn9ZjkyuhY",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
+            "executor": "ledgerline-v3-2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_accepted\",\"data\":[{\"deal_seq\":\"1\",\"by\":\"buyer-v3.everstreet.testnet\",\"closing\":false,\"control_seq\":\"5\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_accepted\",\"data\":[{\"deal_seq\":\"1\",\"by\":\"buyer-v3s2.everstreet.testnet\",\"closing\":false,\"control_seq\":\"5\"}]}"
             ]
           },
           {
-            "executor": "buyer-v3.everstreet.testnet",
+            "executor": "buyer-v3s2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -893,40 +733,40 @@
       }
     },
     {
-      "n": 41,
+      "n": 31,
       "step": "accept",
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-v3.everstreet.testnet"
+        "account": "founder-v3s2.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-v3-1.everstreet.testnet",
+        "receiver": "ledgerline-v3-2.everstreet.testnet",
         "method": "accept_sale",
         "deposit": "1",
         "gas": "30000000000000",
         "args": {
           "deal_seq": "1",
           "version": 1,
-          "digest": "649436852783e26d3c084bc33a6c63cae0ca9f81fe4cb3e5af39d820034bbd77"
+          "digest": "f1d16bceb3a302cc541b4ab27b942780ea3f6b08fdf388b956d32276e03f9b39"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "EbYHiurhHqAEaY3kfSmU8K6f6tf3mkNMH2ZWWE3W2Emy",
-        "explorer": "https://testnet.nearblocks.io/txns/EbYHiurhHqAEaY3kfSmU8K6f6tf3mkNMH2ZWWE3W2Emy",
+        "hash": "HSio6C7LUmEeaYukjBdCEcrKQa7xXYDkVWPDNWtzfeGz",
+        "explorer": "https://testnet.nearblocks.io/txns/HSio6C7LUmEeaYukjBdCEcrKQa7xXYDkVWPDNWtzfeGz",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-v3-1.everstreet.testnet",
+            "executor": "ledgerline-v3-2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_finalized\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3.everstreet.testnet\",\"price\":\"250000000\",\"generation\":2}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_finalized\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3s2.everstreet.testnet\",\"price\":\"250000000\",\"generation\":2}]}"
             ]
           },
           {
-            "executor": "founder-v3.everstreet.testnet",
+            "executor": "founder-v3s2.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -942,7 +782,7 @@
       }
     },
     {
-      "n": 42,
+      "n": 32,
       "step": "old_owner_denied",
       "kind": "app",
       "source": "app_recorded",
@@ -952,7 +792,7 @@
       }
     },
     {
-      "n": 43,
+      "n": 33,
       "step": "old_owner_write_denied",
       "kind": "app",
       "source": "app_recorded",
@@ -962,42 +802,67 @@
       }
     },
     {
-      "n": 44,
+      "n": 34,
+      "step": "use_21",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "use": "79a5567b-1400-47ca-bceb-445254936efa",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
+        "delivered": true,
+        "unit": "charged"
+      }
+    },
+    {
+      "n": 35,
+      "step": "release_2",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "release": "02af2f86-a62e-413a-a875-c25e0fbab897",
+        "artifact_job": "cd754838-4029-4797-9e4a-94720ee09b28",
+        "offer": "bac14216-2824-48c0-9173-dea1af383a28",
+        "by": "buyer"
+      }
+    },
+    {
+      "n": 36,
       "step": "resumed",
       "kind": "app",
       "source": "app_recorded",
       "facts": {
         "previous_outcome": {
           "completed": false,
-          "reason": "prepare 21: 503 {\"error\":\"The contract couldn't be read just now; nothing was changed.\",\"code\":\"read_unavailable\"}"
+          "reason": "timed out waiting for use 22 charged: {\"use\":{\"headline\":{\"title\":\"Settling your unit\",\"detail\":\"Waiting for the contract to confirm what happened to your unit.\"},\"next_use\":null,\"id\":\"bcb68be2-8975-4ca7-b9b1-cffa72722b3d\",\"state\":\"reserved\",\"label\":\"Reserved\",\"explanation\":\"The contract shows exactly your signed hold of one unit.\",\"offer\":{\"offer_id\":\"bac14216-2824-48c0-9173-dea1af383a28\",\"offer_state\":\"active\",\"business\":{\"name\":\"Le"
         },
-        "at": "2026-11-05T20:06:04.224Z",
-        "commit": "c14501be8f00b00293c6f1634ca8fc2455fc2175"
+        "at": "2026-11-06T18:47:14.093Z",
+        "commit": "c2660e18c0c955c2cde8bd4263cfcb17f2344dbd"
       }
     },
     {
-      "n": 45,
+      "n": 37,
       "step": "device_key_kept",
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "slot": 1,
+        "slot": 0,
         "note": "the key kept privately by the earlier attempt"
       }
     },
     {
-      "n": 46,
+      "n": 38,
       "step": "sale_already_closed",
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "owner": "buyer-v3.everstreet.testnet",
+        "owner": "buyer-v3s2.everstreet.testnet",
         "generation": 2,
         "note": "the close landed before this attempt; its transactions are earlier in this record"
       }
     },
     {
-      "n": 47,
+      "n": 39,
       "step": "old_owner_denied",
       "kind": "app",
       "source": "app_recorded",
@@ -1007,7 +872,7 @@
       }
     },
     {
-      "n": 48,
+      "n": 40,
       "step": "old_owner_write_denied",
       "kind": "app",
       "source": "app_recorded",
@@ -1017,52 +882,404 @@
       }
     },
     {
-      "n": 49,
-      "step": "use_21",
+      "n": 41,
+      "step": "resumed",
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "7b7cd949-7be9-4308-a69f-740dc03fc5ae",
-        "offer": "4e55389c-1d8f-464d-8317-93913a9c2889",
-        "key_slot": 1,
-        "delivered": true,
-        "unit": "charged"
+        "previous_outcome": {
+          "completed": false,
+          "reason": "buyer sale: 503 {\"error\":\"NEAR couldn't be read just now; try again.\",\"code\":\"read_failed\"}"
+        },
+        "at": "2026-11-06T18:47:55.374Z",
+        "commit": "c2660e18c0c955c2cde8bd4263cfcb17f2344dbd"
+      }
+    },
+    {
+      "n": 42,
+      "step": "device_key_kept",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "slot": 0,
+        "note": "the key kept privately by the earlier attempt"
+      }
+    },
+    {
+      "n": 43,
+      "step": "sale_already_closed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "owner": "buyer-v3s2.everstreet.testnet",
+        "generation": 2,
+        "note": "the close landed before this attempt; its transactions are earlier in this record"
+      }
+    },
+    {
+      "n": 44,
+      "step": "old_owner_denied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "route": "GET customer-access (owner view)",
+        "status": 404
+      }
+    },
+    {
+      "n": 45,
+      "step": "old_owner_write_denied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "route": "POST releases",
+        "status": 404
+      }
+    },
+    {
+      "n": 46,
+      "step": "resumed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "previous_outcome": {
+          "completed": false,
+          "reason": "Cannot read properties of null (reading 'envelope_digest')"
+        },
+        "at": "2026-11-06T18:49:26.730Z",
+        "commit": "c2660e18c0c955c2cde8bd4263cfcb17f2344dbd"
+      }
+    },
+    {
+      "n": 47,
+      "step": "device_key_kept",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "slot": 0,
+        "note": "the key kept privately by the earlier attempt"
+      }
+    },
+    {
+      "n": 48,
+      "step": "sale_already_closed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "owner": "buyer-v3s2.everstreet.testnet",
+        "generation": 2,
+        "note": "the close landed before this attempt; its transactions are earlier in this record"
+      }
+    },
+    {
+      "n": 49,
+      "step": "old_owner_denied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "route": "GET customer-access (owner view)",
+        "status": 404
       }
     },
     {
       "n": 50,
-      "step": "release_2",
+      "step": "old_owner_write_denied",
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "release": "0cd1d6b0-9f14-4ded-8119-4d7dea72cae8",
-        "artifact_job": "74d6447d-519e-46f2-a81f-c26e5011072b",
-        "offer": "bbd22b88-1870-4e2b-bbf0-144e699e2cae",
-        "by": "buyer"
+        "route": "POST releases",
+        "status": 404
       }
     },
     {
       "n": 51,
-      "step": "use_22",
+      "step": "use_21",
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "764c7bf1-af42-466e-b5f1-c64b49797fc8",
-        "offer": "bbd22b88-1870-4e2b-bbf0-144e699e2cae",
-        "key_slot": 1,
+        "use": "79a5567b-1400-47ca-bceb-445254936efa",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
         "delivered": true,
         "unit": "charged"
       }
     },
     {
       "n": 52,
+      "step": "resumed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "previous_outcome": {
+          "completed": false,
+          "reason": "buyer build: 200 {\"job\":{\"id\":\"cd754838-4029-4797-9e4a-94720ee09b28\",\"project_id\":\"89906e59-9178-4652-b028-1d1636654bca\",\"revision\":3,\"content_hash\":\"12fc2e29d51e159f13d3d9a7db3dfeba31c17954adcbaf8977dd4056c6b38273\",\"intent\":\"build\",\"provider\":\"anthropic\",\"provider_config\":{\"id\":\"anthropic\",\"model\":\"claude-haiku-5-5\",\"pricing\":{\"inputCentsPerMillionTokens\":10,\"outputCentsPerMillionTokens\":50},\"version\":\"rehearsal-standin-1+pricing-2026-11-02+thinking-disabled+effort-medium\"},\"state\":\"succeeded\",\"attempt\":1,\"budget\":{\"max_input_tokens\":10000,\"max_output_tokens\":2000,\"max_seconds\":60,\"max_cost_c"
+        },
+        "at": "2026-11-06T18:51:02.144Z",
+        "commit": "c2660e18c0c955c2cde8bd4263cfcb17f2344dbd"
+      }
+    },
+    {
+      "n": 53,
+      "step": "device_key_kept",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "slot": 0,
+        "note": "the key kept privately by the earlier attempt"
+      }
+    },
+    {
+      "n": 54,
+      "step": "sale_already_closed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "owner": "buyer-v3s2.everstreet.testnet",
+        "generation": 2,
+        "note": "the close landed before this attempt; its transactions are earlier in this record"
+      }
+    },
+    {
+      "n": 55,
+      "step": "old_owner_denied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "route": "GET customer-access (owner view)",
+        "status": 404
+      }
+    },
+    {
+      "n": 56,
+      "step": "old_owner_write_denied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "route": "POST releases",
+        "status": 404
+      }
+    },
+    {
+      "n": 57,
+      "step": "use_21",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "use": "79a5567b-1400-47ca-bceb-445254936efa",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
+        "delivered": true,
+        "unit": "charged"
+      }
+    },
+    {
+      "n": 58,
+      "step": "resumed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "previous_outcome": {
+          "completed": false,
+          "reason": "offer: 200 {\"created\":false,\"offer\":{\"id\":\"bac14216-2824-48c0-9173-dea1af383a28\",\"state\":\"active\",\"release_id\":\"02af2f86-a62e-413a-a875-c25e0fbab897\",\"project_id\":\"89906e59-9178-4652-b028-1d1636654bca\",\"artifact_digest\":\"1553b6a11eda10c393fc23552f0fb919eeae440374d0c42044ac8a54f919d3ca\",\"product\":{\"name\":\"Invoice reader\",\"revision\":3},\"source\":{\"network\":\"testnet\",\"account\":\"ledgerline-v3-2.everstreet.testnet\"},\"plan_id\":1,\"plan\":{\"unit_price\":\"150000\",\"max_units_per_purchase\":100,\"max_units_outstanding\":120,\"max_hold_units\":1,\"hold_ttl_ms\":\"600000\",\"settle_grace_ms\":\"480000\",\"created_generatio"
+        },
+        "at": "2026-11-06T18:51:27.895Z",
+        "commit": "c2660e18c0c955c2cde8bd4263cfcb17f2344dbd"
+      }
+    },
+    {
+      "n": 59,
+      "step": "device_key_kept",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "slot": 0,
+        "note": "the key kept privately by the earlier attempt"
+      }
+    },
+    {
+      "n": 60,
+      "step": "sale_already_closed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "owner": "buyer-v3s2.everstreet.testnet",
+        "generation": 2,
+        "note": "the close landed before this attempt; its transactions are earlier in this record"
+      }
+    },
+    {
+      "n": 61,
+      "step": "old_owner_denied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "route": "GET customer-access (owner view)",
+        "status": 404
+      }
+    },
+    {
+      "n": 62,
+      "step": "old_owner_write_denied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "route": "POST releases",
+        "status": 404
+      }
+    },
+    {
+      "n": 63,
+      "step": "use_21",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "use": "79a5567b-1400-47ca-bceb-445254936efa",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
+        "delivered": true,
+        "unit": "charged"
+      }
+    },
+    {
+      "n": 64,
+      "step": "release_2",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "release": "02af2f86-a62e-413a-a875-c25e0fbab897",
+        "artifact_job": "cd754838-4029-4797-9e4a-94720ee09b28",
+        "offer": "bac14216-2824-48c0-9173-dea1af383a28",
+        "by": "buyer"
+      }
+    },
+    {
+      "n": 65,
+      "step": "resumed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "previous_outcome": {
+          "completed": false,
+          "reason": "timed out waiting for use 22 charged: {\"use\":{\"headline\":{\"title\":\"Settling your unit\",\"detail\":\"Waiting for the contract to confirm what happened to your unit.\"},\"next_use\":null,\"id\":\"bcb68be2-8975-4ca7-b9b1-cffa72722b3d\",\"state\":\"reserved\",\"label\":\"Reserved\",\"explanation\":\"The contract shows exactly your signed hold of one unit.\",\"offer\":{\"offer_id\":\"bac14216-2824-48c0-9173-dea1af383a28\",\"offer_state\":\"active\",\"business\":{\"name\":\"Le"
+        },
+        "at": "2026-11-06T18:54:59.639Z",
+        "commit": "c2660e18c0c955c2cde8bd4263cfcb17f2344dbd"
+      }
+    },
+    {
+      "n": 66,
+      "step": "device_key_kept",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "slot": 0,
+        "note": "the key kept privately by the earlier attempt"
+      }
+    },
+    {
+      "n": 67,
+      "step": "sale_already_closed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "owner": "buyer-v3s2.everstreet.testnet",
+        "generation": 2,
+        "note": "the close landed before this attempt; its transactions are earlier in this record"
+      }
+    },
+    {
+      "n": 68,
+      "step": "old_owner_denied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "route": "GET customer-access (owner view)",
+        "status": 404
+      }
+    },
+    {
+      "n": 69,
+      "step": "old_owner_write_denied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "route": "POST releases",
+        "status": 404
+      }
+    },
+    {
+      "n": 70,
+      "step": "use_21",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "use": "79a5567b-1400-47ca-bceb-445254936efa",
+        "offer": "96e42179-13d8-4a7d-9ad3-6d3ff6113edf",
+        "key_slot": 0,
+        "delivered": true,
+        "unit": "charged"
+      }
+    },
+    {
+      "n": 71,
+      "step": "release_2",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "release": "02af2f86-a62e-413a-a875-c25e0fbab897",
+        "artifact_job": "cd754838-4029-4797-9e4a-94720ee09b28",
+        "offer": "bac14216-2824-48c0-9173-dea1af383a28",
+        "by": "buyer"
+      }
+    },
+    {
+      "n": 72,
+      "step": "use_22",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "use": "bcb68be2-8975-4ca7-b9b1-cffa72722b3d",
+        "offer": "bac14216-2824-48c0-9173-dea1af383a28",
+        "key_slot": 0,
+        "delivered": true,
+        "unit": "charged"
+      }
+    },
+    {
+      "n": 73,
       "step": "use_on_update",
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "use": "764c7bf1-af42-466e-b5f1-c64b49797fc8",
-        "offer": "bbd22b88-1870-4e2b-bbf0-144e699e2cae",
-        "release": "0cd1d6b0-9f14-4ded-8119-4d7dea72cae8"
+        "use": "bcb68be2-8975-4ca7-b9b1-cffa72722b3d",
+        "offer": "bac14216-2824-48c0-9173-dea1af383a28",
+        "release": "02af2f86-a62e-413a-a875-c25e0fbab897"
+      }
+    },
+    {
+      "n": 74,
+      "step": "resumed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "previous_outcome": {
+          "completed": true
+        },
+        "at": "2026-11-06T18:55:16.605Z",
+        "note": "operator note appended"
+      }
+    },
+    {
+      "n": 75,
+      "step": "operator_note",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "what": "use 22's platform charge (settle_hold) landed after the same signed bytes were broadcast again",
+        "why": "the metering writer signed and broadcast settle_hold once (tx 5zvfbriJbyfoAhpk4bovXmT1LDzZUTqt7rteWNLgug7f); the RPC answered nothing usable and every endpoint later reported the transaction unknown, so the app left the charge unknown and sent nothing new, by design. Before the contract's settle deadline the operator broadcast the identical stored signed transaction (same nonce, same hash: it can execute at most once). Its own final status: SuccessValue [\"charged\"]. The resumed run then read the charge back through the app.",
+        "tx": "5zvfbriJbyfoAhpk4bovXmT1LDzZUTqt7rteWNLgug7f",
+        "explorer": "https://testnet.nearblocks.io/txns/5zvfbriJbyfoAhpk4bovXmT1LDzZUTqt7rteWNLgug7f",
+        "also": "the resumed attempts read through https://near-testnet.drpc.org after FastNEAR's free tier answered read_failed"
       }
     }
   ],
@@ -1070,14 +1287,14 @@
     {
       "name": "start",
       "source": "chain_final",
-      "at": "2026-11-05T19:51:19.649Z",
+      "at": "2026-11-06T18:38:43.539Z",
       "views": {
         "block": {
-          "height": "276386591",
-          "hash": "4UjhJAFxVis24CfVg5u4iYGgcJqJFwg7Fg7PHjyp95Qt"
+          "height": "276522768",
+          "hash": "8fdoYQAZjoxAkyhpveNrh12jrzbm9CPUKzeURegiWhqC"
         },
         "control": {
-          "owner": "founder-v3.everstreet.testnet",
+          "owner": "founder-v3s2.everstreet.testnet",
           "generation": 1,
           "control_seq": "0",
           "close_mode": "direct",
@@ -1100,24 +1317,24 @@
         },
         "entitlement": null,
         "tusd": {
-          "cara-v3-1.everstreet.testnet": "20000000",
-          "ledgerline-v3-1.everstreet.testnet": "0",
-          "founder-v3.everstreet.testnet": "0",
-          "buyer-v3.everstreet.testnet": "300000000"
+          "cara-v3s2-1.everstreet.testnet": "20000000",
+          "ledgerline-v3-2.everstreet.testnet": "0",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "300000000"
         }
       }
     },
     {
       "name": "offer_open",
       "source": "chain_final",
-      "at": "2026-11-05T19:51:41.332Z",
+      "at": "2026-11-06T18:39:05.724Z",
       "views": {
         "block": {
-          "height": "276386631",
-          "hash": "9ywapcLvDdz79e3SvuGpjRybUywfwiKXbSHzHtNpVVpC"
+          "height": "276522804",
+          "hash": "8B3STgdQSg24d53c6nr8pFvJKcMoTk8gGecteUCAmfTU"
         },
         "control": {
-          "owner": "founder-v3.everstreet.testnet",
+          "owner": "founder-v3s2.everstreet.testnet",
           "generation": 1,
           "control_seq": "2",
           "close_mode": "direct",
@@ -1126,7 +1343,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-direct-v3.everstreet.testnet",
+              "meter-direct-v3s2.everstreet.testnet",
               1,
               1
             ]
@@ -1146,24 +1363,24 @@
         },
         "entitlement": null,
         "tusd": {
-          "cara-v3-1.everstreet.testnet": "20000000",
-          "ledgerline-v3-1.everstreet.testnet": "0",
-          "founder-v3.everstreet.testnet": "0",
-          "buyer-v3.everstreet.testnet": "300000000"
+          "cara-v3s2-1.everstreet.testnet": "20000000",
+          "ledgerline-v3-2.everstreet.testnet": "0",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "300000000"
         }
       }
     },
     {
       "name": "bought_100",
       "source": "chain_final",
-      "at": "2026-11-05T19:51:55.995Z",
+      "at": "2026-11-06T18:39:20.735Z",
       "views": {
         "block": {
-          "height": "276386658",
-          "hash": "4euaJhwFQWPCZoUwYysRvWHW6tfbcsGXbR87o4BoVYEn"
+          "height": "276522830",
+          "hash": "EshNupmaPPSFSKyHEKmtHxYsFmKXgUq1nzwbFpBHWDtM"
         },
         "control": {
-          "owner": "founder-v3.everstreet.testnet",
+          "owner": "founder-v3s2.everstreet.testnet",
           "generation": 1,
           "control_seq": "2",
           "close_mode": "direct",
@@ -1172,7 +1389,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-direct-v3.everstreet.testnet",
+              "meter-direct-v3s2.everstreet.testnet",
               1,
               1
             ]
@@ -1230,7 +1447,7 @@
               "slot": 0,
               "state": "active",
               "epoch": 1,
-              "public_key": "c1081e6e6f9d375d5f3d2b24864d08c0b4963d401f533a931e0b95eca0b45aac",
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
               "max_hold_units": 1,
               "max_units_per_day": 100,
               "day": 0,
@@ -1270,28 +1487,28 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3-1.everstreet.testnet",
-          "storage_paid": "8390000000000000000000"
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
         },
         "tusd": {
-          "cara-v3-1.everstreet.testnet": "5000000",
-          "ledgerline-v3-1.everstreet.testnet": "15000000",
-          "founder-v3.everstreet.testnet": "0",
-          "buyer-v3.everstreet.testnet": "300000000"
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "15000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "300000000"
         }
       }
     },
     {
       "name": "used_20",
       "source": "chain_final",
-      "at": "2026-11-05T19:55:56.342Z",
+      "at": "2026-11-06T18:43:23.991Z",
       "views": {
         "block": {
-          "height": "276387070",
-          "hash": "2F2ov3jEm4D2raqRczr8UczS59jxLKacN7Ac32H333hH"
+          "height": "276523242",
+          "hash": "2wFGZYngskzXLfqG5afgeuiieTeFnu8dAZDrQZnCbrRd"
         },
         "control": {
-          "owner": "founder-v3.everstreet.testnet",
+          "owner": "founder-v3s2.everstreet.testnet",
           "generation": 1,
           "control_seq": "2",
           "close_mode": "direct",
@@ -1300,7 +1517,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-direct-v3.everstreet.testnet",
+              "meter-direct-v3s2.everstreet.testnet",
               1,
               1
             ]
@@ -1340,7 +1557,7 @@
           "last_hold_seq": 20,
           "last_hold_used": 1,
           "last_hold_charged": 1,
-          "last_hold_root": "0b1b53626e3cdcdc875c930804ea0fa7427c479385f20f4525864be80ba6cf01",
+          "last_hold_root": "68a821220863fe867c2be0cc5b2136500792ee046d314cd39817a5b0d83adee2",
           "key_states": [
             1,
             0,
@@ -1358,10 +1575,10 @@
               "slot": 0,
               "state": "active",
               "epoch": 1,
-              "public_key": "c1081e6e6f9d375d5f3d2b24864d08c0b4963d401f533a931e0b95eca0b45aac",
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
               "max_hold_units": 1,
               "max_units_per_day": 100,
-              "day": 20762,
+              "day": 20763,
               "held_today": 20
             },
             {
@@ -1398,181 +1615,28 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3-1.everstreet.testnet",
-          "storage_paid": "8390000000000000000000"
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
         },
         "tusd": {
-          "cara-v3-1.everstreet.testnet": "5000000",
-          "ledgerline-v3-1.everstreet.testnet": "15000000",
-          "founder-v3.everstreet.testnet": "0",
-          "buyer-v3.everstreet.testnet": "300000000"
-        }
-      }
-    },
-    {
-      "name": "device_key_replaced",
-      "source": "chain_final",
-      "at": "2026-11-05T20:00:21.389Z",
-      "views": {
-        "block": {
-          "height": "276387516",
-          "hash": "9Y5GfHfFobSd4nfHjFiEepApnpGNjyBYHyweE7yLLh2v"
-        },
-        "control": {
-          "owner": "founder-v3.everstreet.testnet",
-          "generation": 1,
-          "control_seq": "3",
-          "close_mode": "direct",
-          "closer": null,
-          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
-          "manifest_seq": "0",
-          "operators": [
-            [
-              "meter-direct-v3.everstreet.testnet",
-              1,
-              1
-            ]
-          ],
-          "live_deal": {
-            "seq": "1",
-            "version": 1,
-            "state": "proposed",
-            "digest": "649436852783e26d3c084bc33a6c63cae0ca9f81fe4cb3e5af39d820034bbd77",
-            "seller": "founder-v3.everstreet.testnet",
-            "buyer": "buyer-v3.everstreet.testnet",
-            "price": "250000000",
-            "available_floor": "0",
-            "expires_at_ms": "1794513352801",
-            "close_window_ms": "0",
-            "grants": [
-              {
-                "account": "meter-direct-v3.everstreet.testnet",
-                "caps": 1
-              }
-            ],
-            "terms_hash": "b17a836c2304b2b27326520ae31569a49629b4a07134df46f6995c90a1dad93b",
-            "expected_generation": 1,
-            "seller_accepted": false,
-            "buyer_accepted": false,
-            "escrow": "0",
-            "deadline_ms": "0",
-            "closing_started_ms": "0",
-            "closing_control_seq": "0"
-          }
-        },
-        "treasury": {
-          "asset": "tusd.everstreet.testnet",
-          "held": "15000000",
-          "ent_free_value": "12000000",
-          "ent_held_value": "0",
-          "available": "3000000",
-          "withdrawable": "2250000",
-          "pending_total": "0",
-          "claims_total": "0",
-          "escrow_total": "0"
-        },
-        "entitlement": {
-          "reg_id": "1",
-          "active": true,
-          "free": "80",
-          "consumed": "20",
-          "units_retired_to_refund": "0",
-          "purchased": "100",
-          "purchase_seq": 1,
-          "hold_seq": 20,
-          "hold_active": false,
-          "hold_key_slot": 0,
-          "hold_key_epoch": 0,
-          "hold_units": 0,
-          "hold_charged": 0,
-          "hold_used": 0,
-          "hold_slots": [],
-          "hold_opened_at_ms": "0",
-          "serve_until_ms": "0",
-          "settle_until_ms": "0",
-          "last_hold_seq": 20,
-          "last_hold_used": 1,
-          "last_hold_charged": 1,
-          "last_hold_root": "0b1b53626e3cdcdc875c930804ea0fa7427c479385f20f4525864be80ba6cf01",
-          "key_states": [
-            2,
-            1,
-            0,
-            0
-          ],
-          "key_epochs": [
-            2,
-            1,
-            0,
-            0
-          ],
-          "keys": [
-            {
-              "slot": 0,
-              "state": "revoked",
-              "epoch": 2,
-              "public_key": "c1081e6e6f9d375d5f3d2b24864d08c0b4963d401f533a931e0b95eca0b45aac",
-              "max_hold_units": 1,
-              "max_units_per_day": 100,
-              "day": 20762,
-              "held_today": 20
-            },
-            {
-              "slot": 1,
-              "state": "active",
-              "epoch": 1,
-              "public_key": "97dda739d6766c93b1d7dfbe4051be7bcb52b068a3db7ad521b785a09d5a29bf",
-              "max_hold_units": 1,
-              "max_units_per_day": 100,
-              "day": 0,
-              "held_today": 0
-            },
-            {
-              "slot": 2,
-              "state": "empty",
-              "epoch": 0,
-              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
-              "max_hold_units": 0,
-              "max_units_per_day": 0,
-              "day": 0,
-              "held_today": 0
-            },
-            {
-              "slot": 3,
-              "state": "empty",
-              "epoch": 0,
-              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
-              "max_hold_units": 0,
-              "max_units_per_day": 0,
-              "day": 0,
-              "held_today": 0
-            }
-          ],
-          "claim": "0",
-          "pending_refs": 0,
-          "paused": false,
-          "storage_payer": "cara-v3-1.everstreet.testnet",
-          "storage_paid": "8390000000000000000000"
-        },
-        "tusd": {
-          "cara-v3-1.everstreet.testnet": "5000000",
-          "ledgerline-v3-1.everstreet.testnet": "15000000",
-          "founder-v3.everstreet.testnet": "0",
-          "buyer-v3.everstreet.testnet": "300000000"
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "15000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "300000000"
         }
       }
     },
     {
       "name": "before_close",
       "source": "chain_final",
-      "at": "2026-11-05T20:04:00.947Z",
+      "at": "2026-11-06T18:43:52.233Z",
       "views": {
         "block": {
-          "height": "276387889",
-          "hash": "Gcudum65Zgfvcx3ux9gxbngkekxJZHXcoeRiALHmws9L"
+          "height": "276523288",
+          "hash": "CC41CQwbsRfTnQosj9qRoZQZEJcqe1KBrnL2yqxuwW1y"
         },
         "control": {
-          "owner": "founder-v3.everstreet.testnet",
+          "owner": "founder-v3s2.everstreet.testnet",
           "generation": 1,
           "control_seq": "5",
           "close_mode": "direct",
@@ -1581,7 +1645,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-direct-v3.everstreet.testnet",
+              "meter-direct-v3s2.everstreet.testnet",
               1,
               1
             ]
@@ -1590,20 +1654,20 @@
             "seq": "1",
             "version": 1,
             "state": "accepting",
-            "digest": "649436852783e26d3c084bc33a6c63cae0ca9f81fe4cb3e5af39d820034bbd77",
-            "seller": "founder-v3.everstreet.testnet",
-            "buyer": "buyer-v3.everstreet.testnet",
+            "digest": "f1d16bceb3a302cc541b4ab27b942780ea3f6b08fdf388b956d32276e03f9b39",
+            "seller": "founder-v3s2.everstreet.testnet",
+            "buyer": "buyer-v3s2.everstreet.testnet",
             "price": "250000000",
             "available_floor": "0",
-            "expires_at_ms": "1794513352801",
+            "expires_at_ms": "1794595402422",
             "close_window_ms": "0",
             "grants": [
               {
-                "account": "meter-direct-v3.everstreet.testnet",
+                "account": "meter-direct-v3s2.everstreet.testnet",
                 "caps": 1
               }
             ],
-            "terms_hash": "b17a836c2304b2b27326520ae31569a49629b4a07134df46f6995c90a1dad93b",
+            "terms_hash": "ed4d959437fe97a2be6d54a81ed3893221667c26c0b7dfbc63e58ac05021e843",
             "expected_generation": 1,
             "seller_accepted": false,
             "buyer_accepted": true,
@@ -1646,37 +1710,37 @@
           "last_hold_seq": 20,
           "last_hold_used": 1,
           "last_hold_charged": 1,
-          "last_hold_root": "0b1b53626e3cdcdc875c930804ea0fa7427c479385f20f4525864be80ba6cf01",
+          "last_hold_root": "68a821220863fe867c2be0cc5b2136500792ee046d314cd39817a5b0d83adee2",
           "key_states": [
-            2,
             1,
+            0,
             0,
             0
           ],
           "key_epochs": [
-            2,
             1,
+            0,
             0,
             0
           ],
           "keys": [
             {
               "slot": 0,
-              "state": "revoked",
-              "epoch": 2,
-              "public_key": "c1081e6e6f9d375d5f3d2b24864d08c0b4963d401f533a931e0b95eca0b45aac",
+              "state": "active",
+              "epoch": 1,
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
               "max_hold_units": 1,
               "max_units_per_day": 100,
-              "day": 20762,
+              "day": 20763,
               "held_today": 20
             },
             {
               "slot": 1,
-              "state": "active",
-              "epoch": 1,
-              "public_key": "97dda739d6766c93b1d7dfbe4051be7bcb52b068a3db7ad521b785a09d5a29bf",
-              "max_hold_units": 1,
-              "max_units_per_day": 100,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
               "day": 0,
               "held_today": 0
             },
@@ -1704,28 +1768,28 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3-1.everstreet.testnet",
-          "storage_paid": "8390000000000000000000"
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
         },
         "tusd": {
-          "cara-v3-1.everstreet.testnet": "5000000",
-          "ledgerline-v3-1.everstreet.testnet": "265000000",
-          "founder-v3.everstreet.testnet": "0",
-          "buyer-v3.everstreet.testnet": "50000000"
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "265000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "50000000"
         }
       }
     },
     {
       "name": "closed",
       "source": "chain_final",
-      "at": "2026-11-05T20:04:10.166Z",
+      "at": "2026-11-06T18:44:11.033Z",
       "views": {
         "block": {
-          "height": "276387907",
-          "hash": "3iu4D1BcYhrSvxNjjorEZJVdR7HhYRhKYpRtkmQQ411A"
+          "height": "276523319",
+          "hash": "Cp3w2dcMN1gTTRbPw75dFovikixJpC5quEA7u8Hi1pof"
         },
         "control": {
-          "owner": "buyer-v3.everstreet.testnet",
+          "owner": "buyer-v3s2.everstreet.testnet",
           "generation": 2,
           "control_seq": "6",
           "close_mode": "direct",
@@ -1734,7 +1798,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-direct-v3.everstreet.testnet",
+              "meter-direct-v3s2.everstreet.testnet",
               1,
               2
             ]
@@ -1774,37 +1838,37 @@
           "last_hold_seq": 20,
           "last_hold_used": 1,
           "last_hold_charged": 1,
-          "last_hold_root": "0b1b53626e3cdcdc875c930804ea0fa7427c479385f20f4525864be80ba6cf01",
+          "last_hold_root": "68a821220863fe867c2be0cc5b2136500792ee046d314cd39817a5b0d83adee2",
           "key_states": [
-            2,
             1,
+            0,
             0,
             0
           ],
           "key_epochs": [
-            2,
             1,
+            0,
             0,
             0
           ],
           "keys": [
             {
               "slot": 0,
-              "state": "revoked",
-              "epoch": 2,
-              "public_key": "c1081e6e6f9d375d5f3d2b24864d08c0b4963d401f533a931e0b95eca0b45aac",
+              "state": "active",
+              "epoch": 1,
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
               "max_hold_units": 1,
               "max_units_per_day": 100,
-              "day": 20762,
+              "day": 20763,
               "held_today": 20
             },
             {
               "slot": 1,
-              "state": "active",
-              "epoch": 1,
-              "public_key": "97dda739d6766c93b1d7dfbe4051be7bcb52b068a3db7ad521b785a09d5a29bf",
-              "max_hold_units": 1,
-              "max_units_per_day": 100,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
               "day": 0,
               "held_today": 0
             },
@@ -1832,28 +1896,28 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3-1.everstreet.testnet",
-          "storage_paid": "8390000000000000000000"
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
         },
         "tusd": {
-          "cara-v3-1.everstreet.testnet": "5000000",
-          "ledgerline-v3-1.everstreet.testnet": "265000000",
-          "founder-v3.everstreet.testnet": "0",
-          "buyer-v3.everstreet.testnet": "50000000"
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "265000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "50000000"
         }
       }
     },
     {
       "name": "next_use_under_buyer",
       "source": "chain_final",
-      "at": "2026-11-05T20:06:22.992Z",
+      "at": "2026-11-06T18:44:26.250Z",
       "views": {
         "block": {
-          "height": "276388137",
-          "hash": "EmCUv9fJ5Goo8XzyU7KtWYHZTH3cQSfEtzLrWcqpatVw"
+          "height": "276523345",
+          "hash": "BFB9HDfv4jenJCkYoA8KYteYV7qp5Ap8d8vNt85dEVqW"
         },
         "control": {
-          "owner": "buyer-v3.everstreet.testnet",
+          "owner": "buyer-v3s2.everstreet.testnet",
           "generation": 2,
           "control_seq": "6",
           "close_mode": "direct",
@@ -1862,7 +1926,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-direct-v3.everstreet.testnet",
+              "meter-direct-v3s2.everstreet.testnet",
               1,
               2
             ]
@@ -1902,39 +1966,39 @@
           "last_hold_seq": 21,
           "last_hold_used": 1,
           "last_hold_charged": 1,
-          "last_hold_root": "6d639cad649e958177b416a17c710c8e48da0b73e95191e71cfac22be6a30290",
+          "last_hold_root": "21275b6c75afe36a6b09c53975c082394cdaed911f5cc7f465a7787d3d746458",
           "key_states": [
-            2,
             1,
+            0,
             0,
             0
           ],
           "key_epochs": [
-            2,
             1,
+            0,
             0,
             0
           ],
           "keys": [
             {
               "slot": 0,
-              "state": "revoked",
-              "epoch": 2,
-              "public_key": "c1081e6e6f9d375d5f3d2b24864d08c0b4963d401f533a931e0b95eca0b45aac",
+              "state": "active",
+              "epoch": 1,
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
               "max_hold_units": 1,
               "max_units_per_day": 100,
-              "day": 20762,
-              "held_today": 20
+              "day": 20763,
+              "held_today": 21
             },
             {
               "slot": 1,
-              "state": "active",
-              "epoch": 1,
-              "public_key": "97dda739d6766c93b1d7dfbe4051be7bcb52b068a3db7ad521b785a09d5a29bf",
-              "max_hold_units": 1,
-              "max_units_per_day": 100,
-              "day": 20762,
-              "held_today": 1
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
             },
             {
               "slot": 2,
@@ -1960,28 +2024,28 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3-1.everstreet.testnet",
-          "storage_paid": "8390000000000000000000"
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
         },
         "tusd": {
-          "cara-v3-1.everstreet.testnet": "5000000",
-          "ledgerline-v3-1.everstreet.testnet": "265000000",
-          "founder-v3.everstreet.testnet": "0",
-          "buyer-v3.everstreet.testnet": "50000000"
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "265000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "50000000"
         }
       }
     },
     {
-      "name": "after_update",
+      "name": "next_use_under_buyer",
       "source": "chain_final",
-      "at": "2026-11-05T20:06:38.313Z",
+      "at": "2026-11-06T18:49:28.409Z",
       "views": {
         "block": {
-          "height": "276388164",
-          "hash": "J3LegiNda9VxeJWB5zTkNk16YTzZoazmgaFEWRKuUuf8"
+          "height": "276523879",
+          "hash": "7YDWRZ5WyEMyaePy9ZV5xKm5izyGdXtqQeEzV9koHUm"
         },
         "control": {
-          "owner": "buyer-v3.everstreet.testnet",
+          "owner": "buyer-v3s2.everstreet.testnet",
           "generation": 2,
           "control_seq": "6",
           "close_mode": "direct",
@@ -1990,7 +2054,397 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-direct-v3.everstreet.testnet",
+              "meter-direct-v3s2.everstreet.testnet",
+              1,
+              2
+            ]
+          ],
+          "live_deal": null
+        },
+        "treasury": {
+          "asset": "tusd.everstreet.testnet",
+          "held": "265000000",
+          "ent_free_value": "11700000",
+          "ent_held_value": "150000",
+          "available": "3150000",
+          "withdrawable": "2400000",
+          "pending_total": "0",
+          "claims_total": "250000000",
+          "escrow_total": "0"
+        },
+        "entitlement": {
+          "reg_id": "1",
+          "active": true,
+          "free": "78",
+          "consumed": "21",
+          "units_retired_to_refund": "0",
+          "purchased": "100",
+          "purchase_seq": 1,
+          "hold_seq": 22,
+          "hold_active": true,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 1,
+          "hold_units": 1,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [
+            null
+          ],
+          "hold_opened_at_ms": "1793990670247",
+          "serve_until_ms": "1793991265972",
+          "settle_until_ms": "1793991745972",
+          "last_hold_seq": 21,
+          "last_hold_used": 1,
+          "last_hold_charged": 1,
+          "last_hold_root": "21275b6c75afe36a6b09c53975c082394cdaed911f5cc7f465a7787d3d746458",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 20763,
+              "held_today": 22
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
+        },
+        "tusd": {
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "265000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "50000000"
+        }
+      }
+    },
+    {
+      "name": "next_use_under_buyer",
+      "source": "chain_final",
+      "at": "2026-11-06T18:51:03.762Z",
+      "views": {
+        "block": {
+          "height": "276524047",
+          "hash": "Gp3eRi9sz8j3G2svnEJc4vhCbPzJNSEf7xWTfWmaToNS"
+        },
+        "control": {
+          "owner": "buyer-v3s2.everstreet.testnet",
+          "generation": 2,
+          "control_seq": "6",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s2.everstreet.testnet",
+              1,
+              2
+            ]
+          ],
+          "live_deal": null
+        },
+        "treasury": {
+          "asset": "tusd.everstreet.testnet",
+          "held": "265000000",
+          "ent_free_value": "11700000",
+          "ent_held_value": "150000",
+          "available": "3150000",
+          "withdrawable": "2400000",
+          "pending_total": "0",
+          "claims_total": "250000000",
+          "escrow_total": "0"
+        },
+        "entitlement": {
+          "reg_id": "1",
+          "active": true,
+          "free": "78",
+          "consumed": "21",
+          "units_retired_to_refund": "0",
+          "purchased": "100",
+          "purchase_seq": 1,
+          "hold_seq": 22,
+          "hold_active": true,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 1,
+          "hold_units": 1,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [
+            null
+          ],
+          "hold_opened_at_ms": "1793990670247",
+          "serve_until_ms": "1793991265972",
+          "settle_until_ms": "1793991745972",
+          "last_hold_seq": 21,
+          "last_hold_used": 1,
+          "last_hold_charged": 1,
+          "last_hold_root": "21275b6c75afe36a6b09c53975c082394cdaed911f5cc7f465a7787d3d746458",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 20763,
+              "held_today": 22
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
+        },
+        "tusd": {
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "265000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "50000000"
+        }
+      }
+    },
+    {
+      "name": "next_use_under_buyer",
+      "source": "chain_final",
+      "at": "2026-11-06T18:51:29.607Z",
+      "views": {
+        "block": {
+          "height": "276524090",
+          "hash": "7fBXAdHv2uamdfg8NEBwKZiFFuyWReSgSYRxrHsqu65b"
+        },
+        "control": {
+          "owner": "buyer-v3s2.everstreet.testnet",
+          "generation": 2,
+          "control_seq": "6",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s2.everstreet.testnet",
+              1,
+              2
+            ]
+          ],
+          "live_deal": null
+        },
+        "treasury": {
+          "asset": "tusd.everstreet.testnet",
+          "held": "265000000",
+          "ent_free_value": "11700000",
+          "ent_held_value": "150000",
+          "available": "3150000",
+          "withdrawable": "2400000",
+          "pending_total": "0",
+          "claims_total": "250000000",
+          "escrow_total": "0"
+        },
+        "entitlement": {
+          "reg_id": "1",
+          "active": true,
+          "free": "78",
+          "consumed": "21",
+          "units_retired_to_refund": "0",
+          "purchased": "100",
+          "purchase_seq": 1,
+          "hold_seq": 22,
+          "hold_active": true,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 1,
+          "hold_units": 1,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [
+            null
+          ],
+          "hold_opened_at_ms": "1793990670247",
+          "serve_until_ms": "1793991265972",
+          "settle_until_ms": "1793991745972",
+          "last_hold_seq": 21,
+          "last_hold_used": 1,
+          "last_hold_charged": 1,
+          "last_hold_root": "21275b6c75afe36a6b09c53975c082394cdaed911f5cc7f465a7787d3d746458",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 20763,
+              "held_today": 22
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
+        },
+        "tusd": {
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "265000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "50000000"
+        }
+      }
+    },
+    {
+      "name": "next_use_under_buyer",
+      "source": "chain_final",
+      "at": "2026-11-06T18:55:01.395Z",
+      "views": {
+        "block": {
+          "height": "276524452",
+          "hash": "GdcRDAWTwvdDPhgcckxTJP23SrfXUCpPkGbEnpyAr92M"
+        },
+        "control": {
+          "owner": "buyer-v3s2.everstreet.testnet",
+          "generation": 2,
+          "control_seq": "6",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s2.everstreet.testnet",
               1,
               2
             ]
@@ -2030,39 +2484,39 @@
           "last_hold_seq": 22,
           "last_hold_used": 1,
           "last_hold_charged": 1,
-          "last_hold_root": "5e66781444b5191e499b60978129c32676c974f5cc990d0a39167b41c0ae3acf",
+          "last_hold_root": "2605ce60f5d75cd820e6407aec0919a66792e7b6d6bce095de5e588a05b47e31",
           "key_states": [
-            2,
             1,
+            0,
             0,
             0
           ],
           "key_epochs": [
-            2,
             1,
+            0,
             0,
             0
           ],
           "keys": [
             {
               "slot": 0,
-              "state": "revoked",
-              "epoch": 2,
-              "public_key": "c1081e6e6f9d375d5f3d2b24864d08c0b4963d401f533a931e0b95eca0b45aac",
+              "state": "active",
+              "epoch": 1,
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
               "max_hold_units": 1,
               "max_units_per_day": 100,
-              "day": 20762,
-              "held_today": 20
+              "day": 20763,
+              "held_today": 22
             },
             {
               "slot": 1,
-              "state": "active",
-              "epoch": 1,
-              "public_key": "97dda739d6766c93b1d7dfbe4051be7bcb52b068a3db7ad521b785a09d5a29bf",
-              "max_hold_units": 1,
-              "max_units_per_day": 100,
-              "day": 20762,
-              "held_today": 2
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
             },
             {
               "slot": 2,
@@ -2088,14 +2542,142 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3-1.everstreet.testnet",
-          "storage_paid": "8390000000000000000000"
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
         },
         "tusd": {
-          "cara-v3-1.everstreet.testnet": "5000000",
-          "ledgerline-v3-1.everstreet.testnet": "265000000",
-          "founder-v3.everstreet.testnet": "0",
-          "buyer-v3.everstreet.testnet": "50000000"
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "265000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "50000000"
+        }
+      }
+    },
+    {
+      "name": "after_update",
+      "source": "chain_final",
+      "at": "2026-11-06T18:55:01.920Z",
+      "views": {
+        "block": {
+          "height": "276524453",
+          "hash": "3KUrKDh254y2X6ubW8HneWAKASNxWFCTCGYkHcY6Gd4Z"
+        },
+        "control": {
+          "owner": "buyer-v3s2.everstreet.testnet",
+          "generation": 2,
+          "control_seq": "6",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s2.everstreet.testnet",
+              1,
+              2
+            ]
+          ],
+          "live_deal": null
+        },
+        "treasury": {
+          "asset": "tusd.everstreet.testnet",
+          "held": "265000000",
+          "ent_free_value": "11700000",
+          "ent_held_value": "0",
+          "available": "3300000",
+          "withdrawable": "2550000",
+          "pending_total": "0",
+          "claims_total": "250000000",
+          "escrow_total": "0"
+        },
+        "entitlement": {
+          "reg_id": "1",
+          "active": true,
+          "free": "78",
+          "consumed": "22",
+          "units_retired_to_refund": "0",
+          "purchased": "100",
+          "purchase_seq": 1,
+          "hold_seq": 22,
+          "hold_active": false,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 0,
+          "hold_units": 0,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [],
+          "hold_opened_at_ms": "0",
+          "serve_until_ms": "0",
+          "settle_until_ms": "0",
+          "last_hold_seq": 22,
+          "last_hold_used": 1,
+          "last_hold_charged": 1,
+          "last_hold_root": "2605ce60f5d75cd820e6407aec0919a66792e7b6d6bce095de5e588a05b47e31",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "610944130d3cde54ea287b66e48ffc9e0f0286975aac953a32b89e6dc51e59d3",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 20763,
+              "held_today": 22
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "cara-v3s2-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
+        },
+        "tusd": {
+          "cara-v3s2-1.everstreet.testnet": "5000000",
+          "ledgerline-v3-2.everstreet.testnet": "265000000",
+          "founder-v3s2.everstreet.testnet": "0",
+          "buyer-v3s2.everstreet.testnet": "50000000"
         }
       }
     }
@@ -2105,11 +2687,11 @@
   },
   "digests": {
     "sections": {
-      "header": "5eb8719e5c2eeebf2b50d72835e5d7c48f4b66273afbccde8c25582bfafcfb58",
-      "steps": "7121bb1cca9ceca6da599cb36c040ec14eeb60c60610e8ac98885b4e3abd1c39",
-      "checkpoints": "bfbc6feaea03dc48bb1c24d36c703b63ebde653ff79a630322aa79f05770ce23",
+      "header": "014a4452cf85fe2399ccc9b0af071b595dd2b6f3404c422abb3c060f2a31e1ee",
+      "steps": "23e889f4f4addffcecd1d6b7ca0adbb230a8e3b733178095a2cd694a362cbd86",
+      "checkpoints": "21bf2fe4e3f8d4a3568b851919b59a7d1f34262c1364ef5b1b1713c889efccd2",
       "outcome": "b0ce5e6a8fd8db36ff1175157b0ab566e3088b8d85ab627e49a75ce531efeb10"
     },
-    "record": "4bcbe6bd70b29746bcd4134454b572a298a3f5fff81c5c6ca1dffadbd53e9504"
+    "record": "13e7613466e6e5117602e7aa69ef5604ad169c7cd134a1119f33d9261c82f849"
   }
 }

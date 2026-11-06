@@ -1038,6 +1038,11 @@ export class SaleActions {
       status: string;
     }[];
     const platform = this.opts.platformOperator ?? null;
+    // Permissions review, finding 2: a past participant (a former seller collecting proceeds, a
+    // buyer whose deal ended) keeps their own claims, payouts, actions and outcomes, but not the
+    // business's current sale, customer totals or handover. (Owner and operators stay: they are the
+    // public answer to "who holds authority now", which a former seller is shown.)
+    const current = localOwner || (d != null && (d.buyer === g.account || d.seller === g.account));
     return {
       business: { id: g.business.id, name: g.business.name },
       network: g.binding.network,
@@ -1049,16 +1054,18 @@ export class SaleActions {
         ? { supported: true, reason: null }
         : { supported: false, reason: "contract_upgrade" },
       block: s.block,
-      control: s.control,
+      control: current ? s.control : { ...s.control, live_deal: null },
       outcomes: s.outcomes.filter(
         (o) => o.seller === g.account || o.buyer === g.account || localOwner,
       ),
-      customer_obligations: {
-        prepaid_unused: s.treasury.ent_free_value,
-        reserved_in_use: s.treasury.ent_held_value,
-        available: s.treasury.available,
-        asset: s.treasury.asset,
-      },
+      customer_obligations: current
+        ? {
+            prepaid_unused: s.treasury.ent_free_value,
+            reserved_in_use: s.treasury.ent_held_value,
+            available: s.treasury.available,
+            asset: s.treasury.asset,
+          }
+        : null,
       party: s.party,
       payouts: s.pending.filter((p) => p.to === g.account),
       terms: s.terms,
@@ -1076,7 +1083,7 @@ export class SaleActions {
       intents,
       actions: rows.map(view),
       open: rows.filter((r) => OPEN.includes(r.state)).map(view),
-      handover: this.handoverView(businessId, s),
+      handover: this.handoverView(businessId, s, current ? null : g.account),
     };
   }
 
@@ -1085,9 +1092,19 @@ export class SaleActions {
    * the state, the coalesced reason it waits, its orders and their own transactions' states, and
    * (once released to the buyer) whether customers can actually be served (D4).
    */
-  private handoverView(businessId: string, s: SaleReading) {
+  private handoverView(businessId: string, s: SaleReading, pastParticipant: string | null = null) {
     const h = latestHandover(this.db, businessId);
     if (!h) return null;
+    // A past participant sees a handover only if it is of their own deal (the former seller
+    // follows their sale to "handed over"); a later sale's handover isn't theirs.
+    if (
+      pastParticipant !== null &&
+      !s.outcomes.some(
+        (o) =>
+          o.seq === h.deal_seq && (o.seller === pastParticipant || o.buyer === pastParticipant),
+      )
+    )
+      return null;
     const orders = (
       this.db
         .prepare(
