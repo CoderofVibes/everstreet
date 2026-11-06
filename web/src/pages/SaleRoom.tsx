@@ -5,7 +5,7 @@
 // guaranteed) and re-derived in this browser before the wallet sees it. Nothing here claims a
 // transaction, a close or a payout that its own evidence doesn't show.
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { sellerMark } from "../handoverApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import {
@@ -36,6 +36,7 @@ import {
 } from "../saleFlow.ts";
 import { serviceWord } from "../serviceWords.ts";
 import { useSession } from "../session.tsx";
+import { chainWords } from "../wallet.ts";
 import { when } from "../when.ts";
 
 const EMPTY: SaleFlowState = {
@@ -393,8 +394,14 @@ export function ReviewSummary({ p, s }: { p: SalePreview; s: SaleSetup }) {
       )}
       {typeof v.operator === "string" && (
         <>
-          <dt>Operator appointed</dt>
+          <dt>{p.kind === "owner_probe" ? "Asks to appoint" : "Operator appointed"}</dt>
           <dd className="mono wrap">{v.operator} (metering)</dd>
+        </>
+      )}
+      {p.kind === "owner_probe" && typeof v.owner === "string" && (
+        <>
+          <dt>Owner on the contract</dt>
+          <dd className="mono wrap">{v.owner}</dd>
         </>
       )}
       <dt>Attached NEAR</dt>
@@ -1034,6 +1041,102 @@ function OtherActions({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: S
   );
 }
 
+function ShiftItem({
+  done,
+  label,
+  children,
+}: {
+  done: boolean;
+  label: string;
+  children?: ReactNode;
+}) {
+  return (
+    <li className="sale-shift-item">
+      <span aria-hidden="true" className={done ? "sale-shift-done" : "sale-shift-open"}>
+        {done ? "✓" : "○"}
+      </span>
+      <span>
+        <strong>{label}</strong>
+        <span className="sr-only">{done ? " (done)" : " (to do)"}</span>
+        {children && <span className="muted"> · {children}</span>}
+      </span>
+    </li>
+  );
+}
+
+/** The judge rehearsal: the new owner's first shift after a close, each item read now. */
+function FirstShift({ s, chain }: { s: SaleSetup; chain: string }) {
+  if (!s.roles.new_owner || s.control.live_deal) return null;
+  const ops = s.control.operators.filter((o) => o.generation === s.control.generation);
+  const kept = ops.filter((o) => o.account !== s.platform_operator);
+  return (
+    <section className="card" aria-labelledby="sale-shift-t">
+      <h2 id="sale-shift-t" className="sale-h3">
+        Your first shift
+      </h2>
+      <ul className="sale-shift">
+        <ShiftItem done label={`You control ${s.business.name} on ${chain}`}>
+          generation {s.control.generation}
+        </ShiftItem>
+        <ShiftItem done={s.metering_appointed} label="Customers' new uses can run">
+          {s.metering_appointed ? "metering appointed" : "appoint metering (the button above)"}
+        </ShiftItem>
+        {s.customer_obligations && (
+          <ShiftItem done label="Customers who paid before the sale keep their units">
+            <Amount base={s.customer_obligations.prepaid_unused} s={s} /> unused
+          </ShiftItem>
+        )}
+        <ShiftItem done={kept.length === 0} label="Your team">
+          {kept.length === 0
+            ? "no operator kept from before"
+            : `kept: ${kept.map((o) => `${o.account}${sellerMark(o.account, s.outcomes.find((x) => x.buyer === s.account)?.seller)}`).join(", ")}`}
+        </ShiftItem>
+      </ul>
+      <Link to={`/desk/${s.business.id}`}>Customer requests and your desk</Link>
+    </section>
+  );
+}
+
+/**
+ * The judge rehearsal: a former seller tries an owner action with their own wallet, and the
+ * contract's own answer is shown (its error code and transaction).
+ */
+function FormerOwnerCheck({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: SaleSetup }) {
+  if (!s.roles.former_seller || st.review) return null;
+  const last = s.actions.find(
+    (a) => a.kind === "owner_probe" && (a.state === "refused" || a.state === "confirmed"),
+  );
+  const ev = last?.evidence;
+  return (
+    <section className="card quiet" aria-labelledby="sale-probe-t">
+      <h2 id="sale-probe-t" className="sale-h3">
+        Your access after the sale
+      </h2>
+      {last && ev?.kind === "refused" && (
+        <p>
+          Refused by the contract: <code>{ev.reason}</code>
+          {last.tx_hash && (
+            <>
+              {" "}
+              · <TxId hash={last.tx_hash} />
+            </>
+          )}
+        </p>
+      )}
+      {last && ev?.kind === "confirmed" && <p className="error-text">{ev.message}</p>}
+      <button
+        type="button"
+        className="btn btn-secondary"
+        disabled={st.busy !== null || s.open.length > 0}
+        data-focus="probe"
+        onClick={() => void flow.review("owner_probe", {}, null, "probe")}
+      >
+        {last ? "Try again" : "Try an owner action"}
+      </button>
+    </section>
+  );
+}
+
 /**
  * Read-only recovery for a request that can no longer take effect (Astra's browser review): its
  * own transaction ID, or a fresh check. Nothing is ever sent again from here, and it blocks
@@ -1111,7 +1214,7 @@ function History({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: SaleSe
 }
 
 export function SaleRoom({ id }: { id: string }) {
-  const { account, walletBoundary, person } = useSession();
+  const { account, walletBoundary, person, wallet } = useSession();
   const [flow, setFlow] = useState<SaleFlow | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: one controller per business and account
   useEffect(() => {
@@ -1219,7 +1322,8 @@ export function SaleRoom({ id }: { id: string }) {
       </div>
       <header className="sale-head">
         <div className="eyebrow">
-          Business sale · business contract on NEAR {s.network} · you are {saleRoleWords(s)}
+          Business sale · business contract on {chainWords(wallet, s.network)} · you are{" "}
+          {saleRoleWords(s)}
         </div>
         <div className="sale-title-row">
           <h1 className="display sale-title">{s.business.name}</h1>
@@ -1265,6 +1369,7 @@ export function SaleRoom({ id }: { id: string }) {
       <div className="sale-grid">
         <div className="sale-main">
           <Review flow={flow} st={st} s={s} />
+          {!st.review && <FirstShift s={s} chain={chainWords(wallet, s.network)} />}
           {s.handover && (
             <HandoverPanel
               s={s}
@@ -1299,6 +1404,7 @@ export function SaleRoom({ id }: { id: string }) {
             !s.control.live_deal && <TermsForm flow={flow} st={st} s={s} revise={false} />}
           <LiveTerms s={s} />
           <OtherActions flow={flow} st={st} s={s} />
+          <FormerOwnerCheck flow={flow} st={st} s={s} />
           <History flow={flow} st={st} s={s} />
         </div>
         <Continuity s={s} />

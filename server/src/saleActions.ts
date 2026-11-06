@@ -552,6 +552,16 @@ export function resolveSaleTx(
           }
         : null;
     }
+    case "owner_probe":
+      // It should have been refused above. If the contract allowed it, say so plainly.
+      return eventsOf(first, "operator_appointed").some((d) => d.account === review.operator)
+        ? {
+            kind: "confirmed",
+            result: "allowed",
+            message:
+              "The contract accepted it: this account was appointed as an operator. That shouldn't be possible for a former owner.",
+          }
+        : null;
     case "create_plan": {
       // Its own receipt returns the reviewed plan id and names it with the reviewed price. The
       // check then reads the plan back before this counts (SaleActions.check).
@@ -1714,6 +1724,24 @@ export class SaleActions {
             "This is a permission only: whether customers can actually be served is shown separately (release, runtime, budget, protection, writer and plan timing).",
           ],
           conditions: ["Refused without any change if control changed since this review."],
+        };
+        break;
+      }
+      case "owner_probe": {
+        // The judge rehearsal: the former seller's own wallet tries an owner action, so the
+        // refusal shown is the contract's, not this app's. The contract's answer is the evidence.
+        if (!roles.former_seller)
+          no("not_former_seller", "Only a seller whose sale has closed can try this.");
+        call = appointCall(contract, g.account, METERING, cs);
+        review = {
+          operator: g.account,
+          caps: METERING,
+          owner: s.control.owner,
+          generation: s.control.generation,
+          effects: [
+            `Asks the contract to appoint ${g.account} as an operator, which only the owner may do. The owner is ${s.control.owner} (generation ${s.control.generation}), so the contract should refuse it and change nothing.`,
+          ],
+          conditions: ["Your wallet pays the network fee whether the contract refuses it or not."],
         };
         break;
       }

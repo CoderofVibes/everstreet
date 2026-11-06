@@ -628,7 +628,7 @@ export function CustomerProgress({
 }
 
 export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: string }) {
-  const { person, requireSignIn, identity } = useSession();
+  const { person, requireSignIn, identity, wallet } = useSession();
   const { go } = useRouter();
   // Job 003w-e2: in verified mode the authorizer is this device's enrolled key (DeviceKeyPanel),
   // only while the contract shows it ready; the preview keeps its labelled synthetic one.
@@ -1006,7 +1006,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
                 <p className="muted use-note">
                   {use.units.source.observed.free !== null &&
                     `${use.units.source.observed.free} units free, ${use.units.source.observed.consumed} used, `}
-                  as read from NEAR block{" "}
+                  as read from {wallet?.harness ? "synthetic-chain" : "NEAR"} block{" "}
                   <span className="mono">{use.units.source.block.height}</span> at{" "}
                   {time(use.units.source.block.timestamp_ms)}.
                 </p>

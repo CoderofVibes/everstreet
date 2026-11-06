@@ -15,6 +15,7 @@ import { useSession } from "../session.tsx";
 import { TokenAmount } from "../TokenAmount.tsx";
 import { Avatar, FAMILY_LABEL, money, OfferCard } from "../ui.tsx";
 import { ago, rememberVia, viaFor, when } from "../via.ts";
+import { chainWords } from "../wallet.ts";
 import { DigitalStorefront } from "./DigitalStorefront.tsx";
 
 function seatsText(s: PublicSession) {
@@ -269,7 +270,7 @@ export function StorefrontView({
   /** Job 003q1: released digital offers shown above, so "no offer" isn't said beside them. */
   digitalOffers?: number;
 }) {
-  const { person, requireSignIn } = useSession();
+  const { person, requireSignIn, wallet } = useSession();
   const [message, setMessage] = useState("");
   const [share, setShare] = useState(false);
   const [sent, setSent] = useState(false);
@@ -433,15 +434,17 @@ export function StorefrontView({
                   day: "numeric",
                   year: "numeric",
                 })}
-                : {h.from} to {h.team ? `${h.team} (${h.to})` : h.to}, on NEAR testnet
+                : {h.from} to {h.team ? `${h.team} (${h.to})` : h.to}, on {chainWords(wallet)}
                 {h.generation ? ` at control generation ${h.generation}` : ""}.{" "}
                 {h.tx_url && (
-                  <a href={h.tx_url} target="_blank" rel="noreferrer">
-                    The sale on NEAR
-                  </a>
+                  <>
+                    <a href={h.tx_url} target="_blank" rel="noreferrer">
+                      The sale on NEAR
+                    </a>
+                    .{" "}
+                  </>
                 )}
-                {". "}
-                Customers' bookings and refund rights carried over.
+                What customers paid for carried over.
               </p>
             ))}
           </section>

@@ -247,6 +247,16 @@ export function expectedCall(p: SalePreview): WalletFunctionCall | null {
         gas: GAS.call,
         deposit: s(v.deposit),
       };
+    case "owner_probe":
+      // Always this account appointing itself with METERING: an owner action, nothing more.
+      if (s(v.operator) !== p.account || v.caps !== 1) return null;
+      return {
+        receiverId: p.contract,
+        methodName: "appoint_operator_guarded",
+        args: { account: p.account, caps: 1, expected_control_seq: cs },
+        gas: GAS.call,
+        deposit: "1",
+      };
     case "abort":
       return {
         receiverId: p.contract,
@@ -387,6 +397,7 @@ export const KIND_LABEL: Record<SaleKind, string> = {
   create_plan: "Create this plan",
   abort: "End the closing",
   register: "Register with the token",
+  owner_probe: "Try an owner action",
 };
 
 export const STATE_LABEL: Record<SaleAction["state"], string> = {

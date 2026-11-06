@@ -83,9 +83,19 @@ Fixed the same day:
   unit came back without a click. A charged use wasn't re-observed in the browser.
 - **README scope:** "Everything in it" now says which features run only in the legacy preview.
 
-Not done (product changes, Tony's call):
-- An account picker in the synthetic wallet dialog.
-- A former seller's "try an owner action" on the v3 sale page that shows the contract's own
-  refusal; a buyer's first-shift list after a v3 close (both exist only for v2 deals today).
-- The sale page header says "NEAR testnet" inside the synthetic demo.
-- Shortening "Everything in it" (Astra's call with Tony).
+Built after Tony's yes (Nov 6, later), each checked in the browser demo:
+- **Account picker:** the synthetic wallet asks who to sign in as (seller, buyer, customers, a
+  newcomer), by mouse or keyboard, on top of the sign-in dialog. The README's Try it section is
+  now one route: seller accepts, buyer closes, former seller is refused, customer uses it.
+- **The contract's own refusal:** the former seller's sale page has "Try an owner action". Her
+  wallet asks the contract to appoint her as an operator; the contract refuses with
+  `E_NOT_OWNER`, and the page shows the code and the refused transaction. In the demo that is
+  the synthetic chain, which follows the contract's rules; a test covers it.
+- **First shift:** after the close, the buyer's sale page lists control, customers' new uses,
+  customers' prepaid units and the team, each read from the contract.
+- **Synthetic labels:** inside the demo the sale page, the customer's unit reading and the public
+  page's change of hands say "the synthetic chain", not NEAR testnet.
+- **Charge settles:** re-walked as Cara after the close: request, result, then without a click
+  "The contract shows this use charged exactly one unit" (92 free, 8 used).
+- **README:** "Everything in it" is now a short paragraph linking `docs/FEATURES.md`, which holds
+  the full list unchanged (Astra may reword either).

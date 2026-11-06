@@ -568,7 +568,8 @@ export type SaleKind =
   | "appoint"
   | "register"
   | "abort"
-  | "create_plan";
+  | "create_plan"
+  | "owner_probe";
 /** Job 003wf3: a party ends a Gated closing whose deadline passed (anyone may, on chain). */
 export const abortCall = (contract: string, dealSeq: string): WalletCall => ({
   receiverId: contract,
@@ -591,6 +592,7 @@ export const SALE_KINDS: SaleKind[] = [
   "register",
   "abort",
   "create_plan",
+  "owner_probe",
 ];
 
 /**
@@ -621,6 +623,8 @@ export function exclusivity(kind: SaleKind, call: WalletCall, actor: string): st
       return `register:${call.receiverId}:${String(a.account_id)}`;
     case "abort":
       return `abort:${String(a.deal_seq)}`;
+    case "owner_probe":
+      return `probe:${actor}:${String(a.expected_control_seq)}`;
   }
 }
 

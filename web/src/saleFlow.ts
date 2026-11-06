@@ -85,6 +85,7 @@ export function noticeFor(
   r: SaleResolution | null,
   cancelled = false,
   effects: Record<string, unknown> | null = null,
+  kind: SaleKind | null = null,
 ): SaleNotice | null {
   if (!r) return null;
   if (r.kind === "confirmed") {
@@ -104,6 +105,9 @@ export function noticeFor(
     if (rec) return { tone: "ok", text: `${r.message} ${rec.message ?? ""}`.trim() };
     return { tone: "ok", text: r.message };
   }
+  // A former owner's tried owner action: the refusal is the expected answer.
+  if (r.kind === "refused" && kind === "owner_probe")
+    return { tone: "ok", text: `Refused by the contract (${r.reason}); nothing changed.` };
   if (r.kind === "refused") return { tone: "warn", text: r.message };
   return { tone: "info", text: cancelled ? `You closed the wallet. ${r.message}` : r.message };
 }
@@ -491,7 +495,7 @@ export class SaleFlow {
       if (!this.alive) return;
       this.set({
         answers: { ...this.state.answers, [id]: r },
-        notice: noticeFor(r.resolution, cancelled, r.effects),
+        notice: noticeFor(r.resolution, cancelled, r.effects, r.action.kind),
         drafts: this.settledDrafts(r),
       });
     } catch (e) {
@@ -526,7 +530,7 @@ export class SaleFlow {
                 tone: "warn",
                 text: "That transaction isn't this request (or isn't final yet), so it shows nothing about it. Nothing was recorded from it.",
               }
-            : noticeFor(r.resolution, false, r.effects),
+            : noticeFor(r.resolution, false, r.effects, r.action.kind),
         drafts: this.settledDrafts(r),
       });
     } catch (e) {

@@ -21,6 +21,10 @@ export interface WalletEnv {
   harness: string | null;
 }
 
+/** Where contracts run, in words: the review harness's synthetic chain, or NEAR's network. */
+export const chainWords = (wallet: WalletEnv | null | undefined, network = "testnet") =>
+  wallet?.harness ? "the synthetic chain" : `NEAR ${network}`;
+
 /** One FunctionCall for the customer's wallet (§9.5): every field is shown before approving. */
 export interface WalletFunctionCall {
   receiverId: string;

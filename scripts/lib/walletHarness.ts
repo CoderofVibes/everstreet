@@ -32,6 +32,9 @@ export const HARNESS_LABEL = "Synthetic review wallet";
 export const HARNESS_CSP =
   "default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'none'";
 
+/** Prefixed to WALLET_SCRIPT by a harness that offers the account picker (the demo). */
+export const PICKER_FLAG = "window.__everstreetHarnessPicker = true;\n";
+
 /** The page-side module: the official WalletModuleFactory shape, backed by this harness process. */
 export const WALLET_SCRIPT = `// Review harness only: a SYNTHETIC wallet module (not a wallet). Never part of the app bundle.
 (() => {
@@ -42,6 +45,74 @@ export const WALLET_SCRIPT = `// Review harness only: a SYNTHETIC wallet module 
     return j;
   };
   const b64 = (u8) => btoa(String.fromCharCode(...u8));
+  // The demo's account picker: a harness that turns it on (PICKER_FLAG) and lists its accounts
+  // (GET /__harness/accounts) asks which one signs, as a wallet with several accounts would.
+  // Other harnesses send no extra request.
+  const accounts = async () => {
+    if (!window.__everstreetHarnessPicker) return null;
+    try {
+      const r = await fetch("/__harness/accounts");
+      if (!r.ok || !(r.headers.get("content-type") || "").includes("json")) return null;
+      const j = await r.json();
+      return Array.isArray(j.accounts) && j.accounts.length > 1 ? j : null;
+    } catch { return null; }
+  };
+  const choose = (list) => new Promise((resolve) => {
+    const d = document.createElement("dialog");
+    d.setAttribute("aria-labelledby", "harness-pick-t");
+    d.style.cssText = "border:0;border-radius:12px;padding:20px;max-width:380px;width:calc(100% - 32px);font:15px system-ui,sans-serif;color:#1a1a1a;box-shadow:0 12px 40px rgba(0,0,0,.3)";
+    const h = document.createElement("h2");
+    h.id = "harness-pick-t";
+    h.textContent = "Synthetic wallet: sign in as";
+    h.style.cssText = "font-size:17px;margin:0 0 12px";
+    d.append(h);
+    const buttons = [];
+    const done = (v) => { window.removeEventListener("keydown", keys, true); d.close(); d.remove(); resolve(v); };
+    for (const a of list.accounts) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.style.cssText = "display:block;width:100%;text-align:left;margin:0 0 8px;padding:10px 12px;border:1px solid #c9c9c9;border-radius:8px;background:#fff;cursor:pointer;font:inherit;color:inherit";
+      const n = document.createElement("strong");
+      n.textContent = a.name;
+      const m = document.createElement("div");
+      m.textContent = a.account + (a.role ? " · " + a.role : "");
+      m.style.cssText = "font-size:13px;color:#555";
+      b.append(n, m);
+      b.addEventListener("click", () => done(a.account));
+      buttons.push(b);
+      d.append(b);
+    }
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Close the wallet";
+    cancel.style.cssText = "margin-top:4px;padding:8px 12px;border:0;background:none;color:#555;cursor:pointer;font:inherit;text-decoration:underline";
+    cancel.addEventListener("click", () => done(null));
+    buttons.push(cancel);
+    d.append(cancel);
+    // The page's own dialog listens for Tab and Escape on the document: this wallet handles its
+    // keys first, so they act here only.
+    const keys = (e) => {
+      e.stopImmediatePropagation();
+      if (e.key === "Escape") { e.preventDefault(); done(null); }
+      else if (e.key === "Tab") {
+        e.preventDefault();
+        const i = buttons.indexOf(document.activeElement);
+        const next = (i + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
+        buttons[next].focus();
+      }
+    };
+    window.addEventListener("keydown", keys, true);
+    document.body.append(d);
+    d.showModal();
+    (buttons[list.accounts.findIndex((a) => a.account === list.current)] || buttons[0]).focus();
+  });
+  const pick = async () => {
+    const list = await accounts();
+    if (!list) return;
+    const chosen = await choose(list);
+    if (!chosen) throw new Error("You closed the synthetic wallet; nothing was signed.");
+    await post("/__harness/use-account", { account: chosen });
+  };
   window.__everstreetHarnessWallet = async () => ({
     id: "everstreet-harness-wallet",
     type: "injected",
@@ -51,7 +122,7 @@ export const WALLET_SCRIPT = `// Review harness only: a SYNTHETIC wallet module 
       signOut: async () => { await post("/__harness/disconnect", {}); },
       getAccounts: async () => { const a = (await post("/__harness/account", {})).accountId; return a ? [{ accountId: a }] : []; },
       verifyOwner: async () => { throw new Error("not supported"); },
-      signMessage: async (p) => post("/__harness/sign-message", { message: p.message, recipient: p.recipient, nonce: b64(p.nonce), callbackUrl: p.callbackUrl ?? null, state: p.state ?? null }),
+      signMessage: async (p) => { if (window.__everstreetHarnessPicker) await pick(); return post("/__harness/sign-message", { message: p.message, recipient: p.recipient, nonce: b64(p.nonce), callbackUrl: p.callbackUrl ?? null, state: p.state ?? null }); },
       signAndSendTransaction: async (p) => post("/__harness/tx", { receiverId: p.receiverId, actions: p.actions.map((a) => ({ methodName: a.functionCall.methodName, args: new TextDecoder().decode(a.functionCall.args), gas: String(a.functionCall.gas), deposit: String(a.functionCall.deposit) })) }),
       signAndSendTransactions: async () => { throw new Error("not supported"); },
       getPublicKey: async () => { throw new Error("not supported"); },

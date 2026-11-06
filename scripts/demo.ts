@@ -4,8 +4,8 @@
 // model or network; fictional people, businesses and test tokens). Local only.
 //
 //   npm run demo [-- --minutes 120] [-- --port 8820]   (the controls use the next port)
-//   Sign in as Delphine: open http://127.0.0.1:8820/portfolio and choose the synthetic wallet.
-//   Switch who the wallet signs as: POST http://127.0.0.1:8821/account/<account>.
+//   Open http://127.0.0.1:8820/portfolio, sign in with the synthetic wallet and pick who to be;
+//   sign out and in again to switch (or POST http://127.0.0.1:8821/account/<account>).
 
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
@@ -20,7 +20,7 @@ import { labelScript } from "./lib/customerPreview.ts";
 import { simulatedClock } from "./lib/demo/clock.ts";
 import { simulateHistory } from "./lib/demo/history.ts";
 import { ACCOUNTS, BUYER, CUSTOMERS, demoWorld, FOUNDER } from "./lib/demo/world.ts";
-import { HARNESS_CSP, WALLET_SCRIPT } from "./lib/walletHarness.ts";
+import { HARNESS_CSP, PICKER_FLAG, WALLET_SCRIPT } from "./lib/walletHarness.ts";
 
 const HOST = "127.0.0.1";
 const portAt = process.argv.indexOf("--port");
@@ -95,7 +95,7 @@ w.state.app = w.make({
 const controls = { account: FOUNDER.account as string | null };
 const site = new Hono();
 site.get("/__harness/wallet.js", (c) =>
-  c.body(WALLET_SCRIPT, 200, { "content-type": "text/javascript" }),
+  c.body(PICKER_FLAG + WALLET_SCRIPT, 200, { "content-type": "text/javascript" }),
 );
 site.get("/__harness/label.js", (c) =>
   c.body(
@@ -108,6 +108,34 @@ site.get("/__harness/label.js", (c) =>
   ),
 );
 site.post("/__harness/account", (c) => c.json({ accountId: controls.account }));
+// The synthetic wallet's account picker: who it can sign in as (fictional), and the choice.
+const roles: Record<string, string> = {
+  [FOUNDER.account]: "the seller: owns the businesses",
+  [BUYER.account]: "the buyer: Signalwatch's sale",
+  [NEWCOMER.account]: "new here, nothing yet",
+};
+const names: Record<string, string> = {
+  [FOUNDER.account]: FOUNDER.name,
+  [BUYER.account]: BUYER.name,
+  [NEWCOMER.account]: NEWCOMER.name,
+};
+for (const c of CUSTOMERS) names[c.account] = c.name;
+site.get("/__harness/accounts", (c) =>
+  c.json({
+    current: controls.account,
+    accounts: Object.keys(people).map((account) => ({
+      account,
+      name: names[account] ?? account,
+      role: roles[account] ?? "a customer",
+    })),
+  }),
+);
+site.post("/__harness/use-account", async (c) => {
+  const id = String(((await c.req.json()) as Json).account ?? "");
+  if (!(id in people)) return c.json({ error: "Not a demo account." }, 400);
+  controls.account = id;
+  return c.json({ accountId: id });
+});
 site.post("/__harness/disconnect", (c) => {
   controls.account = null;
   return c.json({ ok: true });
@@ -211,7 +239,7 @@ const control = serve({ fetch: ctl.fetch, port: PORT + 1, hostname: HOST });
 control.on("error", busy(PORT + 1));
 console.log(`Demo (simulated history, fictional): http://${HOST}:${PORT}/portfolio`);
 console.log(
-  `  The demo wallet signs in as ${FOUNDER.name} (${FOUNDER.account}). To act as someone else: curl -X POST http://${HOST}:${PORT + 1}/account/buyer.near (or cara.near), then sign out and in.`,
+  `  Sign in with the synthetic wallet and pick who to be: ${FOUNDER.name} (the seller), ${BUYER.name} (the buyer) or a customer. Sign out and in again to switch.`,
 );
 // Customer charges settle in the background, as in the composed entry.
 w.startMaintenance();

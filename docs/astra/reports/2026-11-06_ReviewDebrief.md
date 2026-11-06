@@ -152,12 +152,17 @@ moment (the former owner refused, then the customer's use going through).
   demo maintenance. While checking, I also found the demo's Ledgerline budget was used up, so a
   visitor's own request couldn't run; it gets a fresh budget now.
 
-  Open, and yours and Tony's to decide:
-  - an account picker in the demo wallet;
-  - a "try an owner action" on the v3 sale page that shows the contract's own refusal;
-  - a buyer's first-shift list after a v3 close;
-  - the "NEAR testnet" header inside the synthetic demo;
-  - shortening "Everything in it".
+  Then built on Tony's yes (details in the judge report's status):
+  - an account picker in the demo wallet (seller, buyer, customers, a newcomer);
+  - "Try an owner action" for the former seller on the v3 sale page: the contract refuses
+    (`E_NOT_OWNER`) and the page shows the refused transaction;
+  - "Your first shift" for the buyer after a v3 close;
+  - "the synthetic chain" instead of NEAR testnet inside the demo;
+  - "Everything in it" moved to `docs/FEATURES.md`, with a short paragraph left in the README;
+  - a charged use re-walked in the demo: it settled without a click.
+
+  The film's 20 seconds (former owner refused, customer's use going through) can now be shot
+  entirely in `npm run demo`: steps 3 and 4 of the README's route.
 
 **For you:** the README's video line is a placeholder. The opening and order are drafted to your
 outline; the wording is yours to change.

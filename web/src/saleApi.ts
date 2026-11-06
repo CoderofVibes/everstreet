@@ -16,7 +16,8 @@ export type SaleKind =
   | "appoint"
   | "register"
   | "abort"
-  | "create_plan";
+  | "create_plan"
+  | "owner_probe";
 
 export type ActionState =
   | "prepared"

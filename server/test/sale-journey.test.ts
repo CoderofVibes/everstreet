@@ -132,6 +132,21 @@ describe("003wf2 Direct sale: proposal to close and customer continuity", () => 
     expect(claim.check?.body.resolution).toMatchObject({ kind: "confirmed", result: "paid" });
     expect(s.w.chain.balances.get(SELLER)).toBe(BigInt(PRICE));
     expect((await s.setup(s.ava)).body.party.sale_proceeds_claim).toBe("0");
+    // The judge rehearsal: the former seller's own wallet tries an owner action (appointing
+    // itself), and the contract refuses it; the refusal is recorded with its own transaction.
+    const control = s.w.chain.sale?.controlSeq;
+    const probe = await s.act(s.ava, SELLER, "owner_probe");
+    expect(probe.p.body.call).toMatchObject({
+      methodName: "appoint_operator_guarded",
+      args: { account: SELLER, caps: 1 },
+    });
+    expect(probe.check?.body.resolution).toMatchObject({ kind: "refused", reason: "E_NOT_OWNER" });
+    expect(s.w.chain.sale?.controlSeq).toBe(control);
+    const after = await s.setup(s.ava);
+    expect(after.body.actions[0]).toMatchObject({ kind: "owner_probe", state: "refused" });
+    expect(after.body.actions[0].tx_hash).toMatch(/^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
+    // Only a former seller is offered it.
+    expect((await s.prepare(s.noah, "owner_probe")).body.code).toBe("not_former_seller");
     // The new owner's picture: it owns the business here and on the contract.
     const b1 = await s.setup(s.noah);
     expect(b1.body.roles).toMatchObject({ new_owner: true, chain_owner: true, seller: true });

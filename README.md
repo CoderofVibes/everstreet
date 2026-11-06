@@ -24,18 +24,19 @@ npm install
 npm run demo
 ```
 
-Open http://127.0.0.1:8820/portfolio and choose **Continue with Synthetic demo wallet**. You are
-Delphine Marsh, a fictional founder with three digital businesses, a month of simulated history,
-and Signalwatch mid-sale to a buyer. The demo runs entirely on your machine with a synthetic wallet
-and chain; the same flow on real NEAR testnet is recorded below.
+Open http://127.0.0.1:8820/portfolio, choose **Continue with Synthetic demo wallet**, and pick
+who to be. The demo runs entirely on your machine with a synthetic wallet and chain; the same sale
+on real NEAR testnet is recorded below. One route through it (sign out and in again to switch):
 
-To play another person, point the demo wallet at them, then sign out and sign in again:
+1. **Delphine Marsh**, the seller: Signalwatch is mid-sale. Open it from "Needs you today" and
+   accept the terms.
+2. **Noah Brandt**, the buyer: accept and close the sale. The sale page then shows your first
+   shift: control, customers' uses, customers' prepaid units, your team.
+3. **Delphine** again: collect the proceeds, then **Try an owner action**. Her own wallet asks
+   the contract to appoint her; it refuses (`E_NOT_OWNER`, here on the synthetic chain, which
+   follows the contract's rules) and the page shows the transaction.
+4. **Cara Okafor**, a customer who paid before the sale: use Signalwatch under its new owner.
 
-```
-curl -X POST http://127.0.0.1:8821/account/buyer.near
-```
-
-`buyer.near` is Noah Brandt, the buyer; `cara.near` is a customer; `delphine.near` is the founder.
 The demo uses ports 8820 and 8821 (`npm run demo -- --port 8830` moves it), and stops by itself
 after two hours (`-- --minutes 300` for longer).
 
@@ -49,7 +50,7 @@ access keys (`ledgerline-v3-2.everstreet.testnet`, Nov 6 2026):
 2. **The former owner loses authority.** In the same transaction that closed the sale, the
    contract moved control to the buyer at a new generation. Everstreet then refused the seller's
    owner view and release (404). The contract refuses owner calls from anyone but the current
-   owner (`E_NOT_OWNER`, shown in the contract tests below).
+   owner (`E_NOT_OWNER`, shown in the contract tests below and in step 3 of the demo).
 3. **The buyer serves the next use.** The customer's next request ran under the buyer, leaving 79.
    A later use on the buyer's own update left 78, which is what the contract shows today.
 
@@ -81,117 +82,11 @@ Reproduce (WSL, from `contracts/`): `CARGO_TARGET_DIR=$HOME/everstreet-target ca
 
 ## Everything in it
 
-Everything below exists in the code; some of it runs only in the legacy local preview (classes,
-bookings and the v2 payment and deal flows), not in `npm run demo`. Other ways to start it:
-
-- **Legacy local preview:** double-click **`Start Everstreet.cmd`**, or run `npm run app`, then
-  open http://localhost:8800. It fills in four fictional example businesses and looks for local
-  NEAR testnet keys for its booking and payment demos.
-- **Composed entry** (`docs/design/APPLICATION_COMPOSITION.md`):
-  `npm run entry -- --config <absolute path>` with a config like `config/everstreet.example.json`.
-  It reads one explicit config, refuses mainnet, never searches for keys and lists what is
-  unavailable at `/api/system/capabilities`. Offline browser review: `npm run web:build`, then
-  `npx tsx scripts/preview-entry.ts configured` → http://127.0.0.1:8870.
-
-What you can do:
-
-- **Build a digital product** in the product studio (`/build`): describe an idea, choose an AI
-  API, SaaS workflow, agent service or client portal, and shape a brief (audience, problem,
-  promised result, features, pricing assumption) and a clickable prototype of its screens.
-  Every save is an immutable revision you can compare and restore; the project belongs to a
-  business and moves with it if the business is sold. AI generation is not connected yet and
-  the studio says so: the prototype runs no model and stores nothing. Design for the build
-  runtime: `docs/design/BUILD_RUNTIME.md`.
-- **Start a business** three ways: with an idea, with help finding one (four questions → three
-  small directions), or from something you already sell.
-- **Shape the offer** in a six-question interview while the customer's view of your offer fills in
-  beside you; anything still undecided is listed and shown to customers as undecided.
-- **Make it yours**, **preview** exactly what a visitor sees, then **publish** after a plain review of
-  what publishing does. Drafts stay private until then.
-- **Find a solution**: search everything published, with the words each result matched. Nobody
-  pays to rank higher.
-- **Respond as a visitor** ("Tell me when it opens", or ask to book / order / get access once the
-  founder confirms the details). Contact details are shared only if the visitor ticks the box.
-- **Run it from your desk**: responses arrive as tasks, replies go back to the visitor's inbox, and
-  the first-week plan ticks itself off as you fill in what was missing.
-- **Take real bookings** (classes): the founder opens dated sessions; places, the waitlist and
-  automatic moving-up live in **OpenSeat**, the booking service, which runs beside Everstreet with
-  its own database. Its waitlist worker acts only when OpenSeat's contract on **NEAR testnet**
-  says it is authorized, and the customer's booking shows who moved them up and under which
-  authority generation.
-- **My activity**: a customer's bookings (live status, calendar file, cancel), the requests they
-  posted and founders' replies, messages, and updates from businesses they follow.
-- **Explore**: Starting now, Open for customers, What people need, Following.
-- **Need board**: when search can't find it, post the request (anonymously, with an expiry);
-  founders whose offer fits see it on their desk and reply.
-- **Search with constraints**: "class under $40, online" becomes removable chips; hard limits
-  filter first, each result says why it is there, and an empty result says which limit ruled
-  things out with a one-click relax and a way back.
-- **Be seen**: founder profiles, updates for followers, a share kit with a trackable link, and
-  "how people found you" (own link, Everstreet, a request, unknown). Pages can be reported.
-- **Take real payments on NEAR testnet**: the founder turns payments on and chooses the promises
-  the business keeps (refund window, reserve). That creates the business's own testnet account
-  running the v2 contract from shared code by hash, born with no keys, owned by the founder's
-  own account. Customers "Pay $35 and book" from their own testnet account in test dollars
-  (tUSD, no value). The contract holds customer money until the founder marks the order
-  delivered, refunds a cancellation inside the window by itself, and never lets the owner
-  withdraw customer money or the reserve. The founder's **Money** panel is read from the
-  contract: customers' money, earned, withdrawable, this month's books, each order with its
-  transaction links, and withdrawals. A dropped connection is reconciled from the chain
-  (an order id is paid at most once).
-- **Books**: month by month, revenue (what was delivered, not what was paid in advance), direct
-  costs, overhead and profit. Revenue since payments went on is read from the business's
-  contract and labelled "Verified on NEAR · testnet"; costs are what the founder enters (once or
-  every month); the examples' earlier months are labelled "Seeded history · fictional".
-- **Value**: what the business could be worth, as an explainable scenario model (`scenario-v1`):
-  operating profit minus the work a successor would have to do or pay for, annualized, times
-  illustrative multiples. The full calculation, every input with its source, what the estimate
-  doesn't know yet, exactly what changed since last time, every past version, and private
-  "Try a change" what-ifs. It is an estimate, not an appraisal, an offer or advice.
-- **Share my numbers** (off by default): last month's revenue, costs and profit, and the estimate
-  with its labels, on the public page.
-- **Hand off a task**: a founder appoints someone to answer customers and mark orders delivered.
-  They are appointed on the business's contract with their own account and never get the
-  founder's key; they work from "Businesses you help". Revoke, and the contract refuses them.
-- **Buying profiles**: an owner-operator, a business buying a business, a small investment firm,
-  or a customer cooperative sets up a buying profile under their own account, says how they'd
-  own it, and adds teammates with research, evidence or approve roles.
-- **Sell on your terms**: a founder chooses closed, private introductions (invited teams only),
-  an anonymous teaser (coarse bands, no name) or a named acquisition profile, sets an optional
-  asking price, and picks which numbers buyers see. Customers never see any of it, and sharing
-  numbers on the public page does not list a business.
-- **Search acquisitions**: a written brief fills the same visible filters (kind, remote, asking
-  price, estimate range that overlaps or fits within yours, months of history, owner hours,
-  verified on NEAR). Each result says why it matches and what is unknown; businesses without an
-  estimate are set aside only by the estimate filter, which says how many and lets you include
-  them. Asking price and estimate are always separate. Shortlist and compare up to three.
-- **Evidence rooms**: a buyer asks for specific evidence, for a purpose and a number of days;
-  the founder sees the team and grants, narrows or declines. The room shows only what was
-  granted: monthly books with sources, the estimate with a button to reproduce it from the rows,
-  the team's own private assumptions, customer activity in aggregate (small counts suppressed),
-  and a preliminary list of what a sale would cover and its status. Access is checked on every
-  visit; when the founder ends it or it expires, the room stops working. The founder sees how
-  often it was opened.
-- **Deals on NEAR**: the founder proposes exact terms to a team that asked for access: price in
-  test dollars, expiry, handover, what control the buyer receives, what stays with the business,
-  separate transfer items, what's excluded, and an evidence snapshot. The terms are frozen and
-  their fingerprint goes on the business's contract with the price and both accounts. The
-  team's accepting account funds the exact price (held by the contract), and both people accept
-  that exact version; any revision clears both acceptances and shows what changed. The second
-  acceptance closes the sale on chain, once. Everstreet then follows the contract: the business,
-  its page and records move to the buyer, old helpers and grants end, customers keep their
-  bookings, money and refund rights. The seller claims proceeds from the contract (a failed
-  payout stays visible and can be retried) and can try a real owner action to see the
-  contract refuse it. The buyer gets a first shift: confirm control, appoint their own team,
-  serve customers who paid before the sale. The public page records the change of hands.
-- **Switch people** from the top-right menu (local preview only) to see each side. Try: as Theo,
-  cancel his Nov 14 place in My activity; within seconds Ana (waiting) gets it. Then as Mara,
-  turn on payments on Juniper's desk, and as another person pay for the Nov 7 session.
-
-Not yet: group-controlled ownership (a co-op buys through its representative's account),
-financing and earn-outs, a public notice period before a close, researched market multiples, AI drafting (drafts come from templates today), sign-in with a real identity (people's
-testnet keys are kept on this computer in the local preview), paid waitlists, and payments for
-kinds other than classes.
+Besides selling a business: a product studio, starting and publishing a business, search with
+constraints, a need board, bookings and payments on NEAR testnet, books and a value estimate,
+helpers appointed on the contract, buying profiles, acquisition search, evidence rooms and the
+earlier (v2) deals. Each one, with what runs only in the legacy local preview and other ways to
+start it: [docs/FEATURES.md](docs/FEATURES.md).
 
 ## The ownership handoff on NEAR testnet
 
