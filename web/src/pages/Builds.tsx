@@ -620,7 +620,8 @@ export function BuildsView({
           <strong>Builds can't be started here.</strong> {list.availability.reason}
         </p>
       )}
-      {list.engine !== "workflow" && list.engine !== "analysis" && (
+      {/* Review #27: no build budget where nothing can be built. */}
+      {list.engine !== "workflow" && list.engine !== "analysis" && list.availability.available && (
         <BudgetPanel
           key={String(list.budget.limit_cents)}
           businessId={businessId}

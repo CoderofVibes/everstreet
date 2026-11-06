@@ -56,7 +56,8 @@ export function WorkList({ d, businessId }: { d: DigitalDeskView; businessId: st
           )}
         </>
       )}
-      {d.products.shown.some((p) => p.status !== "brief_only") && (
+      {/* First-use review #49: the worker matters only when uses are waiting on it. */}
+      {d.work.some((w) => w.key === "system") && (
         <p
           className={d.settlement.worker === "running" ? "muted" : "notice"}
           style={{ fontSize: 13 }}

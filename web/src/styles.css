@@ -521,7 +521,7 @@ textarea.input { min-height: 88px; resize: vertical; line-height: 1.5; }
    sticky footer it covered the focused editor on phones once the tools became static. */
 .ps-savebar { border-top: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 8px; background: var(--surface); }
 .seg { display: inline-flex; background: var(--canvas); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 2px; gap: 2px; }
-.seg button { border: 0; background: none; border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-3); }
+.seg button { border: 0; background: none; border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-3); white-space: nowrap; }
 .seg button[aria-pressed="true"], .seg button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); }
 .seg.wrap { flex-wrap: wrap; }
 fieldset.seg { margin: 0; min-width: 0; }
@@ -826,7 +826,8 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
   .ps-body:not(.editor-open) > .ps-side { display: none; }
   .ps-editor-toggle.shaping { display: inline-flex; }
   .ps-tabbar { padding: 0 8px 6px; flex-wrap: wrap; }
-  .ps-tabbar .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; flex-basis: 100%; }
+  /* First-use review #36: the studio tabs wrap on a phone instead of scrolling sideways. */
+  .ps-tabbar .tabs { flex-wrap: wrap; flex-basis: 100%; }
   .ps-tabbar .tab { flex: none; }
   .ps-view { padding: 16px 12px 32px; }
   .proto-app { grid-template-columns: 1fr; }
@@ -872,7 +873,8 @@ kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line-
 .desk > *, .fin-card { min-width: 0; }
 .fin-scroll { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
 .fin-scroll:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.fin-svg { display: block; width: 100%; min-width: 560px; height: auto; }
+/* Review #56: charts fit a phone (no scrolling inside the box for a few months). */
+.fin-svg { display: block; width: 100%; min-width: 320px; height: auto; }
 .fin-table-wrap { overflow-x: auto; max-width: 100%; }
 .fin-table-wrap:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .sw-dots { background: radial-gradient(var(--mint-ink) 1px, var(--mint-soft) 1.5px) 0 0 / 5px 5px; border: 1px dashed var(--mint-ink); }
@@ -1751,3 +1753,4 @@ ul.plain { margin: 0; padding-left: 18px; }
 .filters-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 640px) { .filters-3 { grid-template-columns: minmax(0, 1fr); } }
 .wf-card-title { font-weight: 600; overflow-wrap: anywhere; }
+.site-foot { display: flex; gap: 16px; flex-wrap: wrap; justify-content: space-between; max-width: 1280px; margin: 0 auto; padding: 20px 36px 32px; font-size: 13px; color: var(--text-3); border-top: 1px solid var(--line); }

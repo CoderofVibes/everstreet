@@ -21,7 +21,6 @@ import {
   intScale,
   microcentsUsd,
   openReserved,
-  settlementText,
   usageSegments,
 } from "../operations.ts";
 import { Link } from "../router.tsx";
@@ -123,6 +122,13 @@ function segmentPaint(key: string, id: string) {
 
 /** Uses per month, stacked by current outcome. A recorded zero month is drawn as a "0". */
 export function UsageChart({ months }: { months: OpsMonth[] }) {
+  const present = new Set(
+    months.flatMap((m) =>
+      usageSegments(m.usage)
+        .filter((x) => x.value > 0)
+        .map((x) => x.key as string),
+    ),
+  );
   const id = useId();
   const [active, setActive] = useState<number | null>(null);
   const scale = intScale(months.map((m) => m.usage.requested));
@@ -165,38 +171,41 @@ export function UsageChart({ months }: { months: OpsMonth[] }) {
                 className="fin-point"
               >
                 <rect x={cx - band / 2} y={TOP} width={band} height={PLOT} fill="transparent" />
-                {m.usage.requested === 0 ? (
+                {/* First-use review #50: empty months carry no "0"; a month with uses carries its
+                    total above the bar. */}
+                {m.usage.requested === 0 ? null : (
                   <text
                     x={cx}
-                    y={TOP + PLOT - 6}
+                    y={TOP + PLOT - h(m.usage.requested) - 6}
                     fontSize="11"
                     textAnchor="middle"
-                    fill="var(--ink-3)"
+                    fill="var(--ink-2)"
                   >
-                    0
+                    {m.usage.requested}
                   </text>
-                ) : (
-                  usageSegments(m.usage).map((s) => {
-                    if (s.value === 0) return null;
-                    const sh = h(s.value);
-                    y -= sh;
-                    const p = segmentPaint(s.key, id);
-                    return (
-                      <rect
-                        key={s.key}
-                        data-series={s.key}
-                        x={cx - bar / 2}
-                        y={y}
-                        width={bar}
-                        height={Math.max(1, sh)}
-                        fill={p.fill}
-                        stroke={p.stroke}
-                        strokeWidth={1}
-                        strokeDasharray={p.dash}
-                      />
-                    );
-                  })
                 )}
+                {m.usage.requested === 0
+                  ? null
+                  : usageSegments(m.usage).map((s) => {
+                      if (s.value === 0) return null;
+                      const sh = h(s.value);
+                      y -= sh;
+                      const p = segmentPaint(s.key, id);
+                      return (
+                        <rect
+                          key={s.key}
+                          data-series={s.key}
+                          x={cx - bar / 2}
+                          y={y}
+                          width={bar}
+                          height={Math.max(1, sh)}
+                          fill={p.fill}
+                          stroke={p.stroke}
+                          strokeWidth={1}
+                          strokeDasharray={p.dash}
+                        />
+                      );
+                    })}
                 {m.so_far && m.usage.requested > 0 && (
                   <rect
                     x={cx - bar / 2 - 3}
@@ -214,26 +223,41 @@ export function UsageChart({ months }: { months: OpsMonth[] }) {
           })}
         </svg>
       </Scroll>
+      {/* Review #50: the legend names only what the chart shows. */}
       <div className="fin-legend" aria-hidden="true">
-        <span>
-          <i className={swatchClass("primary")} /> Charged (solid)
-        </span>
-        <span>
-          <i className={swatchClass("returned")} /> Returned to the customer (striped)
-        </span>
-        <span>
-          <i className="sw sw-hatch" /> Awaiting settlement (not yet read back)
-        </span>
-        <span>
-          <i className="sw sw-error" /> Needs attention
-        </span>
-        <span>
-          <i className="sw sw-dash" /> Reserved, not yet settled
-        </span>
-        <span>
-          <i className="sw sw-grey" /> Never reserved
-        </span>
-        <span>Dashed frame: this month so far</span>
+        {present.has("charged") && (
+          <span>
+            <i className={swatchClass("primary")} /> Charged
+          </span>
+        )}
+        {present.has("returned") && (
+          <span>
+            <i className={swatchClass("returned")} /> Returned
+          </span>
+        )}
+        {present.has("settling") && (
+          <span>
+            <i className="sw sw-hatch" /> Awaiting settlement
+          </span>
+        )}
+        {present.has("attention") && (
+          <span>
+            <i className="sw sw-error" /> Needs attention
+          </span>
+        )}
+        {present.has("open") && (
+          <span>
+            <i className="sw sw-dash" /> Reserved, not yet settled
+          </span>
+        )}
+        {present.has("never") && (
+          <span>
+            <i className="sw sw-grey" /> Never reserved
+          </span>
+        )}
+        {months.some((m) => m.so_far && m.usage.requested > 0) && (
+          <span>Dashed frame: this month so far</span>
+        )}
       </div>
       <p className="fin-detail" aria-live="polite">
         {shown ? describeUsage(shown) : "Focus or point at a month for its figures."}
@@ -405,14 +429,7 @@ export function DeskOperations({ ops, businessId }: { ops: Operations; businessI
       <p className="muted" style={{ fontSize: 13 }}>
         {span} · as of {when(ops.as_of)}
       </p>
-      <OpsTiles ops={ops} />
-      <p
-        className={ops.settlement.worker === "running" ? "muted" : "notice"}
-        style={{ fontSize: 13 }}
-      >
-        {settlementText(ops.settlement)}
-      </p>
-      <UsageChart months={ops.months} />
+      {/* First-use review #48: the figures and usage chart are on the Overview; here, cost. */}
       <CostChart months={ops.months} />
       <OpsTable ops={ops} />
       {links}

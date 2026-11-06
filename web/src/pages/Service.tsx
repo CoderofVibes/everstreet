@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api.ts";
+import { microUsd } from "../finance.ts";
 import {
   type EvalRun,
   type Fixtures,
@@ -952,8 +953,8 @@ export function ServiceView({
           <p className="muted" style={{ fontSize: 13 }}>
             {latestRun.basis} Release checks {latestRun.policy || "(older, now stale)"} · your cases
             version {latestRun.fixture_version || "none"} · model{" "}
-            {latestRun.provider_config.model ?? "—"} · {latestRun.validator} · cost $
-            {(latestRun.used_microcents / 100_000_000).toFixed(6)}
+            {latestRun.provider_config.model ?? "—"} · {latestRun.validator} · cost{" "}
+            {microUsd(latestRun.used_microcents)}
             {latestRun.held_cents ? ` plus ${latestRun.held_cents}¢ unresolved` : ""}
           </p>
           <p style={{ fontSize: 13.5 }}>
@@ -998,14 +999,15 @@ export function ServiceView({
         </section>
       )}
 
-      <section className="card" hidden={task !== "try" || workflow}>
+      {/* First-use review #27: no budget card before there is a version to run. */}
+      <section className="card" hidden={task !== "try" || workflow || candidates.length === 0}>
         <h2>Runtime budget</h2>
         <p className="muted" style={{ fontSize: 13 }}>
           {list.budget.basis}
         </p>
         <p style={{ fontSize: 14 }}>
-          Used ${(list.budget.used_microcents / 100_000_000).toFixed(6)} · counted{" "}
-          {list.budget.counted_cents}¢ · reserved {list.budget.reserved_cents}¢
+          Used {microUsd(list.budget.used_microcents)} · counted {list.budget.counted_cents}¢ ·
+          reserved {list.budget.reserved_cents}¢
           {list.budget.unresolved_cents ? ` (${list.budget.unresolved_cents}¢ unresolved)` : ""}
           {list.budget.available_cents !== null
             ? ` · ${list.budget.available_cents}¢ available`

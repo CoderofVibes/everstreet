@@ -2,6 +2,7 @@
 // Pure, so the wording rules are tested without a browser. Sample inputs only fill the text
 // box; nothing here produces a result.
 
+import { microUsd } from "./finance.ts";
 import type { EvalCase, Extraction, Invocation } from "./runtimeApi.ts";
 
 /** Fictional sample texts. They populate the form; the service still processes them. */
@@ -37,7 +38,7 @@ export const STATE_TEXT: Record<Invocation["state"], string> = {
   unknown: "Outcome unknown",
 };
 
-const exact = (micro: number) => `$${(micro / 100_000_000).toFixed(6)}`;
+const exact = (micro: number) => microUsd(micro);
 
 /** The cost line, never showing unknown as zero. */
 export function usageLine(i: Invocation): string {

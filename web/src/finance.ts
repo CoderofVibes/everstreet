@@ -1,3 +1,4 @@
+import { usdFromMicrocents } from "./dashboardView.ts";
 // Job 003f: what the financial charts and tiles say, as pure functions so the rules are tested
 // without a browser. Unknown is never drawn or summed as zero, partial months are never
 // compared as if complete, and a comparison explains itself when a percentage would mislead.
@@ -55,11 +56,15 @@ export function money(cents: number | null | undefined): string {
 }
 
 /** Exact model spend from millionths of a cent, e.g. $0.001500. */
-export const microUsd = (micro: number) => `$${(micro / 100_000_000).toFixed(6)}`;
+/** USD from microcents, exact and readable (review #27/#48: "4.56¢", "$1.25"; no six decimals). */
+export const microUsd = (micro: number) =>
+  usdFromMicrocents(String(Math.max(0, Math.round(micro)))) ?? "unknown";
 
 /** Why a month's revenue is missing, in plain words; null when it is known. */
 export function missingReason(m: FinMonth): string | null {
   if (m.revenue_cents !== null) return null;
+  // First-use review #45: per-use revenue is in TUSD (see Economics), not missing.
+  if (m.revenue_basis === "token") return "In TUSD";
   if (m.chain === "unavailable") return "Couldn't be read from NEAR testnet";
   if (m.chain === "not_connected") return "NEAR testnet isn't connected here";
   return "Not known";

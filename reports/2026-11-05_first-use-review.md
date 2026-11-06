@@ -585,3 +585,32 @@ and running parts are visibly unfinished, and the marketplace shows nothing for 
 - Noise: 15
 - Polish: 12
 - Total: 81
+
+## Status (builder, Nov 6)
+
+Every finding was checked against the code before any change (five read-only assessments, one
+per area). Fixes are in commits `5e47252` (batch 1, the Blocks), `e96a82d` and `6139da8` (batch 2),
+and the batch 3 commit that adds this note. After the fixes, all six personas were walked again in
+the demo at 1440 and 390 px (60 page views): no page scrolls sideways and none shows an error.
+
+**Fixed (78):** #2–#12, #14–#17, #19–#81, and the product parts of #1 (sign-in dialog and header)
+and #18 (/start listed product-studio projects as businesses in progress).
+
+- Root causes worth knowing: #65 was a real defect (a request prepared before this device had a key
+  named another key); #19 hid a second one (SaaS workflows and agent services can be built without a
+  provider, but the studio said they couldn't); #42/#77 were two pages formatting the same token
+  differently; #45/#51 came from token revenue being counted as $0; #5/#7/#37 were mostly the demo
+  publishing businesses with raw SQL instead of the real routes (fixed in the demo).
+- Kept on purpose, reworded instead of removed: the wait after cancelling a use (#66: the old
+  authorization is valid on the contract until its deadline); "Withdraw your escrow" and "Cancel the
+  sale" after accepting (#78: real rights); the sign-in consent facts (#17, one line).
+- #13 (dark scheme): the design is light only; the page now declares it. No dark theme was built.
+- #9 (the "what works today" box) was removed from Home, as narration.
+
+**Left for Tony (carry-overs from the interrupted first reviewer run):**
+- #1: the judge arrived signed in as Rosa. The first run had signed in as Rosa in the same browser
+  pane before it stopped.
+- #18 (and "three businesses" in #29): "Clausemark" was created by that first run.
+Restarting the demo before a run clears both.
+
+Screenshots of the fixed screens are kept out of the repository.

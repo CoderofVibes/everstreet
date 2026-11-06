@@ -35,7 +35,7 @@ export const DESK_VIEWS: { id: DeskView; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "performance", label: "Performance" },
   { id: "products", label: "Products" },
-  { id: "growth", label: "Customers and growth" },
+  { id: "growth", label: "Customers" },
 ];
 
 /** The view a query names; anything else (or nothing) is the overview. */

@@ -91,9 +91,8 @@ site.get("/__harness/wallet.js", (c) =>
 site.get("/__harness/label.js", (c) =>
   c.body(
     labelScript({
-      label: "Demo: simulated history, synthetic wallet and chain",
-      detail:
-        "Fictional people, businesses and test tokens. 30 days produced by the real flows on a simulated clock; not testnet evidence.",
+      label: "Demo · simulated history",
+      detail: "Fictional people and test tokens · synthetic wallet and chain",
     }),
     200,
     { "content-type": "text/javascript" },

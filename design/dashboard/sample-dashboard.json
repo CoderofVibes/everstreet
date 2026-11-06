@@ -1,6 +1,6 @@
 {
   "note": "FICTIONAL: Delphine Marsh's simulated month (synthetic chain, stand-in models). Shape of GET /api/me/dashboard.",
-  "as_of": "2026-11-06T04:45:23.752Z",
+  "as_of": "2026-11-06T15:26:20.329Z",
   "period": {
     "days": 30,
     "from": "2026-10-08",
@@ -43,8 +43,8 @@
       "symbol": "TUSD",
       "name": "Test USD (fixture)",
       "decimals": 6,
-      "block_height": "1785",
-      "observed_at": "2026-10-31T12:08:00.818Z",
+      "block_height": "1786",
+      "observed_at": "2026-10-31T12:08:00.814Z",
       "changed": false,
       "reason": null
     }
@@ -57,7 +57,7 @@
   },
   "businesses": [
     {
-      "id": "c2436f48-f913-4613-894b-898ed3bc549f",
+      "id": "2030e885-1b57-44f5-84be-bff58ecb49d8",
       "name": "Ledgerline",
       "slug": "ledgerline",
       "tagline": "Reads an invoice and returns its fields",
@@ -65,7 +65,7 @@
       "product": "AI API",
       "release": {
         "number": 2,
-        "activated_at": "2026-10-15T11:58:36.343Z",
+        "activated_at": "2026-10-15T11:58:36.371Z",
         "digest": "f1eeb5a26550e9d296437ae3c8b90e77f2c17cfc6888c2f1adcd7b54bffaf9cf"
       },
       "daily": [
@@ -384,8 +384,8 @@
         "value": "137600000",
         "asset": "tusd.near",
         "units": 344,
-        "block_height": "1983",
-        "observed_at": "2026-11-05T11:10:38.445Z"
+        "block_height": "1984",
+        "observed_at": "2026-11-05T11:10:38.391Z"
       },
       "network_fees": null,
       "ownership": {
@@ -396,7 +396,7 @@
         "sale_in_progress": false
       },
       "rehearsal": null,
-      "founded_at": "2026-10-07T00:00:00.774Z",
+      "founded_at": "2026-10-07T00:00:00.805Z",
       "customers": {
         "active": 3,
         "returning": 3,
@@ -418,13 +418,13 @@
       "cases": null,
       "releases": [
         {
-          "activated_at": "2026-10-07T00:00:00.912Z",
-          "retired_at": "2026-10-15T11:58:36.343Z",
+          "activated_at": "2026-10-07T00:00:00.942Z",
+          "retired_at": "2026-10-15T11:58:36.371Z",
           "state": "retired",
           "number": 1
         },
         {
-          "activated_at": "2026-10-15T11:58:36.343Z",
+          "activated_at": "2026-10-15T11:58:36.371Z",
           "retired_at": null,
           "state": "active",
           "number": 2
@@ -517,16 +517,10 @@
         ]
       },
       "sale": null,
-      "attention": [
-        {
-          "kind": "rehearsal",
-          "text": "No successor rehearsal yet: rehearse the handover",
-          "link": "/desk/c2436f48-f913-4613-894b-898ed3bc549f/rehearsal"
-        }
-      ]
+      "attention": []
     },
     {
-      "id": "a018b88b-6ac1-45e5-b638-991d3e404467",
+      "id": "c10ec50e-64aa-431d-b7cb-e70a1c66290d",
       "name": "Relaydesk",
       "slug": "relaydesk",
       "tagline": "Support requests become cases, worked through stages",
@@ -534,7 +528,7 @@
       "product": "SaaS workflow",
       "release": {
         "number": 1,
-        "activated_at": "2026-10-07T00:00:01.064Z",
+        "activated_at": "2026-10-07T00:00:01.102Z",
         "digest": "e9f65820bf62dc32ccb202a673a55246fcdf1e430bae1928fc6e162768c56feb"
       },
       "daily": [
@@ -853,8 +847,8 @@
         "value": "535500000",
         "asset": "tusd.near",
         "units": 357,
-        "block_height": "1984",
-        "observed_at": "2026-11-05T11:10:38.449Z"
+        "block_height": "1985",
+        "observed_at": "2026-11-05T11:10:38.395Z"
       },
       "network_fees": null,
       "ownership": {
@@ -866,13 +860,13 @@
       },
       "rehearsal": {
         "state": "passed",
-        "finished_at": "2026-10-26T12:34:06.737Z"
+        "finished_at": "2026-10-26T12:34:06.674Z"
       },
-      "founded_at": "2026-10-07T00:00:00.917Z",
+      "founded_at": "2026-10-07T00:00:00.946Z",
       "customers": {
-        "active": 4,
-        "returning": 4,
-        "new": 3
+        "active": 3,
+        "returning": 3,
+        "new": 2
       },
       "not_charged_reasons": [],
       "success_rate": 1,
@@ -890,7 +884,7 @@
       },
       "releases": [
         {
-          "activated_at": "2026-10-07T00:00:01.064Z",
+          "activated_at": "2026-10-07T00:00:01.102Z",
           "retired_at": null,
           "state": "active",
           "number": 1
@@ -928,7 +922,7 @@
         },
         "per_call_ms": {
           "median": 0,
-          "p95": 0
+          "p95": 1
         },
         "budget": {
           "limit_cents": null,
@@ -981,12 +975,12 @@
         {
           "kind": "open_cases",
           "text": "4 open customer requests",
-          "link": "/desk/a018b88b-6ac1-45e5-b638-991d3e404467"
+          "link": "/desk/c10ec50e-64aa-431d-b7cb-e70a1c66290d?view=products#desk-cases"
         }
       ]
     },
     {
-      "id": "9f9182f3-6467-4950-9ca9-33c82aa0c2e0",
+      "id": "096317b6-2a65-4c7a-bfe2-1a4bd3ce25ab",
       "name": "Signalwatch",
       "slug": "signalwatch",
       "tagline": "Flags what changed in suppliers' release notes",
@@ -994,7 +988,7 @@
       "product": "Agent service",
       "release": {
         "number": 1,
-        "activated_at": "2026-10-07T00:00:01.145Z",
+        "activated_at": "2026-10-07T00:00:01.183Z",
         "digest": "453948209d39d3934bcb247b39067f30189962fcdaffe2a5beab1a5378a42145"
       },
       "daily": [
@@ -1313,8 +1307,8 @@
         "value": "1544000000",
         "asset": "tusd.near",
         "units": 386,
-        "block_height": "1985",
-        "observed_at": "2026-11-05T11:10:38.453Z"
+        "block_height": "1986",
+        "observed_at": "2026-11-05T11:10:38.398Z"
       },
       "network_fees": null,
       "ownership": {
@@ -1325,7 +1319,7 @@
         "sale_in_progress": true
       },
       "rehearsal": null,
-      "founded_at": "2026-10-07T00:00:00.920Z",
+      "founded_at": "2026-10-07T00:00:00.950Z",
       "customers": {
         "active": 2,
         "returning": 2,
@@ -1338,7 +1332,7 @@
       "cases": null,
       "releases": [
         {
-          "activated_at": "2026-10-07T00:00:01.145Z",
+          "activated_at": "2026-10-07T00:00:01.183Z",
           "retired_at": null,
           "state": "active",
           "number": 1
@@ -1376,7 +1370,7 @@
         },
         "per_call_ms": {
           "median": 0,
-          "p95": 0
+          "p95": 1
         },
         "budget": {
           "limit_cents": 5000,
@@ -1422,14 +1416,14 @@
         "escrow": "180000000",
         "seller_accepted": false,
         "buyer_accepted": false,
-        "expires_at": "2026-11-21T12:08:00.759Z",
+        "expires_at": "2026-11-21T12:08:00.753Z",
         "asset": "tusd.near"
       },
       "attention": [
         {
           "kind": "sale",
           "text": "A sale is in progress: its terms wait for acceptance",
-          "link": "/sales/9f9182f3-6467-4950-9ca9-33c82aa0c2e0"
+          "link": "/sales/096317b6-2a65-4c7a-bfe2-1a4bd3ce25ab"
         }
       ]
     }

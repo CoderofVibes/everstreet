@@ -316,7 +316,7 @@ export function DigitalWorkspace({
 
       {/* Performance: the books and digital operations, every figure with its source. */}
       <section {...panel("performance")} className="ws-panel">
-        <BooksPanel books={books} deliberate />
+        <BooksPanel books={books} />
         <DeskEconomics businessId={b.id} />
       </section>
 

@@ -55,6 +55,15 @@ const STEP_WORD = {
 } as const;
 const tgas = (gas: string) => `${(Number(BigInt(gas) / 1_000_000_000n) / 1000).toString()} Tgas`;
 const yocto = (v: string) => tokenAmount(v, 24);
+/** First-use review #79: a transaction id, short; the full id on hover and for copying. */
+function TxId({ hash }: { hash: string }) {
+  return (
+    <span className="mono" title={hash}>
+      {hash.length > 14 ? `${hash.slice(0, 10)}…` : hash}
+    </span>
+  );
+}
+
 const caps = (c: number) =>
   [c & 1 && "metering", c & 2 && "support"].filter(Boolean).join(" and ") || "none";
 
@@ -252,7 +261,7 @@ export function HandoverPanel({
             {h.orders.map((o) => (
               <li key={o.n}>
                 Order {o.n}, issued <When ms={o.issued_at_ms} />: {attemptWords(o.attempt)}
-                {o.attempt && <span className="muted mono wrap"> · {o.attempt.tx_hash}</span>}
+                {o.attempt && <TxId hash={o.attempt.tx_hash} />}
               </li>
             ))}
           </ul>
@@ -484,7 +493,7 @@ function OpenRequest({ flow, st, a }: { flow: SaleFlow; st: SaleFlowState; a: Sa
       <ExactCall call={a.call} />
       {a.tx_hash && (
         <p className="muted">
-          Its transaction: <span className="mono wrap">{a.tx_hash}</span>
+          Its transaction: <TxId hash={a.tx_hash} />
         </p>
       )}
       {a.state === "prepared" ? (

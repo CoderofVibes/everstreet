@@ -153,17 +153,8 @@ export function DeskBooks({ desk }: { desk: Desk }) {
   return <BooksPanel books={books} />;
 }
 
-/**
- * The books, from a read. `deliberate`: the operating workspace opens Add a cost on request
- * (job 001h); the legacy desk keeps the form open as before.
- */
-export function BooksPanel({
-  books,
-  deliberate = false,
-}: {
-  books: BooksHandle;
-  deliberate?: boolean;
-}) {
+/** The books, from a read. Add a cost opens on request everywhere (first-use review #35). */
+export function BooksPanel({ books }: { books: BooksHandle }) {
   const { id, period, setPeriod, data, load } = books;
   const [f, setF] = useState({
     category: "AI model usage",
@@ -173,7 +164,8 @@ export function BooksPanel({
     note: "",
   });
   const [error, setError] = useState<string | null>(null);
-  const [formOpen, setFormOpen] = useState(!deliberate);
+  // First-use review #35: the cost form opens on request, never by default.
+  const [formOpen, setFormOpen] = useState(false);
   // Job 001h1: no figures (not yet loaded, or access lost): the notice says why, never zero.
   if (!data && books.state.status !== "loading")
     return (
@@ -347,36 +339,37 @@ export function BooksPanel({
 
       {data.operations && <DeskOperations ops={data.operations} businessId={id} />}
 
-      <h3 style={{ fontSize: 15, marginTop: 18 }}>AI spend from Everstreet's own records</h3>
-      <p className="muted" style={{ fontSize: 13 }}>
-        {data.spend.basis}
-      </p>
-      <ul style={{ fontSize: 14, paddingLeft: 18 }}>
-        {[
-          ["Running the product", data.spend.runtime] as const,
-          ["Building the product", data.spend.build] as const,
-        ].map(([name, l]) => (
-          <li key={name}>
-            <strong>{name}:</strong>{" "}
-            {spendMonths(l).length === 0
-              ? `nothing recorded in the last ${data.period_months} months`
-              : `${microUsd(l.period_microcents)} in the last ${data.period_months} months over ${spendMonths(l).reduce((a, r) => a + r.requests, 0)} requests`}
-            {l.period_unknown_cost_requests > 0 &&
-              ` · ${l.period_unknown_cost_requests} of them with unknown cost (reservation held, not counted as zero)`}
-            {l.total_microcents !== l.period_microcents &&
-              ` · all time: ${microUsd(l.total_microcents)}`}
-            {l.unknown_cost_requests > l.period_unknown_cost_requests &&
-              ` (${l.unknown_cost_requests} unknown-cost requests all time)`}
-            <div className="muted" style={{ fontSize: 12.5 }}>
-              {l.note}
-            </div>
-          </li>
-        ))}
-      </ul>
+      {/* Review #35/#48: AI spend only when there is some; nothing is said about nothing. */}
+      {[data.spend.runtime, data.spend.build].some((l) => spendMonths(l).length > 0) && (
+        <>
+          <h3 style={{ fontSize: 15, marginTop: 18 }}>AI spend</h3>
+          <ul style={{ fontSize: 14, paddingLeft: 18 }}>
+            {[
+              ["Running the product", data.spend.runtime] as const,
+              ["Building the product", data.spend.build] as const,
+            ]
+              .filter(([, l]) => spendMonths(l).length > 0)
+              .map(([name, l]) => (
+                <li key={name}>
+                  <strong>{name}:</strong> {(() => {
+                    const n = spendMonths(l).reduce((a, r) => a + r.requests, 0);
+                    return `${microUsd(l.period_microcents)} in the last ${data.period_months} months · ${n} request${n === 1 ? "" : "s"}`;
+                  })()}
+                  {l.period_unknown_cost_requests > 0 &&
+                    ` · ${l.period_unknown_cost_requests} of them with unknown cost (reservation held, not counted as zero)`}
+                  {l.total_microcents !== l.period_microcents &&
+                    ` · all time: ${microUsd(l.total_microcents)}`}
+                  {l.unknown_cost_requests > l.period_unknown_cost_requests &&
+                    ` (${l.unknown_cost_requests} unknown-cost requests all time)`}
+                </li>
+              ))}
+          </ul>
+        </>
+      )}
 
       <div className="row" style={{ marginTop: 18, gap: 8 }}>
         <h3 style={{ fontSize: 15, margin: 0 }}>Add a cost</h3>
-        {deliberate && (
+        {
           <button
             type="button"
             className="btn btn-secondary btn-sm"
@@ -386,7 +379,7 @@ export function BooksPanel({
           >
             {formOpen ? "Close" : f.amount || f.note ? "Continue adding a cost" : "Add a cost"}
           </button>
-        )}
+        }
       </div>
       {/* Job 001h: hidden, never unmounted, so a half-filled cost survives closing it. */}
       <div id={`cost-form-${id}`} hidden={!formOpen}>

@@ -13,52 +13,6 @@ import { Composer, fetchProjects, ProjectCard, ReadFailed } from "./Build.tsx";
 import { FeaturedProduct, MarketList } from "./Market.tsx";
 import { ExampleBusinesses, SamplePanel } from "./Showcase.tsx";
 
-const STAGES: { icon: IconName; title: string; text: string; now: "now" | "partial" | "later" }[] =
-  [
-    {
-      icon: "doc",
-      title: "Shape",
-      text: "An editable brief: audience, problem, promise, features, price",
-      now: "now",
-    },
-    {
-      icon: "layers",
-      title: "Choose",
-      text: "AI API, SaaS workflow, agent service or client portal",
-      now: "now",
-    },
-    {
-      icon: "spark",
-      title: "Build",
-      text: "Start from a brief and prototype; each project shows whether AI drafting and builds are available",
-      now: "partial",
-    },
-    {
-      icon: "flask",
-      title: "Test",
-      text: "Brief checks now; product tests and model evaluations come with builds",
-      now: "partial",
-    },
-    {
-      icon: "shield",
-      title: "Prepare",
-      text: "A continuity checklist of promises, dependencies and transfer items; runtime readiness is not verified yet",
-      now: "partial",
-    },
-    {
-      icon: "handshake",
-      title: "Launch and hand over",
-      text: "Public page, testnet payments and sale on NEAR testnet; digital products join later",
-      now: "partial",
-    },
-  ];
-
-const TAG: Record<"now" | "partial" | "later", string> = {
-  now: "Works now",
-  partial: "Partly",
-  later: "Later",
-};
-
 const CATEGORIES: { id: string; label: string }[] = [
   { id: "all", label: "All" },
   { id: "software", label: "Software and AI" },
@@ -168,24 +122,11 @@ export function Home() {
         )}
       </nav>
 
-      {/* Preview readiness, now a small disclosure (Astra's homepage note). */}
-      <details className="readiness">
-        <summary>What works today, from idea to handover</summary>
-        <div className="lifecycle">
-          {STAGES.map((s) => (
-            <div className="lifecycle-row" key={s.title}>
-              <Icon name={s.icon} />
-              <span>
-                <strong>{s.title}</strong>
-                <span className="muted">{s.text}</span>
-              </span>
-              <span className={`state-tag ${s.now}`}>{TAG[s.now]}</span>
-            </div>
-          ))}
-        </div>
-      </details>
-
-      <ExampleBusinesses />
+      {/* First-use review #4: the bundled examples share the demo's business names; when those
+          businesses are published here, the examples aren't shown twice. */}
+      {!(shelf.state.data ?? []).some((b) =>
+        ["Ledgerline", "Relaydesk", "Signalwatch"].includes(b.name),
+      ) && <ExampleBusinesses />}
 
       {/* Job 001f2: only the signed-in account's own projects, read for that account; nothing
           from a previous account is shown while the next one loads. */}
@@ -219,15 +160,14 @@ export function Home() {
         <div className="section-head">
           <div>
             <h2>On Everstreet now</h2>
-            <p>
-              Published businesses on this computer, software first. Classes and services are
-              earlier fictional examples.
-            </p>
           </div>
           <span className="spacer" />
           <fieldset className="seg">
             <legend className="sr-only">Filter by kind</legend>
-            {CATEGORIES.map((c) => (
+            {/* Review #6: only kinds that have businesses. */}
+            {CATEGORIES.filter(
+              (c) => c.id === "all" || (shelf.state.data ?? []).some((b) => b.family === c.id),
+            ).map((c) => (
               <button
                 key={c.id}
                 type="button"

@@ -226,6 +226,8 @@ interface Indexed {
   hours: number | null;
   /** The books couldn't be read: history and revenue are unknown, not absent (003f1). */
   unknown: boolean;
+  /** Revenue is per use in a token (never shown as dollars here). */
+  token?: boolean;
 }
 
 const usd = (c: number) => `$${Math.round(c / 100).toLocaleString("en-US")}`;
@@ -978,7 +980,9 @@ export class Acquisitions {
        * Job 003f1: the books couldn't be read (an outage, or no chain connected), so history,
        * revenue and profit are unknown, never "no history" or zero.
        */
-      unknown: e.inputs.stage === "unavailable",
+      unknown: e.inputs.stage === "unavailable" && e.inputs.unavailable_reason !== "token",
+      // First-use review #45/#51: revenue earned per use in a token, never converted to dollars.
+      token: e.inputs.unavailable_reason === "token",
     };
   }
 
@@ -1024,6 +1028,7 @@ export class Acquisitions {
     const money = (key: Disclosed, cents: number | null, perMonth = true): Fig => {
       if (!disclose.has(key)) return notShared;
       if (f.unknown) return { status: "unknown", text: UNREAD };
+      if (f.token) return { status: "unknown", text: "Earned in TUSD, per use" };
       if (cents === null) return { status: "unknown", text: "No complete month yet" };
       const text = anonymous
         ? key === "profit" && cents <= 0
@@ -1043,9 +1048,11 @@ export class Acquisitions {
           text:
             f.estimate.inputs.stage === "plan"
               ? "No estimate yet (no earned month)"
-              : f.estimate.inputs.stage === "unavailable"
-                ? "Unknown right now: some months' books couldn't be read"
-                : "No earnings-based estimate yet",
+              : f.token
+                ? "No estimate · revenue is in TUSD"
+                : f.estimate.inputs.stage === "unavailable"
+                  ? "Unknown right now: some months' books couldn't be read"
+                  : "No earnings-based estimate yet",
           basis,
         };
       } else if (anonymous) {

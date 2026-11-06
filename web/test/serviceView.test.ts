@@ -52,7 +52,8 @@ describe("the Service page's words", () => {
   });
 
   it("never shows unknown cost as zero", () => {
-    expect(usageLine(inv({}))).toMatch(/^\$0\.001500 from the provider's reported usage/);
+    // First-use review #27/#48: exact and readable (0.15¢), never six-decimal dollars.
+    expect(usageLine(inv({}))).toMatch(/^0\.15¢ from the provider's reported usage/);
     expect(usageLine(inv({ usage_state: "unknown", charged_microcents: 0 }))).toMatch(
       /^Unknown: .*4¢ stays reserved/,
     );

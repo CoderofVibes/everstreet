@@ -431,12 +431,15 @@ export function App() {
 
   return (
     <>
-      <div className="env-strip" role="note">
-        <span>
-          <strong>{environment}</strong> · fictional businesses and people · no real money moves
-        </span>
-        <span>NEAR testnet only · test dollars, no value</span>
-      </div>
+      {/* First-use review #2: one strip. A preview's own label replaces the environment's. */}
+      {!preview && (
+        <div className="env-strip" role="note">
+          <span>
+            <strong>{environment}</strong> · fictional businesses and people · no real money moves
+          </span>
+          <span>NEAR testnet only · test dollars, no value</span>
+        </div>
+      )}
       {preview && (
         <div className="env-strip preview-strip" role="note">
           <span>
@@ -528,6 +531,11 @@ export function App() {
       <main className="main">
         {ready ? <Routes /> : <div className="page muted">Loading…</div>}
       </main>
+      {/* First-use review #15: who made this and where the evidence is. */}
+      <footer className="site-foot">
+        <span>Everstreet · a NEAR hackathon entry · fictional data, testnet only</span>
+        <Link to="/example/ledgerline?tab=acquire">A recorded testnet sale</Link>
+      </footer>
       <SignInDialog />
     </>
   );
