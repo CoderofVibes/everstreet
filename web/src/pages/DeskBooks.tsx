@@ -242,10 +242,6 @@ export function BooksPanel({
           See what it could be worth
         </Link>
       </div>
-      <p className="muted" style={{ fontSize: 13.5 }}>
-        Earned revenue is what customers' orders and used credit earned, not what was paid in
-        advance. {data.basis}
-      </p>
       {/* Job 001h1: which period the figures below cover, if not the one asked for. */}
       <BooksNotice books={books} />
       {data.chain_error && (
@@ -259,12 +255,25 @@ export function BooksPanel({
         <div className="notice">{booksEmptyMessage(data.operations?.state === "recorded")}</div>
       ) : (
         <>
-          <BalanceTiles now={data.now} />
-          <p style={{ fontSize: 14 }}>
-            <strong>Latest whole month:</strong> {compare(prev, last)}
-          </p>
-          <EarnedCostChart months={shown} title="Earned revenue, costs and contribution by month" />
-          <CashChart months={shown} />
+          {data.token_revenue ? (
+            // First-use review #45/#46: revenue is per use in TUSD (Economics below); it is never
+            // turned into dollars, so no dollar revenue, balance or contribution is shown here.
+            <p style={{ fontSize: 14 }}>
+              <strong>Revenue:</strong> in TUSD, per use. See Economics below.
+            </p>
+          ) : (
+            <>
+              <BalanceTiles now={data.now} />
+              <p style={{ fontSize: 14 }}>
+                <strong>Latest whole month:</strong> {compare(prev, last)}
+              </p>
+              <EarnedCostChart
+                months={shown}
+                title="Earned revenue, costs and contribution by month"
+              />
+              <CashChart months={shown} />
+            </>
+          )}
           <h3 style={{ fontSize: 15 }}>Where the money goes (costs you entered)</h3>
           <CategoryBars rows={costRows} />
           {costRows.fictional_cents > 0 && (

@@ -14,6 +14,7 @@ import { ACCESS_UNCONFIRMED, ContinuityController } from "../continuityControlle
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { TokenAmount } from "../TokenAmount.tsx";
+import { when } from "../when.ts";
 
 function SignIn({ reason }: { reason: string }) {
   const { requireSignIn } = useSession();
@@ -272,9 +273,8 @@ function ObservedSections({ v, age, stale }: { v: Observed; age: number; stale: 
   return (
     <>
       <p className={stale ? "notice error" : "notice info"}>
-        Observed at block <span className="mono">{v.block.height}</span> on{" "}
-        {new Date(v.observed_at).toLocaleString()} ({ago(age)} ago,{" "}
-        <strong>{stale ? "stale" : "fresh"}</strong>). {v.provenance}
+        Observed at block <span className="mono">{v.block.height}</span> on {when(v.observed_at)} (
+        {ago(age)} ago, <strong>{stale ? "stale" : "fresh"}</strong>). {v.provenance}
       </p>
 
       <div className="desk">
@@ -433,7 +433,7 @@ function ObservedSections({ v, age, stale }: { v: Observed; age: number; stale: 
                   <summary>
                     {monthLabel(p.yyyymm)}{" "}
                     <span className="muted" style={{ fontSize: 13 }}>
-                      read {new Date(p.observed_at).toLocaleString()}
+                      read {when(p.observed_at)}
                       {p.at_core_block ? "" : `, at block ${p.block.height}`}
                     </span>
                   </summary>

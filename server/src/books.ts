@@ -61,7 +61,8 @@ export interface Month {
   /** Revenue for the month, or null when it isn't known (unreadable or not connected). */
   revenue_cents: number | null;
   /** Where `revenue_cents` comes from. */
-  revenue_basis: "observed" | "seeded" | "none" | "unknown";
+  /** "token": a per-use business earns in its offer's token, never turned into dollars here. */
+  revenue_basis: "observed" | "seeded" | "none" | "unknown" | "token";
   /** Exact earned amount in the token's base units, when observed. */
   earned_units: string | null;
   /** Fictional seeded revenue for the month, always kept apart. */
@@ -213,6 +214,18 @@ export class Books {
     return this.chain?.decimals ?? 2;
   }
 
+  /** Review #45: a business whose customers pay per use in a token (and no legacy account). */
+  tokenRevenue(businessId: string): boolean {
+    if (this.chainAccount(businessId)) return false;
+    return (
+      (
+        this.db
+          .prepare("SELECT COUNT(*) AS n FROM customer_offers WHERE business_id = ?")
+          .get(businessId) as { n: number }
+      ).n > 0
+    );
+  }
+
   private chainAccount(businessId: string) {
     return this.db
       .prepare(
@@ -338,6 +351,7 @@ export class Books {
     const now = ym();
     const list = Array.from({ length: n }, (_, i) => addMonths(now, i - (n - 1)));
     const account = this.chainAccount(businessId);
+    const tokenRevenue = this.tokenRevenue(businessId);
     const first = account ? ym(new Date(account.created_at)) : null;
     const startsMidMonth = account ? new Date(account.created_at).getUTCDate() > 1 : false;
     const read = new Map<number, { p: Period } | { error: string }>();
@@ -432,6 +446,11 @@ export class Books {
           cents: s.revenue_cents,
           source: "Seeded history · fictional",
         });
+      } else if (tokenRevenue) {
+        // First-use review #45/#46: per-use revenue is in the offer's token (see Economics); it
+        // is never counted as dollars, so there is no dollar revenue or contribution to show.
+        revenue = null;
+        basis = "token";
       } else {
         revenue = 0;
         basis = "none";
@@ -503,7 +522,13 @@ export class Books {
   /** Today's balances on the business's contract: a current stock, never a monthly flow. */
   async now(businessId: string) {
     const account = this.chainAccount(businessId);
-    if (!account) return { state: "not_applicable" as const, reason: "Payments are off" };
+    if (!account)
+      return {
+        state: "not_applicable" as const,
+        reason: this.tokenRevenue(businessId)
+          ? "Revenue is in TUSD (see Economics)"
+          : "Payments are off",
+      };
     if (!this.chain)
       return {
         state: "not_connected" as const,

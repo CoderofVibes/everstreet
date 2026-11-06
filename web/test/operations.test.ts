@@ -14,6 +14,7 @@ import {
   settlementText,
   usageSegments,
 } from "../src/operations.ts";
+import { when } from "../src/when.ts";
 
 describe("003t1 current work, settlement and the books' empty message say exactly what they count", () => {
   it("current work: every group in the total, named, attention first; nothing waiting is said", () => {
@@ -52,7 +53,7 @@ describe("003t1 current work, settlement and the books' empty message say exactl
         paused_by_authority: paused,
       });
     expect(s("running")).toContain("settles and returns units by itself");
-    expect(s("running")).toContain("2026-11-04 13:45 UTC");
+    expect(s("running")).toContain(when("2026-11-04T13:45:10.000Z"));
     expect(s("running", 2)).toContain("2 paused");
     for (const w of ["stopped", "overdue", "not_scheduled", "not_started", "unknown"] as const)
       expect(s(w)).not.toContain("by itself;");

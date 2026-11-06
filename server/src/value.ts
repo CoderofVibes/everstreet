@@ -51,6 +51,8 @@ export interface Inputs {
   model: string;
   /** `unavailable`: some complete months couldn't be read, so no estimate is made (job 003f). */
   stage: "plan" | "early" | "operating" | "unavailable";
+  /** Review #51: why there is no estimate when revenue is in a token (never converted). */
+  unavailable_reason?: "token";
   /** Months whose books couldn't be read; never treated as zero. */
   gaps?: string[];
   months_used: number[];
@@ -88,6 +90,19 @@ const usd = (c: number) =>
   `${c < 0 ? "−" : ""}$${Math.abs(Math.round(c / 100)).toLocaleString("en-US")}`;
 
 export function estimate(input: Inputs): Estimate {
+  if (input.stage === "unavailable" && input.unavailable_reason === "token")
+    return {
+      inputs: input,
+      normalized_annual_cents: 0,
+      low_cents: null,
+      high_cents: null,
+      label: "No estimate · revenue is in TUSD",
+      explanation: [
+        "This business earns per use in TUSD. A dollar estimate would need a conversion, and none is made here.",
+      ],
+      missing: [],
+      sources: [],
+    };
   if (input.stage === "unavailable") {
     const gaps = (input.gaps ?? []).join(", ");
     return {
@@ -303,7 +318,11 @@ export class Valuation {
     // Only whole months count: the current month and the account's first partial month are
     // never annualized. A complete month that couldn't be read stops the estimate (job 003f).
     const complete = all.filter((m) => m.complete);
-    const gaps = complete.filter((m) => m.revenue_cents === null).map((m) => m.label);
+    // Review #51: revenue in a token is never a gap to wait for, nor a dollar figure.
+    const token = complete.some((m) => m.revenue_basis === "token");
+    const gaps = complete
+      .filter((m) => m.revenue_cents === null && m.revenue_basis !== "token")
+      .map((m) => m.label);
     const firstEarning = complete.findIndex((m) => (m.revenue_cents ?? 0) > 0);
     const operating = firstEarning < 0 ? [] : complete.slice(firstEarning);
     const used = operating.slice(-3);
@@ -326,10 +345,11 @@ export class Valuation {
     const exactRevenue = used.length ? revenueOf(used, this.books.decimals) : 0;
     if (exactRevenue === null)
       gaps.push("the months used (their total is too large to compute exactly)");
-    if (gaps.length)
+    if (gaps.length || token)
       return {
         ...base,
         stage: "unavailable",
+        ...(token && !gaps.length ? { unavailable_reason: "token" as const } : {}),
         gaps,
         months_used: [],
         revenue_cents: 0,

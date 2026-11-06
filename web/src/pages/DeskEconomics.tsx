@@ -5,6 +5,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { parseToken, readable, TokenAmount, type TokenInfo, usableScale } from "../TokenAmount.tsx";
+import { when } from "../when.ts";
 
 interface AssetMonth {
   earned: string;
@@ -280,9 +281,8 @@ export function DeskEconomics({ businessId }: { businessId: string }) {
           <ul className="plain eco-recovery">
             {view.recovery.items.map((i) => (
               <li key={`${i.kind}-${i.id}`}>
-                <strong>{i.kind.replace("_", " ")}</strong> · {i.state} · since{" "}
-                {new Date(i.since).toLocaleString()}. {i.known}{" "}
-                <span className="muted">{i.resolves}</span>
+                <strong>{i.kind.replace("_", " ")}</strong> · {i.state} · since {when(i.since)}.{" "}
+                {i.known} <span className="muted">{i.resolves}</span>
               </li>
             ))}
           </ul>

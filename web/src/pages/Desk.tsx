@@ -10,7 +10,7 @@ import { ago, type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { type MyTeamEntry, teamApi } from "../teamApi.ts";
-import { FAMILY_LABEL, OfferCard, STAGE_LABEL } from "../ui.tsx";
+import { FAMILY_LABEL, OfferCard } from "../ui.tsx";
 import { DealsList } from "./Deal.tsx";
 import { DeskGrowth, DeskShare, DeskTeamIfPaid } from "./DeskGrowth.tsx";
 import { DeskSelling } from "./DeskSale.tsx";
@@ -259,7 +259,6 @@ export function DeskPage({ id }: { id: string }) {
     <div className="page">
       <div className="row" style={{ marginBottom: 4, flexWrap: "wrap" }}>
         <span className="pill">{FAMILY_LABEL[b.family]}</span>
-        <span className="pill lime">{STAGE_LABEL[b.stage]}</span>
         {b.published_at ? (
           <span className="pill">Published</span>
         ) : (

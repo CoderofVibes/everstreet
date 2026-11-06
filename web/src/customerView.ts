@@ -182,6 +182,11 @@ function resultStep(s: View) {
   const ended = wontRun(s.use);
   if (ended) return is(endedNeutrally(s.use) ? "ended" : "stopped", WONT_RUN_RESULT[ended]);
   if (!x || x.state === "running") return is("waiting", "Appears here after the run.");
+  // First-use review #71: an incomplete result says so before it is opened, not after.
+  if (x.result === "available" && x.fulfilled === false)
+    return isForm(s)
+      ? is("attention", "Not accepted. Nothing is charged for it; read why below.")
+      : is("attention", "Needs checking: not a complete extraction.");
   if (x.result === "available") return is("current", "Ready. Only you can read it.");
   if (x.result === "pending") return is("current", "Being saved privately.");
   if (x.result === "expired") return is("stopped", "Removed after its retention time.");

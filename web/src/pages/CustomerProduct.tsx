@@ -115,13 +115,7 @@ function Consent({
           <TokenAmount base={t.unit_price} asset={t.asset} token={t.token} />
         </dd>
         <dt>Result kept for</dt>
-        <dd>
-          {t.retention_days} days, readable only by you here
-          <div className="muted use-note">
-            How long this product keeps your result for you to open. It isn't a statement about
-            copies kept by any service it uses.
-          </div>
-        </dd>
+        <dd>{t.retention_days} days, readable only by you here</dd>
         <dt>Account</dt>
         <dd className="mono">
           {use.reservation.customer_account} on {t.network}
@@ -661,7 +655,6 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   useEffect(() => {
     if (setupNeeded) setWasNeeded(true);
   }, [setupNeeded]);
-  const setupShown = setupNeeded || wasNeeded || readiness === null || setupOpen === true;
   // A different person or offer starts over.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset per person and offer
   useEffect(() => {
@@ -692,6 +685,13 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   const subscribe = useCallback((fn: () => void) => (w ? w.subscribe(fn) : () => {}), [w]);
   const snapshot = useCallback(() => (w ? w.getState() : null), [w]);
   const s = useSyncExternalStore(subscribe, snapshot, snapshot);
+  // First-use review #61: a finished use's own page leads with its result; setting up this
+  // device is one click away there, not the top of the page.
+  const finishedUse =
+    !!useId && !!s?.use && s.use.state !== "prepared" && s.use.state !== "reserve_requested";
+  const setupShown =
+    setupOpen === true ||
+    (setupOpen === null && !finishedUse && (setupNeeded || wasNeeded || readiness === null));
   // Stable per workspace, so the device panel's effects don't re-run on every page update.
   const onAuthorizer = useCallback(
     (a: CustomerAuthorizer | null) => {
@@ -877,10 +877,15 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
         <section className="use-setup" aria-labelledby="use-setup-title">
           <div className="row">
             <h2 id="use-setup-title">
-              {readiness?.kind === "ready" ? "Your uses and this device" : "Before your first use"}
+              {/* Review #67: a returning customer isn't at their first use. */}
+              {readiness?.kind === "ready"
+                ? "Your uses and this device"
+                : s.recent.length > 0
+                  ? "Set up this device"
+                  : "Before your first use"}
             </h2>
             <span className="spacer" />
-            {!(setupNeeded || wasNeeded) && readiness !== null && (
+            {(finishedUse || (!(setupNeeded || wasNeeded) && readiness !== null)) && (
               <button
                 type="button"
                 className="btn btn-sm btn-quiet"
@@ -894,8 +899,10 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
           </div>
           <p className="muted use-setup-why">
             {readiness?.kind === "ready"
-              ? "This device is enrolled. Buy more uses or manage its key here."
-              : "Buy uses with your own wallet, then enroll this device so it can authorize one use at a time. You can fill in what you'll send below meanwhile; it's kept on this page."}
+              ? "This device is enrolled."
+              : s.recent.length > 0
+                ? "Enroll this device to authorize uses from it."
+                : "Buy uses with your wallet, then enroll this device."}
           </p>
           {/* Hidden, never unmounted: a wallet request in progress isn't torn down. */}
           <div id="use-setup-panels" className="use-setup-panels" hidden={!setupShown}>

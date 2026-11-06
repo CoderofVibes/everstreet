@@ -21,6 +21,7 @@ import { Link } from "../router.tsx";
 import { STEP_WORD, saleCurrent, saleNext, saleSentence, saleSteps } from "../saleView.ts";
 import { useSession } from "../session.tsx";
 import { TokenAmount } from "../TokenAmount.tsx";
+import { when } from "../when.ts";
 
 const STATUS: Record<IntentStatus, { label: string; tone: string }> = {
   recorded: { label: "Exact version recorded: waiting for the contract's outcome", tone: "blue" },
@@ -29,7 +30,7 @@ const STATUS: Record<IntentStatus, { label: string; tone: string }> = {
   superseded: { label: "Replaced by another version or sale", tone: "" },
 };
 
-const msDate = (ms: string) => (ms === "0" ? null : new Date(Number(ms)).toLocaleString());
+const msDate = (ms: string) => (ms === "0" ? null : when(ms));
 const caps = (c: number) =>
   [c & 1 && "metering", c & 2 && "operations", c & ~3 && `other (${c & ~3})`]
     .filter(Boolean)
@@ -391,6 +392,10 @@ export function HandoverWorkspace({ id }: { id: string }) {
             <Link to={`/desk/${id}/sale`} className="btn btn-primary">
               {next.label}
             </Link>
+          ) : next.action === "accept" ? (
+            <Link to={`/sales/${id}`} className="btn btn-primary">
+              {next.label}
+            </Link>
           ) : (
             next.action !== "none" && (
               <button
@@ -456,7 +461,7 @@ export function HandoverWorkspace({ id }: { id: string }) {
               {o ? (
                 <p className={o.freshness === "stale" || o.flag ? "notice error" : "notice info"}>
                   Read at block <span className="mono">{o.block.height}</span> on{" "}
-                  {new Date(o.observed_at).toLocaleString()} ({o.freshness}).
+                  {when(o.observed_at)} ({o.freshness}).
                   {o.flag && ` ${o.flag.message}`}
                 </p>
               ) : (
@@ -568,7 +573,7 @@ export function HandoverWorkspace({ id }: { id: string }) {
                         asset={o?.asset ?? "the business's asset"}
                         token={o?.token}
                       />{" "}
-                      · recorded {new Date(i.created_at).toLocaleString()}
+                      · recorded {when(i.created_at)}
                     </div>
                     {i.status === "recorded" && (
                       <ApplyControl
@@ -660,22 +665,24 @@ function ReceiptCard({
       </h2>
       <p style={{ margin: "0 0 6px" }}>
         You are the <strong>{r.role}</strong> ·{" "}
-        <span className={`pill ${STATUS[r.status].tone}`}>{STATUS[r.status].label}</span> ·{" "}
-        <Link to={`/sales/${bid}`}>Open the sale</Link>
+        <span className={`pill ${STATUS[r.status].tone}`}>{STATUS[r.status].label}</span>
       </p>
+      {/* Review #76: the sale itself is the card's action; the outcome check comes after. */}
+      <Link to={`/sales/${bid}`} className="btn btn-primary btn-sm">
+        Open the sale
+      </Link>
       <dl className="facts">
         <dt>Deal</dt>
         <dd>
           Number {r.deal.seq}, version {r.deal.version}
         </dd>
         <dt>Recorded</dt>
-        <dd>{new Date(r.recorded_at).toLocaleString()}</dd>
+        <dd>{when(r.recorded_at)}</dd>
         {r.applied_at && (
           <>
             <dt>Applied here</dt>
             <dd>
-              {new Date(r.applied_at).toLocaleString()} (contract control step{" "}
-              {r.outcome_control_seq ?? "not recorded"})
+              {when(r.applied_at)} (contract control step {r.outcome_control_seq ?? "not recorded"})
             </dd>
           </>
         )}

@@ -35,6 +35,7 @@ import {
 } from "../saleFlow.ts";
 import { serviceWord } from "../serviceWords.ts";
 import { useSession } from "../session.tsx";
+import { when } from "../when.ts";
 
 const EMPTY: SaleFlowState = {
   status: "loading",
@@ -56,7 +57,6 @@ const tgas = (gas: string) => `${(Number(BigInt(gas) / 1_000_000_000n) / 1000).t
 const yocto = (v: string) => tokenAmount(v, 24);
 const caps = (c: number) =>
   [c & 1 && "metering", c & 2 && "support"].filter(Boolean).join(" and ") || "none";
-const when = (ms: string) => new Date(Number(ms)).toLocaleString();
 
 function Amount({ base, s }: { base: string; s: SaleSetup }) {
   const m = s.token.meta;
@@ -79,8 +79,18 @@ function ExactCall({ call }: { call: SaleAction["call"] }) {
         <dt>Request</dt>
         <dd className="mono wrap">{call.methodName}</dd>
         <dt>Attached NEAR</dt>
-        <dd className="mono">{yocto(call.deposit)} NEAR</dd>
-        <dt>Gas</dt>
+        {/* First-use review #80: the 1 yoctoNEAR confirmation in plain words, not 24 decimals. */}
+        <dd>
+          {call.deposit === "1" ? (
+            <>
+              1 yoctoNEAR{" "}
+              <span className="muted">(the smallest unit; a confirmation, not a payment)</span>
+            </>
+          ) : (
+            <span className="mono">{yocto(call.deposit)} NEAR</span>
+          )}
+        </dd>
+        <dt>Network fee limit</dt>
         <dd className="mono">up to {tgas(call.gas)}</dd>
       </dl>
       <details>
@@ -278,28 +288,9 @@ export function HandoverPanel({
   );
 }
 
+/** Review #80: one format for every moment (local, with its zone). */
 export function When({ ms }: { ms: string }) {
-  const d = new Date(Number(ms));
-  return (
-    <>
-      {d.toLocaleString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZoneName: "short",
-      })}{" "}
-      <span className="muted mono">
-        (
-        {d
-          .toISOString()
-          .replace("T", " ")
-          .replace(/\.\d+Z$/, " UTC")}
-        )
-      </span>
-    </>
-  );
+  return <>{when(ms)}</>;
 }
 
 /**
@@ -991,8 +982,9 @@ function OtherActions({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: S
   if (!d || d.state === "closing" || s.open.length > 0) return null;
   const items: { kind: SaleKind; label: string }[] = [];
   if (s.roles.buyer && d.escrow !== "0")
-    items.push({ kind: "unfund", label: "Take your escrow back" });
-  if (s.roles.buyer || s.roles.seller) items.push({ kind: "cancel", label: "Cancel the offer" });
+    items.push({ kind: "unfund", label: "Withdraw your escrow (undoes your acceptance)" });
+  if (s.roles.buyer || s.roles.seller)
+    items.push({ kind: "cancel", label: "Cancel the sale (ends it for both sides)" });
   return (
     <section className="card quiet" aria-label="Other actions">
       <h2 className="sale-h3">Other actions</h2>

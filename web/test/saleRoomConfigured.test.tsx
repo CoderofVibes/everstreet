@@ -168,7 +168,7 @@ describe("003wf2 the sale page over the configured composition (actual child pro
     await wait(() => Boolean(document.querySelector(".sale-summary")), "the review");
     const summary = document.querySelector(".sale-summary")?.textContent ?? "";
     expect(summary).toContain(CONFIGURED_BUYER);
-    expect(summary).toMatch(/Offer open until.*UTC\)/);
+    expect(summary).toMatch(/Offer open until.*\d{4}, \d{1,2}:\d{2}\s?[AP]M [A-Z]/);
     expect(summary).toContain("meter.testnet (metering)"); // the configured platform operator
     await click("Not now");
     await wait(

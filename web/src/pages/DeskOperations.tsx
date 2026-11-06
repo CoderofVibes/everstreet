@@ -25,6 +25,7 @@ import {
   usageSegments,
 } from "../operations.ts";
 import { Link } from "../router.tsx";
+import { when } from "../when.ts";
 import { Scroll } from "./FinanceChart.tsx";
 import { SeriesPatterns } from "./SeriesPatterns.tsx";
 
@@ -402,8 +403,7 @@ export function DeskOperations({ ops, businessId }: { ops: Operations; businessI
     <div className="fin-ops">
       <h3 style={{ fontSize: 15, marginTop: 18 }}>Digital operations</h3>
       <p className="muted" style={{ fontSize: 13 }}>
-        From this app's own records of customer uses and runtime calls, in {ops.period.buckets} (
-        {span}), as of {ops.as_of.replace("T", " ").slice(0, 16)} UTC. Counts of uses, not money.
+        {span} · as of {when(ops.as_of)}
       </p>
       <OpsTiles ops={ops} />
       <p

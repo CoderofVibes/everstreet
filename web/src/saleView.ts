@@ -145,23 +145,23 @@ export function saleSteps(v: View): SaleStep[] {
     status: applied ? "completed" : awaiting ? "current" : "waiting",
     detail: applied
       ? "A reading of the contract showed this exact sale closed."
-      : awaiting
-        ? "Not known yet. Only a reading of the contract's outcome shows whether it closed."
-        : rec
-          ? "This version didn't close: it ended or was replaced."
-          : cur.kind === "unavailable"
-            ? unknown
-            : "Happens on the contract, after both sides accept.",
+      : awaiting && cur.kind === "live" && !cur.deal.seller_accepted
+        ? "Waiting for your acceptance."
+        : awaiting && cur.kind === "live" && !cur.deal.buyer_accepted
+          ? "Waiting for the buyer's acceptance."
+          : awaiting
+            ? "Not known yet. Only a reading of the contract's outcome shows whether it closed."
+            : rec
+              ? "This version didn't close: it ended or was replaced."
+              : cur.kind === "unavailable"
+                ? unknown
+                : "Happens on the contract, after both sides accept.",
   };
   const apply: SaleStep = {
     key: "apply",
     title: "Apply the close here",
-    status: applied ? "completed" : awaiting ? "current" : "waiting",
-    detail: applied
-      ? "Applied here once."
-      : awaiting
-        ? "When the contract shows it closed, check its outcome to apply it here."
-        : "After a recorded version closes on the contract.",
+    status: applied ? "completed" : "waiting",
+    detail: applied ? "Applied here once." : "After the contract closes it.",
   };
   const takeover: SaleStep = {
     key: "takeover",
@@ -183,6 +183,7 @@ export type SaleAction =
   | "record"
   | "review"
   | "refresh"
+  | "accept"
   | "none";
 
 /** The one next action, from the state; each maps to an existing controller method or link. */
@@ -208,6 +209,9 @@ export function saleNext(
     // A shown version without its own record is reviewed first; an older record never stands in.
     if (!cur.record && !reviewProblem(s.evidence))
       return { action: "review", label: "Review this version" };
+    // Review #43: the seller's own acceptance comes first, on the sale page.
+    if (cur.record?.status === "recorded" && !cur.deal.seller_accepted)
+      return { action: "accept", label: `Accept version ${cur.deal.version}` };
     if (cur.record?.status === "recorded") return outcome(cur.record);
   }
   if (cur.kind === "pending") return outcome(cur.record);

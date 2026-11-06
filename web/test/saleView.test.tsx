@@ -117,7 +117,8 @@ describe("001i progress and next action follow the real controller", () => {
     expect(status(c.getState())).toMatchObject({
       record: "completed",
       close: "current",
-      apply: "current",
+      // Review #43: one current step; applying waits for the close.
+      apply: "waiting",
       takeover: "waiting",
     });
     expect(saleNext(c.getState())).toEqual({
@@ -342,10 +343,12 @@ describe("001i1 a historical sale never completes the current one", () => {
     expect(status(noah.getState())).toMatchObject({
       record: "completed",
       close: "current",
-      apply: "current",
+      // Review #43: one current step; applying waits for the close.
+      apply: "waiting",
       takeover: "waiting",
     });
-    expect(saleNext(noah.getState())).toMatchObject({ action: "reconcile", intent: second });
+    // Review #43: deal 2 is proposed and not yet accepted by the seller: accepting comes first.
+    expect(saleNext(noah.getState())).toMatchObject({ action: "accept" });
     // Order-independent: the same answers with the history listed the other way round
     // (synthetic reorder of the real list).
     const reversed = { ...noah.getState(), intents: [...noah.getState().intents].reverse() };
@@ -379,7 +382,8 @@ describe("001i1 a historical sale never completes the current one", () => {
     expect(v2?.status).toBe("recorded");
     for (const intents of [s.intents, [...s.intents].reverse()]) {
       const v = { ...s, intents };
-      expect(saleNext(v)).toMatchObject({ action: "reconcile", intent: v2?.id });
+      // Review #43: the seller hasn't accepted version 2, so that comes first (on the sale page).
+      expect(saleNext(v)).toMatchObject({ action: "accept", label: "Accept version 2" });
       expect(saleSentence(v)).toMatch(/^Deal 1, version 2 .* This version is recorded here\.$/);
       expect(saleSteps(v)[1]?.detail).toMatch(/^Version 2 of deal 1 is recorded here/);
       // Synthetic: the next reading shows no live deal. Both records await an outcome; the

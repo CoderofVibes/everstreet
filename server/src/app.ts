@@ -541,8 +541,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   // The workflow engine (WORKFLOW_ENGINE.md §5): the case board, one case, and a move (the owner
   // and, since plan step 6, the team members whose role allows it).
-  app.get("/api/businesses/:id/workflow-cases", (c) =>
-    c.json(workflowCases.list(me(c), c.req.param("id"))),
+  app.get("/api/businesses/:id/workflow-cases", async (c) =>
+    c.json(await workflowCases.list(me(c), c.req.param("id"))),
   );
   app.get("/api/businesses/:id/workflow-cases/:request", async (c) =>
     c.json(await workflowCases.one(me(c), c.req.param("id"), c.req.param("request"))),
@@ -1297,6 +1297,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
         customerUses.operationsService(id),
       ),
       basis: BOOKS_BASIS,
+      token_revenue: books.tokenRevenue(id),
       period_months: n,
     });
   });

@@ -1750,3 +1750,4 @@ ul.plain { margin: 0; padding-left: 18px; }
 @media (max-width: 1000px) { .acq-search { grid-template-columns: minmax(0, 1fr); } }
 .filters-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 640px) { .filters-3 { grid-template-columns: minmax(0, 1fr); } }
+.wf-card-title { font-weight: 600; overflow-wrap: anywhere; }

@@ -3,6 +3,7 @@
 // TUSD and USD are never added or drawn on one axis; unknown stays unknown.
 
 import { groupDigits, readable, usableScale } from "./TokenAmount.tsx";
+import { when } from "./when.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: the dashboard answer, read field by field
 export type Json = Record<string, any>;
@@ -247,6 +248,5 @@ export function nextAction(b: Json): { text: string; link: string } {
 export const shortDay = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
-/** Date and time, UTC ("Nov 6, 02:13 UTC"). */
-export const stamp = (iso: string) =>
-  `${shortDay(iso)}, ${new Date(iso).toISOString().slice(11, 16)} UTC`;
+/** Date and time, local with its zone (review #75: never a UTC time that reads as tomorrow). */
+export const stamp = (iso: string) => when(iso);

@@ -386,14 +386,6 @@ export function PurchasePanel({
               </button>
             </>
           )}
-          <button
-            type="button"
-            className="btn btn-quiet"
-            disabled={busy}
-            onClick={() => flow.load()}
-          >
-            Check the contract again
-          </button>
         </>
       )}
     </section>

@@ -4,6 +4,7 @@
 // are never turned into JavaScript numbers.
 
 import { ApiError } from "./api.ts";
+import { when } from "./when.ts";
 
 export type Freshness = "fresh" | "stale";
 
@@ -288,7 +289,7 @@ export function monthLabel(yyyymm: number): string {
 /** A millisecond timestamp held as a decimal string, as a date (null when it is 0, i.e. unset). */
 export function msDate(ms: string): string | null {
   if (ms === "0" || ms.length > 15) return ms === "0" ? null : `${ms} ms`;
-  return new Date(Number(ms)).toISOString();
+  return when(ms);
 }
 
 // ---------- calls ----------

@@ -68,22 +68,10 @@ export function RequestFields({
             </dd>
           </>
         )}
-        {a.plan_id !== undefined && (
-          <>
-            <dt>Plan</dt>
-            <dd className="mono">{String(a.plan_id)}</dd>
-          </>
-        )}
-        {a.slot !== undefined && (
-          <>
-            <dt>Key slot</dt>
-            <dd className="mono">{String(a.slot)}</dd>
-          </>
-        )}
+        {/* First-use review #68: what the person can judge up front; plan, slot, key and gas
+            are in the exact request below. */}
         {install && (
           <>
-            <dt>This device's public key</dt>
-            <dd className="mono">{String(a.pk)}</dd>
             <dt>Limits</dt>
             <dd>
               Holds of at most {String(a.max_hold_units)} use; at most {String(a.max_units_per_day)}{" "}
@@ -91,13 +79,14 @@ export function RequestFields({
             </dd>
           </>
         )}
-        <dt>Deposit</dt>
-        <dd className="mono">{call.deposit} yoctoNEAR (the contract requires exactly 1)</dd>
-        <dt>Gas</dt>
-        <dd className="mono">up to {tgas(call.gas)}</dd>
+        <dt>Cost</dt>
+        <dd>
+          {call.deposit} yoctoNEAR <span className="muted">(a confirmation, not a payment)</span>
+        </dd>
       </dl>
       <details>
         <summary>The exact request</summary>
+        <p className="mono">network fee limit: up to {tgas(call.gas)}</p>
         <p className="mono">
           {call.methodName} {JSON.stringify(call.args)}
         </p>

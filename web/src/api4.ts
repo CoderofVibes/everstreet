@@ -167,6 +167,8 @@ export interface BooksView {
   spend: { unit: "USD"; basis: string; runtime: SpendLedger; build: SpendLedger };
   operations?: Operations;
   basis: string;
+  /** Review #45: revenue is per use in a token; no dollar revenue or contribution here. */
+  token_revenue?: boolean;
   period_months: number;
 }
 

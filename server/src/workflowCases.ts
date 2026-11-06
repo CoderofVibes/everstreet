@@ -81,23 +81,26 @@ export class WorkflowCases {
     return spec;
   }
 
-  private events(requestId: string) {
+  /** A case's history; staff also see which account moved each step (review #40/#64). */
+  private events(requestId: string, staff: boolean) {
     return (
       this.db
         .prepare(
-          "SELECT at, actor_kind, from_stage, to_stage, note FROM workflow_case_events WHERE request_id = ? ORDER BY n",
+          "SELECT at, actor_kind, actor_account, from_stage, to_stage, note FROM workflow_case_events WHERE request_id = ? ORDER BY n",
         )
         .all(requestId) as {
         at: string;
         actor_kind: string;
+        actor_account: string | null;
         from_stage: string | null;
         to_stage: string;
         note: string;
       }[]
-    ).map((e) => ({ ...e }));
+    ).map(({ actor_account, ...e }) => (staff ? { ...e, actor_account } : { ...e }));
   }
 
-  private view(c: CaseRow) {
+  /** The case for staff (who moved what, who it's assigned to) or for its customer (neither). */
+  private view(c: CaseRow, staff = false) {
     const spec = this.specOf(c);
     const stage = spec.stages.find((s) => s.key === c.stage);
     const i = spec.stages.findIndex((s) => s.key === c.stage);
@@ -113,17 +116,18 @@ export class WorkflowCases {
         .prepare("SELECT 1 FROM runtime_releases WHERE id = ? AND state = 'active'")
         .get(c.release_id),
       assigned: c.assignee_account !== null,
+      ...(staff ? { assignee: c.assignee_account } : {}),
       created_at: c.created_at,
       updated_at: c.updated_at,
       closed_at: c.closed_at,
-      history: this.events(c.request_id),
+      history: this.events(c.request_id, staff),
     };
   }
 
   // ---------- the business's staff (its current owner and its team, TEAM_AUTHORITY.md §2) ----------
 
-  list(viewer: Person, businessId: string) {
-    this.members.staff(viewer, businessId, "cases.read");
+  async list(viewer: Person, businessId: string) {
+    const epoch = this.members.staff(viewer, businessId, "cases.read");
     const rows = this.db
       .prepare(
         "SELECT * FROM workflow_cases WHERE business_id = ? ORDER BY closed_at IS NOT NULL, created_at DESC LIMIT 200",
@@ -134,7 +138,24 @@ export class WorkflowCases {
         "SELECT 1 FROM product_projects WHERE business_id = ? AND foundation = 'saas_workflow'",
       )
       .get(businessId);
-    return { has_workflow: hasWorkflow || rows.length > 0, cases: rows.map((c) => this.view(c)) };
+    // First-use review #39/#62: an open case shows its subject (the first field the customer
+    // filled in), read from the same protected copy staff already open one by one. Closed cases
+    // aren't read.
+    const titles = new Map<string, string>();
+    for (const c of rows.filter((x) => !x.closed_at).slice(0, 40)) {
+      const fields = await this.content.load(c.request_id).catch(() => null);
+      const spec = fields ? this.specOf(c) : null;
+      const first = spec?.intake.fields.find(
+        (f) => typeof fields?.[f.key] === "string" && fields[f.key],
+      );
+      if (first && fields) titles.set(c.request_id, String(fields[first.key]).slice(0, 80));
+    }
+    // Control may have moved, or the member been revoked, while content was read.
+    this.members.still(viewer, epoch, "cases.read");
+    return {
+      has_workflow: hasWorkflow || rows.length > 0,
+      cases: rows.map((c) => ({ ...this.view(c, true), title: titles.get(c.request_id) ?? null })),
+    };
   }
 
   async one(viewer: Person, businessId: string, requestId: string) {
@@ -147,7 +168,7 @@ export class WorkflowCases {
     this.members.still(viewer, epoch, "cases.read");
     const spec = this.specOf(c);
     return {
-      case: this.view(c),
+      case: this.view(c, true),
       fields: fields
         ? spec.intake.fields
             .filter((f) => fields[f.key] !== undefined)
@@ -198,7 +219,7 @@ export class WorkflowCases {
           "INSERT INTO workflow_case_events (request_id, at, actor_kind, actor_account, from_stage, to_stage, note) VALUES (?, ?, 'staff', ?, ?, ?, ?)",
         )
         .run(requestId, t, account ?? null, c.stage, next.key, note);
-      return { case: this.view(this.row(requestId) as CaseRow) };
+      return { case: this.view(this.row(requestId) as CaseRow, true) };
     });
   }
 

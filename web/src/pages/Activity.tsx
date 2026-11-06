@@ -291,10 +291,10 @@ function MyHandovers() {
   if (n === 0) return null;
   return (
     <section className="card">
-      <h2>Business handovers</h2>
-      <p className="muted" style={{ margin: 0 }}>
-        You take part in {n} sale{n === 1 ? "" : "s"} of a digital business.{" "}
-        <Link to="/handovers">Open your receipts</Link>
+      {/* First-use review #76: a purchase or sale in progress, named as one. */}
+      <h2>Sales you're part of</h2>
+      <p style={{ margin: 0 }}>
+        {n} sale{n === 1 ? "" : "s"} · <Link to="/handovers">See your sales</Link>
       </p>
     </section>
   );
@@ -328,6 +328,13 @@ function MyUses() {
                 {i > 0 && " · "}
                 <strong>{p.product.name}</strong> from{" "}
                 <Link to={`/b/${p.business.slug}`}>{p.business.name}</Link>
+                {/* First-use review #70: what you used, in numbers. */}
+                {(() => {
+                  const mine = uses.filter((u) => u.offer_id === p.offer_id);
+                  const used = mine.filter((u) => u.unit === "charged").length;
+                  const back = mine.filter((u) => u.unit === "returned").length;
+                  return ` · ${mine.length} request${mine.length === 1 ? "" : "s"}, ${used} charged${back ? `, ${back} returned` : ""}`;
+                })()}
               </span>
             ))}
           </p>
@@ -338,7 +345,12 @@ function MyUses() {
                 <Link to={`/uses/${u.id}`}>{u.product.name}</Link>
                 <span className="muted">
                   {" "}
-                  · {u.headline.title.toLowerCase()} · {UNIT_LABEL[u.unit]} · {ago(u.created_at)}
+                  · {u.headline.title.toLowerCase()}
+                  {/* Review #70: the unit only when the headline doesn't already say it. */}
+                  {u.headline.title.toLowerCase().includes(UNIT_LABEL[u.unit])
+                    ? ""
+                    : ` · ${UNIT_LABEL[u.unit]}`}{" "}
+                  · {ago(u.created_at)}
                 </span>
               </li>
             ))}

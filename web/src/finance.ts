@@ -26,7 +26,7 @@ export interface FinMonth {
   chain: ChainState;
   chain_reason: string | null;
   revenue_cents: number | null;
-  revenue_basis: "observed" | "seeded" | "none" | "unknown";
+  revenue_basis: "observed" | "seeded" | "none" | "unknown" | "token";
   seeded_cents: number | null;
   mixed: boolean;
   direct_cents: number;

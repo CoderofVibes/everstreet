@@ -40,7 +40,8 @@ describe("003wf3 the handover panel says what is happening, in plain words", () 
     expect(t).toContain(
       "Customer uses already in progress are finishing and settling. New uses are paused.",
     );
-    expect(t).toMatch(/Close deadline.*UTC/);
+    // Review #80: local time with its zone, one format.
+    expect(t).toMatch(/Close deadline.*\d{4}, \d{1,2}:\d{2}\s?[AP]M [A-Z]/);
     expect(t).not.toContain("not_ready");
   });
 

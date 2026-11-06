@@ -49,6 +49,8 @@ export function WorkflowCaseBoard({
   const scope = person ? `${person.id}#${sessionEpoch}|${businessId}` : null;
   const read = useActorRead(scope, (w) => workflowApi.board(w.slice(w.lastIndexOf("|") + 1)));
   const [open, setOpen] = useState<{ scope: string; id: string } | null>(null);
+  // Review #62: resolved requests fold after a few, so the open work and its details stay near.
+  const [allResolved, setAllResolved] = useState(false);
   const board = read.state.data;
   const shownOpen = open && open.scope === scope ? open.id : null;
 
@@ -97,11 +99,13 @@ export function WorkflowCaseBoard({
               style={{ gridTemplateColumns: `repeat(${g.stages.length}, 1fr)` }}
             >
               {g.stages.map((st) => {
-                const here = g.cases.filter((c) => c.stage.key === st.key);
+                const all = g.cases.filter((c) => c.stage.key === st.key);
+                const fold = all.some((c) => c.closed_at) && !allResolved && all.length > 5;
+                const here = fold ? all.slice(0, 5) : all;
                 return (
                   <div className="wf-col" key={st.key}>
                     <div className="wf-col-head">
-                      {st.label} <span className="muted">{here.length}</span>
+                      {st.label} <span className="muted">{all.length}</span>
                     </div>
                     {here.map((c) => (
                       <button
@@ -113,7 +117,12 @@ export function WorkflowCaseBoard({
                           setOpen(shownOpen === c.request_id ? null : { scope, id: c.request_id })
                         }
                       >
-                        <span className="mono wf-card-id">{c.request_id.slice(0, 8)}</span>
+                        {c.title ? (
+                          <span className="wf-card-title">{c.title}</span>
+                        ) : (
+                          <span className="mono wf-card-id">{c.request_id.slice(0, 8)}</span>
+                        )}
+                        {c.assignee && <span className="small">{c.assignee}</span>}
                         <span className="muted">
                           {c.closed_at
                             ? `Resolved ${ago(c.closed_at)}`
@@ -121,6 +130,15 @@ export function WorkflowCaseBoard({
                         </span>
                       </button>
                     ))}
+                    {fold && (
+                      <button
+                        type="button"
+                        className="btn btn-quiet btn-sm"
+                        onClick={() => setAllResolved(true)}
+                      >
+                        Show all {all.length}
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -160,6 +178,11 @@ function CaseDetailPanel({
   const [busy, setBusy] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const [error, setError] = useState<string | null>(null);
+  // Review #39/#62: the opened request comes into view, with focus on its heading.
+  useEffect(() => {
+    heading.current?.scrollIntoView?.({ block: "nearest" });
+    heading.current?.focus();
+  }, []);
   useEffect(() => {
     workflowApi
       .one(businessId, requestId)
@@ -225,7 +248,8 @@ function CaseDetailPanel({
                 <li key={`${e.at}-${e.to_stage}`}>
                   <strong>{label(e.to_stage)}</strong>{" "}
                   <span className="muted">
-                    · {WHO[e.actor_kind]} · {ago(e.at)}
+                    · {(e.actor_kind === "staff" && e.actor_account) || WHO[e.actor_kind]} ·{" "}
+                    {ago(e.at)}
                   </span>
                   {e.note && e.actor_kind !== "system" && <div className="wf-note">{e.note}</div>}
                 </li>

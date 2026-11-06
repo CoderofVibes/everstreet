@@ -4,6 +4,7 @@
 // "so far" for the current month; unknown cost is named, never folded into a dollar figure.
 
 import type { Operations, OpsCost, OpsCurrent, OpsMonth, OpsUsage } from "./api4.ts";
+import { when } from "./when.ts";
 
 /**
  * Job 003t1: current work in its exclusive groups, each named for exactly what it counts, in
@@ -41,9 +42,7 @@ export function currentWork(c: OpsCurrent) {
  * a running worker nothing promises automatic processing.
  */
 export function settlementText(s: Operations["settlement"]): string {
-  const at = s.heartbeat_at
-    ? ` (last heartbeat ${s.heartbeat_at.replace("T", " ").slice(0, 16)} UTC)`
-    : "";
+  const at = s.heartbeat_at ? ` (last heartbeat ${when(s.heartbeat_at)})` : "";
   const paused =
     s.paused_by_authority > 0
       ? ` ${s.paused_by_authority} paused: the platform isn't allowed to meter on the business's contract now.`

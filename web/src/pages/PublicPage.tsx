@@ -13,7 +13,7 @@ import { businessProducts, type FreeApp, type OfferView } from "../customerApi.t
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { TokenAmount } from "../TokenAmount.tsx";
-import { Avatar, FAMILY_LABEL, money, OfferCard, STAGE_LABEL } from "../ui.tsx";
+import { Avatar, FAMILY_LABEL, money, OfferCard } from "../ui.tsx";
 import { ago, rememberVia, viaFor, when } from "../via.ts";
 import { DigitalStorefront } from "./DigitalStorefront.tsx";
 
@@ -341,7 +341,10 @@ export function StorefrontView({
             <div className="storefront-hero">
               <div className="row" style={{ marginBottom: 12 }}>
                 <span className="pill">{FAMILY_LABEL[page.family]}</span>
-                <span className="pill lime">{STAGE_LABEL[page.stage]}</span>
+                {/* First-use review #34: the same status as Explore, from what the page offers. */}
+                <span className="pill lime">
+                  {page.action.kind === "interest" ? "Testing interest" : "Open for customers"}
+                </span>
                 {page.new_here && <span className="pill">New here</span>}
                 <span className="spacer" />
                 {!page.viewer_is_owner && (

@@ -11,6 +11,8 @@ export interface CaseStage {
 export interface CaseEvent {
   at: string;
   actor_kind: "customer" | "staff" | "system";
+  /** Staff only (review #64): which account moved this step. */
+  actor_account?: string | null;
   from_stage: string | null;
   to_stage: string;
   note: string;
@@ -23,6 +25,10 @@ export interface CaseView {
   /** Whether the release this case was opened under is the one serving new requests now. */
   on_current_release: boolean;
   assigned: boolean;
+  /** Staff only (review #40): who it's assigned to. */
+  assignee?: string | null;
+  /** Staff only (review #39): an open request's subject. */
+  title?: string | null;
   created_at: string;
   updated_at: string;
   closed_at: string | null;
@@ -59,6 +65,8 @@ export function parseCase(raw: unknown): CaseView {
       .map((s) => stage(s, "case.stages")),
     on_current_release: c.on_current_release === true,
     assigned: c.assigned === true,
+    assignee: typeof c.assignee === "string" ? c.assignee : null,
+    title: typeof c.title === "string" ? c.title : null,
     created_at: str(c.created_at, "case.created_at"),
     updated_at: str(c.updated_at, "case.updated_at"),
     closed_at: strOrNull(c.closed_at, "case.closed_at"),
@@ -72,6 +80,7 @@ export function parseCase(raw: unknown): CaseView {
           actor_kind: (["customer", "staff", "system"].includes(kind)
             ? kind
             : fail("case.event.actor")) as CaseEvent["actor_kind"],
+          actor_account: typeof x.actor_account === "string" ? x.actor_account : null,
           from_stage: strOrNull(x.from_stage, "case.event.from"),
           to_stage: str(x.to_stage, "case.event.to"),
           note: typeof x.note === "string" ? x.note : "",

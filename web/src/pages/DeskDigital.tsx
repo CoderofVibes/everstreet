@@ -12,6 +12,7 @@ import { settlementText } from "../operations.ts";
 import { Link } from "../router.tsx";
 import { TokenAmount } from "../TokenAmount.tsx";
 import { ago } from "../via.ts";
+import { when } from "../when.ts";
 
 /** What needs the founder, and what is waiting on the system, each a link to where it is. */
 export function WorkList({ d, businessId }: { d: DigitalDeskView; businessId: string }) {
@@ -64,8 +65,7 @@ export function WorkList({ d, businessId }: { d: DigitalDeskView; businessId: st
         </p>
       )}
       <p className="muted" style={{ fontSize: 12 }}>
-        From this business's own records as of {d.as_of.replace("T", " ").slice(0, 16)} UTC. Nothing
-        here is done for you; links open where the work is.
+        As of {when(d.as_of)}
       </p>
     </div>
   );

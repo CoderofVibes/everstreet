@@ -262,7 +262,8 @@ describe("003wf2 the sale room page", () => {
     const summary = document.querySelector(".sale-summary") as HTMLElement;
     expect(summary.textContent).toContain(BUYER);
     expect(summary.textContent).toContain("250 TUSD");
-    expect(summary.textContent).toMatch(/Offer open until.*UTC\)/);
+    // Review #80: one format, local with its zone.
+    expect(summary.textContent).toMatch(/Offer open until.*\d{4}, \d{1,2}:\d{2}\s?[AP]M [A-Z]/);
     expect(summary.textContent).toContain("Available balance kept (floor)0.1 TUSD");
     expect(summary.textContent).toContain("meter.near (metering)");
     expect(

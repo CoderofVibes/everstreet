@@ -49,6 +49,47 @@ const ZERO = (): AssetMonth => ({
   returned_purchases: "0",
 });
 
+/** The contract's prepaid-unused value for an asset, as last observed here; null when unknown. */
+function observedOwed(
+  db: Db,
+  businessId: string,
+  asset: string,
+): { value: string; units: number | null; block: string } | null {
+  const row = db
+    .prepare(
+      "SELECT o.snapshot, o.block_height FROM v3_projection p JOIN v3_observations o ON o.id = p.observation_id WHERE p.business_id = ?",
+    )
+    .get(businessId) as { snapshot: string; block_height: string } | undefined;
+  if (!row) return null;
+  try {
+    const t = (
+      JSON.parse(row.snapshot) as { treasury?: { asset?: string; ent_free_value?: string } }
+    ).treasury;
+    if (
+      !t ||
+      t.asset !== asset ||
+      typeof t.ent_free_value !== "string" ||
+      !/^\d+$/.test(t.ent_free_value)
+    )
+      return null;
+    const offer = db
+      .prepare(
+        "SELECT plan FROM customer_offers WHERE business_id = ? AND asset = ? AND state = 'active' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(businessId, asset) as { plan: string } | undefined;
+    const price = offer
+      ? BigInt(String((JSON.parse(offer.plan) as { unit_price?: string }).unit_price ?? "0"))
+      : 0n;
+    return {
+      value: t.ent_free_value,
+      units: price > 0n ? Number(BigInt(t.ent_free_value) / price) : null,
+      block: row.block_height,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function economics(db: Db, businessId: string, months: number, now = new Date()) {
   const n = Math.min(ECONOMICS_MONTHS_MAX, Math.max(1, Math.floor(months)));
   const current = ym(now);
@@ -196,6 +237,21 @@ export function economics(db: Db, businessId: string, months: number, now = new 
     const value = BigInt(t.prepaid) - BigInt(earned);
     const left = t.units - units;
     const known = value >= 0n && left >= 0;
+    // First-use review #47: when this server's records can't say (purchases made elsewhere), the
+    // contract's own figure, as last observed here, is the authority: never "unknown" beside a
+    // page that shows it.
+    const observed = known ? null : observedOwed(db, businessId, a);
+    if (observed)
+      return {
+        asset: a,
+        prepaid_in: t.prepaid,
+        prepaid_units: t.units,
+        earned,
+        earned_units: units,
+        outstanding_units: observed.units,
+        outstanding_value: observed.value,
+        note: `As the business's contract showed at block ${observed.block}.`,
+      };
     return {
       asset: a,
       prepaid_in: t.prepaid,
