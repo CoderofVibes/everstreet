@@ -35,6 +35,8 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **Step 7 data plan written:** docs/design/DEMO_ACCOUNT.md (founder Marisol Teague, provisional; 3 businesses, Signalwatch mid-sale; 30 simulated days through the real flows; synthetic chain needs a multi-contract router; one portfolio dashboard read before visual work). Building next.
+
 - **Step 7 design process (Tony, Nov 5 late):** Fable (separate agent, model fable; this session stays Opus 5.5) starts from Tony's mockup, Astra's visual direction, styles.css and the dataviz rules; makes 2-3 static directions with fictional data, renders and screenshots them (desktop + phone) and revises; **Tony chooses the direction himself**; then it is built on the real simulated history and Fable does the visual pass on the real pages. Data side first.
 
 - **006c successor rehearsal BUILT (plan step 6, part 2)** (db92082): docs/design/SUCCESSOR_REHEARSAL.md (§5 as built). Plan step 6 is complete; both parts returned for Astra review. NEXT: plan step 7 (the demo account with the fictional founder and the rich dashboard; Fable for its visual design).
