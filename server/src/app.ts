@@ -1216,6 +1216,15 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/me/dashboard", (c) =>
     c.json(dashboard(store.db, me(c), { days: Number(c.req.query("days") ?? 30) })),
   );
+  // One business the viewer controls, in detail (clients and about), for its breakdown page.
+  app.get("/api/me/dashboard/businesses/:id", (c) => {
+    const d = dashboard(store.db, me(c), {
+      days: Number(c.req.query("days") ?? 30),
+      only: c.req.param("id"),
+    });
+    if (d.businesses.length === 0) throw new HttpError(404, "Not one of your businesses");
+    return c.json(d);
+  });
   app.put("/api/me/portfolio/:businessId/note", async (c) =>
     c.json(portfolio.setNote(me(c), c.req.param("businessId"), await body(c))),
   );

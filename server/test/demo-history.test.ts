@@ -79,6 +79,35 @@ describe("step 7: 30 simulated days", () => {
         buyer_accepted: false,
       });
       expect(sw.sale.escrow).toBe(sw.sale.price);
+      // Costs: compute by purpose and outcome (unbilled = spent on requests never charged),
+      // tokens, the runtime budget, and the operating costs the founder entered (USD cents).
+      const llUse = BigInt(ll.compute.by_purpose.customer_use.microcents);
+      expect(llUse).toBe(BigInt(ll.totals.compute_microcents));
+      expect(ll.compute.by_purpose.evaluation.calls).toBeGreaterThan(0);
+      const unbilled = ["refused", "incomplete"].reduce(
+        (n, k) => n + BigInt(ll.compute.customer_use_by_outcome[k]?.microcents ?? "0"),
+        0n,
+      );
+      expect(BigInt(ll.compute.unbilled_microcents)).toBe(unbilled);
+      expect(unbilled).toBeGreaterThan(0n);
+      expect(ll.compute.tokens.input).toBeGreaterThan(0);
+      expect(ll.compute.budget.limit_cents).toBe(100);
+      expect(rd.compute.unbilled_microcents).toBe("0");
+      expect(rd.compute.models).toEqual(["workflow-engine"]);
+      expect(rd.operating_costs.categories.map((c: { category: string }) => c.category)).toContain(
+        "Paid help",
+      );
+      expect(
+        sw.operating_costs.categories.find((c: { category: string }) => c.category === "Marketing")
+          ?.total_cents,
+      ).toBe(2500);
+      // One business in detail: its clients (named when known), only for its owner.
+      const one = (await w.delphine(`/api/me/dashboard/businesses/${ll.id}`)).body;
+      expect(one.businesses).toHaveLength(1);
+      const clients = one.businesses[0].clients as { requests: number; name: string | null }[];
+      expect(clients.reduce((n, c) => n + c.requests, 0)).toBeGreaterThan(40);
+      expect(clients.some((c) => c.name === "Cara Okafor")).toBe(true);
+      expect((await w.noah(`/api/me/dashboard/businesses/${ll.id}`)).status).toBe(404);
       w.db.close();
     } finally {
       try {

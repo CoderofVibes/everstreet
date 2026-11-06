@@ -1,6 +1,6 @@
 {
   "note": "FICTIONAL: Delphine Marsh's simulated month (synthetic chain, stand-in models). Shape of GET /api/me/dashboard.",
-  "as_of": "2026-11-06T03:07:25.914Z",
+  "as_of": "2026-11-06T04:45:23.752Z",
   "period": {
     "days": 30,
     "from": "2026-10-08",
@@ -44,7 +44,7 @@
       "name": "Test USD (fixture)",
       "decimals": 6,
       "block_height": "1785",
-      "observed_at": "2026-10-31T12:08:00.828Z",
+      "observed_at": "2026-10-31T12:08:00.818Z",
       "changed": false,
       "reason": null
     }
@@ -57,7 +57,7 @@
   },
   "businesses": [
     {
-      "id": "5c399857-4673-4b89-a28b-b0ee90f379de",
+      "id": "c2436f48-f913-4613-894b-898ed3bc549f",
       "name": "Ledgerline",
       "slug": "ledgerline",
       "tagline": "Reads an invoice and returns its fields",
@@ -65,7 +65,7 @@
       "product": "AI API",
       "release": {
         "number": 2,
-        "activated_at": "2026-10-15T11:58:36.360Z",
+        "activated_at": "2026-10-15T11:58:36.343Z",
         "digest": "f1eeb5a26550e9d296437ae3c8b90e77f2c17cfc6888c2f1adcd7b54bffaf9cf"
       },
       "daily": [
@@ -385,7 +385,7 @@
         "asset": "tusd.near",
         "units": 344,
         "block_height": "1983",
-        "observed_at": "2026-11-05T11:10:38.417Z"
+        "observed_at": "2026-11-05T11:10:38.445Z"
       },
       "network_fees": null,
       "ownership": {
@@ -396,7 +396,7 @@
         "sale_in_progress": false
       },
       "rehearsal": null,
-      "founded_at": "2026-10-07T00:00:00.802Z",
+      "founded_at": "2026-10-07T00:00:00.774Z",
       "customers": {
         "active": 3,
         "returning": 3,
@@ -418,30 +418,115 @@
       "cases": null,
       "releases": [
         {
-          "activated_at": "2026-10-07T00:00:00.949Z",
-          "retired_at": "2026-10-15T11:58:36.360Z",
+          "activated_at": "2026-10-07T00:00:00.912Z",
+          "retired_at": "2026-10-15T11:58:36.343Z",
           "state": "retired",
           "number": 1
         },
         {
-          "activated_at": "2026-10-15T11:58:36.360Z",
+          "activated_at": "2026-10-15T11:58:36.343Z",
           "retired_at": null,
           "state": "active",
           "number": 2
         }
       ],
       "team_members": 0,
+      "compute": {
+        "calls": 88,
+        "by_purpose": {
+          "customer_use": {
+            "calls": 80,
+            "microcents": "12000000",
+            "unknown_calls": 0
+          },
+          "evaluation": {
+            "calls": 8,
+            "microcents": "1200000",
+            "unknown_calls": 0
+          }
+        },
+        "customer_use_by_outcome": {
+          "refused": {
+            "calls": 15,
+            "microcents": "2250000",
+            "unknown_calls": 0
+          },
+          "extracted": {
+            "calls": 55,
+            "microcents": "8250000",
+            "unknown_calls": 0
+          },
+          "incomplete": {
+            "calls": 10,
+            "microcents": "1500000",
+            "unknown_calls": 0
+          }
+        },
+        "unbilled_microcents": "3750000",
+        "tokens": {
+          "input": 79200,
+          "output": 10560
+        },
+        "models": [
+          "scripted-runtime-model"
+        ],
+        "per_call_microcents": {
+          "median": 150000,
+          "p95": 150000,
+          "max": 150000
+        },
+        "per_call_ms": {
+          "median": 0,
+          "p95": 1
+        },
+        "budget": {
+          "limit_cents": 100,
+          "spent_this_month_microcents": "2550000",
+          "month": 202611
+        },
+        "build": {
+          "cents": 4,
+          "jobs": 2,
+          "unknown": 0
+        }
+      },
+      "operating_costs": {
+        "months": [
+          202610,
+          202611
+        ],
+        "categories": [
+          {
+            "category": "Hosting and compute",
+            "kind": "direct",
+            "by_month": {
+              "202610": 1200,
+              "202611": 1200
+            },
+            "total_cents": 2400
+          },
+          {
+            "category": "Software and tools",
+            "kind": "overhead",
+            "by_month": {
+              "202610": 900,
+              "202611": 900
+            },
+            "total_cents": 1800
+          }
+        ]
+      },
       "sale": null,
       "attention": [
         {
           "kind": "rehearsal",
           "text": "No successor rehearsal yet: rehearse the handover",
-          "link": "/desk/5c399857-4673-4b89-a28b-b0ee90f379de/rehearsal"
+          "link": "/desk/c2436f48-f913-4613-894b-898ed3bc549f/rehearsal"
         }
       ]
     },
     {
-      "id": "746fb5f0-d01c-47a3-a26c-be38c9c650a6",
+      "id": "a018b88b-6ac1-45e5-b638-991d3e404467",
       "name": "Relaydesk",
       "slug": "relaydesk",
       "tagline": "Support requests become cases, worked through stages",
@@ -449,7 +534,7 @@
       "product": "SaaS workflow",
       "release": {
         "number": 1,
-        "activated_at": "2026-10-07T00:00:01.108Z",
+        "activated_at": "2026-10-07T00:00:01.064Z",
         "digest": "e9f65820bf62dc32ccb202a673a55246fcdf1e430bae1928fc6e162768c56feb"
       },
       "daily": [
@@ -769,7 +854,7 @@
         "asset": "tusd.near",
         "units": 357,
         "block_height": "1984",
-        "observed_at": "2026-11-05T11:10:38.421Z"
+        "observed_at": "2026-11-05T11:10:38.449Z"
       },
       "network_fees": null,
       "ownership": {
@@ -781,9 +866,9 @@
       },
       "rehearsal": {
         "state": "passed",
-        "finished_at": "2026-10-26T12:34:06.826Z"
+        "finished_at": "2026-10-26T12:34:06.737Z"
       },
-      "founded_at": "2026-10-07T00:00:00.953Z",
+      "founded_at": "2026-10-07T00:00:00.917Z",
       "customers": {
         "active": 4,
         "returning": 4,
@@ -805,24 +890,103 @@
       },
       "releases": [
         {
-          "activated_at": "2026-10-07T00:00:01.108Z",
+          "activated_at": "2026-10-07T00:00:01.064Z",
           "retired_at": null,
           "state": "active",
           "number": 1
         }
       ],
       "team_members": 1,
+      "compute": {
+        "calls": 42,
+        "by_purpose": {
+          "customer_use": {
+            "calls": 42,
+            "microcents": "0",
+            "unknown_calls": 0
+          }
+        },
+        "customer_use_by_outcome": {
+          "accepted": {
+            "calls": 42,
+            "microcents": "0",
+            "unknown_calls": 0
+          }
+        },
+        "unbilled_microcents": "0",
+        "tokens": {
+          "input": 0,
+          "output": 0
+        },
+        "models": [
+          "workflow-engine"
+        ],
+        "per_call_microcents": {
+          "median": 0,
+          "p95": 0,
+          "max": 0
+        },
+        "per_call_ms": {
+          "median": 0,
+          "p95": 0
+        },
+        "budget": {
+          "limit_cents": null,
+          "spent_this_month_microcents": "0",
+          "month": 202611
+        },
+        "build": {
+          "cents": 0,
+          "jobs": 0,
+          "unknown": 0
+        }
+      },
+      "operating_costs": {
+        "months": [
+          202610,
+          202611
+        ],
+        "categories": [
+          {
+            "category": "Paid help",
+            "kind": "direct",
+            "by_month": {
+              "202610": 6000,
+              "202611": 0
+            },
+            "total_cents": 6000
+          },
+          {
+            "category": "Software and tools",
+            "kind": "overhead",
+            "by_month": {
+              "202610": 1500,
+              "202611": 1500
+            },
+            "total_cents": 3000
+          },
+          {
+            "category": "Hosting and compute",
+            "kind": "direct",
+            "by_month": {
+              "202610": 800,
+              "202611": 800
+            },
+            "total_cents": 1600
+          }
+        ]
+      },
       "sale": null,
       "attention": [
         {
           "kind": "open_cases",
           "text": "4 open customer requests",
-          "link": "/desk/746fb5f0-d01c-47a3-a26c-be38c9c650a6"
+          "link": "/desk/a018b88b-6ac1-45e5-b638-991d3e404467"
         }
       ]
     },
     {
-      "id": "d276be22-20eb-4f42-aa25-eb23773685aa",
+      "id": "9f9182f3-6467-4950-9ca9-33c82aa0c2e0",
       "name": "Signalwatch",
       "slug": "signalwatch",
       "tagline": "Flags what changed in suppliers' release notes",
@@ -830,7 +994,7 @@
       "product": "Agent service",
       "release": {
         "number": 1,
-        "activated_at": "2026-10-07T00:00:01.186Z",
+        "activated_at": "2026-10-07T00:00:01.145Z",
         "digest": "453948209d39d3934bcb247b39067f30189962fcdaffe2a5beab1a5378a42145"
       },
       "daily": [
@@ -1150,7 +1314,7 @@
         "asset": "tusd.near",
         "units": 386,
         "block_height": "1985",
-        "observed_at": "2026-11-05T11:10:38.425Z"
+        "observed_at": "2026-11-05T11:10:38.453Z"
       },
       "network_fees": null,
       "ownership": {
@@ -1161,7 +1325,7 @@
         "sale_in_progress": true
       },
       "rehearsal": null,
-      "founded_at": "2026-10-07T00:00:00.957Z",
+      "founded_at": "2026-10-07T00:00:00.920Z",
       "customers": {
         "active": 2,
         "returning": 2,
@@ -1174,13 +1338,83 @@
       "cases": null,
       "releases": [
         {
-          "activated_at": "2026-10-07T00:00:01.186Z",
+          "activated_at": "2026-10-07T00:00:01.145Z",
           "retired_at": null,
           "state": "active",
           "number": 1
         }
       ],
       "team_members": 0,
+      "compute": {
+        "calls": 13,
+        "by_purpose": {
+          "customer_use": {
+            "calls": 13,
+            "microcents": "3120000",
+            "unknown_calls": 0
+          }
+        },
+        "customer_use_by_outcome": {
+          "analyzed": {
+            "calls": 13,
+            "microcents": "3120000",
+            "unknown_calls": 0
+          }
+        },
+        "unbilled_microcents": "0",
+        "tokens": {
+          "input": 14300,
+          "output": 3380
+        },
+        "models": [
+          "scripted-runtime-model"
+        ],
+        "per_call_microcents": {
+          "median": 240000,
+          "p95": 240000,
+          "max": 240000
+        },
+        "per_call_ms": {
+          "median": 0,
+          "p95": 0
+        },
+        "budget": {
+          "limit_cents": 5000,
+          "spent_this_month_microcents": "0",
+          "month": 202611
+        },
+        "build": {
+          "cents": 0,
+          "jobs": 0,
+          "unknown": 0
+        }
+      },
+      "operating_costs": {
+        "months": [
+          202610,
+          202611
+        ],
+        "categories": [
+          {
+            "category": "Marketing",
+            "kind": "overhead",
+            "by_month": {
+              "202610": 2500,
+              "202611": 0
+            },
+            "total_cents": 2500
+          },
+          {
+            "category": "Online services and APIs",
+            "kind": "direct",
+            "by_month": {
+              "202610": 1100,
+              "202611": 1100
+            },
+            "total_cents": 2200
+          }
+        ]
+      },
       "sale": {
         "state": "proposed",
         "buyer": "buyer.near",
@@ -1188,14 +1422,14 @@
         "escrow": "180000000",
         "seller_accepted": false,
         "buyer_accepted": false,
-        "expires_at": "2026-11-21T12:08:00.770Z",
+        "expires_at": "2026-11-21T12:08:00.759Z",
         "asset": "tusd.near"
       },
       "attention": [
         {
           "kind": "sale",
           "text": "A sale is in progress: its terms wait for acceptance",
-          "link": "/sales/d276be22-20eb-4f42-aa25-eb23773685aa"
+          "link": "/sales/9f9182f3-6467-4950-9ca9-33c82aa0c2e0"
         }
       ]
     }

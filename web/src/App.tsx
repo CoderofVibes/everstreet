@@ -12,6 +12,7 @@ import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
 import { AgentAccessPage } from "./pages/AgentAccess.tsx";
 import { BuildHome } from "./pages/Build.tsx";
+import { BusinessBreakdown } from "./pages/BusinessBreakdown.tsx";
 import { Continuity } from "./pages/Continuity.tsx";
 import { ControlSheetPage, VerifyRecordPage } from "./pages/ControlSheet.tsx";
 import { CustomerProduct } from "./pages/CustomerProduct.tsx";
@@ -356,6 +357,15 @@ function Routes() {
   if (path === "/agent-access") return <AgentAccessPage />;
   // Job 005d: the viewer's portfolio.
   if (path === "/portfolio") return <PortfolioPage />;
+  // Plan step 7: one business in detail, opened from the portfolio in a new tab.
+  const breakdown = match("/portfolio/:id", path);
+  if (breakdown)
+    return (
+      <BusinessBreakdown
+        key={`${person?.id ?? "anon"}:${breakdown.id}`}
+        id={breakdown.id as string}
+      />
+    );
   if (path.startsWith("/example/")) return <ExamplePage which={path.slice("/example/".length)} />;
   // Job 005c: expert help (directory, a profile and its request form, my requests, a thread).
   if (path === "/experts") return <ExpertsDirectory />;

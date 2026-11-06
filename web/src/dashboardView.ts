@@ -2,7 +2,7 @@
 // GET /api/me/dashboard: exact amounts, the handover's steps, the performance chart's series.
 // TUSD and USD are never added or drawn on one axis; unknown stays unknown.
 
-import { readable, usableScale } from "./TokenAmount.tsx";
+import { groupDigits, readable, usableScale } from "./TokenAmount.tsx";
 
 // biome-ignore lint/suspicious/noExplicitAny: the dashboard answer, read field by field
 export type Json = Record<string, any>;
@@ -63,6 +63,7 @@ export interface SaleStep {
   key: string;
   label: string;
   state: StepState;
+  /** Only the current step says what it waits on; the others carry no text. */
   detail: string;
 }
 
@@ -70,67 +71,78 @@ export interface SaleStep {
  * The five steps of a Direct sale, from the contract's live deal. Done steps are filled; the first
  * not done is current; the rest are pending (outlined, never filled).
  */
-export function saleSteps(sale: Json, priceText: string): SaleStep[] {
+export function saleSteps(sale: Json): SaleStep[] {
   const funded = U.test(String(sale.escrow)) && BigInt(sale.escrow) >= BigInt(sale.price);
-  const closing = sale.state === "closing";
-  const raw: { key: string; label: string; done: boolean; doneText: string; waitText: string }[] = [
-    {
-      key: "proposed",
-      label: "Terms proposed",
-      done: true,
-      doneText: `Done · ${priceText}`,
-      waitText: "",
-    },
-    {
-      key: "escrow",
-      label: "Escrow funded",
-      done: funded,
-      doneText: `${priceText} held`,
-      waitText: "Waiting on the buyer",
-    },
+  const raw: { key: string; label: string; done: boolean; wait: string }[] = [
+    { key: "proposed", label: "Proposed", done: true, wait: "" },
+    { key: "escrow", label: "Escrow funded", done: funded, wait: "Waiting on the buyer" },
     {
       key: "seller",
-      label: "You accept",
+      label: "Accepted",
       done: sale.seller_accepted === true,
-      doneText: "Accepted",
-      waitText: "Waiting on you",
+      wait: "Waiting on you",
     },
     {
       key: "buyer",
-      label: "Buyer accepts",
+      label: "Buyer accepted",
       done: sale.buyer_accepted === true,
-      doneText: "Accepted",
-      waitText: "Waiting on the buyer",
+      wait: "Waiting on the buyer",
     },
     {
       key: "transfer",
-      label: "Ownership moves",
+      label: "Ownership",
       done: false,
-      doneText: "",
-      waitText: closing ? "Closing on NEAR" : "After both accept",
+      wait: sale.state === "closing" ? "Closing" : "",
     },
   ];
   let current = false;
   return raw.map((s) => {
-    if (s.done) return { key: s.key, label: s.label, state: "done", detail: s.doneText };
+    if (s.done) return { key: s.key, label: s.label, state: "done", detail: "" };
     const state: StepState = current ? "pending" : "current";
     current = true;
-    return {
-      key: s.key,
-      label: s.label,
-      state,
-      detail: state === "current" ? s.waitText : "Not yet",
-    };
+    return { key: s.key, label: s.label, state, detail: state === "current" ? s.wait : "" };
   });
 }
 
-/** Who has accepted, in words. */
-export function acceptedBy(sale: Json): string {
-  if (sale.seller_accepted && sale.buyer_accepted) return "Both sides";
-  if (sale.seller_accepted) return "You, not the buyer yet";
-  if (sale.buyer_accepted) return "The buyer, not you yet";
-  return "Neither yet";
+/** The acceptance state, short; the reason for "In process" goes in its info tip. */
+export function acceptance(sale: Json): { value: string; why: string | null } {
+  if (sale.seller_accepted && sale.buyer_accepted) return { value: "Both", why: null };
+  const why = sale.seller_accepted
+    ? "You have accepted; the buyer hasn't yet."
+    : sale.buyer_accepted
+      ? "The buyer has accepted; you haven't yet."
+      : "Neither side has accepted yet. Nothing moves until both do.";
+  return { value: "In process", why };
 }
+
+/** A sale's status in a few words. */
+export function saleStatus(sale: Json): string {
+  if (sale.state === "closing") return "Closing";
+  if (!sale.seller_accepted) return "Awaiting you";
+  if (!sale.buyer_accepted) return "Awaiting buyer";
+  return "Accepted";
+}
+
+/** An average per request or call (a derived ratio, not a ledger amount): cents to 2 places. */
+export function usdAverage(micro: string | number | null | undefined): string | null {
+  if (micro === null || micro === undefined) return null;
+  const m = Number(micro);
+  if (!Number.isFinite(m) || m < 0) return null;
+  const cents = m / 1_000_000;
+  if (cents >= 100) return `$${(cents / 100).toFixed(2)}`;
+  const r = cents.toFixed(2);
+  return `${r.includes(".") ? r.replace(/0+$/, "").replace(/\.$/, "") : r}¢`;
+}
+
+/** Exact USD from whole cents: "$12.00", "$1,234.56". */
+export function usdFromCents(cents: number | null | undefined): string | null {
+  if (typeof cents !== "number" || !Number.isSafeInteger(cents) || cents < 0) return null;
+  const whole = groupDigits(String(Math.floor(cents / 100)));
+  return `$${whole}.${String(cents % 100).padStart(2, "0")}`;
+}
+
+/** Whole numbers grouped for reading. */
+export const count = (n: number) => groupDigits(String(n));
 
 export type Metric = "revenue" | "delivered" | "compute";
 
@@ -220,9 +232,9 @@ export function nextAction(b: Json): { text: string; link: string } {
   if (a) {
     const verb =
       a.kind === "sale"
-        ? "Review the terms"
+        ? "Review terms"
         : a.kind === "rehearsal"
-          ? "Rehearse the handover"
+          ? "Rehearse handover"
           : a.kind === "open_cases"
             ? "Open the desk"
             : "Open";

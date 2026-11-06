@@ -131,6 +131,32 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
     }
 
     // The month's events.
+    if (day === 0) {
+      // Operating costs Delphine records (USD cents; fictional): monthly ones recur.
+      const costs: [keyof typeof w.business, string, number, boolean, string][] = [
+        ["ledgerline", "Hosting and compute", 1200, true, "Storage for invoices"],
+        ["ledgerline", "Software and tools", 900, true, "Error tracking"],
+        ["relaydesk", "Software and tools", 1500, true, "Email inbox"],
+        ["relaydesk", "Hosting and compute", 800, true, "Database"],
+        ["signalwatch", "Online services and APIs", 1100, true, "Release-note feeds"],
+        ["signalwatch", "Marketing", 2500, false, "Launch listing"],
+      ];
+      for (const [k, category, amount_cents, recurring, note] of costs)
+        await w.delphine(`/api/businesses/${w.business[k].id}/costs`, "POST", {
+          category,
+          amount_cents,
+          recurring,
+          note,
+        });
+    }
+    if (day === 14) {
+      await w.delphine(`/api/businesses/${w.business.relaydesk.id}/costs`, "POST", {
+        category: "Paid help",
+        amount_cents: 6000,
+        recurring: false,
+        note: "Weekend cover",
+      });
+    }
     if (day === 8) {
       tick();
       const job = await w.rw.build(w.builder as never, w.business.ledgerline.project, {

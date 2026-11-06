@@ -162,7 +162,6 @@ export function PortfolioPage() {
       ) : (
         <p className="muted">Loading your dashboard…</p>
       )}
-      <p className="muted small">{p.basis}</p>
       {p.owned.length > 0 && (
         <>
           <h2 className="section-title">Control sheets and notes</h2>

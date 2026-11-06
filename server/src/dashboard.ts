@@ -37,7 +37,214 @@ export const DASHBOARD_DEFINITIONS = {
     "Totals add businesses only within the same token. Tokens and USD are never added together.",
 };
 
-export function dashboard(db: Db, viewer: Person, opts: { days?: number; now?: Date } = {}) {
+const pct = (sorted: number[], q: number) =>
+  sorted.length
+    ? (sorted[Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1)))] as number)
+    : null;
+const BILLED = new Set(["extracted", "accepted", "analyzed", "granted"]);
+const monthOf = (iso: string) => Number(iso.slice(0, 4)) * 100 + Number(iso.slice(5, 7));
+
+/**
+ * Compute in detail for one business over the period (USD microcents): by purpose, by outcome of
+ * customer use (spend on results that were never charged is "unbilled"), tokens, the model,
+ * cost and time per call, this month's spend against the runtime budget, and build spend.
+ */
+function computeDetail(db: Db, businessId: string, since: string, asOf: string) {
+  const rows = db
+    .prepare(
+      `SELECT purpose, outcome, state, usage_state, provider, provider_config, charged_microcents AS m,
+              input_tokens AS i, output_tokens AS o, elapsed_ms AS ms, created_at
+         FROM runtime_invocations WHERE business_id = ? AND created_at >= ? AND created_at <= ?`,
+    )
+    .all(businessId, since, asOf) as {
+    purpose: string;
+    outcome: string | null;
+    state: string;
+    usage_state: string;
+    provider: string;
+    provider_config: string;
+    m: number;
+    i: number;
+    o: number;
+    ms: number | null;
+    created_at: string;
+  }[];
+  const unknown = (r: (typeof rows)[number]) =>
+    r.state === "running" || r.usage_state === "partial" || r.usage_state === "unknown";
+  const by = (key: (r: (typeof rows)[number]) => string, list = rows) => {
+    const out: Record<string, { calls: number; microcents: string; unknown_calls: number }> = {};
+    for (const r of list) {
+      const k = key(r);
+      out[k] ??= { calls: 0, microcents: "0", unknown_calls: 0 };
+      const e = out[k] as { calls: number; microcents: string; unknown_calls: number };
+      e.calls += 1;
+      e.microcents = add(e.microcents, String(r.m));
+      if (unknown(r)) e.unknown_calls += 1;
+    }
+    return out;
+  };
+  const use = rows.filter((r) => r.purpose === "customer_use");
+  const costs = use
+    .filter((r) => !unknown(r))
+    .map((r) => r.m)
+    .sort((a, b) => a - b);
+  const times = use
+    .map((r) => r.ms)
+    .filter((x): x is number => typeof x === "number")
+    .sort((a, b) => a - b);
+  const unbilled = use
+    .filter((r) => r.outcome !== null && !BILLED.has(r.outcome))
+    .reduce((s, r) => add(s, String(r.m)), "0");
+  const models = [
+    ...new Set(
+      rows.map((r) => {
+        try {
+          const c = JSON.parse(r.provider_config) as { model?: string; id?: string };
+          return String(c.model ?? r.provider);
+        } catch {
+          return r.provider;
+        }
+      }),
+    ),
+  ];
+  const month = monthOf(asOf);
+  const monthStart = `${String(month).slice(0, 4)}-${String(month).slice(4)}-01`;
+  const spentThisMonth = (
+    db
+      .prepare(
+        "SELECT CAST(COALESCE(SUM(charged_microcents), 0) AS TEXT) AS m FROM runtime_invocations WHERE business_id = ? AND created_at >= ?",
+      )
+      .get(businessId, monthStart) as { m: string }
+  ).m;
+  const budget = db
+    .prepare("SELECT limit_cents FROM runtime_budgets WHERE business_id = ?")
+    .get(businessId) as { limit_cents: number } | undefined;
+  const build = db
+    .prepare(
+      `SELECT COALESCE(SUM(u.cents), 0) AS cents, COUNT(DISTINCT u.job_id) AS jobs,
+              SUM(CASE WHEN u.cents IS NULL THEN 1 ELSE 0 END) AS unknown
+         FROM build_usage u JOIN build_jobs j ON j.id = u.job_id
+        WHERE j.business_id = ? AND u.kind IN ('actual','unknown')`,
+    )
+    .get(businessId) as { cents: number; jobs: number; unknown: number };
+  return {
+    calls: rows.length,
+    by_purpose: by((r) => r.purpose),
+    customer_use_by_outcome: by((r) => r.outcome ?? "unfinished", use),
+    unbilled_microcents: unbilled,
+    tokens: {
+      input: rows.reduce((n, r) => n + r.i, 0),
+      output: rows.reduce((n, r) => n + r.o, 0),
+    },
+    models,
+    per_call_microcents: {
+      median: pct(costs, 0.5),
+      p95: pct(costs, 0.95),
+      max: costs.length ? (costs[costs.length - 1] as number) : null,
+    },
+    per_call_ms: { median: pct(times, 0.5), p95: pct(times, 0.95) },
+    budget: {
+      limit_cents: budget?.limit_cents ?? null,
+      spent_this_month_microcents: spentThisMonth,
+      month,
+    },
+    build: { cents: build.cents, jobs: build.jobs, unknown: build.unknown ?? 0 },
+  };
+}
+
+/** Operating costs the founder entered (USD cents), per category, for the months in the period. */
+function operatingCosts(db: Db, businessId: string, since: string, asOf: string) {
+  const from = monthOf(since);
+  const to = monthOf(asOf);
+  const months: number[] = [];
+  for (let m = from; m <= to; m = m % 100 === 12 ? m + 89 : m + 1) months.push(m);
+  const rows = db
+    .prepare(
+      "SELECT category, kind, yyyymm, until_yyyymm, amount_cents, recurring FROM costs WHERE business_id = ?",
+    )
+    .all(businessId) as {
+    category: string;
+    kind: string;
+    yyyymm: number;
+    until_yyyymm: number | null;
+    amount_cents: number;
+    recurring: number;
+  }[];
+  const cats: Record<string, { kind: string; by_month: Record<string, number> }> = {};
+  for (const r of rows)
+    for (const m of months) {
+      const active = r.recurring
+        ? r.yyyymm <= m && (r.until_yyyymm === null || r.until_yyyymm >= m)
+        : r.yyyymm === m;
+      if (!active) continue;
+      cats[r.category] ??= {
+        kind: r.kind,
+        by_month: Object.fromEntries(months.map((x) => [x, 0])),
+      };
+      const c = cats[r.category] as { kind: string; by_month: Record<string, number> };
+      c.by_month[m] = (c.by_month[m] ?? 0) + r.amount_cents;
+    }
+  return {
+    months,
+    categories: Object.entries(cats)
+      .map(([category, v]) => ({
+        category,
+        kind: v.kind,
+        by_month: v.by_month,
+        total_cents: Object.values(v.by_month).reduce((a, b) => a + b, 0),
+      }))
+      .sort((a, b) => b.total_cents - a.total_cents),
+  };
+}
+
+/** One business's customers in the period: who, how much, when (by account; names when known). */
+function clients(db: Db, businessId: string, since: string, asOf: string) {
+  const rows = db
+    .prepare(
+      `SELECT r.customer_account AS account,
+              COALESCE((SELECT p.display_name FROM person_accounts pa JOIN people p ON p.id = pa.person_id WHERE pa.account_id = r.customer_account LIMIT 1), (SELECT p.display_name FROM chain_accounts ca JOIN people p ON p.id = ca.owner_id WHERE ca.owner_kind = 'person' AND ca.account_id = r.customer_account LIMIT 1)) AS name,
+              COUNT(*) AS requests,
+              SUM(CASE WHEN s.kind = 'charge' AND s.state = 'charged' THEN 1 ELSE 0 END) AS delivered,
+              SUM(CASE WHEN s.kind = 'release' OR s.state = 'returned' THEN 1 ELSE 0 END) AS not_charged,
+              MIN(r.created_at) AS first_at, MAX(r.created_at) AS last_at
+         FROM customer_requests r LEFT JOIN customer_settlements s ON s.request_id = r.id
+        WHERE r.business_id = ? AND r.created_at >= ? AND r.created_at <= ?
+        GROUP BY r.customer_account ORDER BY requests DESC`,
+    )
+    .all(businessId, since, asOf) as {
+    account: string;
+    name: string | null;
+    requests: number;
+    delivered: number;
+    not_charged: number;
+    first_at: string;
+    last_at: string;
+  }[];
+  const paid = db
+    .prepare(
+      `SELECT r.customer_account AS account, o.asset AS asset, o.plan AS plan, COUNT(*) AS n
+         FROM customer_requests r
+         JOIN customer_settlements s ON s.request_id = r.id AND s.kind = 'charge' AND s.state = 'charged'
+         JOIN customer_offers o ON o.id = r.offer_id
+        WHERE r.business_id = ? AND r.created_at >= ? AND r.created_at <= ?
+        GROUP BY r.customer_account, o.asset, o.plan`,
+    )
+    .all(businessId, since, asOf) as { account: string; asset: string; plan: string; n: number }[];
+  return rows.map((r) => {
+    const revenue: Record<string, string> = {};
+    for (const x of paid.filter((y) => y.account === r.account)) {
+      const price = String((JSON.parse(x.plan) as { unit_price?: string }).unit_price ?? "0");
+      revenue[x.asset] = add(revenue[x.asset] ?? "0", (BigInt(price) * BigInt(x.n)).toString());
+    }
+    return { ...r, revenue };
+  });
+}
+
+export function dashboard(
+  db: Db,
+  viewer: Person,
+  opts: { days?: number; now?: Date; only?: string } = {},
+) {
   const days = Math.min(90, Math.max(7, Math.floor(opts.days ?? 30)));
   const now = opts.now ?? new Date();
   const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + DAY_MS;
@@ -50,13 +257,15 @@ export function dashboard(db: Db, viewer: Person, opts: { days?: number; now?: D
 
   const owned = db
     .prepare(
-      "SELECT id, name, slug, tagline, created_at FROM businesses WHERE owner_id = ? ORDER BY name LIMIT 50",
+      "SELECT id, name, slug, tagline, about, created_at FROM businesses WHERE owner_id = ? ORDER BY name LIMIT 50",
     )
-    .all(viewer.id) as {
+    .all(viewer.id)
+    .filter((b) => !opts.only || (b as { id: string }).id === opts.only) as {
     id: string;
     name: string;
     slug: string;
     tagline: string;
+    about: string;
     created_at: string;
   }[];
 
@@ -385,6 +594,9 @@ export function dashboard(db: Db, viewer: Person, opts: { days?: number; now?: D
       cases,
       releases,
       team_members: team,
+      compute: computeDetail(db, b.id, since, asOf),
+      operating_costs: operatingCosts(db, b.id, since, asOf),
+      ...(opts.only ? { about: b.about, clients: clients(db, b.id, since, asOf) } : {}),
       sale: live
         ? {
             state: live.state,

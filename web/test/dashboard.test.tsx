@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 //
-// Plan step 7: the founder's dashboard (design/dashboard/DECISION.md) on the real sample answer of
-// GET /api/me/dashboard for Delphine Marsh's simulated month (fictional). The handover leads while
-// a sale needs a decision, its pending steps outlined; one chart switches between the portfolio
-// and a single business, and between token revenue and USD compute without ever mixing them;
-// cards stay short. Amounts are exact; unknown is never shown as zero.
+// Plan step 7: the owner's portfolio (design/dashboard/DECISION.md, Tony's owner pass) on the real
+// sample answer of GET /api/me/dashboard for Delphine Marsh's simulated month (fictional).
+// Acquisitions in process, each selectable; one chart switching portfolio and business, token
+// revenue and USD compute never mixed; costs in USD; short cards opening a breakdown in a new tab.
+// No narration: labels and values. Amounts exact; unknown never shown as zero.
 
 import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
@@ -20,11 +20,13 @@ vi.mock("../src/router.tsx", async () => {
 });
 
 import {
+  acceptance,
   nextAction,
   niceTicks,
   runwayText,
   saleSteps,
   tokenText,
+  usdFromCents,
   usdFromMicrocents,
 } from "../src/dashboardView.ts";
 import { Dashboard } from "../src/pages/Dashboard.tsx";
@@ -98,45 +100,77 @@ describe("the sale's steps", () => {
     buyer_accepted: false,
   };
 
-  it("fills done steps, marks the first open one current and outlines the rest", () => {
-    const s = saleSteps(sale, "180 TUSD");
+  it("labels the steps short, fills done ones, marks the current one, outlines the rest", () => {
+    const s = saleSteps(sale);
+    expect(s.map((x) => x.label)).toEqual([
+      "Proposed",
+      "Escrow funded",
+      "Accepted",
+      "Buyer accepted",
+      "Ownership",
+    ]);
     expect(s.map((x) => x.state)).toEqual(["done", "done", "current", "pending", "pending"]);
-    expect(s[2]?.detail).toBe("Waiting on you");
+    // Only the current step says anything.
+    expect(s.map((x) => x.detail)).toEqual(["", "", "Waiting on you", "", ""]);
   });
 
   it("an unfunded escrow is the current step, never shown as done", () => {
-    const s = saleSteps({ ...sale, escrow: "0" }, "180 TUSD");
-    expect(s[1]?.state).toBe("current");
-    expect(s[1]?.detail).toBe("Waiting on the buyer");
+    const s = saleSteps({ ...sale, escrow: "0" });
+    expect(s[1]).toMatchObject({ state: "current", detail: "Waiting on the buyer" });
   });
 
-  it("ownership never shows as moved from the dashboard (the contract closes it)", () => {
-    const s = saleSteps(
-      { ...sale, state: "closing", seller_accepted: true, buyer_accepted: true },
-      "180 TUSD",
-    );
-    expect(s[4]).toMatchObject({ state: "current", detail: "Closing on NEAR" });
+  it("ownership never shows as moved from here (the contract closes it)", () => {
+    const s = saleSteps({ ...sale, state: "closing", seller_accepted: true, buyer_accepted: true });
+    expect(s[4]).toMatchObject({ state: "current", detail: "Closing" });
+  });
+
+  it("acceptance reads 'In process' with the reason kept for its info tip", () => {
+    expect(acceptance(sale)).toEqual({
+      value: "In process",
+      why: "Neither side has accepted yet. Nothing moves until both do.",
+    });
+    expect(acceptance({ ...sale, seller_accepted: true, buyer_accepted: true }).value).toBe("Both");
+  });
+
+  it("USD cents are exact", () => {
+    expect(usdFromCents(6000)).toBe("$60.00");
+    expect(usdFromCents(123456)).toBe("$1,234.56");
+    expect(usdFromCents(null)).toBeNull();
   });
 });
 
-describe("the dashboard page", () => {
-  it("leads with the handover while a sale needs a decision", () => {
-    const d = sample();
-    const el = render(d, "Demo: simulated history (fictional)");
+describe("the portfolio page", () => {
+  it("says no more than it needs to", () => {
+    const el = render(sample(), "Demo: simulated history (fictional)");
+    expect(el.querySelector("h1")?.textContent).toBe("Portfolio");
     expect(el.textContent).toContain("Demo: simulated history (fictional)");
-    const hero = el.querySelector(".db-hero") as HTMLElement;
-    expect(hero).not.toBeNull();
-    // The hero comes before the performance chart in reading order.
-    const perf = el.querySelector(".db-perf") as HTMLElement;
-    expect(hero.compareDocumentPosition(perf) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(hero.textContent).toContain("Signalwatch");
-    expect(hero.textContent).toContain("buyer.near");
-    expect(hero.textContent).toContain("180.00 TUSD");
-    expect(hero.textContent).toContain("Neither yet");
-    expect(hero.textContent).toContain("386 prepaid uses");
-    const sw = (d.businesses as Json[]).find((b) => b.name === "Signalwatch") as Json;
-    expect(hero.querySelector("a.btn-primary")?.getAttribute("href")).toBe(`/sales/${sw.id}`);
-    const steps = [...hero.querySelectorAll(".db-step")].map((s) => s.className);
+    // No narration lines or reassurance paragraphs.
+    expect(el.textContent).not.toMatch(
+      /from launch to handover|Customers keep what they paid for|Funded by the buyer|held by the contract|both sides must accept/i,
+    );
+  });
+
+  it("lists acquisitions in process; each opens its steps", () => {
+    const d = sample();
+    const el = render(d);
+    const acq = el.querySelector(".db-acq") as HTMLElement;
+    expect(acq.querySelector("h2")?.textContent).toBe("Acquisitions in process");
+    const row = acq.querySelector("tbody tr") as HTMLElement;
+    expect(row.textContent).toContain("Signalwatch");
+    expect(row.textContent).toContain("buyer.near");
+    expect(row.textContent).toContain("180.00 TUSD");
+    expect(row.textContent).toContain("Awaiting you");
+    const toggle = acq.querySelector(".db-acq-toggle") as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const detail = acq.querySelector(".db-acq-detail") as HTMLElement;
+    // Escrow is the amount only; acceptance is "In process" with an info tip; expiry once.
+    expect(detail.textContent).toContain("In process");
+    expect(detail.querySelector(".db-info [role='tooltip']")?.textContent).toContain(
+      "Nothing moves until both do",
+    );
+    expect(acq.textContent?.match(/Nov 21/g)?.length).toBe(1);
+    expect(detail.textContent).not.toContain("180.00 TUSD");
+    const steps = [...detail.querySelectorAll(".db-step")].map((s) => s.className);
     expect(steps).toEqual([
       "db-step done",
       "db-step done",
@@ -144,90 +178,105 @@ describe("the dashboard page", () => {
       "db-step pending",
       "db-step pending",
     ]);
+    const sw = (d.businesses as Json[]).find((b) => b.name === "Signalwatch") as Json;
+    expect(detail.querySelector("a.btn-primary")?.getAttribute("href")).toBe(`/sales/${sw.id}`);
+    act(() => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(acq.querySelector(".db-acq-detail")).toBeNull();
   });
 
-  it("gives the hero's room to the chart when no sale needs a decision", () => {
+  it("has no acquisitions section when nothing is being sold", () => {
     const d = sample();
     for (const b of d.businesses as Json[]) b.sale = null;
-    const el = render(d);
-    expect(el.querySelector(".db-hero")).toBeNull();
-    expect(el.querySelector(".db-main .db-perf")).not.toBeNull();
+    expect(render(d).querySelector(".db-acq")).toBeNull();
   });
 
-  it("summarises the month exactly, with sources, and never invents network fees", () => {
-    const el = render(sample());
-    const s = el.querySelector(".db-summary")?.textContent ?? "";
+  it("summarises exactly, with source tags", () => {
+    const s = render(sample()).querySelector(".db-summary")?.textContent ?? "";
     expect(s).toContain("137.00 TUSD");
     expect(s).toContain("15.12¢");
-    expect(s).toContain("network fees not recorded");
-    expect(s).toContain("Source: business contracts");
-    expect(s).toContain("Source: runtime records");
-    expect(s).toContain("1,087 uses");
-    // Token revenue and USD are never added into one figure.
+    expect(s).toContain("1,087");
+    expect(s).toContain("contract");
+    expect(s).toContain("runtime");
     expect(s).not.toMatch(/profit|\bnet\b/i);
   });
 
   it("switches the one chart between the portfolio and a single business", () => {
     const el = render(sample());
     const perf = () => el.querySelector(".db-perf") as HTMLElement;
-    expect(perf().querySelector(".db-total")?.textContent).toContain("All businesses");
     expect(perf().querySelector(".db-total")?.textContent).toContain("137.00 TUSD");
-    expect(perf().querySelectorAll(".db-legend li").length).toBe(4); // three + release marker
     press(perf(), "Ledgerline");
     expect(perf().querySelector(".db-total")?.textContent).toContain("22.00 TUSD");
     expect(perf().querySelector("svg")?.textContent).toContain("Release 2");
-    expect(perf().textContent).toContain("Ledgerline's workspace");
-    const pressed = [...perf().querySelectorAll("button[aria-pressed='true']")].map(
-      (b) => b.textContent,
-    );
-    expect(pressed[0]).toBe("Ledgerline");
   });
 
-  it("draws compute in USD on its own axis, and says when there is no model", () => {
+  it("draws compute in USD on its own axis; no model means no chart", () => {
     const el = render(sample());
     const perf = () => el.querySelector(".db-perf") as HTMLElement;
-    press(perf(), "Compute cost");
+    press(perf(), "Compute");
     expect(perf().querySelector(".db-total")?.textContent).toContain("15.12¢ USD");
     expect(perf().querySelector("svg")?.textContent).toContain("US cents");
     expect(perf().querySelector("svg")?.textContent).not.toContain("TUSD");
-    expect(perf().textContent).toContain("never added to token revenue");
     press(perf(), "Relaydesk");
-    expect(perf().textContent).toContain("No model cost.");
+    expect(perf().textContent).toContain("No model cost");
     expect(perf().querySelector("svg")).toBeNull();
   });
 
-  it("keeps the daily figures one click away, exact", () => {
-    const el = render(sample());
-    const table = el.querySelector(".db-table table") as HTMLElement;
+  it("keeps the daily figures one click away", () => {
+    const table = render(sample()).querySelector(".db-table table") as HTMLElement;
     expect(table.querySelectorAll("tbody tr").length).toBe(30);
-    expect(table.textContent).toContain("TUSD");
-    expect(table.textContent).toContain("(so far)");
   });
 
-  it("keeps cards short: what it does, one trend and its next action", () => {
+  it("breaks costs down in USD: use, testing, unbilled, tokens, operating; fees unknown", () => {
     const d = sample();
-    const el = render(d);
-    const cards = [...el.querySelectorAll(".db-card")] as HTMLElement[];
+    const costs = render(d).querySelector(".db-costs") as HTMLElement;
+    const t = costs.textContent ?? "";
+    expect(t).toContain("Customer use");
+    expect(t).toContain("Testing");
+    expect(t).toContain("Unbilled");
+    expect(t).toContain("Operating");
+    expect(t).toContain("Not recorded");
+    expect(t).not.toContain("TUSD");
+    // Unbilled = Ledgerline's refused and incomplete customer use.
+    const ll = (d.businesses as Json[]).find((b) => b.name === "Ledgerline") as Json;
+    expect(t).toContain(usdFromMicrocents(ll.compute.unbilled_microcents) as string);
+    const rows = [...costs.querySelectorAll(".db-cost-table tbody tr")].map((r) => r.textContent);
+    expect(rows.find((r) => r?.startsWith("Relaydesk"))).toContain("None");
+    expect(costs.querySelectorAll("meter").length).toBeGreaterThan(0);
+  });
+
+  it("cards are short and open a breakdown in a new tab", () => {
+    const d = sample();
+    const cards = [...render(d).querySelectorAll(".db-card")] as HTMLElement[];
     expect(cards.length).toBe(3);
     for (const [i, c] of cards.entries()) {
       const b = (d.businesses as Json[])[i] as Json;
-      expect(c.querySelector("h3")?.textContent).toBe(b.name);
+      const a = c.querySelector("h3 a") as HTMLAnchorElement;
+      expect(a.getAttribute("href")).toBe(`/portfolio/${b.id}`);
+      expect(a.getAttribute("target")).toBe("_blank");
       expect(c.querySelectorAll("svg").length).toBe(1);
-      const next = nextAction(b);
-      expect(c.querySelector("footer a")?.getAttribute("href")).toBe(next.link);
-      // Detail stays in the workspace, not on the card.
+      expect(c.querySelector("footer a")?.getAttribute("href")).toBe(nextAction(b).link);
       expect(c.textContent).not.toMatch(/microcents|returning|Successor rehearsal/);
     }
-    expect(cards[0]?.textContent).toContain("Rehearse the handover");
-    expect(cards[1]?.textContent).toContain("Rehearsal passed");
-    expect(cards[2]?.textContent).toContain("Handover in progress");
   });
 
-  it("says plainly when there is nothing to show yet", () => {
+  it("says so plainly when there is nothing yet", () => {
     const d = sample();
     d.businesses = [];
     const el = render(d);
-    expect(el.textContent).toContain("You don't control a business yet.");
+    expect(el.textContent).toContain("No businesses yet.");
     expect(el.querySelector(".db-perf")).toBeNull();
+  });
+});
+
+describe("averages", () => {
+  it("rounds per-call and per-delivered averages to two places of a cent", async () => {
+    const { usdAverage } = await import("../src/dashboardView.ts");
+    expect(usdAverage("218181")).toBe("0.22¢");
+    expect(usdAverage(150000)).toBe("0.15¢");
+    expect(usdAverage(0)).toBe("0¢");
+    expect(usdAverage(1_000_000)).toBe("1¢");
+    expect(usdAverage(250_000_000)).toBe("$2.50");
+    expect(usdAverage(null)).toBeNull();
   });
 });
