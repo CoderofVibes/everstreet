@@ -8,6 +8,9 @@
 import { everstreetApi } from "../../../server/src/app.ts";
 import type { Envelope } from "../../../server/src/customerSigning.ts";
 import { verifiesEd25519 } from "../../../server/src/customerSigning.ts";
+import { CustomerUses } from "../../../server/src/customerUse.ts";
+import { MaintenanceSupervisor } from "../../../server/src/maintenance.ts";
+import { V3Observations } from "../../../server/src/v3observe.ts";
 import { canonicalSubmission } from "../../../server/src/workflow.ts";
 import { SIGNALWATCH_BRIEF, SIGNALWATCH_PROTOTYPE } from "../../../server/test/analyst.ts";
 import {
@@ -234,7 +237,25 @@ export async function demoWorld(opts: { dbPath: string }) {
     return { ok: true, id, outcome: x.body.use?.execution?.outcome as string, unit };
   };
 
+  /**
+   * Background customer maintenance, as the composed entry runs it: settles charges, returns
+   * expired reservations and cleans up, so a use made in the live demo finishes without a click.
+   */
+  const startMaintenance = () => {
+    const uses = new CustomerUses(
+      db,
+      store,
+      new V3Observations(db, store, v3),
+      customerOptions as never,
+      rw.runtime,
+    );
+    const s = new MaintenanceSupervisor(db, uses, { holder: "demo", intervalMs: 5_000 });
+    s.start();
+    return s;
+  };
+
   return {
+    startMaintenance,
     rw,
     /** The founder on the build app (AI builds go through the build provider there). */
     builder: lf.ava,

@@ -24,10 +24,20 @@ npm install
 npm run demo
 ```
 
-Open http://127.0.0.1:8820/portfolio and sign in with the demo wallet. You are Delphine Marsh, a
-fictional founder with three digital businesses, a month of simulated history, and Signalwatch
-mid-sale to a buyer. The demo runs entirely on your machine with a synthetic wallet and chain; the
-same flow on real NEAR testnet is recorded below.
+Open http://127.0.0.1:8820/portfolio and choose **Continue with Synthetic demo wallet**. You are
+Delphine Marsh, a fictional founder with three digital businesses, a month of simulated history,
+and Signalwatch mid-sale to a buyer. The demo runs entirely on your machine with a synthetic wallet
+and chain; the same flow on real NEAR testnet is recorded below.
+
+To play another person, point the demo wallet at them, then sign out and sign in again:
+
+```
+curl -X POST http://127.0.0.1:8821/account/buyer.near
+```
+
+`buyer.near` is Noah Brandt, the buyer; `cara.near` is a customer; `delphine.near` is the founder.
+The demo uses ports 8820 and 8821 (`npm run demo -- --port 8830` moves it), and stops by itself
+after two hours (`-- --minutes 300` for longer).
 
 ## What it proves on NEAR testnet
 
@@ -41,9 +51,12 @@ access keys (`ledgerline-v3-2.everstreet.testnet`, Nov 6 2026):
    owner view and release (404). The contract refuses owner calls from anyone but the current
    owner (`E_NOT_OWNER`, shown in the contract tests below).
 3. **The buyer serves the next use.** The customer's next request ran under the buyer, leaving 79.
+   A later use on the buyer's own update left 78, which is what the contract shows today.
 
 Every transaction, with explorer links: [data/evidence/v3-direct-testnet.json](data/evidence/v3-direct-testnet.json).
-Check it offline: `npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json`.
+Check it: `npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json --live`
+checks the record's digests offline, then reads the contract on public testnet (read-only, no
+keys): its code hash, that it has no access keys, its owner, and the customer's units.
 Details of all four v3 examples are [further down](#business-v3-handover-and-recovery-examples).
 
 ## How we tested these promises
@@ -68,8 +81,8 @@ Reproduce (WSL, from `contracts/`): `CARGO_TARGET_DIR=$HOME/everstreet-target ca
 
 ## Everything in it
 
-The product runs on your computer against NEAR testnet or the synthetic stack. Other ways to start
-it:
+Everything below exists in the code; some of it runs only in the legacy local preview (classes,
+bookings and the v2 payment and deal flows), not in `npm run demo`. Other ways to start it:
 
 - **Legacy local preview:** double-click **`Start Everstreet.cmd`**, or run `npm run app`, then
   open http://localhost:8800. It fills in four fictional example businesses and looks for local
@@ -250,9 +263,9 @@ purchase once. Series 2 repeats that recovery with a controlled fault (below).
     transaction with its explorer link, and the views at each checkpoint;
   - [data/evidence/v3-setup-testnet.json](data/evidence/v3-setup-testnet.json): accounts, the
     deployment and the key scope.
-- **Verify offline:** `npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json`.
-  It checks the digests and that no keys are present. Then open the explorer links, or read
-  `get_control` / `get_entitlement` on the contract.
+- **Verify:** `npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json --live`.
+  It checks the digests and that no keys are present, then reads the contract on testnet and
+  compares it with the record. The explorer links show each transaction.
 
 | Example | What the local check covers | Reproduce locally |
 |---|---|---|
@@ -288,8 +301,8 @@ purchase once. Series 2 repeats that recovery with a controlled fault (below).
 - **Evidence:** [data/evidence/v3-recovery-testnet.json](data/evidence/v3-recovery-testnet.json);
   [setup](data/evidence/v3-recovery-setup-testnet.json).
 
-Verify any record offline with `npx tsx scripts/verify-rehearsal.ts <file>`, then follow its
-explorer links.
+Verify any record with `npx tsx scripts/verify-rehearsal.ts <file> --live` (drop `--live` to
+stay offline), then follow its explorer links.
 
 ## Run it
 

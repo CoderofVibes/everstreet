@@ -3,7 +3,7 @@
 // serves the result with wallet sign-in through the SYNTHETIC review wallet (no real wallet, chain,
 // model or network; fictional people, businesses and test tokens). Local only.
 //
-//   npm run web:build && npx tsx scripts/demo.ts [--minutes 120]
+//   npm run demo [-- --minutes 120] [-- --port 8820]   (the controls use the next port)
 //   Sign in as Delphine: open http://127.0.0.1:8820/portfolio and choose the synthetic wallet.
 //   Switch who the wallet signs as: POST http://127.0.0.1:8821/account/<account>.
 
@@ -23,7 +23,8 @@ import { ACCOUNTS, BUYER, CUSTOMERS, demoWorld, FOUNDER } from "./lib/demo/world
 import { HARNESS_CSP, WALLET_SCRIPT } from "./lib/walletHarness.ts";
 
 const HOST = "127.0.0.1";
-const PORT = 8820;
+const portAt = process.argv.indexOf("--port");
+const PORT = portAt > 0 ? Number(process.argv[portAt + 1]) : 8820;
 const at = process.argv.indexOf("--minutes");
 const minutes = at > 0 ? Number(process.argv[at + 1]) : 120;
 const DAY = 86_400_000;
@@ -40,6 +41,14 @@ console.log("Running 30 simulated days (fictional, synthetic chain)…");
 const w = await demoWorld({ dbPath: join(DIR, "demo.db") });
 const log = await simulateHistory(w, { start });
 simulatedClock.realTime();
+// A fresh month of runtime budget for the businesses that run a model, so a visitor's own request
+// runs (the simulated month may have used up the default).
+for (const k of ["ledgerline", "signalwatch"] as const) {
+  const r = await w.delphine(`/api/businesses/${w.business[k].id}/runtime-budget`, "PUT", {
+    limit_cents: 20_000,
+  });
+  if (r.status !== 200) throw new Error(`runtime budget for ${k}: ${r.status}`);
+}
 console.log(
   `  ${log.uses.length} customer requests; events: ${log.events.map((e) => `day ${e.day + 1}: ${e.what}`).join("; ")}`,
 );
@@ -174,7 +183,14 @@ site.get("*", (c) => {
 });
 
 const ctl = new Hono();
-ctl.get("/", (c) => c.json({ account: controls.account, accounts: Object.keys(people), log }));
+ctl.get("/", (c) =>
+  c.json({
+    account: controls.account,
+    accounts: Object.keys(people),
+    switch: `POST http://${HOST}:${PORT + 1}/account/<account>, then sign out and sign in again`,
+    log,
+  }),
+);
 ctl.post("/account/:id", (c) => {
   const id = c.req.param("id");
   if (!(id in people)) return c.json({ error: "Not a demo account" }, 404);
@@ -182,12 +198,23 @@ ctl.post("/account/:id", (c) => {
   return c.json({ account: id });
 });
 
+const busy = (port: number) => (e: NodeJS.ErrnoException) => {
+  if (e.code !== "EADDRINUSE") throw e;
+  console.error(
+    `Port ${port} is in use (another demo?). Stop it, or run: npm run demo -- --port ${PORT + 10}`,
+  );
+  process.exit(1);
+};
 const app = serve({ fetch: site.fetch, port: PORT, hostname: HOST });
+app.on("error", busy(PORT));
 const control = serve({ fetch: ctl.fetch, port: PORT + 1, hostname: HOST });
+control.on("error", busy(PORT + 1));
 console.log(`Demo (simulated history, fictional): http://${HOST}:${PORT}/portfolio`);
 console.log(
-  `  Signs in as ${FOUNDER.name} (${FOUNDER.account}). Controls: http://${HOST}:${PORT + 1}/`,
+  `  The demo wallet signs in as ${FOUNDER.name} (${FOUNDER.account}). To act as someone else: curl -X POST http://${HOST}:${PORT + 1}/account/buyer.near (or cara.near), then sign out and in.`,
 );
+// Customer charges settle in the background, as in the composed entry.
+w.startMaintenance();
 // A sale closed on the (synthetic) contract reaches the local owner even if nobody checks it.
 setInterval(() => {
   void (

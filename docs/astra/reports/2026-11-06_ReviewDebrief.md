@@ -121,3 +121,43 @@ moment (the former owner refused, then the customer's use going through).
 - **README opening** reshaped to your sequence: what it is and the problem, video placeholder, one
   route (`npm run demo`), three outcomes linked to evidence, "How we tested these promises", then
   everything else.
+- **Permissions across the app** (your check 2), by a second cold reviewer with the same method
+  (`reports/2026-11-06_permissions-review.md`, 29 tests in `server/test/permissions-review/`).
+  1 High, 1 Medium, 3 Low, 5 notes:
+  - **High, fixed:** a Direct sale that closed on the contract while nobody told Everstreet (the
+    closing answer lost, or the acceptance sent from another wallet) left the seller in charge
+    here until someone checked. A watcher now reads every recorded sale from the chain every
+    15 s and applies a proven close. The window is one interval, not zero.
+  - **Medium, fixed differently:** a former seller still reaches the sale room, because that is
+    where proceeds are collected, but sees only their own claims and the public owner/operators:
+    no later deal, customer totals or someone else's handover.
+  - **Lows:** two list routes now check sign-in first; deal routes answer non-parties 404.
+  - **Kept by design:** a cancelled deal doesn't end the evidence room. The room follows the
+    seller's grant, which revokes or expires.
+- **Fresh testnet run (series 2)** with the fixed contract: Direct, Gated and recovery all
+  complete and verify offline (code hash `3Ptn4B…`). Series 1 is kept in
+  `data/evidence/v3-series-1/`. The public RPC dropped one platform charge; the identical signed
+  transaction was broadcast again and landed (recorded as an operator note). That's worth knowing
+  if the film shows explorer links.
+
+- **Cold judge rehearsal** (your check 3) from a fresh clone, README only
+  (`reports/2026-11-06_judge-rehearsal.md`). It got the demo running, walked the whole sale in
+  the browser, reproduced the testnet proof by reading the contract live, and said it would trust
+  the central claim, with reservations:
+  - the reviewers are also Claude;
+  - the former owner's refusal it saw was the app hiding the business, not the contract refusing;
+  - a customer's charge never settled in front of it.
+
+  Fixed the same day: a way to become the buyer, a port option, `verify-rehearsal --live`, and
+  demo maintenance. While checking, I also found the demo's Ledgerline budget was used up, so a
+  visitor's own request couldn't run; it gets a fresh budget now.
+
+  Open, and yours and Tony's to decide:
+  - an account picker in the demo wallet;
+  - a "try an owner action" on the v3 sale page that shows the contract's own refusal;
+  - a buyer's first-shift list after a v3 close;
+  - the "NEAR testnet" header inside the synthetic demo;
+  - shortening "Everything in it".
+
+**For you:** the README's video line is a placeholder. The opening and order are drafted to your
+outline; the wording is yours to change.
