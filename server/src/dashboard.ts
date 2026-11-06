@@ -50,9 +50,15 @@ export function dashboard(db: Db, viewer: Person, opts: { days?: number; now?: D
 
   const owned = db
     .prepare(
-      "SELECT id, name, slug, created_at FROM businesses WHERE owner_id = ? ORDER BY name LIMIT 50",
+      "SELECT id, name, slug, tagline, created_at FROM businesses WHERE owner_id = ? ORDER BY name LIMIT 50",
     )
-    .all(viewer.id) as { id: string; name: string; slug: string; created_at: string }[];
+    .all(viewer.id) as {
+    id: string;
+    name: string;
+    slug: string;
+    tagline: string;
+    created_at: string;
+  }[];
 
   const businesses = owned.map((b) => {
     // Revenue and pending charges, per day and asset.
@@ -335,6 +341,7 @@ export function dashboard(db: Db, viewer: Person, opts: { days?: number; now?: D
       id: b.id,
       name: b.name,
       slug: b.slug,
+      tagline: b.tagline,
       role: "owner" as const,
       product:
         release?.kind === "workflow_spec"

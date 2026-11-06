@@ -35,6 +35,7 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **Step 7 dashboard BUILT** (Nov 5 late): Fable made three mockups (design/dashboard/a,b,c); **Tony chose C with changes** (design/dashboard/DECISION.md: handover prominent while it needs a decision; one larger chart switching portfolio/single business; short cards). Built on /portfolio: web/src/pages/Dashboard.tsx + web/src/dashboardView.ts, test web/test/dashboard.test.tsx; businesses now carry a tagline. Browser pass on the demo at 1440 and 375 (no sideways scroll). NEXT: Fable visual pass on the real page; Astra review row; then step 8.
 - **Step 7 data side BUILT** (5cc3c26): `npx tsx scripts/demo.ts` (launch config "demo", port 8820, controls 8821) runs Delphine Marsh's 30 simulated days through the real routes (138 requests; Ledgerline v2, Priya joins Relaydesk, rehearsal, Signalwatch sale funded) and serves it with synthetic-wallet sign-in. Dashboard data: GET /api/me/dashboard (server/src/dashboard.ts). NEXT: Fable mockups (2-3 directions, screenshots desktop+phone) for Tony to choose; then the real dashboard page.
 
 - **Step 7 data plan written:** docs/design/DEMO_ACCOUNT.md (founder Delphine Marsh, chosen Nov 5 after Tony asked for another name than Marisol Teague; 3 businesses, Signalwatch mid-sale; 30 simulated days through the real flows; synthetic chain needs a multi-contract router; one portfolio dashboard read before visual work). Building next.

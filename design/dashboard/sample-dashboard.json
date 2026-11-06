@@ -1,6 +1,6 @@
 {
   "note": "FICTIONAL: Delphine Marsh's simulated month (synthetic chain, stand-in models). Shape of GET /api/me/dashboard.",
-  "as_of": "2026-11-06T02:13:51.468Z",
+  "as_of": "2026-11-06T03:07:25.914Z",
   "period": {
     "days": 30,
     "from": "2026-10-08",
@@ -43,8 +43,8 @@
       "symbol": "TUSD",
       "name": "Test USD (fixture)",
       "decimals": 6,
-      "block_height": "1783",
-      "observed_at": "2026-10-31T12:08:00.690Z",
+      "block_height": "1785",
+      "observed_at": "2026-10-31T12:08:00.828Z",
       "changed": false,
       "reason": null
     }
@@ -57,14 +57,15 @@
   },
   "businesses": [
     {
-      "id": "20031168-06dc-4073-895a-e541374f8e48",
+      "id": "5c399857-4673-4b89-a28b-b0ee90f379de",
       "name": "Ledgerline",
       "slug": "ledgerline",
+      "tagline": "Reads an invoice and returns its fields",
       "role": "owner",
       "product": "AI API",
       "release": {
         "number": 2,
-        "activated_at": "2026-10-15T11:58:36.237Z",
+        "activated_at": "2026-10-15T11:58:36.360Z",
         "digest": "f1eeb5a26550e9d296437ae3c8b90e77f2c17cfc6888c2f1adcd7b54bffaf9cf"
       },
       "daily": [
@@ -383,8 +384,8 @@
         "value": "137600000",
         "asset": "tusd.near",
         "units": 344,
-        "block_height": "1981",
-        "observed_at": "2026-11-05T11:10:38.445Z"
+        "block_height": "1983",
+        "observed_at": "2026-11-05T11:10:38.417Z"
       },
       "network_fees": null,
       "ownership": {
@@ -395,7 +396,7 @@
         "sale_in_progress": false
       },
       "rehearsal": null,
-      "founded_at": "2026-10-07T00:00:00.476Z",
+      "founded_at": "2026-10-07T00:00:00.802Z",
       "customers": {
         "active": 3,
         "returning": 3,
@@ -417,13 +418,13 @@
       "cases": null,
       "releases": [
         {
-          "activated_at": "2026-10-07T00:00:00.566Z",
-          "retired_at": "2026-10-15T11:58:36.237Z",
+          "activated_at": "2026-10-07T00:00:00.949Z",
+          "retired_at": "2026-10-15T11:58:36.360Z",
           "state": "retired",
           "number": 1
         },
         {
-          "activated_at": "2026-10-15T11:58:36.237Z",
+          "activated_at": "2026-10-15T11:58:36.360Z",
           "retired_at": null,
           "state": "active",
           "number": 2
@@ -435,19 +436,20 @@
         {
           "kind": "rehearsal",
           "text": "No successor rehearsal yet: rehearse the handover",
-          "link": "/desk/20031168-06dc-4073-895a-e541374f8e48/rehearsal"
+          "link": "/desk/5c399857-4673-4b89-a28b-b0ee90f379de/rehearsal"
         }
       ]
     },
     {
-      "id": "b6fa11e4-6286-4a0b-af41-5a78fdc5090f",
+      "id": "746fb5f0-d01c-47a3-a26c-be38c9c650a6",
       "name": "Relaydesk",
       "slug": "relaydesk",
+      "tagline": "Support requests become cases, worked through stages",
       "role": "owner",
       "product": "SaaS workflow",
       "release": {
         "number": 1,
-        "activated_at": "2026-10-07T00:00:00.659Z",
+        "activated_at": "2026-10-07T00:00:01.108Z",
         "digest": "e9f65820bf62dc32ccb202a673a55246fcdf1e430bae1928fc6e162768c56feb"
       },
       "daily": [
@@ -766,8 +768,8 @@
         "value": "535500000",
         "asset": "tusd.near",
         "units": 357,
-        "block_height": "1982",
-        "observed_at": "2026-11-05T11:10:38.449Z"
+        "block_height": "1984",
+        "observed_at": "2026-11-05T11:10:38.421Z"
       },
       "network_fees": null,
       "ownership": {
@@ -779,9 +781,9 @@
       },
       "rehearsal": {
         "state": "passed",
-        "finished_at": "2026-10-26T12:34:06.118Z"
+        "finished_at": "2026-10-26T12:34:06.826Z"
       },
-      "founded_at": "2026-10-07T00:00:00.570Z",
+      "founded_at": "2026-10-07T00:00:00.953Z",
       "customers": {
         "active": 4,
         "returning": 4,
@@ -803,7 +805,7 @@
       },
       "releases": [
         {
-          "activated_at": "2026-10-07T00:00:00.659Z",
+          "activated_at": "2026-10-07T00:00:01.108Z",
           "retired_at": null,
           "state": "active",
           "number": 1
@@ -815,19 +817,20 @@
         {
           "kind": "open_cases",
           "text": "4 open customer requests",
-          "link": "/desk/b6fa11e4-6286-4a0b-af41-5a78fdc5090f"
+          "link": "/desk/746fb5f0-d01c-47a3-a26c-be38c9c650a6"
         }
       ]
     },
     {
-      "id": "69471902-6572-4d19-a3fb-1f10d0f29f7e",
+      "id": "d276be22-20eb-4f42-aa25-eb23773685aa",
       "name": "Signalwatch",
       "slug": "signalwatch",
+      "tagline": "Flags what changed in suppliers' release notes",
       "role": "owner",
       "product": "Agent service",
       "release": {
         "number": 1,
-        "activated_at": "2026-10-07T00:00:00.713Z",
+        "activated_at": "2026-10-07T00:00:01.186Z",
         "digest": "453948209d39d3934bcb247b39067f30189962fcdaffe2a5beab1a5378a42145"
       },
       "daily": [
@@ -1146,8 +1149,8 @@
         "value": "1544000000",
         "asset": "tusd.near",
         "units": 386,
-        "block_height": "1983",
-        "observed_at": "2026-11-05T11:10:38.454Z"
+        "block_height": "1985",
+        "observed_at": "2026-11-05T11:10:38.425Z"
       },
       "network_fees": null,
       "ownership": {
@@ -1158,7 +1161,7 @@
         "sale_in_progress": true
       },
       "rehearsal": null,
-      "founded_at": "2026-10-07T00:00:00.572Z",
+      "founded_at": "2026-10-07T00:00:00.957Z",
       "customers": {
         "active": 2,
         "returning": 2,
@@ -1171,7 +1174,7 @@
       "cases": null,
       "releases": [
         {
-          "activated_at": "2026-10-07T00:00:00.713Z",
+          "activated_at": "2026-10-07T00:00:01.186Z",
           "retired_at": null,
           "state": "active",
           "number": 1
@@ -1185,14 +1188,14 @@
         "escrow": "180000000",
         "seller_accepted": false,
         "buyer_accepted": false,
-        "expires_at": "2026-11-21T12:08:00.625Z",
+        "expires_at": "2026-11-21T12:08:00.770Z",
         "asset": "tusd.near"
       },
       "attention": [
         {
           "kind": "sale",
           "text": "A sale is in progress: its terms wait for acceptance",
-          "link": "/sales/69471902-6572-4d19-a3fb-1f10d0f29f7e"
+          "link": "/sales/d276be22-20eb-4f42-aa25-eb23773685aa"
         }
       ]
     }

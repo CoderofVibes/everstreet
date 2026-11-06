@@ -7,7 +7,7 @@ import { useActorRead } from "../actorRead.ts";
 import { ApiError } from "../api.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
-import { TokenAmount } from "../TokenAmount.tsx";
+import { Dashboard } from "./Dashboard.tsx";
 
 // biome-ignore lint/suspicious/noExplicitAny: a loosely typed projection, read field by field
 type Json = Record<string, any>;
@@ -106,8 +106,17 @@ const fetchPortfolio = async (): Promise<Json> => {
   return d;
 };
 
+/** Plan step 7: the dashboard's figures, read the same way. */
+const fetchDashboard = async (): Promise<Json> => {
+  const r = await fetch("/api/me/dashboard?days=30", { credentials: "same-origin" });
+  const d = (await r.json().catch(() => ({}))) as Json;
+  if (!r.ok) throw new ApiError(r.status, d.error ?? `HTTP ${r.status}`, d.code);
+  return d;
+};
+
 export function PortfolioPage() {
-  const { person, requireSignIn } = useSession();
+  const { person, requireSignIn, environment } = useSession();
+  const dash = useActorRead(person?.id ?? null, fetchDashboard);
   // 006b1 (Astra, Nov 5): bound to the person who asked. A switch or sign-out drops what was
   // shown at once; a late answer for anyone else changes nothing.
   const { state, retry } = useActorRead(person?.id ?? null, fetchPortfolio);
@@ -139,74 +148,44 @@ export function PortfolioPage() {
     );
   if (!p) return <div className="page muted">Loading…</div>;
   return (
-    <div className="page">
-      <p className="eyebrow">Acquire · Portfolio</p>
-      <h1 className="display" style={{ fontSize: 40 }}>
-        Your portfolio
-      </h1>
-      <p className="muted">{p.basis}</p>
-      {p.attention.length > 0 && (
-        <section className="card pf-attention" aria-labelledby="pf-att">
-          <h2 id="pf-att">Needs attention</h2>
-          <ul className="plain">
-            {p.attention.map((a: Json) => (
-              <li key={`${a.business.id}-${a.text}`}>
-                <Link to={`/desk/${a.business.id}`}>{a.business.name}</Link>: {a.text}
+    <div className="page page-wide">
+      {dash.state.data ? (
+        <Dashboard d={dash.state.data} environment={environment} />
+      ) : dash.state.status === "failed" || dash.state.status === "refused" ? (
+        <p className="error" role="alert">
+          Your dashboard couldn't be read just now
+          {dash.state.error ? ` (${dash.state.error})` : ""}.{" "}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={dash.retry}>
+            Try again
+          </button>
+        </p>
+      ) : (
+        <p className="muted">Loading your dashboard…</p>
+      )}
+      <p className="muted small">{p.basis}</p>
+      {p.owned.length > 0 && (
+        <>
+          <h2 className="section-title">Control sheets and notes</h2>
+          <ul className="plain pf-owned">
+            {p.owned.map((o: Json) => (
+              <li key={o.business.id} className="card pf-row">
+                <strong>
+                  <Link to={`/desk/${o.business.id}`}>{o.business.name}</Link>
+                </strong>{" "}
+                <span className="small muted">
+                  {o.control.how === "founded"
+                    ? `Founded here ${new Date(o.control.at).toLocaleDateString()}`
+                    : `Received from ${o.control.from} ${new Date(o.control.at).toLocaleDateString()}${o.control.receipt?.tx ? " (recorded close)" : ""}`}
+                </span>{" "}
+                <Link to={`/acquire/control/${o.business.id}`} className="btn btn-quiet btn-sm">
+                  Control sheet<span className="sr-only">: {o.business.name}</span>
+                </Link>
+                <NoteEditor item={o} labels={p.labels} onSaved={setP} />
               </li>
             ))}
           </ul>
-        </section>
+        </>
       )}
-      <h2 className="section-title">Owned ({p.owned.length})</h2>
-      {p.owned.length === 0 && <p className="muted">You don't control a business yet.</p>}
-      <div className="pf-grid">
-        {p.owned.map((o: Json) => (
-          <article key={o.business.id} className="card pf-card">
-            <h3 style={{ marginTop: 0 }}>
-              <Link to={`/desk/${o.business.id}`}>{o.business.name}</Link>
-            </h3>
-            <p className="small muted">
-              {o.control.how === "founded"
-                ? `Founded here ${new Date(o.control.at).toLocaleDateString()}`
-                : `Received from ${o.control.from} ${new Date(o.control.at).toLocaleDateString()}${o.control.receipt?.tx ? " (recorded close)" : ""}`}
-            </p>
-            <p className="small">
-              {o.products.projects} product{o.products.projects === 1 ? "" : "s"} ·{" "}
-              {o.products.released} released · {o.products.offers} offer
-              {o.products.offers === 1 ? "" : "s"} active
-            </p>
-            {o.this_month === null ? (
-              <p className="small muted">This month's figures couldn't be read: unknown.</p>
-            ) : Object.keys(o.this_month.by_asset).length === 0 ? (
-              <p className="small muted">{o.this_month.label}: no charged uses or purchases.</p>
-            ) : (
-              <ul className="plain small">
-                {Object.entries(o.this_month.by_asset as Record<string, Json>).map(([asset, v]) => (
-                  <li key={asset}>
-                    {o.this_month.label}: earned{" "}
-                    <TokenAmount base={v.earned} asset={asset} token={o.tokens?.[asset]} /> from{" "}
-                    {v.earned_units} use
-                    {v.earned_units === 1 ? "" : "s"}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {(o.owed ?? []).map((w: Json) => (
-              <p key={w.asset} className="small">
-                Customers are owed{" "}
-                {w.outstanding_units === null ? "an unknown number of" : w.outstanding_units}{" "}
-                prepaid use
-                {w.outstanding_units === 1 ? "" : "s"}.
-              </p>
-            ))}
-            {o.next_action && <p className="small notice info">Next: {o.next_action}</p>}
-            <Link to={`/acquire/control/${o.business.id}`} className="btn btn-quiet btn-sm">
-              Control sheet
-            </Link>
-            <NoteEditor item={o} labels={p.labels} onSaved={setP} />
-          </article>
-        ))}
-      </div>
       <h2 className="section-title">Considering ({p.considering.length})</h2>
       {p.considering.length === 0 ? (
         <p className="muted">

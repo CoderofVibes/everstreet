@@ -161,8 +161,19 @@ export async function demoWorld(opts: { dbPath: string }) {
     relaydesk: "Relaydesk",
     signalwatch: "Signalwatch",
   };
+  const taglines: Record<BusinessKey, string> = {
+    ledgerline: "Reads an invoice and returns its fields",
+    relaydesk: "Support requests become cases, worked through stages",
+    signalwatch: "Flags what changed in suppliers' release notes",
+  };
   for (const k of Object.keys(names) as BusinessKey[])
-    must("name", await delphine(`/api/businesses/${business[k].id}`, "PATCH", { name: names[k] }));
+    must(
+      "name",
+      await delphine(`/api/businesses/${business[k].id}`, "PATCH", {
+        name: names[k],
+        tagline: taglines[k],
+      }),
+    );
   await compileAndRelease(
     delphine,
     business.relaydesk.project,
