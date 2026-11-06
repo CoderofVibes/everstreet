@@ -9,6 +9,7 @@ import { type DeskLoadState, deskLoader } from "../deskLoad.ts";
 import { ago, type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { type MyTeamEntry, teamApi } from "../teamApi.ts";
 import { FAMILY_LABEL, OfferCard, STAGE_LABEL } from "../ui.tsx";
 import { DealsList } from "./Deal.tsx";
 import { DeskGrowth, DeskShare, DeskTeamIfPaid } from "./DeskGrowth.tsx";
@@ -35,8 +36,14 @@ export function DeskList() {
     null,
   );
   const [helping, setHelping] = useState<{ business_id: string; name: string; slug: string }[]>([]);
+  // First-use review #58: a team member's businesses are part of their day too.
+  const [teams, setTeams] = useState<MyTeamEntry[]>([]);
   useEffect(() => {
     if (person) {
+      teamApi
+        .mine()
+        .then((r) => setTeams(r.teams))
+        .catch(() => {});
       api
         .projects()
         .then((r) => setRows(r.projects))
@@ -56,18 +63,42 @@ export function DeskList() {
           Your businesses
         </h1>
         <span className="spacer" />
-        <button type="button" className="btn btn-primary" onClick={() => go("/start")}>
-          Start another
-        </button>
-      </div>
-      {rows.length === 0 ? (
-        <div className="card empty" style={{ marginTop: 24 }}>
-          <h2>Nothing here yet</h2>
-          <p>Start with an idea, or let us help you find one.</p>
-          <Link to="/start" className="btn btn-primary">
+        {rows.length > 0 && (
+          <button type="button" className="btn btn-primary" onClick={() => go("/start")}>
             Start a business
-          </Link>
-        </div>
+          </button>
+        )}
+      </div>
+      {teams.length > 0 && (
+        <>
+          <h2 className="section-title" style={{ marginTop: 24 }}>
+            Businesses you work on
+          </h2>
+          <div className="biz-list" style={{ marginTop: 12 }}>
+            {teams.map((t) => (
+              <Link key={t.id} to={`/team/${t.business_id}`} className="card link biz-row">
+                <div>
+                  <h3 style={{ fontSize: 18, margin: 0 }}>{t.business_name}</h3>
+                  <span className="muted" style={{ fontSize: 14 }}>
+                    {t.role_label}
+                  </span>
+                </div>
+                <span className="spacer" />
+                <span className="btn btn-secondary">Open the board</span>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
+      {rows.length === 0 ? (
+        teams.length === 0 && (
+          <div className="card empty" style={{ marginTop: 24 }}>
+            <h2>No businesses yet</h2>
+            <Link to="/start" className="btn btn-primary">
+              Start a business
+            </Link>
+          </div>
+        )
       ) : (
         <div className="biz-list" style={{ marginTop: 24 }}>
           {rows.map((r) => (
@@ -79,8 +110,7 @@ export function DeskList() {
               <div>
                 <h3 style={{ fontSize: 18, margin: 0 }}>{r.name}</h3>
                 <span className="muted" style={{ fontSize: 14 }}>
-                  {r.published_at ? "Published" : "Private draft, not published"} ·{" "}
-                  {STAGE_LABEL[r.stage]}
+                  {r.published_at ? "Published" : "Private draft, not published"}
                 </span>
               </div>
               <span className="spacer" />

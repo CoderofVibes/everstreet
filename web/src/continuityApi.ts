@@ -92,6 +92,8 @@ export interface Observed {
   owner_match: "matches" | "mismatch" | "unknown_mapping";
   owner_note: string;
   treasury: Treasury;
+  /** Review #42: the token's details as read on chain (TokenAmount parses them). */
+  token?: unknown;
   claims_note: string;
   pending: { slot: number; state: string; kind: string; amount: string; to: string }[];
   periods: PeriodEvidence[];

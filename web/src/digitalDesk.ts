@@ -65,6 +65,11 @@ export function workHref(w: Pick<DeskWorkItem, "link">, businessId: string): str
       return `/desk/${businessId}/continuity`;
     case "inquiries":
       return deskViewHref(businessId, "growth", "desk-inquiries");
+    // First-use review #38/#41: the request board, and the sale where the seller accepts.
+    case "cases":
+      return deskViewHref(businessId, "products", "desk-cases");
+    case "sale":
+      return `/sales/${businessId}`;
     default:
       return deskViewHref(businessId, "growth", "desk-checklist");
   }

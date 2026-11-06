@@ -8,6 +8,7 @@ import { ApiError } from "../api.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { Dashboard } from "./Dashboard.tsx";
+import { MyDeals } from "./MyDeals.tsx";
 
 // biome-ignore lint/suspicious/noExplicitAny: a loosely typed projection, read field by field
 type Json = Record<string, any>;
@@ -162,6 +163,7 @@ export function PortfolioPage() {
       ) : (
         <p className="muted">Loading your dashboard…</p>
       )}
+      <MyDeals only="buyer" />
       {p.owned.length > 0 && (
         <>
           <h2 className="section-title">Control sheets and notes</h2>

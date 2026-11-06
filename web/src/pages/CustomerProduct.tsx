@@ -679,6 +679,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
       offerId,
       useId,
       authorizer: identity === "verified" ? () => device.current : pageAuthorizer,
+      requireAuthorizer: identity === "verified",
       storage: typeof sessionStorage === "undefined" ? null : sessionStorage,
     });
     setW(ws);

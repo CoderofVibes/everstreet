@@ -173,7 +173,11 @@ export function projectStatus(s: StatusInput): StudioStatus {
   if (rel) {
     const check = cand?.latest_check ?? null;
     if (!cand)
-      next = s.build.available ? { label: "Build a version", target: { tab: "builds" } } : null;
+      // First-use review #19: when this kind can't be built here, offer the way that works
+      // (a service with a bookable page), never a step that leads back to the studio.
+      next = s.build.available
+        ? { label: "Build a version", target: { tab: "builds" } }
+        : { label: "Offer it as a service instead", target: { route: "/start" } };
     else if (!rel.active && !check)
       next = { label: "Check the latest build", target: { tab: "service", task: "evaluate" } };
     else if (!rel.active && check?.release_ready)

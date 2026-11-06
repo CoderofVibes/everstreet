@@ -1738,3 +1738,15 @@ ul.plain { margin: 0; padding-left: 18px; }
   .db-costs { padding: 18px 16px; }
   .db-info [role="tooltip"] { left: auto; right: -8px; transform: none; }
 }
+
+/* First-use review #19: a product kind that can't be built here says so on its chip. */
+.fchip-off { margin-left: 6px; font-size: 11px; color: var(--text-3); border: 1px dashed var(--line-strong); border-radius: 999px; padding: 0 6px; }
+
+/* First-use review #74/#81: deals in progress; Acquire's search grid collapses on a phone. */
+.my-deals { margin: 16px 0; }
+.my-deals h2 { margin-top: 0; font-size: 18px; }
+.my-deals li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.acq-search { grid-template-columns: 320px minmax(0, 1fr); }
+@media (max-width: 1000px) { .acq-search { grid-template-columns: minmax(0, 1fr); } }
+.filters-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 640px) { .filters-3 { grid-template-columns: minmax(0, 1fr); } }

@@ -211,11 +211,7 @@ export function OverviewFigures({ books, businessId }: { books: BooksHandle; bus
     <div className="card ws-glance">
       <h2 className="ws-h">Customers and running cost</h2>
       <BooksNotice books={books} />
-      <p className="muted">
-        No customer product is running yet, so there are no customer uses or runtime costs to show.
-        Build a product in Studio, test a release and offer it to customers; they appear here as
-        they are recorded.
-      </p>
+      <p className="muted">No customer product yet.</p>
     </div>
   );
 }

@@ -72,7 +72,11 @@ describe("001b studio preview: released, failed and draft products, from real re
     const d = await statusOf(p.projects.draft);
     expect(d.s.chip.label).toBe("Prototype only");
     expect(items(d.s).build).toMatch(/building isn't connected here/);
-    expect(d.s.next).toBeNull();
+    // First-use review #19: a way forward, never a dead end.
+    expect(d.s.next).toEqual({
+      label: "Offer it as a service instead",
+      target: { route: "/start" },
+    });
     // Job 001g: it is also the empty state the canvas studio starts from: revision 1, untitled,
     // no audience or promised result yet, so the header's Next opens a brief to-do in Edit mode;
     // its starter prototype has a form whose parts Edit mode can select.

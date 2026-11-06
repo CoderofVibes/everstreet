@@ -141,7 +141,10 @@ export interface DeskWorkItem {
   who: "you" | "system";
   count: number;
   label: string;
-  link: { to: "customers" | "studio" | "inquiries" | "checklist" | "continuity"; project?: string };
+  link: {
+    to: "customers" | "studio" | "inquiries" | "checklist" | "continuity" | "cases" | "sale";
+    project?: string;
+  };
 }
 export interface DigitalDeskView {
   as_of: string;

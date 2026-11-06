@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import type { Db } from "./db.ts";
 import { resolveFromEvidence } from "./handover.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import { tokenMetaOf } from "./tokenMeta.ts";
 import {
   type BlockRef,
   isAccountId,
@@ -655,6 +656,9 @@ export class V3Observations {
       owner_note:
         "An observation never changes who controls this business in the app; a mismatch needs reconciliation.",
       treasury: s.treasury,
+      // First-use review #42: the token's details as read on its own contract, so amounts read
+      // the same here as on the buyer's sale page (unknown details: exact base units).
+      token: tokenMetaOf(this.db, proj.network, s.treasury.asset),
       claims_note: "Claims are owed; only the period counters show what was actually paid.",
       pending: s.pending,
       periods: this.periods(businessId, s.block, staleAfter),

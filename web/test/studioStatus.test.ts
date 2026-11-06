@@ -43,7 +43,11 @@ describe("001b status projection", () => {
     const off = projectStatus({ ...base, build: { available: false, reason: "No provider" } });
     expect(by(off).build).toMatchObject({ tone: "blocked" });
     expect(by(off).build?.value).toMatch(/isn't connected here: No provider/);
-    expect(off.next).toBeNull();
+    // Review #19: a way forward, never a dead end.
+    expect(off.next).toEqual({
+      label: "Offer it as a service instead",
+      target: { route: "/start" },
+    });
     expect(by(off).release?.value).toBe("Not released");
     expect(off.items.some((i) => /launched|\blive\b/i.test(i.value))).toBe(false);
   });

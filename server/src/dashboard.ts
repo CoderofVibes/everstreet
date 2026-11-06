@@ -531,7 +531,7 @@ export function dashboard(
       attention.push({
         kind: "open_cases",
         text: `${openCases} open customer request${openCases === 1 ? "" : "s"}`,
-        link: `/desk/${b.id}`,
+        link: `/desk/${b.id}?view=products#desk-cases`,
       });
     if (live)
       attention.push({

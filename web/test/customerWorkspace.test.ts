@@ -259,6 +259,62 @@ describe("003q customer workspace controller (real API)", () => {
     expect(ws.getState().use?.state).toBe("prepared");
   });
 
+  it("review #65: with verified sign-in, nothing is prepared until this device's key is ready", async () => {
+    const { w, offer } = await setup();
+    let device: CustomerAuthorizer | null = null;
+    const ws = new CustomerWorkspace(portFor(w.cara, w), {
+      personId: w.cara.id,
+      offerId: offer,
+      authorizer: () => device,
+      requireAuthorizer: true,
+      now: () => w.clock.now,
+      makeKey,
+    });
+    await ws.start();
+    ws.setDraft(INVOICE);
+    expect(nextStep(ws.getState())).toMatchObject({
+      action: null,
+      label: "Set up this device first",
+    });
+    await ws.prepare();
+    expect(ws.getState().use).toBeNull();
+    expect(ws.getState().notice?.code).toBe("device_first");
+    // The device becomes ready: now the request is reviewed with this key.
+    device = testAuthorizer();
+    ws.refreshAuthorizer();
+    expect(nextStep(ws.getState())).toMatchObject({ action: "prepare" });
+    await ws.prepare();
+    expect(ws.getState().check?.ok).toBe(true);
+    expect(nextStep(ws.getState())).toMatchObject({ action: "authorize" });
+  });
+
+  it("review #65: a key that changes after the review is checked at once; no stale Authorize", async () => {
+    const { w, offer } = await setup();
+    let device: CustomerAuthorizer = testAuthorizer();
+    const ws = new CustomerWorkspace(portFor(w.cara, w), {
+      personId: w.cara.id,
+      offerId: offer,
+      authorizer: () => device,
+      now: () => w.clock.now,
+      makeKey,
+    });
+    await ws.start();
+    ws.setDraft(INVOICE);
+    await ws.prepare();
+    expect(ws.getState().check?.ok).toBe(true);
+    // Another key takes over (different label so the change is seen).
+    const other = testAuthorizer(2);
+    device = { ...other, label: "Another device", publicKey: other.publicKey, sign: other.sign };
+    ws.refreshAuthorizer();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ws.getState().check).toEqual({
+      ok: false,
+      problem: "This request names a key that isn't yours.",
+    });
+    expect(nextStep(ws.getState()).action).not.toBe("authorize");
+  });
+
   it("a malformed answer changes nothing; access lost clears everything private", async () => {
     const { w, offer } = await setup();
     let garble = false;
@@ -562,37 +618,36 @@ describe("003r1 a cancelled use waits honestly for its authorization window", ()
       makeKey,
     });
 
-  it("after cancelling, it says wait (with the deadline) and offers Check again, not a new request", async () => {
+  it("after cancelling (review #66): back to the document, the wait said once with its deadline", async () => {
     const { w, offer } = await setup();
     const s = ws(w, offer);
     await s.start();
     s.setDraft(INVOICE);
     await s.prepare();
+    const first = s.getState().use?.id;
     const acceptBy = s.getState().use?.envelope?.consent.accept_by_ms as string;
     await s.cancel();
-    expect(s.getState().use?.state).toBe("cancelled");
-    expect(s.getState().use?.next_use).toEqual({ state: "wait", until_ms: acceptBy });
+    // The request is cancelled (it stays in the history); the page is back at the document.
+    expect(s.getState().use).toBeNull();
+    expect(s.getState().draft).toBe(INVOICE);
+    expect(s.getState().waiting).toEqual({ request_id: first, until_ms: acceptBy });
     const next = nextStep(s.getState());
-    expect([next.action, next.label]).toEqual(["refresh", "Check again"]);
+    expect([next.action, next.label]).toEqual(["prepare", "Check again and review"]);
     expect(next.why).toMatch(/stays valid/);
     expect(next.why).not.toMatch(/charged|reserved/i);
-    // Checking before the deadline changes nothing and creates nothing.
     const count = () =>
       (
         w.state.store.db.prepare("SELECT COUNT(*) AS n FROM customer_requests").get() as {
           n: number;
         }
       ).n;
-    await s.refresh();
-    expect(nextStep(s.getState()).action).toBe("refresh");
+    // Trying before the deadline creates nothing: the contract may still accept the old one.
+    await s.prepare();
+    expect(s.getState().use).toBeNull();
     expect(count()).toBe(1);
-    // After the deadline (both clocks), a new request is offered; the contract still decides.
+    // After the deadline (both clocks), the same document makes a new request.
     w.chain.tick(BigInt(acceptBy) - w.chain.ts + 1n);
     w.clock.now = Number(w.chain.ts);
-    await s.refresh();
-    expect(s.getState().use?.next_use).toEqual({ state: "check", until_ms: null });
-    expect(nextStep(s.getState()).action).toBe("start_another");
-    s.startAnother();
     s.setDraft(`${INVOICE} (second)`);
     await s.prepare();
     expect(s.getState().use?.state).toBe("prepared");

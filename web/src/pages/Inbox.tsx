@@ -7,12 +7,32 @@ export function Inbox() {
   const { person, requireSignIn } = useSession();
   const [box, setBox] = useState<{ received: Inquiry[]; sent: Inquiry[] } | null>(null);
   const [replies, setReplies] = useState<Record<string, string>>({});
+  // First-use review #57: what waits on you across your businesses, from the same read as the
+  // portfolio's "Needs you today", so the two never disagree.
+  const [needs, setNeeds] = useState<{ business: string; text: string; link: string }[] | null>(
+    null,
+  );
   useEffect(() => {
-    if (person)
-      api
-        .inbox()
-        .then(setBox)
-        .catch(() => {});
+    if (!person) return;
+    api
+      .inbox()
+      .then(setBox)
+      .catch(() => {});
+    fetch("/api/me/dashboard?days=7", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (
+          d: {
+            businesses?: { name: string; attention: { text: string; link: string }[] }[];
+          } | null,
+        ) =>
+          setNeeds(
+            (d?.businesses ?? []).flatMap((b) =>
+              b.attention.map((a) => ({ business: b.name, text: a.text, link: a.link })),
+            ),
+          ),
+      )
+      .catch(() => setNeeds(null));
   }, [person]);
   if (!person)
     return (
@@ -33,13 +53,21 @@ export function Inbox() {
       <h1 className="display" style={{ fontSize: 40 }}>
         Inbox
       </h1>
+      {needs && needs.length > 0 && (
+        <section className="card" aria-labelledby="inbox-needs">
+          <h2 id="inbox-needs">Needs you</h2>
+          <ul className="plain inbox-needs">
+            {needs.map((n) => (
+              <li key={`${n.business}-${n.text}`}>
+                <span className="muted small">{n.business}</span> <Link to={n.link}>{n.text}</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <section className="card">
-        <h2>To your businesses</h2>
-        {box.received.length === 0 && (
-          <p className="muted">
-            Nothing yet. When someone responds to your page, it arrives here and on your desk.
-          </p>
-        )}
+        <h2>Messages to your businesses</h2>
+        {box.received.length === 0 && <p className="muted">No messages.</p>}
         {box.received.map((i) => (
           <div className="message" key={i.id}>
             <div className="meta">

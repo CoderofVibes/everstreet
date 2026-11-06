@@ -92,23 +92,24 @@ export function Home() {
       text: "Describe the idea; get a saved brief and prototype.",
       primary: true,
     },
+    // First-use review #29: the route that gets a newcomer something to sell, one click away.
+    {
+      icon: "store",
+      title: "Start a business",
+      text: "Offer a service with a bookable page, in a few questions.",
+      to: "/start",
+    },
     {
       icon: "upload",
       title: "Bring a product",
-      text: "Bring an existing product and see what it needs to launch or transfer.",
+      text: "An existing product: what it needs to launch or transfer.",
       to: "/import",
     },
     {
       icon: "handshake",
       title: "Explore acquisitions",
-      text: "Businesses for sale, with numbers you can check.",
+      text: "Businesses for sale.",
       to: "/acquire",
-    },
-    {
-      icon: "search",
-      title: "Find a solution",
-      text: "Say what you need; see who offers it.",
-      to: "/find",
     },
   ];
 

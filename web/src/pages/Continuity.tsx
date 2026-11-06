@@ -6,7 +6,6 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   type ContinuityView,
   continuityApi,
-  groupDigits,
   monthLabel,
   msDate,
   type Observed,
@@ -14,6 +13,7 @@ import {
 import { ACCESS_UNCONFIRMED, ContinuityController } from "../continuityController.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { TokenAmount } from "../TokenAmount.tsx";
 
 function SignIn({ reason }: { reason: string }) {
   const { requireSignIn } = useSession();
@@ -27,13 +27,9 @@ function SignIn({ reason }: { reason: string }) {
   );
 }
 
-/** An exact amount in the asset's base units; no decimals are assumed. */
-function Amount({ v, asset }: { v: string; asset: string }) {
-  return (
-    <span className="mono" style={{ overflowWrap: "anywhere" }}>
-      {groupDigits(v)} <span className="muted">base units of {asset}</span>
-    </span>
-  );
+/** An amount in the asset: readable when the token's details are known (review #42/#47). */
+function Amount({ v, asset, token }: { v: string; asset: string; token?: unknown }) {
+  return <TokenAmount base={v} asset={asset} token={token ?? null} exact={false} />;
 }
 
 function ago(ms: number) {
@@ -317,35 +313,35 @@ function ObservedSections({ v, age, stale }: { v: Observed; age: number; stale: 
             <dl className="facts">
               <dt>Prepaid by customers, not yet used</dt>
               <dd>
-                <Amount v={t.ent_free_value} asset={t.asset} />
+                <Amount v={t.ent_free_value} asset={t.asset} token={v.token} />
               </dd>
               <dt>Reserved for customer uses in progress</dt>
               <dd>
-                <Amount v={t.ent_held_value} asset={t.asset} />
+                <Amount v={t.ent_held_value} asset={t.asset} token={v.token} />
               </dd>
               <dt>Owed, not yet paid (claims)</dt>
               <dd>
-                <Amount v={t.claims_total} asset={t.asset} />
+                <Amount v={t.claims_total} asset={t.asset} token={v.token} />
               </dd>
               <dt>Payouts sent, outcome not yet confirmed</dt>
               <dd>
-                <Amount v={t.pending_total} asset={t.asset} />
+                <Amount v={t.pending_total} asset={t.asset} token={v.token} />
               </dd>
               <dt>The business's own funds</dt>
               <dd>
-                <Amount v={t.available} asset={t.asset} />
+                <Amount v={t.available} asset={t.asset} token={v.token} />
               </dd>
               <dt>Of which the owner can withdraw now</dt>
               <dd>
-                <Amount v={t.withdrawable} asset={t.asset} />
+                <Amount v={t.withdrawable} asset={t.asset} token={v.token} />
               </dd>
               <dt>Buyer's sale escrow held</dt>
               <dd>
-                <Amount v={t.escrow_total} asset={t.asset} />
+                <Amount v={t.escrow_total} asset={t.asset} token={v.token} />
               </dd>
               <dt>Total held by the contract</dt>
               <dd>
-                <Amount v={t.held} asset={t.asset} />
+                <Amount v={t.held} asset={t.asset} token={v.token} />
               </dd>
             </dl>
             <p className="muted" style={{ fontSize: 13, margin: 0 }}>
@@ -373,11 +369,11 @@ function ObservedSections({ v, age, stale }: { v: Observed; age: number; stale: 
                 </dd>
                 <dt>Price</dt>
                 <dd>
-                  <Amount v={d.price} asset={t.asset} />
+                  <Amount v={d.price} asset={t.asset} token={v.token} />
                 </dd>
                 <dt>Escrow</dt>
                 <dd>
-                  <Amount v={d.escrow} asset={t.asset} />
+                  <Amount v={d.escrow} asset={t.asset} token={v.token} />
                 </dd>
                 <dt>Accepted by</dt>
                 <dd>
@@ -409,7 +405,8 @@ function ObservedSections({ v, age, stale }: { v: Observed; age: number; stale: 
                   <li key={o.seq}>
                     Deal {o.seq}: {OUTCOME_LABEL[o.status] ?? o.status}, on{" "}
                     {msDate(o.at_ms) ?? "an unknown date"} (first seen at block{" "}
-                    {o.observed_from_block}), price <Amount v={o.price} asset={t.asset} />
+                    {o.observed_from_block}), price{" "}
+                    <Amount v={o.price} asset={t.asset} token={v.token} />
                   </li>
                 ))}
               </ul>
@@ -455,7 +452,7 @@ function ObservedSections({ v, age, stale }: { v: Observed; age: number; stale: 
                         .map(([k, x]) => (
                           <li key={k}>
                             {COUNTER_LABEL[k] ?? k}: {x.exact ? "" : "at least "}
-                            <Amount v={x.amount} asset={v.treasury.asset} />
+                            <Amount v={x.amount} asset={v.treasury.asset} token={v.token} />
                           </li>
                         ))}
                     </ul>

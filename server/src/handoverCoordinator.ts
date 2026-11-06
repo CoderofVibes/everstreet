@@ -281,7 +281,7 @@ export class HandoverCoordinator {
     // first next time. The batch and the pass budget stay finite.
     const all = [...new Set([...open.map((o) => o.business_id), ...this.keys.keys()])].sort();
     const from = this.cursor === null ? 0 : all.findIndex((id) => id > (this.cursor as string));
-    const start = from < 0 ? 0 : from;
+    const start = Math.max(from, 0);
     const ids = [...all.slice(start), ...all.slice(0, start)].slice(0, this.opts.batch);
     const report: Record<string, string> = {};
     for (const id of ids) {

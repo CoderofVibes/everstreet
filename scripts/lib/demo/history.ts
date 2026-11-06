@@ -13,6 +13,31 @@ import { BUYER, checkAndRelease, type DemoWorld, FOUNDER, offer } from "./world.
 
 const DAY = 86_400_000;
 
+/** Each business's public profile (fictional). */
+const PROFILES = {
+  ledgerline: {
+    headline: "Invoice fields as clean rows",
+    summary: "Paste a supplier invoice; get its number, dates, supplier and totals back.",
+    capabilities: [
+      "Reads invoice numbers, dates and totals",
+      "Refused documents are never charged",
+    ],
+  },
+  relaydesk: {
+    headline: "A support desk for small teams",
+    summary: "Customer requests become cases you work through: received, assigned, resolved.",
+    capabilities: ["Cases with stages and notes", "Customers see where their request stands"],
+  },
+  signalwatch: {
+    headline: "What changed in your suppliers' releases",
+    summary: "Submit release notes; get the changes that matter flagged, each with its quote.",
+    capabilities: [
+      "Flags breaking changes and deprecations",
+      "Quotes the line each flag came from",
+    ],
+  },
+} as const;
+
 /** A small deterministic generator (mulberry32), so every run makes the same history. */
 function random(seed: number) {
   let a = seed >>> 0;
@@ -88,7 +113,7 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
       tick();
       const [subject, details, urgency] = pick(SUBJECTS);
       const r = await w.use(
-        pick([cara, ines, theo, priya]),
+        pick([cara, ines, theo]),
         offers.relaydesk,
         w.submission({ subject, details: `FICTIONAL. ${details}`, urgency }),
       );
@@ -148,6 +173,36 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
           recurring,
           note,
         });
+      // First-use review #5/#7/#37: each business's public profile is published through the
+      // real reviewed publish (so it reads "open for customers" everywhere), and Relaydesk is
+      // listed for sale, so the market isn't empty.
+      for (const k of ["ledgerline", "relaydesk", "signalwatch"] as const) {
+        const biz = `/api/businesses/${w.business[k].id}`;
+        const base = (await w.delphine(`${biz}/public-profile`)).body as Json;
+        const draft = (
+          await w.delphine(`${biz}/public-profile/draft`, "PUT", {
+            base_rev: base.draft_rev,
+            draft: { ...PROFILES[k], products: [w.business[k].project] },
+          })
+        ).body as Json;
+        const pub = await w.delphine(`${biz}/public-profile/publish`, "POST", {
+          draft_rev: draft.draft_rev,
+          review: draft.review,
+        });
+        if (pub.status !== 200) throw new Error(`publish ${k}: ${pub.status} ${pub.body.error}`);
+      }
+      const listed = await w.delphine(
+        `/api/businesses/${w.business.relaydesk.id}/listing`,
+        "PATCH",
+        {
+          mode: "named",
+          openness: "open",
+          asking_cents: 1_200_000,
+          reason: "Focusing on Ledgerline and Signalwatch.",
+          disclose: ["revenue", "history"],
+        },
+      );
+      if (listed.status !== 200) throw new Error(`listing: ${listed.status} ${listed.body.error}`);
     }
     if (day === 14) {
       await w.delphine(`/api/businesses/${w.business.relaydesk.id}/costs`, "POST", {

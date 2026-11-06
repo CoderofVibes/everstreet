@@ -8,7 +8,6 @@ import { api } from "../api.ts";
 import { APPLY_EFFECTS, Handovers, OwnerHandover, reviewProblem } from "../handover.ts";
 import {
   elapsedAt,
-  grouped,
   type Handover,
   handoverHttp,
   type Intent,
@@ -21,6 +20,7 @@ import { type ProjectSummary, productsApi } from "../productsApi.ts";
 import { Link } from "../router.tsx";
 import { STEP_WORD, saleCurrent, saleNext, saleSentence, saleSteps } from "../saleView.ts";
 import { useSession } from "../session.tsx";
+import { TokenAmount } from "../TokenAmount.tsx";
 
 const STATUS: Record<IntentStatus, { label: string; tone: string }> = {
   recorded: { label: "Exact version recorded: waiting for the contract's outcome", tone: "blue" },
@@ -35,12 +35,9 @@ const caps = (c: number) =>
     .filter(Boolean)
     .join(", ") || "none";
 
-function Amount({ v, asset }: { v: string; asset: string }) {
-  return (
-    <span>
-      <span className="mono">{grouped(v)}</span> base units of <span className="mono">{asset}</span>
-    </span>
-  );
+/** An amount in the asset: readable when the token's details are known (review #42), else exact base units. */
+function Amount({ v, asset, token }: { v: string; asset: string; token?: unknown }) {
+  return <TokenAmount base={v} asset={asset} token={token ?? null} exact={false} />;
 }
 
 function Effects() {
@@ -118,11 +115,12 @@ export function Continuity({ ev }: { ev: SaleEvidence }) {
           {o ? (
             <>
               <li>
-                Prepaid, not yet used: <Amount v={o.customers.prepaid_unused} asset={o.asset} />
+                Prepaid, not yet used:{" "}
+                <Amount v={o.customers.prepaid_unused} asset={o.asset} token={o?.token} />
               </li>
               <li>
                 Reserved for uses in progress:{" "}
-                <Amount v={o.customers.reserved_in_use} asset={o.asset} />
+                <Amount v={o.customers.reserved_in_use} asset={o.asset} token={o?.token} />
               </li>
             </>
           ) : (
@@ -163,7 +161,7 @@ function DealTerms({ d, asset, ev }: { d: ObservedDeal; asset: string; ev: SaleE
       <dl className="facts">
         <dt>Price</dt>
         <dd>
-          <Amount v={d.price} asset={asset} />
+          <Amount v={d.price} asset={asset} token={o?.token} />
         </dd>
         <dt>Seller account</dt>
         <dd className="mono wrap">{d.seller}</dd>
@@ -226,10 +224,11 @@ function DealTerms({ d, asset, ev }: { d: ObservedDeal; asset: string; ev: SaleE
           <>
             <dt>Customer obligations that stay with the business</dt>
             <dd>
-              Prepaid, not yet used: <Amount v={o.customers.prepaid_unused} asset={asset} />
+              Prepaid, not yet used:{" "}
+              <Amount v={o.customers.prepaid_unused} asset={asset} token={o?.token} />
               <br />
               Reserved for uses in progress:{" "}
-              <Amount v={o.customers.reserved_in_use} asset={asset} />
+              <Amount v={o.customers.reserved_in_use} asset={asset} token={o?.token} />
             </dd>
           </>
         )}
@@ -245,11 +244,11 @@ function DealTerms({ d, asset, ev }: { d: ObservedDeal; asset: string; ev: SaleE
           <dd>{d.expected_generation}</dd>
           <dt>Buyer's escrow</dt>
           <dd>
-            <Amount v={d.escrow} asset={asset} />
+            <Amount v={d.escrow} asset={asset} token={o?.token} />
           </dd>
           <dt>Funds floor kept for customers</dt>
           <dd>
-            <Amount v={d.available_floor} asset={asset} />
+            <Amount v={d.available_floor} asset={asset} token={o?.token} />
           </dd>
         </dl>
       </details>
@@ -480,11 +479,6 @@ export function HandoverWorkspace({ id }: { id: string }) {
                 <>
                   <h3 style={{ fontSize: 16, marginTop: 16 }}>Sale in progress</h3>
                   <DealTerms d={deal} asset={o.asset} ev={ev} />
-                  <p className="muted" style={{ fontSize: 13 }}>
-                    Amounts are exact base units of <span className="mono">{o.asset}</span>, as the
-                    contract holds them. No dollar value is shown: this page has no verified
-                    denomination for the asset.
-                  </p>
                   {!recordedThis && problem && (
                     <p className="notice" role="note">
                       {problem} The terms above are shown as last read, for reference.
@@ -569,8 +563,12 @@ export function HandoverWorkspace({ id }: { id: string }) {
                     </div>
                     <div className="muted" style={{ fontSize: 13.5 }}>
                       Buyer <span className="mono wrap">{i.buyer_account}</span> · price{" "}
-                      <Amount v={i.terms.price} asset={o?.asset ?? "the business's asset"} /> ·
-                      recorded {new Date(i.created_at).toLocaleString()}
+                      <Amount
+                        v={i.terms.price}
+                        asset={o?.asset ?? "the business's asset"}
+                        token={o?.token}
+                      />{" "}
+                      · recorded {new Date(i.created_at).toLocaleString()}
                     </div>
                     {i.status === "recorded" && (
                       <ApplyControl

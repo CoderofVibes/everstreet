@@ -16,9 +16,10 @@ import {
 } from "../../server/test/v3-fixture-transport.ts";
 import { ApiError } from "../src/api.ts";
 import { OwnerHandover, type OwnerHandoverState } from "../src/handover.ts";
-import { grouped, type HandoverPort } from "../src/handoverApi.ts";
+import type { HandoverPort } from "../src/handoverApi.ts";
 import { Continuity, SaleProgress } from "../src/pages/Handover.tsx";
 import { saleNext, saleSentence, saleSteps } from "../src/saleView.ts";
+import { groupDigits } from "../src/TokenAmount.tsx";
 
 type Caller = Awaited<ReturnType<typeof customerWorld>>["owner"];
 
@@ -259,8 +260,8 @@ describe("001i continuity keeps authority, customer rights and external transfer
     expect(authority).toContain("buyer.near");
     expect(authority).toContain("meter2.near</span> (metering)");
     expect(rights).not.toContain("buyer.near");
-    expect(rights).toContain(grouped(o.customers.prepaid_unused));
-    expect(rights).toContain(grouped(o.customers.reserved_in_use));
+    expect(rights).toContain(groupDigits(o.customers.prepaid_unused));
+    expect(rights).toContain(groupDigits(o.customers.reserved_in_use));
     expect(external).toMatch(/domains, provider and model accounts, secrets/);
     expect(external).not.toContain(".near");
   });

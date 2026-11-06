@@ -1,7 +1,7 @@
 // The product studio's front door: describe an idea, choose a foundation, and get a saved
 // project with an editable brief and prototype. Also the founder's list of product projects.
 
-import { type FormEvent, type KeyboardEvent, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { useActorRead, usePublicRead } from "../actorRead.ts";
 import { api } from "../api.ts";
 import { composerReady } from "../homeView.ts";
@@ -42,6 +42,17 @@ export function Composer({
   const [error, setError] = useState<string | null>(null);
 
   const chosen = foundations?.find((x) => x.id === foundation);
+  // Review #19: start from a kind that can be built here, until the person picks one themselves.
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (touched || !foundations || chosen?.build?.available !== false) return;
+    const ok = foundations.find((x) => x.build?.available);
+    if (ok) setFoundation(ok.id);
+  }, [touched, foundations, chosen]);
+  const pick = (id: Foundation) => {
+    setTouched(true);
+    setFoundation(id);
+  };
   const ready = composerReady(types.state, foundation);
   const typesNote = !ready.canSubmit && (
     <div className="composer-note" role={types.state.status === "loading" ? undefined : "alert"}>
@@ -121,13 +132,16 @@ export function Composer({
                 name={`foundation-${variant}`}
                 className="sr-only"
                 checked={foundation === x.id}
-                onChange={() => setFoundation(x.id)}
+                onChange={() => pick(x.id)}
               />
               <span className="f-head">
                 <Icon name={FOUNDATION_ICON[x.id] ?? "layers"} /> {x.label}
               </span>
               <p>{x.summary}</p>
               <span className="needs">Needs: {x.needs.join(", ").toLowerCase()}</span>
+              {x.build?.available === false && (
+                <span className="fchip-off">Prototype only here</span>
+              )}
             </label>
           ))}
         </fieldset>
@@ -185,9 +199,10 @@ export function Composer({
                   name={`foundation-${variant}`}
                   className="sr-only"
                   checked={foundation === x.id}
-                  onChange={() => setFoundation(x.id)}
+                  onChange={() => pick(x.id)}
                 />
                 <Icon name={FOUNDATION_ICON[x.id] ?? "layers"} size="sm" /> {x.label}
+                {x.build?.available === false && <span className="fchip-off">prototype only</span>}
               </label>
             ))}
           </fieldset>

@@ -391,9 +391,7 @@ export function DeskOperations({ ops, businessId }: { ops: Operations; businessI
       <div className="fin-ops">
         <h3 style={{ fontSize: 15, marginTop: 18 }}>Digital operations</h3>
         <div className="notice">
-          <strong>No customer product yet.</strong> Build a product in Studio, test a release and
-          offer it to customers; their uses and the runtime cost of serving them appear here as they
-          are recorded. <Link to={`/build?business=${businessId}`}>Start a product in Studio</Link>
+          <strong>No customer product yet.</strong>
         </div>
         <p className="muted" style={{ fontSize: 13 }}>
           Founder trials and checks so far: {costText(t.cost.founder)}.

@@ -5,10 +5,12 @@
 // app as text: no code, markup, URLs or credentials, and nothing in it can act for the platform.
 
 import { createHash, randomUUID } from "node:crypto";
+import { ANALYSIS_COMPILE_AVAILABILITY } from "./analysis.ts";
 import { type BuildAvailability, type BuildProvider, buildAvailability } from "./build.ts";
 import type { Db } from "./db.ts";
 import { projectSource } from "./projectSource.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import { WORKFLOW_ENGINE_AVAILABILITY } from "./workflow.ts";
 
 export const FOUNDATIONS = ["ai_api", "saas_workflow", "agent_service", "client_portal"] as const;
 export type Foundation = (typeof FOUNDATIONS)[number];
@@ -727,6 +729,17 @@ export class Products {
     return this.availability ? this.availability() : buildAvailability(this.provider);
   }
 
+  /**
+   * First-use review #19: whether this kind of product can be built here. A SaaS workflow and an
+   * agent service compile without a model provider (as builds.ts does), so they can be built even
+   * when generated builds aren't connected; the other kinds need the provider.
+   */
+  private buildFor(foundation: Foundation): BuildAvailability {
+    if (foundation === "saas_workflow") return { ...WORKFLOW_ENGINE_AVAILABILITY };
+    if (foundation === "agent_service") return { ...ANALYSIS_COMPILE_AVAILABILITY };
+    return this.build();
+  }
+
   private event(type: string, subject: string, actor: string, payload: object = {}) {
     this.db
       .prepare("INSERT INTO events (type, subject, actor, payload, at) VALUES (?, ?, ?, ?, ?)")
@@ -774,7 +787,11 @@ export class Products {
   }
 
   foundations() {
-    return { foundations: foundations(), build: this.build() };
+    const list = foundations();
+    return {
+      foundations: list.map((f) => ({ ...f, build: this.buildFor(f.id) })),
+      build: this.build(),
+    };
   }
 
   mine(viewer: Person) {
@@ -915,7 +932,7 @@ export class Products {
       }[]
     ).map((r) => ({ ...r }));
     const def = FOUNDATION_DEFS[p.foundation];
-    const build = this.build();
+    const build = this.buildFor(p.foundation);
     // Fields still holding the foundation's starter text, so the UI can say so.
     const starter =
       current.brief.features.length === def.features.length &&

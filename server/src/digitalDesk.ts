@@ -20,7 +20,41 @@ export interface DeskWork {
   who: "you" | "system";
   count: number;
   label: string;
-  link: { to: "customers" | "studio" | "inquiries" | "checklist" | "continuity"; project?: string };
+  link: {
+    to: "customers" | "studio" | "inquiries" | "checklist" | "continuity" | "cases" | "sale";
+    project?: string;
+  };
+}
+
+/** The live sale on the business's contract, as last observed here; null when none. */
+export function liveDeal(
+  db: Db,
+  businessId: string,
+): { state: string; seller_accepted: boolean; buyer_accepted: boolean } | null {
+  const row = db
+    .prepare(
+      "SELECT o.snapshot FROM v3_projection p JOIN v3_observations o ON o.id = p.observation_id WHERE p.business_id = ?",
+    )
+    .get(businessId) as { snapshot: string } | undefined;
+  if (!row) return null;
+  try {
+    const d = (
+      JSON.parse(row.snapshot) as {
+        control?: {
+          live_deal?: { state: string; seller_accepted: boolean; buyer_accepted: boolean } | null;
+        };
+      }
+    ).control?.live_deal;
+    return d
+      ? {
+          state: d.state,
+          seller_accepted: d.seller_accepted === true,
+          buyer_accepted: d.buyer_accepted === true,
+        }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 const isDigits = (s: unknown): s is string => typeof s === "string" && /^[0-9]{1,40}$/.test(s);
@@ -197,6 +231,29 @@ export function digitalDesk(
       link: { to: "continuity" },
     });
   }
+  // First-use review #38/#41: open customer requests (a SaaS workflow's cases) and a sale in
+  // progress are work too; the desk never says "nothing is waiting" while they are.
+  add({
+    key: "cases",
+    who: "you",
+    count: count(
+      "SELECT COUNT(*) AS n FROM workflow_cases WHERE business_id = ? AND closed_at IS NULL",
+      businessId,
+    ),
+    label: "open customer requests",
+    link: { to: "cases" },
+  });
+  const deal = liveDeal(db, businessId);
+  if (deal)
+    add({
+      key: "sale",
+      who: deal.seller_accepted ? "system" : "you",
+      count: 1,
+      label: deal.seller_accepted
+        ? "sale in progress: waiting for the buyer"
+        : "sale in progress: waiting for your acceptance",
+      link: { to: "sale" },
+    });
   add({
     key: "inquiries",
     who: "you",

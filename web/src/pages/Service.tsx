@@ -604,10 +604,7 @@ export function ServiceView({
       <section className="card" hidden={task !== "try"}>
         <h2>Try it</h2>
         {candidates.length === 0 ? (
-          <p className="muted">
-            No checked version yet. Build one on the Builds tab; a version appears here once its
-            specification passes the platform's checks.
-          </p>
+          <p className="muted">No checked version yet.</p>
         ) : (
           <>
             <label className="field">

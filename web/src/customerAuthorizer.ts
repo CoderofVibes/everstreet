@@ -38,6 +38,8 @@ export function pageAuthorizer(): CustomerAuthorizer | null {
   return {
     label: signer.label,
     synthetic: signer.synthetic,
+    // Review #65: the slot travels with the key, so a request names the key that will sign it.
+    ...(Number.isInteger(signer.slot) ? { slot: signer.slot } : {}),
     publicKey: () => signer.publicKey(),
     // Signatures are checked for form before they are sent; the server verifies them exactly.
     sign: async (input) => {

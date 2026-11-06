@@ -1364,11 +1364,7 @@ export function ProductStudio({ id }: { id: string }) {
           >
             Next: {status.next.label} <Icon name="arrowRight" size="sm" />
           </button>
-        ) : (
-          <button type="button" className="btn btn-primary" onClick={() => setTab("continuity")}>
-            Next: review continuity <Icon name="arrowRight" size="sm" />
-          </button>
-        )}
+        ) : null}
       </header>
 
       {/* Job 001b1: one short line (release and customer offer), with the full progress behind a

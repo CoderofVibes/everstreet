@@ -274,6 +274,7 @@ export function MyTeamsSection() {
   const read = useActorRead(scope, () => teamApi.mine());
   const [shown, setShown] = useState<{ scope: string; v: MyTeams } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [leaving, setLeaving] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const v = shown && shown.scope === scope ? shown.v : read.state.data;
   if (!scope || !v || (v.invites.length === 0 && v.teams.length === 0)) return null;
@@ -295,7 +296,8 @@ export function MyTeamsSection() {
   return (
     <section className="card" aria-labelledby="my-teams">
       <h2 id="my-teams">Teams and invitations</h2>
-      <p className="muted">{v.is_not}</p>
+      {/* Review #63: what membership isn't is said where it's decided: beside an invitation. */}
+      {v.invites.length > 0 && <p className="muted">{v.is_not}</p>}
       {v.invites.map((i) => (
         <div key={i.id} className="message">
           <strong>{i.business_name}</strong> invited you as <strong>{i.role_label}</strong>.
@@ -325,20 +327,46 @@ export function MyTeamsSection() {
       {v.teams.map((t) => (
         <div key={t.id} className="message row">
           <div>
-            <Link to={`/team/${t.business_id}`}>
-              <strong>{t.business_name}</strong>
-            </Link>{" "}
-            <span className="muted">· {t.role_label}</span>
+            <strong>{t.business_name}</strong> <span className="muted">· {t.role_label}</span>
           </div>
           <span className="spacer" />
-          <button
-            type="button"
-            className="btn btn-quiet btn-sm"
-            aria-disabled={busy}
-            onClick={() => act(() => teamApi.leave(t.id), `You left ${t.business_name}'s team.`)}
-          >
-            Leave
-          </button>
+          {/* Review #59: opening the board is the row's action; leaving asks first. */}
+          {leaving === t.id ? (
+            <>
+              <span className="small">Leave {t.business_name}'s team?</span>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                aria-disabled={busy}
+                onClick={() => {
+                  setLeaving(null);
+                  act(() => teamApi.leave(t.id), `You left ${t.business_name}'s team.`);
+                }}
+              >
+                Leave
+              </button>
+              <button
+                type="button"
+                className="btn btn-quiet btn-sm"
+                onClick={() => setLeaving(null)}
+              >
+                Stay
+              </button>
+            </>
+          ) : (
+            <>
+              <Link to={`/team/${t.business_id}`} className="btn btn-primary btn-sm">
+                Open the board
+              </Link>
+              <button
+                type="button"
+                className="btn btn-quiet btn-sm"
+                onClick={() => setLeaving(t.id)}
+              >
+                Leave…
+              </button>
+            </>
+          )}
         </div>
       ))}
       {note && (
@@ -377,7 +405,6 @@ export function TeamWorkspacePage({ businessId }: { businessId: string }) {
       <h1 className="display" style={{ fontSize: 36 }}>
         {ws.business.name}
       </h1>
-      <p className="muted">{ws.is_not}</p>
       <WorkflowCaseBoard businessId={ws.business.id} canMove={ws.can_move} member />
     </div>
   );

@@ -110,6 +110,8 @@ export interface FoundationInfo {
   example: string;
   needs: string[];
   features: string[];
+  /** Review #19: whether this kind can be built here (some compile without a model provider). */
+  build?: { available: boolean };
 }
 
 export interface ProjectSummary {

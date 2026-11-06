@@ -22,6 +22,7 @@ import { scopeList } from "../scopes.ts";
 import { useSession } from "../session.tsx";
 import { ago } from "../via.ts";
 import { DealsList } from "./Deal.tsx";
+import { MyDeals } from "./MyDeals.tsx";
 
 const FAMILIES: [string, string][] = [
   ["software", "Software or API"],
@@ -260,8 +261,11 @@ function SearchTab({ ws, onChange }: { ws: Workspace | null; onChange: () => voi
     }
     setCriteria(next as Criteria);
   };
+  // First-use review #7: with nothing listed, say so once; no filters over an empty market.
+  if (result && result.total_listed === 0)
+    return <p className="card muted">No businesses are listed for sale yet.</p>;
   return (
-    <div className="studio" style={{ gridTemplateColumns: "320px minmax(0, 1fr)" }}>
+    <div className="studio acq-search">
       <aside className="studio-side" style={{ position: "static" }}>
         <section className="card" style={{ padding: 18 }}>
           <strong>Describe what you're looking for</strong>
@@ -376,7 +380,7 @@ function SearchTab({ ws, onChange }: { ws: Workspace | null; onChange: () => voi
           <span className="spacer" />
           <select
             className="input"
-            style={{ width: 220 }}
+            style={{ width: "auto", maxWidth: "100%" }}
             aria-label="Sort"
             value={sort}
             onChange={(e) => setSort(e.target.value)}
@@ -833,7 +837,7 @@ function BuyerForm({
         "What you're looking for",
         "Kinds of business, customers, problems you want to own",
       )}
-      <div className="filters" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+      <div className="filters filters-3">
         {text("time_available", "Time you can give", "e.g. 20 hours a week")}
         {text("skills", "Operating skills", "e.g. support, billing, teaching")}
         {text("budget_basis", "Budget basis", "e.g. savings, the business's cash flow")}
@@ -1021,6 +1025,7 @@ export function Acquire() {
     return (
       <div className="page">
         <Intro />
+        <MyDeals />
         <section className="card" style={{ marginTop: 20 }}>
           <h2>Set up a buying profile</h2>
           <p className="muted" style={{ fontSize: 15 }}>
@@ -1073,6 +1078,7 @@ export function Acquire() {
   ];
   return (
     <div className="page" style={{ maxWidth: 1320 }}>
+      <MyDeals />
       <div className="row" style={{ alignItems: "flex-end" }}>
         <div>
           <div className="eyebrow">Explore acquisitions</div>

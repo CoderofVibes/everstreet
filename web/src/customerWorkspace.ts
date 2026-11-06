@@ -56,6 +56,11 @@ export interface WorkspaceState {
   notice: Notice | null;
   authorizer: { label: string; synthetic: boolean } | null;
   /**
+   * First-use review #65: with verified sign-in, a request names the key that will authorize it,
+   * so nothing is prepared until this device's key is ready (else it would name another key).
+   */
+  deviceRequired: boolean;
+  /**
    * 003q1: a prepare whose answer never arrived (its size only; its text stays in memory, never
    * in state or storage). While set, no other request is made; it can only be recovered.
    */
@@ -105,8 +110,10 @@ const DOUBT_WHY: Record<DoubtAction, string> = {
 };
 
 const at = (ms: string) => new Date(Number(ms)).toLocaleString();
+// Review #66: the wait is required (the stopped request's authorization stays valid on the
+// contract until its deadline), so it is said once, with the time; the document is kept.
 const WAIT_WHY = (ms: string) =>
-  `The authorization prepared for your stopped request stays valid on the contract until ${at(ms)}. To keep your units safe, a new request for them can start only after that. Nothing is signed or created by checking; your document is kept.`;
+  `Your stopped request's authorization stays valid until ${at(ms)}; a new request can start after that. Your document is kept.`;
 
 export type Action =
   | "recover_original"
@@ -141,6 +148,9 @@ const message = (e: unknown) =>
       ? "The answer wasn't in the expected form, so nothing new is shown. You can try again."
       : LOST;
 
+/** Review #65: in verified mode the device's key comes first. */
+export const ENROLL_FIRST = "Enroll this device's key below; then review your request.";
+
 export class CustomerWorkspace {
   private state: WorkspaceState = {
     status: "loading",
@@ -154,6 +164,7 @@ export class CustomerWorkspace {
     busy: null,
     notice: null,
     authorizer: null,
+    deviceRequired: false,
     unanswered: null,
     waiting: null,
     inDoubt: null,
@@ -172,6 +183,8 @@ export class CustomerWorkspace {
       offerId?: string;
       useId?: string;
       authorizer: () => CustomerAuthorizer | null;
+      /** Verified sign-in: prepare only once this device's key is ready (review #65). */
+      requireAuthorizer?: boolean;
       now?: () => number;
       storage?: Storage | null;
       makeKey?: () => string;
@@ -179,6 +192,7 @@ export class CustomerWorkspace {
   ) {
     const a = opts.authorizer();
     this.state.authorizer = a ? { label: a.label, synthetic: a.synthetic } : null;
+    this.state.deviceRequired = opts.requireAuthorizer === true;
   }
 
   /** Job 003w-e2: the authorizer may become ready (or stop being) after the page opened. */
@@ -189,6 +203,10 @@ export class CustomerWorkspace {
     // Unchanged: no new snapshot (a new one re-renders the page; Astra's DeviceKeyReview loop).
     if (cur?.label === next?.label && cur?.synthetic === next?.synthetic) return;
     this.set({ authorizer: next });
+    // Review #65: a prepared request is checked again against the key now in use, so a request
+    // naming another key fails at once instead of offering "Authorize".
+    if (this.state.use?.state === "prepared" && this.state.accepted !== null)
+      void this.checkEnvelope();
   }
 
   getState = () => this.state;
@@ -377,6 +395,12 @@ export class CustomerWorkspace {
       return;
     }
     if (!text.trim()) return;
+    if (this.state.deviceRequired && !this.opts.authorizer()) {
+      this.set({
+        notice: { tone: "warn", code: "device_first", message: ENROLL_FIRST },
+      });
+      return;
+    }
     if (text.length > offer.product.max_chars) {
       this.set({
         notice: {
@@ -572,8 +596,18 @@ export class CustomerWorkspace {
   refresh() {
     return this.onRequest("refresh", (id) => this.port.use(id));
   }
-  cancel() {
-    return this.onRequest("cancel", (id) => this.port.cancel(id));
+  /**
+   * Review #66: after cancelling, the customer goes back to their document at once. A new request
+   * can't start until the stopped one's authorization lapses, so that time is kept as "waiting".
+   */
+  async cancel() {
+    await this.onRequest("cancel", (id) => this.port.cancel(id));
+    const u = this.state.use;
+    if (u && (u.state === "cancelled" || u.state === "expired") && u.next_use?.state === "wait") {
+      const until = u.next_use.until_ms;
+      this.startAnother();
+      this.set({ waiting: { request_id: u.id, until_ms: until } });
+    }
   }
   checkUnit() {
     return this.onRequest("check_unit", (id) => this.port.units(id));
@@ -690,11 +724,13 @@ export function nextStep(s: WorkspaceState): Next {
     return s.draft.trim()
       ? s.waiting
         ? { action: "prepare", label: "Check again and review", why: WAIT_WHY(s.waiting.until_ms) }
-        : {
-            action: "prepare",
-            label: "Review one use",
-            why: "Nothing is reserved or charged by reviewing.",
-          }
+        : s.deviceRequired && !s.authorizer
+          ? { action: null, label: "Set up this device first", why: ENROLL_FIRST }
+          : {
+              action: "prepare",
+              label: "Review one use",
+              why: "Nothing is reserved or charged by reviewing.",
+            }
       : s.offer && s.offer.product.kind !== "extraction"
         ? {
             action: null,
@@ -730,11 +766,13 @@ export function nextStep(s: WorkspaceState): Next {
             label: "Authorize this one use",
             why: `Reserves one unit for this ${sentWord(s.offer?.product.kind)}. It's charged only if you get a result.`,
           }
-        : {
-            action: null,
-            label: "Authorizing isn't available here",
-            why: AUTHORIZATION_UNAVAILABLE,
-          };
+        : s.deviceRequired
+          ? { action: null, label: "Set up this device first", why: ENROLL_FIRST }
+          : {
+              action: null,
+              label: "Authorizing isn't available here",
+              why: AUTHORIZATION_UNAVAILABLE,
+            };
     case "reserve_requested":
     case "reserve_unknown":
       return {

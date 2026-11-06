@@ -68,6 +68,8 @@ export interface SaleEvidence {
     closer: string | null;
     deal: ObservedDeal | null;
     asset: string;
+    /** The token's details as read on chain (TokenAmount parses them; unknown shows base units). */
+    token: unknown;
     customers: { prepaid_unused: string; reserved_in_use: string };
     owner_match: "matches" | "mismatch" | "unknown_mapping";
     outcomes: { seq: string; version: number; status: string }[];
@@ -139,6 +141,8 @@ export function parseEvidence(raw: unknown): SaleEvidence {
       closer: nullable(c.closer, (x) => str(x, "control.closer")),
       deal: nullable(c.live_deal, parseDeal),
       asset: str(t.asset, "treasury.asset"),
+      // Review #42: parsed by TokenAmount (unknown or disputed details show exact base units).
+      token: v.token ?? null,
       customers: {
         prepaid_unused: dec(t.ent_free_value, "treasury.ent_free_value"),
         reserved_in_use: dec(t.ent_held_value, "treasury.ent_held_value"),
