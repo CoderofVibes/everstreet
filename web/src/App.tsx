@@ -43,6 +43,7 @@ import { ExamplePage } from "./pages/Showcase.tsx";
 import { SignInReturn } from "./pages/SignInReturn.tsx";
 import { Start } from "./pages/Start.tsx";
 import { Studio } from "./pages/Studio.tsx";
+import { SuccessorRehearsalPage } from "./pages/SuccessorRehearsal.tsx";
 import { TeamPage, TeamWorkspacePage } from "./pages/Team.tsx";
 import { Value } from "./pages/Value.tsx";
 import { WriterHistoryPage } from "./pages/WriterHistory.tsx";
@@ -283,6 +284,15 @@ function Routes() {
   // Job 005b: keyed by actor and business, like the other private pages.
   if (helping)
     return <Helping key={`${person?.id ?? "anon"}:${helping.id}`} id={helping.id as string} />;
+  // 006c: the successor rehearsal.
+  const rehearsal = match("/desk/:id/rehearsal", path);
+  if (rehearsal)
+    return (
+      <SuccessorRehearsalPage
+        key={`${person?.id ?? "anon"}:${rehearsal.id}`}
+        businessId={rehearsal.id as string}
+      />
+    );
   // Plan step 6: the owner's team, and a member's workspace.
   const team = match("/desk/:id/team", path);
   if (team)

@@ -40,6 +40,7 @@ import { Publications } from "./publication.ts";
 import { Releases } from "./releases.ts";
 import { SaleActions } from "./saleActions.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import { SuccessorRehearsals, type SuccessorRunner } from "./successorRehearsal.ts";
 import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
 import { type Overrides, Valuation } from "./value.ts";
@@ -91,6 +92,9 @@ export interface AppOptions {
    * Verified identity only; unset (or not an operator): the routes answer 404.
    */
   writerHistory?: WriterHistory;
+  /** 006c: runs successor rehearsals in isolation (a child process); none: unavailable here. */
+  successorRunner?: SuccessorRunner | null;
+  successorDeadlineMs?: number;
   /** Job 002e: web app logic checks; tests and previews pass their own to share with a worker. */
   appChecks?: AppChecks;
   /**
@@ -138,10 +142,20 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   const expertHelp = new ExpertHelp(store.db, store);
   const portfolio = new Portfolio(store.db, store);
-  const handoverRecords = new HandoverRecords(store.db, store, (id) => {
-    const b = v3.bindingFor(id);
-    return b ? { network: b.network, account: b.account } : null;
+  // 006c: the successor rehearsal (a separate child process; never this database).
+  const rehearsals = new SuccessorRehearsals(store.db, store, options.successorRunner ?? null, {
+    deadlineMs: options.successorDeadlineMs,
   });
+  rehearsals.recover();
+  const handoverRecords = new HandoverRecords(
+    store.db,
+    store,
+    (id) => {
+      const b = v3.bindingFor(id);
+      return b ? { network: b.network, account: b.account } : null;
+    },
+    (id) => rehearsals.latest(id) as never,
+  );
   const imports = new Imports(
     store.db,
     store,
@@ -1161,6 +1175,23 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.delete("/api/agent/mcp", (c) => mcp(c));
 
   // ---------- job 003x: the buyer's control sheet, the portable record and its verifier ----------
+  // 006c (SUCCESSOR_REHEARSAL.md): start a rehearsal, follow it, and download its record.
+  app.get("/api/businesses/:id/rehearsals", (c) =>
+    c.json(rehearsals.list(me(c), c.req.param("id"))),
+  );
+  app.post("/api/businesses/:id/rehearsals", (c) => {
+    const { rehearsal } = rehearsals.start(me(c), c.req.param("id"));
+    return c.json({ rehearsal }, 202);
+  });
+  app.get("/api/businesses/:id/rehearsals/:rid/record", (c) => {
+    const raw = rehearsals.record(me(c), c.req.param("id"), c.req.param("rid"));
+    return new Response(raw, {
+      headers: {
+        "content-type": "application/json",
+        "content-disposition": `attachment; filename="successor-rehearsal-${c.req.param("rid").slice(0, 8)}.json"`,
+      },
+    });
+  });
   app.get("/api/businesses/:id/control-sheet", (c) =>
     c.json(handoverRecords.sheet(me(c), c.req.param("id"))),
   );

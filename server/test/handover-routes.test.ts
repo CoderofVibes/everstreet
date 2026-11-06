@@ -61,6 +61,7 @@ const CLASS: Record<string, Class> = {
   "POST /api/product-projects/:id/releases/app-terms": "gated_owner",
   "POST /api/product-projects/:id/releases/withdraw": "gated_owner",
   "POST /api/businesses/:id/members": "gated_owner",
+  "POST /api/businesses/:id/rehearsals": "gated_owner",
   "POST /api/businesses/:id/members/:member/role": "gated_owner",
   "POST /api/businesses/:id/members/:member/revoke": "allowed_recovery",
   "POST /api/me/teams/:member/respond": "not_business",

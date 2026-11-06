@@ -15,6 +15,7 @@ import { Hono } from "hono";
 import { base58Encode } from "../../server/src/customerWriter.ts";
 import { AccountSignIn, nep413Digest } from "../../server/src/identity.ts";
 import type { Store } from "../../server/src/store.ts";
+import { forkSuccessorRunner } from "../../server/src/successorRunner.ts";
 import { CUSTOMER, type Json, OPERATOR } from "../../server/test/customer-world.ts";
 import {
   BUYER,
@@ -197,6 +198,8 @@ export async function saleHarness(opts: {
     environment: "Review harness (synthetic)",
     identity: { mode: "verified", signIn },
     wallet: { network: "testnet", available: true, harness: HARNESS_LABEL },
+    // 006c: successor rehearsals in their own synthetic child process.
+    successorRunner: forkSuccessorRunner(),
   });
   const controls = {
     account: SELLER as string | null,

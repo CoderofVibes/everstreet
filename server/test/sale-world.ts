@@ -16,6 +16,19 @@ import {
 } from "./customer-world.ts";
 import { RELAYDESK_PROTOTYPE } from "./relaydesk.ts";
 
+/**
+ * 006c (SUCCESSOR_REHEARSAL.md): a rehearsal seeds the world with the snapshot's EXACT product: a
+ * SaaS workflow's saved revision, or a web app's bundle and customer terms, and its business name.
+ */
+export type ProductSeed =
+  | { kind: "workflow"; business_name: string; brief: unknown; prototype: unknown }
+  | {
+      kind: "web_app";
+      business_name: string;
+      bundle: unknown;
+      app_terms: { access: "pass"; pass_days: number; limitations: string };
+    };
+
 /** 006a: what a customer sends for an access pass (fixed; nothing of theirs). */
 export const PASS_REQUEST = "Access pass";
 
@@ -51,11 +64,13 @@ export async function saleWorld(
     product?: "ledgerline" | "relaydesk" | "quote-app";
     /** 006a: where released web apps are served (the harness's other site). */
     appOrigin?: string;
+    /** 006c: the product to found, from a rehearsal snapshot (overrides the fixed samples). */
+    seed?: ProductSeed;
   } = {},
 ) {
   const protection = new SyntheticProtection();
-  const relaydesk = opts.product === "relaydesk";
-  const quoteApp = opts.product === "quote-app";
+  const relaydesk = opts.seed ? opts.seed.kind === "workflow" : opts.product === "relaydesk";
+  const quoteApp = opts.seed ? opts.seed.kind === "web_app" : opts.product === "quote-app";
   const w = await customerWorld({
     dbPath: opts.dbPath,
     customer: { protection },
@@ -74,9 +89,9 @@ export async function saleWorld(
   // Noah holds his own fictional test tokens; neither he nor Ava is registered with the token yet.
   w.chain.balances.set(BUYER, 1_000_000_000n);
   const offerId = relaydesk
-    ? await foundRelaydesk(w)
+    ? await foundRelaydesk(w, opts.seed?.kind === "workflow" ? opts.seed : undefined)
     : quoteApp
-      ? await foundQuoteApp(w)
+      ? await foundQuoteApp(w, opts.seed?.kind === "web_app" ? opts.seed : undefined)
       : await w.offer();
   const biz = w.f.business;
   const ava = w.owner as Caller;
@@ -175,16 +190,21 @@ export async function saleWorld(
 export type SaleWorld = Awaited<ReturnType<typeof saleWorld>>;
 
 /** Relaydesk founded through the real owner routes: revision, compile, checks, release, offer. */
-async function foundRelaydesk(w: Awaited<ReturnType<typeof customerWorld>>) {
+async function foundRelaydesk(
+  w: Awaited<ReturnType<typeof customerWorld>>,
+  seed?: Extract<ProductSeed, { kind: "workflow" }>,
+) {
   const { owner, f } = w;
   const fail = (what: string, r: { status: number; body: Json }) => {
     throw new Error(`relaydesk ${what}: ${r.status} ${JSON.stringify(r.body)}`);
   };
-  await owner(`/api/businesses/${f.business}`, "PATCH", { name: "Relaydesk" });
+  await owner(`/api/businesses/${f.business}`, "PATCH", {
+    name: seed?.business_name ?? "Relaydesk",
+  });
   const head = (await owner(`/api/product-projects/${f.project}`)).body.head?.number ?? 1;
   const saved = await owner(`/api/product-projects/${f.project}/revisions`, "POST", {
     base_revision: head,
-    brief: {
+    brief: seed?.brief ?? {
       name: "Relaydesk support desk",
       audience: "Small fictional software teams",
       problem: "Support requests arrive everywhere and get lost",
@@ -192,7 +212,7 @@ async function foundRelaydesk(w: Awaited<ReturnType<typeof customerWorld>>) {
       features: ["A request form", "A board with stages"],
       price: { model: "per_use", amount_cents: 15 },
     },
-    prototype: RELAYDESK_PROTOTYPE,
+    prototype: seed?.prototype ?? RELAYDESK_PROTOTYPE,
   });
   if (saved.status !== 201) fail("revision", saved);
   const build = await owner(`/api/product-projects/${f.project}/builds`, "POST", {
@@ -229,13 +249,18 @@ async function foundRelaydesk(w: Awaited<ReturnType<typeof customerWorld>>) {
  * 006a: a fictional quote web app built through the real build route, its test double's passed
  * check (fixture), released with reviewed 7-day pass terms (a labelled stand-in), and offered.
  */
-async function foundQuoteApp(w: Awaited<ReturnType<typeof customerWorld>>) {
+async function foundQuoteApp(
+  w: Awaited<ReturnType<typeof customerWorld>>,
+  seed?: Extract<ProductSeed, { kind: "web_app" }>,
+) {
   const { owner, f } = w;
   const fail = (what: string, r: { status: number; body: Json }) => {
     throw new Error(`quote app ${what}: ${r.status} ${JSON.stringify(r.body)}`);
   };
-  await owner(`/api/businesses/${f.business}`, "PATCH", { name: "Lumen Parse" });
-  const job = await w.rw.build(f.ava, f.project, QUOTE_BUNDLE, "app");
+  await owner(`/api/businesses/${f.business}`, "PATCH", {
+    name: seed?.business_name ?? "Lumen Parse",
+  });
+  const job = await w.rw.build(f.ava, f.project, seed?.bundle ?? QUOTE_BUNDLE, "app");
   const epoch = w.state.runtime.ownerEpoch(f.business);
   seedDoubleCheck(w.state.store.db as never, {
     project: f.project,
@@ -249,7 +274,7 @@ async function foundQuoteApp(w: Awaited<ReturnType<typeof customerWorld>>) {
     artifact_job: job,
   });
   if (run.status !== 202) fail("checks", run);
-  const appTerms = {
+  const appTerms = seed?.app_terms ?? {
     access: "pass",
     pass_days: 7,
     limitations: "Estimates only; fictional prices.",

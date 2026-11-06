@@ -26,7 +26,34 @@ export class HandoverRecords {
     private readonly db: Db,
     private readonly store: Store,
     private readonly binding: (businessId: string) => { network: string; account: string } | null,
+    /** 006c: the latest finished successor rehearsal (as recorded), or null. */
+    private readonly rehearsal: (businessId: string) => {
+      id: string;
+      state: string;
+      finished_at: string | null;
+      record_digest: string | null;
+      outcome: { result?: string; summary?: string; boundaries?: string } | null;
+      steps: { key: string; outcome: string }[];
+      dependencies: { key: string; label: string; status: string }[];
+    } | null = () => null,
   ) {}
+
+  /** 006c: what a rehearsal showed, said as recorded, with its boundaries. Never "current". */
+  private rehearsalOf(businessId: string) {
+    const r = this.rehearsal(businessId);
+    if (!r) return null;
+    return {
+      id: r.id,
+      state: r.state,
+      finished_at: r.finished_at,
+      record_digest: r.record_digest,
+      result: r.outcome?.result ?? null,
+      boundaries: r.outcome?.boundaries ?? null,
+      steps: r.steps.map((s) => ({ key: s.key, outcome: s.outcome })),
+      dependencies: r.dependencies.map((d) => ({ key: d.key, status: d.status })),
+      kind: "as_recorded" as const,
+    };
+  }
 
   private name(id: string) {
     return (
@@ -195,6 +222,27 @@ export class HandoverRecords {
           },
         ],
       },
+      ...(() => {
+        const r = this.rehearsalOf(c.b.id);
+        return r
+          ? [
+              {
+                group: "Successor rehearsal",
+                items: [
+                  {
+                    text:
+                      r.state === "passed"
+                        ? "A synthetic successor rehearsal passed: a successor served an existing customer, fixed a founder-only dependency and released a checked version."
+                        : `The latest successor rehearsal was ${r.state}.`,
+                    kind: "as_recorded" as const,
+                    basis: `Rehearsal record ${(r.record_digest ?? "").slice(0, 12)}. ${r.boundaries ?? "Synthetic; not NEAR control or any external transfer."}`,
+                    observed_at: r.finished_at,
+                  },
+                ],
+              },
+            ]
+          : [];
+      })(),
       {
         group: "Still to transfer outside NEAR",
         items: c.external.map((e) => ({
@@ -243,6 +291,8 @@ export class HandoverRecords {
               observed_at: c.obs.observed_at,
             }
           : null,
+        // 006c: the latest successor rehearsal, as recorded (synthetic; its boundaries included).
+        successor_rehearsal: this.rehearsalOf(c.b.id),
       },
       receipt: c.receipt
         ? {

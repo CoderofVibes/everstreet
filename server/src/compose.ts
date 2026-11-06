@@ -35,6 +35,7 @@ import { type ProtectedStore, protectedStoreFromConfig } from "./protectedStore.
 import { AnthropicRuntime, type RuntimeProvider } from "./runtime.ts";
 import { configuredSourceOptions, fictionalSourceOptions } from "./sourceConnect.ts";
 import { Store } from "./store.ts";
+import { forkSuccessorRunner } from "./successorRunner.ts";
 import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
 import type { ViewTransport } from "./v3read.ts";
@@ -677,6 +678,8 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     ...(config.origins
       ? { previewOrigin: config.origins.preview, platformOrigin: config.origins.platform }
       : {}),
+    // 006c: successor rehearsals run in a separate synthetic child (never this database).
+    successorRunner: forkSuccessorRunner(),
   });
 
   const app = new Hono();

@@ -28,6 +28,7 @@ import { ManagedRuntime } from "./invocations.ts";
 import { AnthropicRuntime } from "./runtime.ts";
 import { fictionalSourceOptions } from "./sourceConnect.ts";
 import { Store } from "./store.ts";
+import { forkSuccessorRunner } from "./successorRunner.ts";
 
 const port = Number(process.env.PORT ?? 8800);
 mkdirSync("data/runtime", { recursive: true });
@@ -180,6 +181,8 @@ app.route(
     runtime,
     // Job 004b: the labelled fictional source fixture (no real account or network).
     importSources: fictionalSourceOptions(),
+    // 006c: successor rehearsals in a separate synthetic child (never this database).
+    successorRunner: forkSuccessorRunner(),
   }),
 );
 
