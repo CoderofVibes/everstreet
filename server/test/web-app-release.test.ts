@@ -6,9 +6,8 @@
 // bought on; update, rollback and withdrawal; the stand-in gate; a change of owner. The chain is
 // the labelled fixture double. Fictional data only.
 
-import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { QUOTE_BUNDLE, QUOTE_BUNDLE_V2 } from "./app-fixtures.ts";
+import { QUOTE_BUNDLE, QUOTE_BUNDLE_V2, seedDoubleCheck } from "./app-fixtures.ts";
 import { customerWorld, type Json, SyntheticProtection } from "./customer-world.ts";
 
 const APP_ORIGIN = "http://localhost:4999";
@@ -33,27 +32,14 @@ async function world(standIn = true) {
       .get(job) as { digest: string };
     if (checked) {
       const epoch = w.state.runtime.ownerEpoch(f.business);
-      const t = new Date().toISOString();
-      w.state.store.db
-        .prepare(
-          `INSERT INTO app_checks (id, project_id, business_id, job_id, digest, recipe, idempotency_key, fingerprint, requested_by, owner_id, owner_generation, state, attempt, engine, result, created_at, updated_at, finished_at)
-           VALUES (?, ?, ?, ?, ?, 'web_app_checks/1', ?, 'fixture', ?, ?, ?, 'passed', 1, ?, '{}', ?, ?, ?)`,
-        )
-        .run(
-          randomUUID(),
-          f.project,
-          f.business,
-          job,
-          a.digest,
-          `fixture-${job.slice(0, 12)}`,
-          f.ava.id,
-          epoch.owner_id,
-          epoch.generation,
-          JSON.stringify({ engine: "test-double", recipe: "web_app_checks/1" }),
-          t,
-          t,
-          t,
-        );
+      seedDoubleCheck(w.state.store.db as never, {
+        project: f.project,
+        business: f.business,
+        job,
+        requestedBy: f.ava.id,
+        ownerId: epoch.owner_id as string,
+        generation: epoch.generation,
+      });
     }
     return { job, digest: a.digest };
   };
@@ -291,6 +277,11 @@ describe("006a web app releases", () => {
     expect((await t.open(view.app.free_url)).status).toBe(403);
     // An update: new passes would get v2, this one keeps v1.
     await t.release(v2.job, { access: "pass", pass_days: 7, limitations: "" });
+    // The offer for the replaced release can't admit anyone, so the public page doesn't list it.
+    const slug = (await t.owner(`/api/businesses/${t.f.business}`)).body.business?.slug;
+    expect((await t.w.cara(`/api/public/businesses/${slug}/customer-offers`)).body.offers).toEqual(
+      [],
+    );
     expect((await js()).text).toContain("? 45 : 12");
     // The old offer names the retired release: no new pass from it.
     const again = await t.w.cara(`/api/customer/offers/${o.offer}/prepare`, "POST", {

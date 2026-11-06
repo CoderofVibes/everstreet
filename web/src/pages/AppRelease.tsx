@@ -238,6 +238,7 @@ export function AppRelease({
                       app_terms: terms(),
                       terms_digest: reviewed.digest,
                     });
+                    setReviewed(null); // released: these reviewed terms are now the release's own
                   }, `Version ${selected.number} is released.`)
                 }
               >

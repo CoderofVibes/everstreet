@@ -564,11 +564,18 @@ export function StepActions({
   return (
     <>
       <div className="use-actions">
+        {/* While a step runs the button stays focusable (aria-disabled, not disabled): a disabled
+            button drops keyboard focus to the page, so Enter couldn't reach the next step. */}
         <button
           type="button"
           className="btn btn-primary btn-lg"
-          disabled={busy || next.action === null || (next.action === "prepare" && !s.draft.trim())}
-          onClick={() => onAction(next.action)}
+          aria-disabled={busy || undefined}
+          disabled={
+            !busy && (next.action === null || (next.action === "prepare" && !s.draft.trim()))
+          }
+          onClick={() => {
+            if (!busy) onAction(next.action);
+          }}
         >
           {busy ? "Working…" : next.label}
         </button>

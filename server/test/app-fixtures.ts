@@ -122,13 +122,28 @@ export function seedDoubleCheck(
     generation: number;
   },
 ) {
-  const a = db.prepare("SELECT digest FROM build_artifacts WHERE job_id = ?").get(v.job) as {
+  const a = db
+    .prepare("SELECT digest, content FROM build_artifacts WHERE job_id = ?")
+    .get(v.job) as {
     digest: string;
+    content: string;
+  };
+  // The report shape a double returns (app-checks.test.ts passing()): every case matched.
+  const b = JSON.parse(a.content) as {
+    files: { path: string }[];
+    checks: { id: string }[];
+  };
+  const result = {
+    syntax: b.files
+      .filter((f) => f.path.endsWith(".js"))
+      .map((f) => ({ path: f.path, ok: true, detail: "" })),
+    cases: b.checks.map((c) => ({ id: c.id, passed: true, detail: "" })),
+    usage: { untrusted_memory_peak_bytes: null, vmm_memory_peak_bytes: null },
   };
   const t = new Date().toISOString();
   db.prepare(
     `INSERT INTO app_checks (id, project_id, business_id, job_id, digest, recipe, idempotency_key, fingerprint, requested_by, owner_id, owner_generation, state, attempt, engine, result, created_at, updated_at, finished_at)
-     VALUES (?, ?, ?, ?, ?, 'web_app_checks/1', ?, 'fixture', ?, ?, ?, 'passed', 1, ?, '{}', ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, 'web_app_checks/1', ?, 'fixture', ?, ?, ?, 'passed', 1, ?, ?, ?, ?, ?)`,
   ).run(
     `check-${v.job}`,
     v.project,
@@ -140,6 +155,7 @@ export function seedDoubleCheck(
     v.ownerId,
     v.generation,
     JSON.stringify({ engine: "test-double", recipe: "web_app_checks/1" }),
+    JSON.stringify(result),
     t,
     t,
     t,

@@ -156,7 +156,12 @@ export async function saleHarness(opts: {
   sync();
   w.state.store.db
     .prepare("UPDATE businesses SET name = ?, slug = ?, published_at = ? WHERE id = ?")
-    .run("Ledgerline Invoice Reader", "ledgerline", new Date().toISOString(), w.f.business);
+    .run(
+      opts.product === "quote-app" ? "Lumen Parse" : "Ledgerline Invoice Reader",
+      opts.product === "quote-app" ? "lumen-parse" : "ledgerline",
+      new Date().toISOString(),
+      w.f.business,
+    );
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const accountKey = `ed25519:${base58Encode(publicKey.export({ format: "der", type: "spki" }).subarray(-32))}`;
   const store = w.state.store as Store;
@@ -303,6 +308,9 @@ export async function saleHarness(opts: {
     sync();
     return w.state.app.fetch(c.req.raw);
   });
+  // 006a: released web apps, served by the app itself (opened at localhost, the other site).
+  site.get("/a/*", (c) => w.state.app.fetch(c.req.raw));
+  site.get("/p/*", (c) => w.state.app.fetch(c.req.raw));
   // Cara, signed in through the REAL verified routes with the synthetic key (as her browser
   // would), for the customer-use control; a cookie jar of its own.
   let caraCookie = "";

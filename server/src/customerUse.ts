@@ -1365,7 +1365,12 @@ export class CustomerUses {
         "SELECT * FROM customer_offers WHERE business_id = ? AND state = 'active' ORDER BY created_at, id LIMIT 10",
       )
       .all(b.id) as unknown as OfferRow[];
-    return { offers: rows.map((o) => this.productOf(o)), apps: this.freeApps(b.id) };
+    // 006a browser pass: an offer whose release was replaced, rolled back past or withdrawn can't
+    // admit anyone (prepare refuses it), so the public page doesn't invite a use of it.
+    return {
+      offers: rows.filter((o) => this.releaseActive(o)).map((o) => this.productOf(o)),
+      apps: this.freeApps(b.id),
+    };
   }
 
   /**

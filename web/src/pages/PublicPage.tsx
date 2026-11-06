@@ -695,7 +695,10 @@ function ProductOffers({ offers }: { offers: OfferView[] }) {
               {o.product.fields.length > 0 && (
                 <>Reads: {o.product.fields.map((f) => f.label).join(", ")}. </>
               )}
-              One unit per use, charged only when you get a result ·{" "}
+              {o.product.app
+                ? `One unit buys a ${o.product.app.pass_days}-day pass to the app, charged when access starts`
+                : "One unit per use, charged only when you get a result"}{" "}
+              ·{" "}
               <TokenAmount base={o.terms.unit_price} asset={o.terms.asset} token={o.terms.token} />{" "}
               · results kept {o.terms.retention_days} days, private to you.
             </p>
