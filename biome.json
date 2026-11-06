@@ -10,6 +10,7 @@
       "!web/dist",
       "!.claude",
       "!docs",
+      "!design",
       "!data",
       "!package-lock.json",
       "!server/test/fixtures/v3/direct-sale.json",

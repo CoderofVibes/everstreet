@@ -61,6 +61,24 @@ describe("step 7: 30 simulated days", () => {
       expect(sw.attention.map((a: { kind: string }) => a.kind)).toContain("sale");
       const rd = d.businesses.find((b: { name: string }) => b.name === "Relaydesk");
       expect(rd.rehearsal?.state).toBe("passed");
+      // What a founder reads beyond the totals: customers, quality, desk, runway, the sale.
+      expect(rd.cases.resolved_in_period).toBeGreaterThan(20);
+      expect(rd.cases.median_hours_to_resolve).toBeGreaterThan(0);
+      expect(rd.team_members).toBe(1);
+      expect(rd.customers.active).toBeGreaterThan(1);
+      const ll = d.businesses.find((b: { name: string }) => b.name === "Ledgerline");
+      expect(ll.success_rate).toBeLessThan(1);
+      expect(ll.not_charged_reasons.map((r: { outcome: string }) => r.outcome)).toContain(
+        "refused",
+      );
+      expect(ll.releases.map((r: { number: number }) => r.number)).toEqual([1, 2]);
+      expect(ll.credits_runway_days).toBeGreaterThan(0);
+      expect(sw.sale).toMatchObject({
+        state: "proposed",
+        seller_accepted: false,
+        buyer_accepted: false,
+      });
+      expect(sw.sale.escrow).toBe(sw.sale.price);
       w.db.close();
     } finally {
       try {

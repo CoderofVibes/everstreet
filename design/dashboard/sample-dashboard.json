@@ -1,0 +1,1211 @@
+{
+  "note": "FICTIONAL: Delphine Marsh's simulated month (synthetic chain, stand-in models). Shape of GET /api/me/dashboard.",
+  "as_of": "2026-11-06T02:13:51.468Z",
+  "period": {
+    "days": 30,
+    "from": "2026-10-08",
+    "to": "2026-11-06"
+  },
+  "days": [
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-11",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-10-21",
+    "2026-10-22",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26",
+    "2026-10-27",
+    "2026-10-28",
+    "2026-10-29",
+    "2026-10-30",
+    "2026-10-31",
+    "2026-11-01",
+    "2026-11-02",
+    "2026-11-03",
+    "2026-11-04",
+    "2026-11-05",
+    "2026-11-06"
+  ],
+  "tokens": {
+    "tusd.near": {
+      "symbol": "TUSD",
+      "name": "Test USD (fixture)",
+      "decimals": 6,
+      "block_height": "1783",
+      "observed_at": "2026-10-31T12:08:00.690Z",
+      "changed": false,
+      "reason": null
+    }
+  },
+  "totals": {
+    "revenue": {
+      "tusd.near": "137000000"
+    },
+    "compute_microcents": "15120000"
+  },
+  "businesses": [
+    {
+      "id": "20031168-06dc-4073-895a-e541374f8e48",
+      "name": "Ledgerline",
+      "slug": "ledgerline",
+      "role": "owner",
+      "product": "AI API",
+      "release": {
+        "number": 2,
+        "activated_at": "2026-10-15T11:58:36.237Z",
+        "digest": "f1eeb5a26550e9d296437ae3c8b90e77f2c17cfc6888c2f1adcd7b54bffaf9cf"
+      },
+      "daily": [
+        {
+          "day": "2026-10-08",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 1,
+          "compute_microcents": "150000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-09",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 1,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-10",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 2,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-11",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "150000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-12",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-13",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-14",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-15",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-16",
+          "revenue": {
+            "tusd.near": "1200000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-17",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 2,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-18",
+          "revenue": {
+            "tusd.near": "1600000"
+          },
+          "delivered": 4,
+          "not_charged": 0,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-19",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-20",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-21",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-22",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 3,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-23",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 1,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-24",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 1,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-25",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 2,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-26",
+          "revenue": {
+            "tusd.near": "1200000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-27",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-28",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-29",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 2,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-30",
+          "revenue": {
+            "tusd.near": "400000"
+          },
+          "delivered": 1,
+          "not_charged": 2,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-31",
+          "revenue": {
+            "tusd.near": "1600000"
+          },
+          "delivered": 4,
+          "not_charged": 0,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-01",
+          "revenue": {
+            "tusd.near": "2000000"
+          },
+          "delivered": 5,
+          "not_charged": 0,
+          "compute_microcents": "750000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-02",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-03",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 2,
+          "compute_microcents": "600000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-04",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 1,
+          "compute_microcents": "450000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-05",
+          "revenue": {
+            "tusd.near": "800000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "300000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-06",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        }
+      ],
+      "totals": {
+        "revenue": {
+          "tusd.near": "22000000"
+        },
+        "pending": {},
+        "delivered": 55,
+        "not_charged": 25,
+        "compute_microcents": "12000000",
+        "compute_unknown_calls": 0
+      },
+      "credits": {
+        "value": "137600000",
+        "asset": "tusd.near",
+        "units": 344,
+        "block_height": "1981",
+        "observed_at": "2026-11-05T11:10:38.445Z"
+      },
+      "network_fees": null,
+      "ownership": {
+        "generation": 1,
+        "owner_account": "delphine.near",
+        "transfers": 0,
+        "last_transfer_at": null,
+        "sale_in_progress": false
+      },
+      "rehearsal": null,
+      "founded_at": "2026-10-07T00:00:00.476Z",
+      "customers": {
+        "active": 3,
+        "returning": 3,
+        "new": 2
+      },
+      "not_charged_reasons": [
+        {
+          "outcome": "refused",
+          "n": 15
+        },
+        {
+          "outcome": "incomplete",
+          "n": 10
+        }
+      ],
+      "success_rate": 0.688,
+      "cost_per_delivered_microcents": "218181",
+      "credits_runway_days": 141,
+      "cases": null,
+      "releases": [
+        {
+          "activated_at": "2026-10-07T00:00:00.566Z",
+          "retired_at": "2026-10-15T11:58:36.237Z",
+          "state": "retired",
+          "number": 1
+        },
+        {
+          "activated_at": "2026-10-15T11:58:36.237Z",
+          "retired_at": null,
+          "state": "active",
+          "number": 2
+        }
+      ],
+      "team_members": 0,
+      "sale": null,
+      "attention": [
+        {
+          "kind": "rehearsal",
+          "text": "No successor rehearsal yet: rehearse the handover",
+          "link": "/desk/20031168-06dc-4073-895a-e541374f8e48/rehearsal"
+        }
+      ]
+    },
+    {
+      "id": "b6fa11e4-6286-4a0b-af41-5a78fdc5090f",
+      "name": "Relaydesk",
+      "slug": "relaydesk",
+      "role": "owner",
+      "product": "SaaS workflow",
+      "release": {
+        "number": 1,
+        "activated_at": "2026-10-07T00:00:00.659Z",
+        "digest": "e9f65820bf62dc32ccb202a673a55246fcdf1e430bae1928fc6e162768c56feb"
+      },
+      "daily": [
+        {
+          "day": "2026-10-08",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-09",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-10",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-11",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-12",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-13",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-14",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-15",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-16",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-17",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-18",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-19",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-20",
+          "revenue": {
+            "tusd.near": "4500000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-21",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-22",
+          "revenue": {
+            "tusd.near": "4500000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-23",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-24",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-25",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-26",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-27",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-28",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-29",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-30",
+          "revenue": {
+            "tusd.near": "4500000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-31",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-01",
+          "revenue": {
+            "tusd.near": "3000000"
+          },
+          "delivered": 2,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-02",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-03",
+          "revenue": {
+            "tusd.near": "1500000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-04",
+          "revenue": {
+            "tusd.near": "6000000"
+          },
+          "delivered": 4,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-05",
+          "revenue": {
+            "tusd.near": "4500000"
+          },
+          "delivered": 3,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-06",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        }
+      ],
+      "totals": {
+        "revenue": {
+          "tusd.near": "63000000"
+        },
+        "pending": {},
+        "delivered": 42,
+        "not_charged": 0,
+        "compute_microcents": "0",
+        "compute_unknown_calls": 0
+      },
+      "credits": {
+        "value": "535500000",
+        "asset": "tusd.near",
+        "units": 357,
+        "block_height": "1982",
+        "observed_at": "2026-11-05T11:10:38.449Z"
+      },
+      "network_fees": null,
+      "ownership": {
+        "generation": 1,
+        "owner_account": "delphine.near",
+        "transfers": 0,
+        "last_transfer_at": null,
+        "sale_in_progress": false
+      },
+      "rehearsal": {
+        "state": "passed",
+        "finished_at": "2026-10-26T12:34:06.118Z"
+      },
+      "founded_at": "2026-10-07T00:00:00.570Z",
+      "customers": {
+        "active": 4,
+        "returning": 4,
+        "new": 3
+      },
+      "not_charged_reasons": [],
+      "success_rate": 1,
+      "cost_per_delivered_microcents": "0",
+      "credits_runway_days": 208,
+      "cases": {
+        "open": 4,
+        "open_by_stage": {
+          "assigned": 3,
+          "received": 1
+        },
+        "opened_in_period": 42,
+        "resolved_in_period": 39,
+        "median_hours_to_resolve": 47.6
+      },
+      "releases": [
+        {
+          "activated_at": "2026-10-07T00:00:00.659Z",
+          "retired_at": null,
+          "state": "active",
+          "number": 1
+        }
+      ],
+      "team_members": 1,
+      "sale": null,
+      "attention": [
+        {
+          "kind": "open_cases",
+          "text": "4 open customer requests",
+          "link": "/desk/b6fa11e4-6286-4a0b-af41-5a78fdc5090f"
+        }
+      ]
+    },
+    {
+      "id": "69471902-6572-4d19-a3fb-1f10d0f29f7e",
+      "name": "Signalwatch",
+      "slug": "signalwatch",
+      "role": "owner",
+      "product": "Agent service",
+      "release": {
+        "number": 1,
+        "activated_at": "2026-10-07T00:00:00.713Z",
+        "digest": "453948209d39d3934bcb247b39067f30189962fcdaffe2a5beab1a5378a42145"
+      },
+      "daily": [
+        {
+          "day": "2026-10-08",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-09",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-10",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-11",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-12",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-13",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-14",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-15",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-16",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-17",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-18",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-19",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-20",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-21",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-22",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-23",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-24",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-25",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-26",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-27",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-28",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-29",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-30",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-10-31",
+          "revenue": {
+            "tusd.near": "4000000"
+          },
+          "delivered": 1,
+          "not_charged": 0,
+          "compute_microcents": "240000",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-01",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-02",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-03",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-04",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-05",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        },
+        {
+          "day": "2026-11-06",
+          "revenue": {
+            "tusd.near": "0"
+          },
+          "delivered": 0,
+          "not_charged": 0,
+          "compute_microcents": "0",
+          "compute_unknown_calls": 0
+        }
+      ],
+      "totals": {
+        "revenue": {
+          "tusd.near": "52000000"
+        },
+        "pending": {},
+        "delivered": 13,
+        "not_charged": 0,
+        "compute_microcents": "3120000",
+        "compute_unknown_calls": 0
+      },
+      "credits": {
+        "value": "1544000000",
+        "asset": "tusd.near",
+        "units": 386,
+        "block_height": "1983",
+        "observed_at": "2026-11-05T11:10:38.454Z"
+      },
+      "network_fees": null,
+      "ownership": {
+        "generation": 1,
+        "owner_account": "delphine.near",
+        "transfers": 0,
+        "last_transfer_at": null,
+        "sale_in_progress": true
+      },
+      "rehearsal": null,
+      "founded_at": "2026-10-07T00:00:00.572Z",
+      "customers": {
+        "active": 2,
+        "returning": 2,
+        "new": 1
+      },
+      "not_charged_reasons": [],
+      "success_rate": 1,
+      "cost_per_delivered_microcents": "240000",
+      "credits_runway_days": 2702,
+      "cases": null,
+      "releases": [
+        {
+          "activated_at": "2026-10-07T00:00:00.713Z",
+          "retired_at": null,
+          "state": "active",
+          "number": 1
+        }
+      ],
+      "team_members": 0,
+      "sale": {
+        "state": "proposed",
+        "buyer": "buyer.near",
+        "price": "180000000",
+        "escrow": "180000000",
+        "seller_accepted": false,
+        "buyer_accepted": false,
+        "expires_at": "2026-11-21T12:08:00.625Z",
+        "asset": "tusd.near"
+      },
+      "attention": [
+        {
+          "kind": "sale",
+          "text": "A sale is in progress: its terms wait for acceptance",
+          "link": "/sales/69471902-6572-4d19-a3fb-1f10d0f29f7e"
+        }
+      ]
+    }
+  ],
+  "definitions": {
+    "revenue": "Earned: units the contract charged for delivered results, times the price of the offer each request used, in that offer's token. Pending charges aren't counted.",
+    "compute": "Known compute cost of customer requests (USD). Calls whose cost isn't known yet are counted separately, never as zero.",
+    "credits": "Prepaid customer uses not yet used, as the business contract's treasury showed at its latest observation here.",
+    "network_fees": "Not recorded: Everstreet doesn't keep the NEAR fees of its own transactions yet, so none is shown.",
+    "customers": "Active: customers who sent a request in the period. Returning: on two or more days. New: their first request ever was in the period.",
+    "success_rate": "Delivered (charged) requests out of all requests that finished in the period.",
+    "runway": "How many days the prepaid credits would last at the last 7 days' pace of delivered uses.",
+    "cases": "A SaaS workflow's cases: open by stage, and the median time from request to resolved.",
+    "totals": "Totals add businesses only within the same token. Tokens and USD are never added together."
+  }
+}

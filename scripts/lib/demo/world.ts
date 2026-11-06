@@ -35,6 +35,12 @@ export const ACCOUNTS = {
   signalwatch: "signalwatch.demo.near",
 } as const;
 export type BusinessKey = keyof typeof ACCOUNTS;
+/** Fictional prices per use, in TUSD base units (6 decimals): 0.40, 1.50 and 4.00 TUSD. */
+export const PRICES: Record<BusinessKey, string> = {
+  ledgerline: "400000",
+  relaydesk: "1500000",
+  signalwatch: "4000000",
+};
 
 type Caller = ((
   path: string,
@@ -80,6 +86,8 @@ export async function demoWorld(opts: { dbPath: string }) {
     const base = c.ent(CUSTOMER);
     if (!base) throw new Error("fixture entitlement missing");
     for (const cu of CUSTOMERS) c.ents.set(cu.account, structuredClone(base));
+    // Each product's own fictional price per use (test tokens, 6 decimals).
+    c.plan = { ...c.plan, unit_price: PRICES[key] };
     c.attachSale({ owner: FOUNDER.account });
   }
   const protection = new SyntheticProtection();

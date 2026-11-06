@@ -27,6 +27,12 @@ export const DASHBOARD_DEFINITIONS = {
     "Prepaid customer uses not yet used, as the business contract's treasury showed at its latest observation here.",
   network_fees:
     "Not recorded: Everstreet doesn't keep the NEAR fees of its own transactions yet, so none is shown.",
+  customers:
+    "Active: customers who sent a request in the period. Returning: on two or more days. New: their first request ever was in the period.",
+  success_rate: "Delivered (charged) requests out of all requests that finished in the period.",
+  runway:
+    "How many days the prepaid credits would last at the last 7 days' pace of delivered uses.",
+  cases: "A SaaS workflow's cases: open by stage, and the median time from request to resolved.",
   totals:
     "Totals add businesses only within the same token. Tokens and USD are never added together.",
 };
@@ -148,7 +154,18 @@ export function dashboard(db: Db, viewer: Person, opts: { days?: number; now?: D
     const snap = obs
       ? (JSON.parse(obs.snapshot) as {
           treasury?: { asset?: string; ent_free_value?: string };
-          control?: { live_deal?: { seq: string; price?: string; stage?: string } | null };
+          control?: {
+            live_deal?: {
+              seq: string;
+              state: string;
+              buyer: string;
+              price: string;
+              escrow: string;
+              seller_accepted: boolean;
+              buyer_accepted: boolean;
+              expires_at_ms: string;
+            } | null;
+          };
         })
       : null;
     const activeOffer = db
@@ -206,6 +223,87 @@ export function dashboard(db: Db, viewer: Person, opts: { days?: number; now?: D
         "SELECT state, finished_at FROM successor_rehearsals WHERE business_id = ? AND state != 'running' ORDER BY started_at DESC LIMIT 1",
       )
       .get(b.id) as { state: string; finished_at: string } | undefined;
+
+    // Customers in the period: active, returning (on two or more days), new (first request ever).
+    const cust = db
+      .prepare(
+        `SELECT customer_account AS a, COUNT(DISTINCT substr(created_at, 1, 10)) AS days,
+                (SELECT MIN(x.created_at) FROM customer_requests x WHERE x.business_id = r.business_id AND x.customer_account = r.customer_account) AS first
+           FROM customer_requests r WHERE business_id = ? AND created_at >= ? AND created_at <= ?
+          GROUP BY customer_account`,
+      )
+      .all(b.id, since, asOf) as { a: string; days: number; first: string }[];
+    const customers = {
+      active: cust.length,
+      returning: cust.filter((c) => c.days >= 2).length,
+      new: cust.filter((c) => c.first >= since).length,
+    };
+    // Why requests weren't charged (the product's own outcome; "not run" when it never ran).
+    const reasons = db
+      .prepare(
+        `SELECT COALESCE(e.result_outcome, 'not_run') AS outcome, COUNT(*) AS n
+           FROM customer_requests r
+           LEFT JOIN customer_settlements s ON s.request_id = r.id
+           LEFT JOIN customer_executions e ON e.request_id = r.id
+          WHERE r.business_id = ? AND r.created_at >= ? AND r.created_at <= ?
+            AND (s.kind = 'release' OR s.state = 'returned')
+          GROUP BY outcome ORDER BY n DESC`,
+      )
+      .all(b.id, since, asOf) as { outcome: string; n: number }[];
+    const tried = totals.delivered + totals.not_charged;
+    // Prepaid credits at the recent pace: how long they'd last (last 7 days' delivered uses).
+    const recent = daily.slice(-7).reduce((n, d) => n + d.delivered, 0) / 7;
+    // Cases (a SaaS workflow): open by stage, resolved in the period, time to resolve.
+    const caseRows = db
+      .prepare(
+        "SELECT stage, created_at, closed_at, release_id FROM workflow_cases WHERE business_id = ?",
+      )
+      .all(b.id) as {
+      stage: string;
+      created_at: string;
+      closed_at: string | null;
+      release_id: string;
+    }[];
+    const resolved = caseRows.filter((c) => c.closed_at && c.closed_at >= since);
+    const hours = resolved
+      .map((c) => (Date.parse(c.closed_at as string) - Date.parse(c.created_at)) / 3_600_000)
+      .sort((x, y) => x - y);
+    const median = hours.length ? (hours[Math.floor((hours.length - 1) / 2)] as number) : null;
+    const openByStage: Record<string, number> = {};
+    for (const c of caseRows.filter((x) => !x.closed_at))
+      openByStage[c.stage] = (openByStage[c.stage] ?? 0) + 1;
+    const cases = caseRows.length
+      ? {
+          open: caseRows.filter((c) => !c.closed_at).length,
+          open_by_stage: openByStage,
+          opened_in_period: caseRows.filter((c) => c.created_at >= since).length,
+          resolved_in_period: resolved.length,
+          median_hours_to_resolve: median === null ? null : Math.round(median * 10) / 10,
+        }
+      : null;
+    // Releases in the period (and the one before it, still serving at its start).
+    const releases = (
+      db
+        .prepare(
+          `SELECT r.activated_at, r.retired_at, r.state,
+                  (SELECT COUNT(*) FROM runtime_releases x WHERE x.project_id = r.project_id AND x.rowid <= r.rowid) AS number
+             FROM runtime_releases r WHERE r.business_id = ? AND (r.activated_at >= ? OR r.retired_at IS NULL OR r.retired_at >= ?)
+            ORDER BY r.activated_at`,
+        )
+        .all(b.id, since, since) as {
+        activated_at: string;
+        retired_at: string | null;
+        state: string;
+        number: number;
+      }[]
+    ).map((r) => ({ ...r }));
+    const team = (
+      db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM business_members WHERE business_id = ? AND state = 'active' AND owner_generation = (SELECT COUNT(*) FROM ownership WHERE business_id = ?)",
+        )
+        .get(b.id, b.id) as { n: number }
+    ).n;
 
     const attention: { kind: string; text: string; link: string }[] = [];
     for (const [a, p] of Object.entries(pending))
@@ -267,6 +365,31 @@ export function dashboard(db: Db, viewer: Person, opts: { days?: number; now?: D
         sale_in_progress: live !== null,
       },
       rehearsal: rehearsal ? { state: rehearsal.state, finished_at: rehearsal.finished_at } : null,
+      founded_at: b.created_at,
+      customers,
+      not_charged_reasons: reasons,
+      success_rate: tried > 0 ? Math.round((totals.delivered / tried) * 1000) / 1000 : null,
+      cost_per_delivered_microcents:
+        totals.delivered > 0 && totals.compute_unknown_calls === 0
+          ? (BigInt(totals.compute_microcents) / BigInt(totals.delivered)).toString()
+          : null,
+      credits_runway_days:
+        credits?.units != null && recent > 0 ? Math.floor(credits.units / recent) : null,
+      cases,
+      releases,
+      team_members: team,
+      sale: live
+        ? {
+            state: live.state,
+            buyer: live.buyer,
+            price: live.price,
+            escrow: live.escrow,
+            seller_accepted: live.seller_accepted,
+            buyer_accepted: live.buyer_accepted,
+            expires_at: new Date(Number(live.expires_at_ms)).toISOString(),
+            asset: snap?.treasury?.asset ?? null,
+          }
+        : null,
       attention,
     };
   });
