@@ -16,7 +16,13 @@ import { base58Encode } from "../../server/src/customerWriter.ts";
 import { AccountSignIn, nep413Digest } from "../../server/src/identity.ts";
 import type { Store } from "../../server/src/store.ts";
 import { CUSTOMER, type Json, OPERATOR } from "../../server/test/customer-world.ts";
-import { BUYER, RELAYDESK_REQUEST, SELLER, saleWorld } from "../../server/test/sale-world.ts";
+import {
+  BUYER,
+  PASS_REQUEST,
+  RELAYDESK_REQUEST,
+  SELLER,
+  saleWorld,
+} from "../../server/test/sale-world.ts";
 import { labelScript } from "./customerPreview.ts";
 import { HARNESS_CSP, HARNESS_LABEL, WALLET_SCRIPT, walletHistory } from "./walletHarness.ts";
 
@@ -48,10 +54,17 @@ export const HARNESS_BUDGET = {
 export async function saleHarness(opts: {
   origin: string;
   budget?: Partial<typeof HARNESS_BUDGET>;
-  /** Relaydesk correction: the business sells Relaydesk (the workflow engine) instead. */
-  product?: "ledgerline" | "relaydesk";
+  /**
+   * Relaydesk correction: the business sells Relaydesk (the workflow engine) instead. 006a:
+   * "quote-app" sells 7-day passes to a fictional quote web app (a labelled stand-in release),
+   * served from the harness's other site (localhost instead of 127.0.0.1, the same port).
+   */
+  product?: "ledgerline" | "relaydesk" | "quote-app";
 }) {
-  const s = await saleWorld({ product: opts.product });
+  const s = await saleWorld({
+    product: opts.product,
+    appOrigin: opts.origin.replace("//127.0.0.1", "//localhost"),
+  });
   const { w } = s;
   const budget = { ...HARNESS_BUDGET, ...opts.budget };
   for (const [k, v] of Object.entries(budget))
@@ -330,7 +343,9 @@ export async function saleHarness(opts: {
       input:
         opts.product === "relaydesk"
           ? RELAYDESK_REQUEST
-          : "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD",
+          : opts.product === "quote-app"
+            ? PASS_REQUEST
+            : "Fictional invoice SH-1042 from Stackline Hosting Ltd, 2026-10-14, total 412.50 USD",
     });
     if (prep.status !== 201)
       return { status: prep.status, code: prep.body?.code ?? null, unit: null };

@@ -101,3 +101,48 @@ export const QUOTE_BUNDLE_V2 = {
     { ...QUOTE_CHECKS[1], expect: { thousands: 1000, cents: 36450, label: "$364.50" } },
   ],
 };
+
+/**
+ * 006a: records a TEST DOUBLE's passed isolated logic check of an app version (a fixture row; the
+ * check path itself is proven in app-checks.test.ts). Never isolation evidence.
+ */
+export function seedDoubleCheck(
+  db: {
+    prepare: (sql: string) => {
+      run: (...a: unknown[]) => unknown;
+      get: (...a: unknown[]) => unknown;
+    };
+  },
+  v: {
+    project: string;
+    business: string;
+    job: string;
+    requestedBy: string;
+    ownerId: string;
+    generation: number;
+  },
+) {
+  const a = db.prepare("SELECT digest FROM build_artifacts WHERE job_id = ?").get(v.job) as {
+    digest: string;
+  };
+  const t = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO app_checks (id, project_id, business_id, job_id, digest, recipe, idempotency_key, fingerprint, requested_by, owner_id, owner_generation, state, attempt, engine, result, created_at, updated_at, finished_at)
+     VALUES (?, ?, ?, ?, ?, 'web_app_checks/1', ?, 'fixture', ?, ?, ?, 'passed', 1, ?, '{}', ?, ?, ?)`,
+  ).run(
+    `check-${v.job}`,
+    v.project,
+    v.business,
+    v.job,
+    a.digest,
+    `fixture-${v.job.slice(0, 12)}`,
+    v.requestedBy,
+    v.ownerId,
+    v.generation,
+    JSON.stringify({ engine: "test-double", recipe: "web_app_checks/1" }),
+    t,
+    t,
+    t,
+  );
+  return a.digest;
+}

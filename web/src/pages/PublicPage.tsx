@@ -9,7 +9,7 @@ import {
   type PublicSession,
   type Receipt,
 } from "../api.ts";
-import { businessOffers, type OfferView } from "../customerApi.ts";
+import { businessProducts, type FreeApp, type OfferView } from "../customerApi.ts";
 import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 import { TokenAmount } from "../TokenAmount.tsx";
@@ -598,12 +598,20 @@ export function PublicPage({ slug }: { slug: string }) {
   const [page, setPage] = useState<PublicBusiness | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [offers, setOffers] = useState<OfferView[]>([]);
+  const [apps, setApps] = useState<FreeApp[]>([]);
   const { person } = useSession();
   useEffect(() => {
     setOffers([]);
-    businessOffers(slug)
-      .then(setOffers)
-      .catch(() => setOffers([]));
+    setApps([]);
+    businessProducts(slug)
+      .then((p) => {
+        setOffers(p.offers);
+        setApps(p.apps);
+      })
+      .catch(() => {
+        setOffers([]);
+        setApps([]);
+      });
   }, [slug]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload when the acting person changes (owner banner, following)
   useEffect(() => {
@@ -626,12 +634,45 @@ export function PublicPage({ slug }: { slug: string }) {
     <div className="page">
       {/* Job 001e: a digital profile leads inside the storefront; otherwise released offers. */}
       {!page.digital && <ProductOffers offers={offers} />}
+      <FreeApps apps={apps} />
       <StorefrontView
         page={page}
         digitalOffers={offers.length}
         onSent={() => api.page(slug).then(setPage)}
       />
     </div>
+  );
+}
+
+/** 006a: web apps this business released free to open: the actual app, at its own site. */
+export function FreeApps({ apps }: { apps: FreeApp[] }) {
+  if (apps.length === 0) return null;
+  return (
+    <section className="card use-offers" aria-labelledby="free-apps-title">
+      <div className="eyebrow" id="free-apps-title">
+        Open an app
+      </div>
+      {apps.map((a) => (
+        <div key={a.url} className="use-offer">
+          <div>
+            <h2>{a.name}</h2>
+            {a.description && <p>{a.description}</p>}
+            <p className="muted">
+              Free to open, no account. {a.platform_limitations}
+              {a.limitations && ` ${a.limitations}`}
+            </p>
+            {a.stand_in && (
+              <p className="notice">
+                Stand-in release: its logic checks ran on a test double, not an isolated worker.
+              </p>
+            )}
+          </div>
+          <a className="btn btn-primary" href={a.url} target="_blank" rel="noopener noreferrer">
+            Open the app
+          </a>
+        </div>
+      ))}
+    </section>
   );
 }
 

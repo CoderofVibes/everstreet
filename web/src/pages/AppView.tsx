@@ -32,6 +32,7 @@ import {
 } from "../appCanvas.ts";
 import { Generations } from "../appGenerate.ts";
 import { changedFiles, checkWords, lineDiff, previewMessage } from "../appView.ts";
+import { AppRelease } from "./AppRelease.tsx";
 
 const BUDGET = {
   max_input_tokens: 30_000,
@@ -679,6 +680,7 @@ export function AppView({
               </ul>
             </section>
           )}
+          <AppRelease projectId={projectId} versions={c.versions} selected={selected} />
         </div>
 
         <aside className="app-composer" aria-label="Change the web app">

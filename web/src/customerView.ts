@@ -79,7 +79,7 @@ export const WONT_RUN_RESULT: Record<"returned" | "returning" | "ended", string>
 /** Whether the shown result is a complete extraction (every required field found). */
 /** A delivered result: a complete extraction, an accepted request or a delivered analysis. */
 export const completeResult = (s: Pick<WorkspaceState, "result">) =>
-  ["extracted", "accepted", "analyzed"].includes(s.result?.result.outcome ?? "");
+  ["extracted", "accepted", "analyzed", "granted"].includes(s.result?.result.outcome ?? "");
 
 function documentStep(s: View) {
   const u = s.use;
@@ -172,7 +172,9 @@ function resultStep(s: View) {
             ? "Your request was received. Follow it below."
             : productKind(s) === "analysis"
               ? "Your analysis is ready. Each flag quotes your text."
-              : "Every required field was found. Compare it with your document.",
+              : productKind(s) === "web_app"
+                ? "Your pass has started. Open the app below."
+                : "Every required field was found. Compare it with your document.",
         )
       : isForm(s)
         ? is("attention", "Not accepted. Nothing is charged for it; read why below.")

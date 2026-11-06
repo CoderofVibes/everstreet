@@ -387,7 +387,7 @@ CREATE TABLE IF NOT EXISTS runtime_invocations (
   idempotency_key TEXT NOT NULL, fingerprint TEXT NOT NULL, input_sha TEXT NOT NULL, input_chars INTEGER NOT NULL,
   provider TEXT NOT NULL, provider_config TEXT NOT NULL, validator TEXT NOT NULL, pricing TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('running','completed','failed','cancelled','unknown')),
-  outcome TEXT CHECK (outcome IN ('extracted','incomplete','refused','invalid','accepted','analyzed')),
+  outcome TEXT CHECK (outcome IN ('extracted','incomplete','refused','invalid','accepted','analyzed','granted')),
   failure_class TEXT, failure_detail TEXT, output TEXT,
   reserved_cents INTEGER NOT NULL DEFAULT 0, charged_cents INTEGER NOT NULL DEFAULT 0,
   charged_microcents INTEGER NOT NULL DEFAULT 0,
@@ -707,12 +707,35 @@ CREATE TRIGGER IF NOT EXISTS workflow_case_events_no_delete
   BEFORE DELETE ON workflow_case_events BEGIN SELECT RAISE(ABORT, 'append-only'); END;
 `;
 
+/** 006a (WEB_APP_RELEASE.md): web app release terms, stable app ids and access passes. */
+export const APP_TERMS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS app_release_terms (
+  release_id TEXT PRIMARY KEY REFERENCES runtime_releases(id), project_id TEXT NOT NULL,
+  access TEXT NOT NULL CHECK (access IN ('free','pass')), pass_days INTEGER,
+  limitations TEXT NOT NULL, terms_digest TEXT NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS app_release_terms_no_update BEFORE UPDATE ON app_release_terms
+BEGIN SELECT RAISE(ABORT, 'release terms are immutable'); END;
+CREATE TABLE IF NOT EXISTS web_apps (
+  project_id TEXT PRIMARY KEY REFERENCES product_projects(id), app_id TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS app_passes (
+  token_hash TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE REFERENCES customer_requests(id),
+  person_id TEXT NOT NULL, project_id TEXT NOT NULL, release_id TEXT NOT NULL, digest TEXT NOT NULL,
+  starts_ms INTEGER NOT NULL, expires_ms INTEGER NOT NULL, created_at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER IF NOT EXISTS app_passes_no_update BEFORE UPDATE ON app_passes
+BEGIN SELECT RAISE(ABORT, 'passes are immutable'); END;
+`;
+
 export function openDb(path: string) {
   const db = new DatabaseSync(path);
   // The busy timeout first: two processes opening one file at once both switch its journal mode.
   db.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
   db.exec(WORKFLOW_CASES_SCHEMA);
+  db.exec(APP_TERMS_SCHEMA);
   // Columns added after the first release: attribution of how a response arrived.
   const cols = db.prepare("PRAGMA table_info(inquiries)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "source")) {
@@ -939,7 +962,8 @@ export function openDb(path: string) {
     runtimeSql &&
     (!runtimeSql.includes("'customer_use'") ||
       !runtimeSql.includes("'accepted'") ||
-      !runtimeSql.includes("'analyzed'"))
+      !runtimeSql.includes("'analyzed'") ||
+      !runtimeSql.includes("'granted'"))
   ) {
     const cols = [...columns("runtime_invocations")].join(", ");
     let next = runtimeSql.replace(
@@ -955,10 +979,14 @@ export function openDb(path: string) {
       next = next.replace("'refused','invalid')", "'refused','invalid','accepted')");
     if (!next.includes("'analyzed'"))
       next = next.replace("'invalid','accepted')", "'invalid','accepted','analyzed')");
+    // 006a (WEB_APP_RELEASE.md): `granted`, a delivered access pass.
+    if (!next.includes("'granted'"))
+      next = next.replace("'accepted','analyzed')", "'accepted','analyzed','granted')");
     if (
       !next.includes("'customer_use'") ||
       !next.includes("'accepted'") ||
       !next.includes("'analyzed'") ||
+      !next.includes("'granted'") ||
       !next.includes("runtime_invocations_next")
     )
       throw new Error("runtime_invocations could not be upgraded");

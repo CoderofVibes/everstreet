@@ -8,6 +8,7 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { validateAnalysisSpec } from "./analysis.ts";
+import { storedBundle } from "./appBundle.ts";
 import {
   type CustomerViewTransport,
   decideReservation,
@@ -46,6 +47,7 @@ import { HttpError, type Person, type Store } from "./store.ts";
 import { tokenMetaOf } from "./tokenMeta.ts";
 import type { V3Observations } from "./v3observe.ts";
 import { type ControlV3, isAccountId, V3ReadError } from "./v3read.ts";
+import { PLATFORM_LIMITATIONS, recordPass, releaseIsStandIn, termsOf } from "./webApp.ts";
 import { validateWorkflowSpec } from "./workflow.ts";
 import { openCase } from "./workflowCases.ts";
 
@@ -656,6 +658,16 @@ export class CustomerUses {
   ) {
     const epoch = this.store.controlEpoch(viewer, businessId); // the owner, or 404
     const release = this.activeRelease(businessId, v.releaseId);
+    // 006a: a web app is offered only as an access pass, kept at least as long as the pass lasts.
+    const app = termsOf(this.db, release.id);
+    if (app?.access === "free")
+      bad(409, "This app is free to open, so there is nothing to offer", "app_is_free");
+    if (app?.pass_days && v.retention < app.pass_days)
+      bad(
+        409,
+        `Keep the result at least as long as the pass lasts (${app.pass_days} days), so the customer can reopen the app`,
+        "retention_short",
+      );
     const b = this.v3.bindingFor(businessId);
     if (!b) bad(409, "This business isn't bound to a contract here", "not_bound");
     if (!this.reader) unavailable();
@@ -1259,8 +1271,11 @@ export class CustomerUses {
     const wf = a?.kind === "workflow_spec" ? validateWorkflowSpec(JSON.parse(a.content)) : null;
     // Analysis engine: the public product is the form (what the agent reads, and context).
     const an = a?.kind === "analysis_spec" ? validateAnalysisSpec(JSON.parse(a.content)) : null;
+    // 006a: a web app is offered as an access pass; the customer gives nothing but the request.
+    const appTerms = a?.kind === "web_app_bundle" ? termsOf(this.db, o.release_id) : null;
+    const app = appTerms && a ? storedBundle(a.content) : null;
     const spec =
-      a && !wf && !an
+      a && !wf && !an && !app
         ? (JSON.parse(a.content) as {
             name?: string;
             input?: { max_chars?: number };
@@ -1272,48 +1287,61 @@ export class CustomerUses {
       offer_id: o.id,
       offer_state: o.state,
       business: { name: b.name, slug: b.slug },
-      product: wf
+      product: app
         ? {
-            kind: "workflow" as const,
-            name: wf.name,
-            max_chars: inputCeiling({ kind: "workflow_spec", spec: wf }, LIMITS.inputChars),
-            fields: wf.intake.fields.map((f) => ({
-              key: f.key,
-              label: f.label,
-              type: f.type,
-              required: f.required,
-              max_chars: f.max_chars,
-              options: f.options,
-            })),
-            stages: wf.stages.map((st) => ({ key: st.key, label: st.label })),
+            kind: "web_app" as const,
+            name: app.name,
+            description: app.description,
+            max_chars: 200,
+            fields: [] as { key: string; label: string; type: string; required: boolean }[],
+            stages: [] as { key: string; label: string }[],
+            pass_days: appTerms?.pass_days ?? null,
+            platform_limitations: PLATFORM_LIMITATIONS,
+            limitations: appTerms?.limitations ?? "",
+            stand_in: releaseIsStandIn(this.db, o.release_id),
           }
-        : an
+        : wf
           ? {
-              kind: "analysis" as const,
-              name: an.name,
-              result_title: an.result_title,
-              max_chars: inputCeiling({ kind: "analysis_spec", spec: an }, LIMITS.inputChars),
-              fields: [an.source, ...an.context].map((f, i) => ({
-                key: f.key,
-                label: f.label,
-                type: "long_text",
-                required: i === 0,
-                max_chars: f.max_chars,
-                options: [] as string[],
-              })),
-              stages: [] as { key: string; label: string }[],
-            }
-          : {
-              kind: "extraction" as const,
-              name: spec.name ?? "Released product",
-              max_chars: Math.min(spec.input?.max_chars ?? LIMITS.inputChars, LIMITS.inputChars),
-              fields: (spec.fields ?? []).slice(0, 40).map((f) => ({
+              kind: "workflow" as const,
+              name: wf.name,
+              max_chars: inputCeiling({ kind: "workflow_spec", spec: wf }, LIMITS.inputChars),
+              fields: wf.intake.fields.map((f) => ({
                 key: f.key,
                 label: f.label,
                 type: f.type,
                 required: f.required,
+                max_chars: f.max_chars,
+                options: f.options,
               })),
-            },
+              stages: wf.stages.map((st) => ({ key: st.key, label: st.label })),
+            }
+          : an
+            ? {
+                kind: "analysis" as const,
+                name: an.name,
+                result_title: an.result_title,
+                max_chars: inputCeiling({ kind: "analysis_spec", spec: an }, LIMITS.inputChars),
+                fields: [an.source, ...an.context].map((f, i) => ({
+                  key: f.key,
+                  label: f.label,
+                  type: "long_text",
+                  required: i === 0,
+                  max_chars: f.max_chars,
+                  options: [] as string[],
+                })),
+                stages: [] as { key: string; label: string }[],
+              }
+            : {
+                kind: "extraction" as const,
+                name: spec.name ?? "Released product",
+                max_chars: Math.min(spec.input?.max_chars ?? LIMITS.inputChars, LIMITS.inputChars),
+                fields: (spec.fields ?? []).slice(0, 40).map((f) => ({
+                  key: f.key,
+                  label: f.label,
+                  type: f.type,
+                  required: f.required,
+                })),
+              },
       terms: {
         units_per_use: 1,
         unit_price: plan.unit_price,
@@ -1337,7 +1365,53 @@ export class CustomerUses {
         "SELECT * FROM customer_offers WHERE business_id = ? AND state = 'active' ORDER BY created_at, id LIMIT 10",
       )
       .all(b.id) as unknown as OfferRow[];
-    return { offers: rows.map((o) => this.productOf(o)) };
+    return { offers: rows.map((o) => this.productOf(o)), apps: this.freeApps(b.id) };
+  }
+
+  /**
+   * 006a: the business's web apps released FREE to open, at their stable addresses, while their
+   * release can serve (a stand-in only while stand-in releases are on; labelled).
+   */
+  private freeApps(businessId: string) {
+    const origin = this.runtime?.appOrigin;
+    if (!origin) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT r.id, r.project_id, r.artifact_digest, a.content, w.app_id
+           FROM runtime_releases r
+           JOIN app_release_terms t ON t.release_id = r.id AND t.access = 'free'
+           JOIN web_apps w ON w.project_id = r.project_id
+           JOIN build_artifacts a ON a.job_id = r.artifact_job
+          WHERE r.business_id = ? AND r.state = 'active'
+          ORDER BY r.activated_at, r.id LIMIT 10`,
+      )
+      .all(businessId) as {
+      id: string;
+      project_id: string;
+      artifact_digest: string;
+      content: string;
+      app_id: string;
+    }[];
+    return rows
+      .filter((r) => {
+        const standIn = releaseIsStandIn(this.db, r.id);
+        return (
+          (!standIn || this.runtime?.appStandIn) &&
+          this.runtime?.releaseFor(r.project_id, r.id, r.artifact_digest).ok
+        );
+      })
+      .map((r) => {
+        const b = storedBundle(r.content);
+        const t = termsOf(this.db, r.id);
+        return {
+          name: b.name,
+          description: b.description,
+          url: `${origin}/a/${r.app_id}/index.html`,
+          platform_limitations: PLATFORM_LIMITATIONS,
+          limitations: t?.limitations ?? "",
+          stand_in: releaseIsStandIn(this.db, r.id),
+        };
+      });
   }
 
   /** One offer, only while it is active on a published business. */
@@ -2550,7 +2624,7 @@ export class CustomerUses {
     // A model product needs its runtime provider; the workflow engine needs none.
     const offered = this.offer(r.offer_id);
     const availability = runtime.availability();
-    if (!(offered && runtime.isWorkflowProject(offered.project_id)) && !availability.available)
+    if ((!offered || runtime.releaseNeedsModel(offered.release_id)) && !availability.available)
       bad(503, availability.reason, "runtime_unavailable");
     const p = this.protection;
     if (!p?.load || !p.delete)
@@ -2807,6 +2881,17 @@ export class CustomerUses {
           id,
         );
       if (!c.changes) this.event(id, "late_result_discarded", {});
+      // 006a: a granted pass's token works only once delivery is recorded, in THIS transaction:
+      // a late or discarded result leaves no working token (WEB_APP_RELEASE.md §4).
+      if (c.changes === 1 && result.outcome === "granted") {
+        const r = this.request(id) as RequestRow;
+        const o = this.offer(r.offer_id) as OfferRow;
+        recordPass(
+          this.db,
+          { request_id: id, person_id: r.person_id, project_id: o.project_id },
+          result,
+        );
+      }
       // Workflow engine: an accepted, delivered request opens its case in THIS transaction, so
       // a delivered request always has exactly one case (WORKFLOW_ENGINE.md §5).
       if (c.changes === 1 && result.outcome === "accepted") {
@@ -3281,7 +3366,7 @@ export class CustomerUses {
     // The model runtime and its budget matter only when a model product is offered (or none is):
     // the workflow engine runs with neither (WORKFLOW_ENGINE.md).
     const modelOffered =
-      offers.length === 0 || offers.some((o) => !runtime?.isWorkflowProject(o.project_id));
+      offers.length === 0 || offers.some((o) => runtime?.releaseNeedsModel(o.release_id) !== false);
     const availability = runtime?.availability();
     if (modelOffered && !availability?.available)
       reasons.push(`runtime_unavailable${availability?.reason ? `: ${availability.reason}` : ""}`);

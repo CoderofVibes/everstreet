@@ -61,6 +61,19 @@
         "relaydesk"
       ],
       "port": 8814
+    },
+    {
+      "name": "quote-app-harness",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "scripts/sale-harness.ts",
+        "--minutes",
+        "90",
+        "--product",
+        "quote-app"
+      ],
+      "port": 8814
     }
   ]
 }

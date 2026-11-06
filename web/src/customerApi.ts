@@ -14,8 +14,13 @@ export interface OfferView {
   offer_state: "active" | "retired";
   business: { name: string; slug: string };
   product: {
-    /** The workflow and analysis engines take a form; an extraction product takes pasted text. */
-    kind: "workflow" | "analysis" | "extraction";
+    /**
+     * The workflow and analysis engines take a form; an extraction product takes pasted text; a
+     * web app (006a) is an access pass: one unit starts N days of access to the app.
+     */
+    kind: "workflow" | "analysis" | "extraction" | "web_app";
+    /** 006a: a web app's pass terms and what the app is (null for other kinds). */
+    app: AppOfferTerms | null;
     /** An analysis product's name for its answer (e.g. "Flags for you"). */
     result_title: string | null;
     name: string;
@@ -41,6 +46,23 @@ export interface OfferView {
     /** The token as read on the chain, or null (exact base units are shown). */
     token: TokenInfo | null;
   };
+}
+
+export interface AppOfferTerms {
+  description: string;
+  pass_days: number;
+  platform_limitations: string;
+  limitations: string;
+  /** Its logic checks ran on a test double, not an isolated worker (labelled). */
+  stand_in: boolean;
+}
+
+/** 006a: a granted access pass (the customer's private address carries its token). */
+export interface PassGrant {
+  url: string;
+  pass_days: number;
+  starts_at: string;
+  expires_at: string;
 }
 
 export type UseState =
@@ -165,6 +187,8 @@ export interface ResultView {
     /** An analysis's flags (AGENT_ANALYSIS.md), each quoting the customer's source. */
     findings: AnalysisFinding[];
     summary: string;
+    /** 006a: a granted access pass, or null. */
+    pass: PassGrant | null;
   };
 }
 
@@ -223,7 +247,20 @@ export function parseOffer(raw: unknown): OfferView {
     offer_state: oneOf(o.offer_state, ["active", "retired"] as const, "offer.state"),
     business: { name: str(b.name, "business.name"), slug: str(b.slug, "business.slug") },
     product: {
-      kind: p.kind === "workflow" || p.kind === "analysis" ? p.kind : "extraction",
+      kind:
+        p.kind === "workflow" || p.kind === "analysis" || p.kind === "web_app"
+          ? p.kind
+          : "extraction",
+      app:
+        p.kind === "web_app"
+          ? {
+              description: typeof p.description === "string" ? p.description : "",
+              pass_days: int(p.pass_days, "product.pass_days"),
+              platform_limitations: str(p.platform_limitations, "product.platform_limitations"),
+              limitations: str(p.limitations, "product.limitations"),
+              stand_in: bool(p.stand_in, "product.stand_in"),
+            }
+          : null,
       result_title: typeof p.result_title === "string" ? p.result_title : null,
       name: str(p.name, "product.name"),
       max_chars: int(p.max_chars, "product.max_chars"),
@@ -407,13 +444,38 @@ export function parseUses(raw: unknown): UseSummary[] {
   });
 }
 
+/** A pass's address must be an http(s) page under /p/<token>/ on its own site. */
+function parsePass(r: Record<string, unknown>): PassGrant {
+  const url = str(r.url, "pass.url");
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return fail("pass.url");
+  }
+  if (!/^https?:$/.test(u.protocol) || !/^\/p\/[A-Za-z0-9_-]{43}\/index\.html$/.test(u.pathname))
+    fail("pass.url");
+  const when = (v: unknown, where: string) => {
+    const s = str(v, where);
+    return Number.isNaN(Date.parse(s)) ? fail(where) : s;
+  };
+  return {
+    url,
+    pass_days: int(r.pass_days, "pass.days"),
+    starts_at: when(r.starts_at, "pass.starts_at"),
+    expires_at: when(r.expires_at, "pass.expires_at"),
+  };
+}
+
 export function parseResult(raw: unknown): ResultView {
   const o = obj(raw, "answer");
   const r = obj(o.result, "result");
   // An analysis has flags instead of fields.
+  // An access pass (006a) has an address instead; a refused pass has only its reason.
+  const isPass = r.outcome === "granted" || (r.outcome === "refused" && r.fields === undefined);
   const fields = Array.isArray(r.fields)
     ? r.fields
-    : Array.isArray(r.findings)
+    : Array.isArray(r.findings) || isPass
       ? []
       : fail("result.fields");
   const findings = Array.isArray(r.findings) ? r.findings : [];
@@ -444,6 +506,7 @@ export function parseResult(raw: unknown): ResultView {
       reason: nullable(r.reason ?? null, (v) => str(v, "result.reason")),
       stage: nullable(r.stage ?? null, (v) => str(v, "result.stage")),
       summary: typeof r.summary === "string" ? r.summary : "",
+      pass: r.outcome === "granted" ? parsePass(r) : null,
       findings: findings.slice(0, 8).map((f) => {
         const x = obj(f, "result.finding");
         return {
@@ -524,14 +587,55 @@ export const customerHttp: CustomerPort = {
   release: (id) => call(`/api/customer/uses/${encodeURIComponent(id)}/release`, "POST"),
 };
 
+/** 006a: a web app the business released free to open, at its stable address. */
+export interface FreeApp {
+  name: string;
+  description: string;
+  url: string;
+  platform_limitations: string;
+  limitations: string;
+  stand_in: boolean;
+}
+
+function parseFreeApp(raw: unknown): FreeApp {
+  const a = obj(raw, "app");
+  const url = str(a.url, "app.url");
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return fail("app.url");
+  }
+  if (!/^https?:$/.test(u.protocol) || !/^\/a\/[A-Za-z0-9_-]{16}\/index\.html$/.test(u.pathname))
+    fail("app.url");
+  return {
+    name: str(a.name, "app.name"),
+    description: str(a.description, "app.description"),
+    url,
+    platform_limitations: str(a.platform_limitations, "app.platform_limitations"),
+    limitations: str(a.limitations, "app.limitations"),
+    stand_in: bool(a.stand_in, "app.stand_in"),
+  };
+}
+
 /** Public offers of a published business (its page's "Use this product" section). */
 export async function businessOffers(slug: string): Promise<OfferView[]> {
+  return (await businessProducts(slug)).offers;
+}
+
+/** Public offers and free web apps (006a) of a published business. */
+export async function businessProducts(
+  slug: string,
+): Promise<{ offers: OfferView[]; apps: FreeApp[] }> {
   const raw = obj(
     await call(`/api/public/businesses/${encodeURIComponent(slug)}/customer-offers`),
     "answer",
   );
   if (!Array.isArray(raw.offers)) return fail("offers");
-  return raw.offers.slice(0, 10).map(parseOffer);
+  return {
+    offers: raw.offers.slice(0, 10).map(parseOffer),
+    apps: (Array.isArray(raw.apps) ? raw.apps : []).slice(0, 10).map(parseFreeApp),
+  };
 }
 
 export async function myUses(): Promise<UseSummary[]> {

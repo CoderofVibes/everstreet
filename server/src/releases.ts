@@ -10,6 +10,18 @@ import type { Db } from "./db.ts";
 import type { Evaluations } from "./evaluations.ts";
 import type { ManagedRuntime } from "./invocations.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import {
+  type AppTerms,
+  appIdOf,
+  ensureAppId,
+  PLATFORM_LIMITATIONS,
+  parseAppTerms,
+  releaseIsStandIn,
+  termsOf,
+  termsText,
+  WEB_APP_KIND,
+  type WebAppSpec,
+} from "./webApp.ts";
 
 interface ReleaseRow {
   id: string;
@@ -81,10 +93,45 @@ export class Releases {
     return { blockers: out, artifact };
   }
 
+  /**
+   * 006a: the customer terms of a web app version, for the owner to review before releasing. The
+   * digest is what activate() requires, so changed terms always need a fresh review.
+   */
+  appTerms(
+    viewer: Person,
+    projectId: string,
+    input: { artifact_job?: unknown; app_terms?: unknown },
+  ) {
+    const p = this.runtime.project(viewer, projectId);
+    this.store.requireNoHandover(p.business_id);
+    const artifact = this.runtime.artifact(p.id, String(input.artifact_job ?? ""));
+    if (artifact.checked.kind !== WEB_APP_KIND)
+      throw new HttpError(409, "Only a web app version has access terms", "not_web_app");
+    const terms = parseAppTerms(input.app_terms);
+    const { digest } = termsText(artifact.checked.spec, terms);
+    return { terms: this.termsView(artifact.checked.spec, terms), terms_digest: digest };
+  }
+
+  private termsView(spec: WebAppSpec, t: AppTerms) {
+    return {
+      app: spec.name,
+      digest: spec.digest,
+      access: t.access,
+      pass_days: t.pass_days,
+      platform_limitations: PLATFORM_LIMITATIONS,
+      limitations: t.limitations,
+    };
+  }
+
   activate(
     viewer: Person,
     projectId: string,
-    input: { artifact_job?: unknown; eval_run?: unknown },
+    input: {
+      artifact_job?: unknown;
+      eval_run?: unknown;
+      app_terms?: unknown;
+      terms_digest?: unknown;
+    },
   ) {
     const p = this.runtime.project(viewer, projectId);
     const job = String(input.artifact_job ?? "");
@@ -93,7 +140,65 @@ export class Releases {
       this.store.requireNoHandover(p.business_id); // job 003wf3 (W13)
       const { blockers, artifact } = this.blockers(p.id, job, runId);
       if (blockers.length || !artifact) throw new HttpError(409, blockers.join(". "));
-      this.insert(viewer, p, artifact, runId, null);
+      // 006a: a web app is released with reviewed customer terms, written in this transaction.
+      let terms: AppTerms | null = null;
+      if (artifact.checked.kind === WEB_APP_KIND) {
+        terms = parseAppTerms(input.app_terms);
+        const { digest } = termsText(artifact.checked.spec, terms);
+        if (input.terms_digest !== digest)
+          throw new HttpError(
+            409,
+            "These customer terms weren't the ones reviewed; review them again",
+            "terms_not_reviewed",
+          );
+      }
+      const id = this.insert(viewer, p, artifact, runId, null);
+      if (terms) this.writeTerms(p.id, id, artifact, terms);
+    });
+    return this.view(viewer, projectId);
+  }
+
+  private writeTerms(
+    projectId: string,
+    releaseId: string,
+    artifact: ReturnType<ManagedRuntime["artifact"]>,
+    terms: AppTerms,
+  ) {
+    if (artifact.checked.kind !== WEB_APP_KIND) return;
+    const t = this.runtime.iso();
+    ensureAppId(this.db, projectId, t);
+    this.db
+      .prepare(
+        "INSERT INTO app_release_terms (release_id, project_id, access, pass_days, limitations, terms_digest, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        releaseId,
+        projectId,
+        terms.access,
+        terms.pass_days,
+        terms.limitations,
+        termsText(artifact.checked.spec, terms).digest,
+        t,
+      );
+  }
+
+  /**
+   * 006a: withdraws a web app. The active release is retired and none replaces it: the free
+   * address says so, offers admit no new passes, and started passes keep their pinned release.
+   */
+  withdraw(viewer: Person, projectId: string) {
+    const p = this.runtime.project(viewer, projectId);
+    this.store.tx(() => {
+      this.store.requireNoHandover(p.business_id);
+      const a = this.active(p.id);
+      if (!a) throw new HttpError(409, "Nothing is released", "not_released");
+      if (!termsOf(this.db, a.id))
+        throw new HttpError(409, "Only a web app can be withdrawn", "not_web_app");
+      this.db
+        .prepare(
+          "UPDATE runtime_releases SET state = 'retired', retired_at = ? WHERE id = ? AND state = 'active'",
+        )
+        .run(this.runtime.iso(), a.id);
     });
     return this.view(viewer, projectId);
   }
@@ -114,7 +219,17 @@ export class Releases {
           409,
           `That version needs checking again before it can serve requests: ${blockers.join(". ")}`,
         );
-      this.insert(viewer, p, artifact, r.eval_run, r.id);
+      const id = this.insert(viewer, p, artifact, r.eval_run, r.id);
+      // 006a: a web app's rollback restores that release's own customer terms.
+      const before = termsOf(this.db, r.id);
+      if (before)
+        this.writeTerms(p.id, id, artifact, {
+          access: before.access,
+          pass_days: before.pass_days,
+          limitations: before.limitations,
+        });
+      else if (artifact.checked.kind === WEB_APP_KIND)
+        throw new HttpError(409, "That release has no customer terms", "no_terms");
     });
     return this.view(viewer, projectId);
   }
@@ -131,6 +246,7 @@ export class Releases {
     if (!run) throw new HttpError(404, "No such check");
     const t = this.runtime.iso();
     const epoch = this.runtime.ownerEpoch(p.business_id);
+    const id = randomUUID();
     this.db
       .prepare(
         "UPDATE runtime_releases SET state = 'retired', retired_at = ? WHERE project_id = ? AND state = 'active'",
@@ -142,7 +258,7 @@ export class Releases {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
       )
       .run(
-        randomUUID(),
+        id,
         p.id,
         p.business_id,
         artifact.job_id,
@@ -158,6 +274,7 @@ export class Releases {
         epoch.generation,
         t,
       );
+    return id;
   }
 
   view(viewer: Person, projectId: string) {
@@ -173,7 +290,7 @@ export class Releases {
         .prepare(
           `SELECT j.id, j.revision, j.owner_id, j.owner_generation, j.finished_at, a.digest
              FROM build_jobs j JOIN build_artifacts a ON a.job_id = j.id
-            WHERE j.project_id = ? AND j.intent = 'build' AND j.state = 'succeeded'
+            WHERE j.project_id = ? AND j.intent IN ('build','app') AND j.state = 'succeeded'
             ORDER BY j.created_at DESC, j.rowid DESC LIMIT 20`,
         )
         .all(p.id) as {
@@ -224,6 +341,18 @@ export class Releases {
       releases: releases.map((r) => this.releaseView(r)),
       candidates,
       note: "Only you can run it until customers are connected. A request keeps the version it started on, even if you release or roll back meanwhile.",
+      // 006a: a web app's stable customer address (made at its first release).
+      app: (() => {
+        const id = appIdOf(this.db, p.id);
+        return id
+          ? {
+              app_id: id,
+              free_url: this.runtime.appOrigin
+                ? `${this.runtime.appOrigin}/a/${id}/index.html`
+                : null,
+            }
+          : null;
+      })(),
     };
   }
 
@@ -245,6 +374,20 @@ export class Releases {
       retired_at: r.retired_at,
       checks_current: c.current,
       reasons: c.reasons,
+      // 006a: a web app release's customer terms, and whether it is a labelled stand-in.
+      app_terms: (() => {
+        const t = termsOf(this.db, r.id);
+        return t
+          ? {
+              access: t.access,
+              pass_days: t.pass_days,
+              platform_limitations: PLATFORM_LIMITATIONS,
+              limitations: t.limitations,
+              terms_digest: t.terms_digest,
+            }
+          : null;
+      })(),
+      stand_in: releaseIsStandIn(this.db, r.id),
     };
   }
 }

@@ -46,8 +46,8 @@ if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 120) {
 const product = process.argv.includes("--product")
   ? process.argv[process.argv.indexOf("--product") + 1]
   : "ledgerline";
-if (product !== "ledgerline" && product !== "relaydesk") {
-  console.error("--product must be ledgerline or relaydesk");
+if (product !== "ledgerline" && product !== "relaydesk" && product !== "quote-app") {
+  console.error("--product must be ledgerline, relaydesk or quote-app");
   process.exit(2);
 }
 const h = await saleHarness({ origin: `http://${HOST}:${PORT}`, product });

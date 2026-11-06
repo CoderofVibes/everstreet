@@ -42,6 +42,7 @@ import { HttpError, type Person, type Store } from "./store.ts";
 import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
 import { type Overrides, Valuation } from "./value.ts";
+import { serveFree, servePass } from "./webApp.ts";
 import { WorkflowCases } from "./workflowCases.ts";
 import type { WriterHistory } from "./writerHistory.ts";
 
@@ -173,6 +174,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
   const publications = new Publications(store.db, store);
   const evaluations = new Evaluations(store.db, store, runtime);
   const releases = new Releases(store.db, store, runtime, evaluations);
+  /** 006a: whether a release's check is still current (e.g. a stand-in after stand-ins are off). */
+  const releaseCurrent = (releaseId: string) => {
+    const r = store.db
+      .prepare("SELECT eval_run FROM runtime_releases WHERE id = ?")
+      .get(releaseId) as { eval_run: string } | undefined;
+    const run = r ? evaluations.row(r.eval_run) : undefined;
+    return !!run && evaluations.currency(run).current;
+  };
   const books = new Books(store.db, store, options.chain ?? null);
   const valuation = new Valuation(store.db, store, books);
   const acquire = new Acquisitions(store.db, store, books, valuation, options.chain ?? null);
@@ -835,6 +844,43 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/product-projects/:id/releases", async (c) =>
     c.json(releases.activate(me(c), c.req.param("id"), await body(c)), 201),
   );
+  // 006a: a web app's customer terms for review, and withdrawing it.
+  app.post("/api/product-projects/:id/releases/app-terms", async (c) =>
+    c.json(releases.appTerms(me(c), c.req.param("id"), await body(c))),
+  );
+  app.post("/api/product-projects/:id/releases/withdraw", (c) =>
+    c.json(releases.withdraw(me(c), c.req.param("id"))),
+  );
+  // 006a: released web apps for customers, on the app site (WEB_APP_RELEASE.md §3). Served by
+  // address or pass token alone: no cookie is read for authority and none is set.
+  app.get("/a/:app/*", (c) => {
+    const id = c.req.param("app");
+    const path = decodeURIComponent(c.req.path.slice(`/a/${id}/`.length));
+    const r = serveFree(store.db, runtime.appOrigin, id, path, (releaseId) => {
+      const row = store.db
+        .prepare("SELECT project_id, artifact_digest FROM runtime_releases WHERE id = ?")
+        .get(releaseId) as { project_id: string; artifact_digest: string } | undefined;
+      return (
+        !!row &&
+        runtime.releaseFor(row.project_id, releaseId, row.artifact_digest).ok &&
+        releaseCurrent(releaseId)
+      );
+    });
+    return new Response(r.body, { status: r.status, headers: r.headers });
+  });
+  app.get("/p/:token/*", (c) => {
+    const token = c.req.param("token");
+    const path = decodeURIComponent(c.req.path.slice(`/p/${token}/`.length));
+    const r = servePass(
+      store.db,
+      runtime.appOrigin,
+      token,
+      path,
+      runtime.now(),
+      runtime.appStandIn,
+    );
+    return new Response(r.body, { status: r.status, headers: r.headers });
+  });
   app.post("/api/product-projects/:id/releases/:rid/rollback", (c) =>
     c.json(releases.rollback(me(c), c.req.param("id"), c.req.param("rid"))),
   );

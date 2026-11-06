@@ -5,6 +5,7 @@
 // fictional test tokens), Cara (a customer with 100 prepaid uses). Wallet transactions are applied
 // to the double exactly as a wallet would send them (`wallet`), never as state edits.
 
+import { QUOTE_BUNDLE, seedDoubleCheck } from "./app-fixtures.ts";
 import {
   BUSINESS,
   customerWorld,
@@ -14,6 +15,9 @@ import {
   TOKEN,
 } from "./customer-world.ts";
 import { RELAYDESK_PROTOTYPE } from "./relaydesk.ts";
+
+/** 006a: what a customer sends for an access pass (fixed; nothing of theirs). */
+export const PASS_REQUEST = "Access pass";
 
 export const SELLER = "founder.near";
 export const BUYER = "buyer.near";
@@ -39,16 +43,26 @@ export const RELAYDESK_REQUEST = JSON.stringify({
 export async function saleWorld(
   opts: {
     dbPath?: string;
-    /** Relaydesk correction (Stage C browser pass): the business sells Relaydesk instead. */
-    product?: "ledgerline" | "relaydesk";
+    /**
+     * Relaydesk correction (Stage C browser pass): the business sells Relaydesk instead. 006a:
+     * "quote-app" sells 7-day access passes to a fictional quote web app (a labelled stand-in
+     * release: its logic checks ran on a test double).
+     */
+    product?: "ledgerline" | "relaydesk" | "quote-app";
+    /** 006a: where released web apps are served (the harness's other site). */
+    appOrigin?: string;
   } = {},
 ) {
   const protection = new SyntheticProtection();
   const relaydesk = opts.product === "relaydesk";
+  const quoteApp = opts.product === "quote-app";
   const w = await customerWorld({
     dbPath: opts.dbPath,
     customer: { protection },
     ...(relaydesk ? { bare: true, foundation: "saas_workflow" } : {}),
+    ...(quoteApp
+      ? { runtime: { appOrigin: opts.appOrigin ?? "http://localhost:4999", appStandIn: true } }
+      : {}),
   });
   const sale = w.chain.attachSale();
   // The observation transport reads the same state (v3 intents and reconciliation).
@@ -59,7 +73,11 @@ export async function saleWorld(
   w.link(noah.id, BUYER);
   // Noah holds his own fictional test tokens; neither he nor Ava is registered with the token yet.
   w.chain.balances.set(BUYER, 1_000_000_000n);
-  const offerId = relaydesk ? await foundRelaydesk(w) : await w.offer();
+  const offerId = relaydesk
+    ? await foundRelaydesk(w)
+    : quoteApp
+      ? await foundQuoteApp(w)
+      : await w.offer();
   const biz = w.f.business;
   const ava = w.owner as Caller;
   const stranger = w.person("Sam Okoro") as Caller;
@@ -118,7 +136,7 @@ export async function saleWorld(
     w.clock.now = Number(w.chain.ts);
     const prep = await w.cara(`/api/customer/offers/${offerId}/prepare`, "POST", {
       idempotency_key: `sale-world-use-${String(++uses).padStart(4, "0")}`,
-      input: relaydesk ? RELAYDESK_REQUEST : INVOICE,
+      input: relaydesk ? RELAYDESK_REQUEST : quoteApp ? PASS_REQUEST : INVOICE,
     });
     if (prep.status !== 201)
       return { status: prep.status, code: prep.body.code as string, unit: null };
@@ -201,6 +219,58 @@ async function foundRelaydesk(w: Awaited<ReturnType<typeof customerWorld>>) {
   const made = await owner(`/api/businesses/${f.business}/customer-offers`, "POST", {
     ...terms,
     idempotency_key: "harness-relaydesk-offer",
+    reviewed_terms: digest,
+  });
+  if (made.status !== 201) fail("offer", made);
+  return made.body.offer.id as string;
+}
+
+/**
+ * 006a: a fictional quote web app built through the real build route, its test double's passed
+ * check (fixture), released with reviewed 7-day pass terms (a labelled stand-in), and offered.
+ */
+async function foundQuoteApp(w: Awaited<ReturnType<typeof customerWorld>>) {
+  const { owner, f } = w;
+  const fail = (what: string, r: { status: number; body: Json }) => {
+    throw new Error(`quote app ${what}: ${r.status} ${JSON.stringify(r.body)}`);
+  };
+  await owner(`/api/businesses/${f.business}`, "PATCH", { name: "Lumen Parse" });
+  const job = await w.rw.build(f.ava, f.project, QUOTE_BUNDLE, "app");
+  const epoch = w.state.runtime.ownerEpoch(f.business);
+  seedDoubleCheck(w.state.store.db as never, {
+    project: f.project,
+    business: f.business,
+    job,
+    requestedBy: f.ava.id,
+    ownerId: epoch.owner_id as string,
+    generation: epoch.generation,
+  });
+  const run = await owner(`/api/product-projects/${f.project}/evaluations`, "POST", {
+    artifact_job: job,
+  });
+  if (run.status !== 202) fail("checks", run);
+  const appTerms = {
+    access: "pass",
+    pass_days: 7,
+    limitations: "Estimates only; fictional prices.",
+  };
+  const t = await owner(`/api/product-projects/${f.project}/releases/app-terms`, "POST", {
+    artifact_job: job,
+    app_terms: appTerms,
+  });
+  if (t.status !== 200) fail("terms", t);
+  const released = await owner(`/api/product-projects/${f.project}/releases`, "POST", {
+    artifact_job: job,
+    eval_run: run.body.run.id,
+    app_terms: appTerms,
+    terms_digest: t.body.terms_digest,
+  });
+  if (released.status !== 201) fail("release", released);
+  const terms = { release_id: released.body.active.id, plan_id: 1, retention_days: 30 };
+  const digest = await w.reviewed(terms);
+  const made = await owner(`/api/businesses/${f.business}/customer-offers`, "POST", {
+    ...terms,
+    idempotency_key: "harness-quote-app-offer",
     reviewed_terms: digest,
   });
   if (made.status !== 201) fail("offer", made);

@@ -19,11 +19,20 @@ import {
   validateAnalysis,
   validateAnalysisSpec,
 } from "./analysis.ts";
+import { storedBundle } from "./appBundle.ts";
 import type { ExtractionSpec } from "./artifacts.ts";
 import { type BuildAvailability, ceilCents, costMicroCents, validPricing } from "./build.ts";
 import type { Db } from "./db.ts";
 import { RELEASE_POLICY } from "./evaluations.ts";
 import { EXTRACT_VALIDATOR, type Extraction, validateExtraction } from "./extract.ts";
+import {
+  grantPass,
+  type PassResult,
+  WEB_APP_CONFIG,
+  WEB_APP_KIND,
+  WEB_APP_VALIDATOR,
+  type WebAppSpec,
+} from "./webApp.ts";
 import {
   runWorkflow,
   validateWorkflowSpec,
@@ -39,21 +48,30 @@ import {
  * What a run produces: an extraction, a workflow intake decision (WORKFLOW_ENGINE.md), or an
  * analysis (AGENT_ANALYSIS.md).
  */
-export type RunResult = Extraction | WorkflowResult | AnalysisResult;
+export type RunResult = Extraction | WorkflowResult | AnalysisResult | PassResult;
 /** A use is fulfilled (and its unit chargeable) only for these outcomes. */
 export const isFulfilled = (outcome: string | null | undefined) =>
-  outcome === "extracted" || outcome === "accepted" || outcome === "analyzed";
+  outcome === "extracted" ||
+  outcome === "accepted" ||
+  outcome === "analyzed" ||
+  outcome === "granted";
 /** A checked artifact, by kind: a spec of one kind can never be read as another. */
 export type CheckedSpec =
   | { kind: "extraction_spec"; spec: ExtractionSpec }
   | { kind: "workflow_spec"; spec: WorkflowSpec }
-  | { kind: "analysis_spec"; spec: AnalysisSpec };
+  | { kind: "analysis_spec"; spec: AnalysisSpec }
+  | { kind: "web_app"; spec: WebAppSpec };
+/** Kinds that run no model (no provider, no runtime budget, zero usage). */
+export const runsNoModel = (kind: CheckedSpec["kind"]) =>
+  kind === WORKFLOW_KIND || kind === WEB_APP_KIND;
 export const validatorFor = (kind: CheckedSpec["kind"]) =>
   kind === WORKFLOW_KIND
     ? WORKFLOW_VALIDATOR
     : kind === ANALYSIS_KIND
       ? ANALYSIS_VALIDATOR
-      : EXTRACT_VALIDATOR;
+      : kind === WEB_APP_KIND
+        ? WEB_APP_VALIDATOR
+        : EXTRACT_VALIDATOR;
 const ZERO_PRICING = JSON.stringify({
   inputCentsPerMillionTokens: 0,
   outputCentsPerMillionTokens: 0,
@@ -67,7 +85,9 @@ export const inputCeiling = (c: CheckedSpec, extractionMax: number) =>
       )
     : c.kind === ANALYSIS_KIND
       ? Math.min(analysisInputLimit(c.spec), extractionMax)
-      : Math.min(c.spec.input.max_chars, extractionMax);
+      : c.kind === WEB_APP_KIND
+        ? 200
+        : Math.min(c.spec.input.max_chars, extractionMax);
 
 import {
   RUNTIME_LIMITS,
@@ -152,6 +172,13 @@ export interface RuntimeOptions {
   timeoutMs?: number;
   /** Job 003wf1: this process's presence holder, recorded on every request it runs. */
   runner?: string;
+  /** 006a: where customers open released web apps (a separate site; WEB_APP_RELEASE.md §3). */
+  appOrigin?: string;
+  /**
+   * 006a §5: releases whose logic checks ran on a test double are allowed (labelled). Tests and
+   * the local review harness only; never production.
+   */
+  appStandIn?: boolean;
 }
 
 const KEY = /^[A-Za-z0-9_-]{8,80}$/;
@@ -205,6 +232,9 @@ export class ManagedRuntime {
   readonly ceilingCents: number | null;
   readonly admission: Admission;
   readonly timeoutMs: number;
+  /** 006a: the customer app origin and the stand-in switch (RuntimeOptions). */
+  readonly appOrigin: string;
+  readonly appStandIn: boolean;
   /** Abort functions of requests running in this process. */
   private readonly active = new Map<string, (why: "cancelled" | "timeout") => void>();
   /** Job 003wf1: provider requests this process is running now. */
@@ -241,6 +271,8 @@ export class ManagedRuntime {
     this.admission = options.admission ?? ownerOnly;
     this.timeoutMs = options.timeoutMs ?? RUNTIME_LIMITS.maxSeconds * 1000;
     this.runner = options.runner ?? null;
+    this.appOrigin = options.appOrigin ?? "";
+    this.appStandIn = options.appStandIn === true;
   }
   /** Job 003wf1: this process's presence holder (null outside a configured composition). */
   readonly runner: string | null;
@@ -275,6 +307,7 @@ export class ManagedRuntime {
 
   /** The model config a release of this kind must have: none for the workflow engine. */
   configFor(kind: CheckedSpec["kind"]): string | null {
+    if (kind === WEB_APP_KIND) return WEB_APP_CONFIG;
     if (kind === ANALYSIS_KIND) {
       // The model's config plus the analysis request's own version: changing that request
       // makes every analysis release need checking again, and never touches extraction ones.
@@ -371,6 +404,16 @@ export class ManagedRuntime {
     return r?.foundation === "agent_service";
   }
 
+  /** Whether a release's product needs the model runtime (extraction and analysis do). */
+  releaseNeedsModel(releaseId: string) {
+    const r = this.db
+      .prepare(
+        "SELECT a.kind FROM runtime_releases r JOIN build_artifacts a ON a.job_id = r.artifact_job WHERE r.id = ?",
+      )
+      .get(releaseId) as { kind: string } | undefined;
+    return !(r?.kind === WORKFLOW_KIND || r?.kind === "web_app_bundle");
+  }
+
   /** A SaaS workflow product runs on the workflow engine (WORKFLOW_ENGINE.md), not a model. */
   isWorkflowProject(projectId: string) {
     const r = this.db
@@ -396,7 +439,7 @@ export class ManagedRuntime {
       .prepare(
         `SELECT j.id AS job_id, j.revision, j.owner_id, j.owner_generation, a.kind, a.digest, a.content, a.created_at
            FROM build_jobs j JOIN build_artifacts a ON a.job_id = j.id
-          WHERE j.id = ? AND j.project_id = ? AND j.intent = 'build' AND j.state = 'succeeded'`,
+          WHERE j.id = ? AND j.project_id = ? AND j.intent IN ('build','app') AND j.state = 'succeeded'`,
       )
       .get(String(jobId), projectId) as
       | {
@@ -416,6 +459,11 @@ export class ManagedRuntime {
       const spec = validateWorkflowSpec(parsed);
       if (!spec) throw new HttpError(409, "This version's workflow isn't valid");
       return { ...a, checked: { kind: WORKFLOW_KIND, spec } as CheckedSpec, spec: null };
+    }
+    if (a.kind === "web_app_bundle") {
+      const b = storedBundle(a.content);
+      const spec: WebAppSpec = { digest: a.digest, name: b.name, description: b.description };
+      return { ...a, checked: { kind: WEB_APP_KIND, spec } as CheckedSpec, spec: null };
     }
     if (a.kind === ANALYSIS_KIND) {
       const spec = validateAnalysisSpec(parsed);
@@ -568,7 +616,14 @@ export class ManagedRuntime {
         400,
         `This service reads up to ${max} characters; the text has ${text.length}`,
       );
-    const wf = artifact.checked.kind === WORKFLOW_KIND;
+    // 006a: a web app isn't "run" by its owner; its customers get passes. Owners use the preview.
+    if (artifact.checked.kind === WEB_APP_KIND)
+      throw new HttpError(
+        409,
+        "A web app isn't tried here: open its preview on the Web app tab",
+        "web_app_trial",
+      );
+    const wf = runsNoModel(artifact.checked.kind);
     const availability = this.availability();
     if (!wf && (!availability.available || !this.provider))
       throw new HttpError(409, availability.reason);
@@ -796,7 +851,7 @@ export class ManagedRuntime {
     inTx: (invocationId: string) => void;
     sink: (row: InvocationRow, result: RunResult) => Promise<void>;
   }): { invocation: InvocationRow; created: boolean; done: Promise<InvocationRow> } {
-    const wf = ctx.checked.kind === WORKFLOW_KIND;
+    const wf = runsNoModel(ctx.checked.kind);
     const availability = this.availability();
     if (!wf && (!availability.available || !this.provider))
       throw new HttpError(503, availability.reason, "runtime_unavailable");
@@ -897,6 +952,15 @@ export class ManagedRuntime {
       let result: RunResult;
       if (checked.kind === WORKFLOW_KIND) {
         result = runWorkflow(checked.spec, text);
+        usage = { inputTokens: 0, outputTokens: 0, final: true };
+      } else if (checked.kind === WEB_APP_KIND) {
+        // 006a: the pass engine: access to the release this request runs on, pinned.
+        result = grantPass(this.db, {
+          releaseId: row.release_id,
+          digest: row.artifact_digest,
+          appOrigin: this.appOrigin,
+          now: this.now(),
+        });
         usage = { inputTokens: 0, outputTokens: 0, final: true };
       } else if (checked.kind === ANALYSIS_KIND) {
         // The analysis engine: a malformed submission is refused before anything is sent.

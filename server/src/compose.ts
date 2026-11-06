@@ -85,6 +85,11 @@ export interface ComposeDeps {
    * browser then accepts the harness's synthetic Wallet Selector module and shows that it is one.
    */
   walletHarness?: { label: string };
+  /**
+   * 006a (WEB_APP_RELEASE.md §5): the review harness and tests only, never a config field. Web
+   * app releases whose logic checks ran on a test double are then allowed, labelled as stand-ins.
+   */
+  appStandIn?: boolean;
   /** Job 004b: the source connections' transport (default: global fetch; configured only). */
   sourceFetch?: typeof fetch;
   /** Preview only: labelled synthetic adapters. */
@@ -331,6 +336,19 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
   const runtime = new ManagedRuntime(store.db, store, runtimeProvider, {
     ceilingCents: runtimeCeilingCents ?? (runtimeProvider ? 1_000 : null),
     runner: holder,
+    // 006a: released web apps are served from the separate preview site.
+    appOrigin: config.origins?.preview ?? "",
+    appStandIn: deps.appStandIn === true,
+  });
+  cap({
+    key: "web_app_releases",
+    label: "Released web apps",
+    state: deps.appStandIn && config.origins ? "on" : "unavailable",
+    detail:
+      deps.appStandIn && config.origins
+        ? "Stand-in releases: their logic checks ran on a test double, not an isolated worker. Labelled on every page."
+        : "Releasing a web app needs logic checks passed in the isolated worker, which isn't set up here.",
+    provenance: null,
   });
 
   // Isolated logic checks: the worker engine stays off (002f is partial; 002f1 is queued).

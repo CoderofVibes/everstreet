@@ -58,6 +58,8 @@ const CLASS: Record<string, Class> = {
   "POST /api/product-projects/:id/evaluations": "gated_owner",
   "POST /api/product-projects/:id/releases": "gated_owner",
   "POST /api/product-projects/:id/releases/:rid/rollback": "gated_owner",
+  "POST /api/product-projects/:id/releases/app-terms": "gated_owner",
+  "POST /api/product-projects/:id/releases/withdraw": "gated_owner",
   "POST /api/imports": "gated_owner",
   "PATCH /api/imports/:id": "gated_owner",
   "POST /api/imports/:id/inspections": "gated_owner",
@@ -399,6 +401,13 @@ function gatedCalls(ids: {
       `${p}/releases/${ids.release}/rollback`,
       {},
     ],
+    [
+      "POST /api/product-projects/:id/releases/app-terms",
+      "POST",
+      `${p}/releases/app-terms`,
+      { artifact_job: ids.build, app_terms: { access: "free" } },
+    ],
+    ["POST /api/product-projects/:id/releases/withdraw", "POST", `${p}/releases/withdraw`, {}],
     [
       "POST /api/product-projects/:id/manual-checks",
       "POST",

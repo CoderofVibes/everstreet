@@ -83,6 +83,9 @@ const UNIT_WORDS: Record<UseView["units"]["unit"], { label: string; tone: string
 
 const time = (ms: string) => new Date(Number(ms)).toLocaleString();
 
+/** 006a: what a customer sends for an access pass: nothing of theirs, one fixed request. */
+export const PASS_REQUEST = "Access pass";
+
 function Consent({
   use,
   check,
@@ -160,12 +163,16 @@ export function CustomerResult({
   r,
   workflow = false,
   analysis = false,
+  pass = false,
 }: {
   r: ResultView;
   workflow?: boolean;
   analysis?: boolean;
+  pass?: boolean;
 }) {
   const res = r.result;
+  // 006a: an access pass: the app's private address, until the pass ends.
+  if (pass || res.outcome === "granted") return <PassAnswer r={r} />;
   // The analysis engine: flags, each quoting what the customer submitted.
   if (analysis || res.outcome === "analyzed") return <AnalysisAnswer r={r} />;
   // The workflow engine: a request is accepted into the first stage, or refused (never charged).
@@ -256,6 +263,47 @@ export function CustomerResult({
       <p className="muted use-note">
         Kept for you until {time(r.retention_until_ms)}. A checked answer isn't a guarantee: compare
         it with your document.
+      </p>
+    </div>
+  );
+}
+
+/** 006a: a granted access pass (or why none was granted; never charged then). */
+function PassAnswer({ r }: { r: ResultView }) {
+  const p = r.result.pass;
+  if (!p)
+    return (
+      <div className="use-answer is-partial">
+        <p className="notice info">
+          {r.result.reason ?? "No pass was granted."} Nothing is charged for it.
+        </p>
+      </div>
+    );
+  const ended = Date.parse(p.expires_at) <= Date.now();
+  return (
+    <div className={`use-answer ${ended ? "is-partial" : "is-complete"}`}>
+      <div className="row" style={{ marginBottom: 12 }}>
+        <span className={`pill ${ended ? "" : "mint"}`}>
+          {ended ? "Pass ended" : `${p.pass_days}-day pass`}
+        </span>
+      </div>
+      <dl className="use-consent-list">
+        <dt>Started</dt>
+        <dd>{new Date(p.starts_at).toLocaleString()}</dd>
+        <dt>{ended ? "Ended" : "Open until"}</dt>
+        <dd>{new Date(p.expires_at).toLocaleString()}</dd>
+      </dl>
+      {!ended && (
+        <p>
+          <a className="btn btn-primary" href={p.url} target="_blank" rel="noopener noreferrer">
+            Open the app
+          </a>
+        </p>
+      )}
+      <p className="muted use-note">
+        This address is private to you: anyone with it can open the app until the pass ends, so
+        don't share it. It keeps the version you bought, even if the business changes the app. Kept
+        for you until {time(r.retention_until_ms)}.
       </p>
     </div>
   );
@@ -442,6 +490,7 @@ export function ResultArea({
   inDoubt = false,
   workflow = false,
   analysis = false,
+  pass = false,
 }: {
   use: UseView | null;
   result: ResultView | null;
@@ -449,8 +498,10 @@ export function ResultArea({
   inDoubt?: boolean;
   workflow?: boolean;
   analysis?: boolean;
+  pass?: boolean;
 }) {
-  if (result) return <CustomerResult r={result} workflow={workflow} analysis={analysis} />;
+  if (result)
+    return <CustomerResult r={result} workflow={workflow} analysis={analysis} pass={pass} />;
   // 001j1: no instruction from the stale state while a lost answer is in doubt.
   if (inDoubt)
     return (
@@ -642,6 +693,13 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
     [w],
   );
 
+  // 006a: a pass request is fixed; it is the draft as soon as the offer is known.
+  const passOffer = s?.offer?.product.kind === "web_app";
+  const draft = s?.draft;
+  useEffect(() => {
+    if (w && passOffer && draft !== PASS_REQUEST) w.setDraft(PASS_REQUEST);
+  }, [w, passOffer, draft]);
+
   if (!person)
     return (
       <div className="page empty">
@@ -701,6 +759,8 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
   const max = offer?.product.max_chars ?? 0;
   const isWorkflow = offer?.product.kind === "workflow";
   const isAnalysis = offer?.product.kind === "analysis";
+  const isPass = offer?.product.kind === "web_app";
+  const app = offer?.product.app ?? null;
   const isForm = isWorkflow || isAnalysis;
   const fields = isForm ? [] : (offer?.product.fields.map((f) => f.label) ?? []);
   const formFields = offer?.product.fields ?? [];
@@ -729,21 +789,25 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
             <div>
               <dt>You give it</dt>
               <dd>
-                {isForm
-                  ? `A request: ${formFields.map((f) => f.label).join(", ")}`
-                  : `Pasted text, up to ${offer.product.max_chars.toLocaleString()} characters`}
+                {isPass
+                  ? "Nothing of yours: one unit starts your pass"
+                  : isForm
+                    ? `A request: ${formFields.map((f) => f.label).join(", ")}`
+                    : `Pasted text, up to ${offer.product.max_chars.toLocaleString()} characters`}
               </dd>
             </div>
             <div>
               <dt>You get</dt>
               <dd>
-                {isAnalysis
-                  ? `${offer.product.result_title ?? "Flags"}: up to 8, each quoting your text, with why it matters and a proposed next step`
-                  : isWorkflow
-                    ? `A tracked request: ${offer.product.stages.map((st) => st.label).join(" → ")}`
-                    : fields.length > 0
-                      ? fields.join(", ")
-                      : "Structured fields"}
+                {isPass && app
+                  ? `${app.pass_days} days of access to the app, at a private address. Charged when access starts.`
+                  : isAnalysis
+                    ? `${offer.product.result_title ?? "Flags"}: up to 8, each quoting your text, with why it matters and a proposed next step`
+                    : isWorkflow
+                      ? `A tracked request: ${offer.product.stages.map((st) => st.label).join(" → ")}`
+                      : fields.length > 0
+                        ? fields.join(", ")
+                        : "Structured fields"}
               </dd>
             </div>
             <div>
@@ -778,6 +842,20 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               </dd>
             </div>
           </dl>
+        )}
+        {app && (
+          <div className="use-app-terms" role="note">
+            <p>
+              <strong>What this app is.</strong> {app.platform_limitations} A pass grants access to
+              the app; it isn't a service result.
+              {app.limitations && <> {app.limitations}</>}
+            </p>
+            {app.stand_in && (
+              <p className="notice">
+                Stand-in release: its logic checks ran on a test double, not an isolated worker.
+              </p>
+            )}
+          </div>
         )}
       </header>
 
@@ -839,6 +917,13 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               twice. Your typed text below is kept.
             </p>
           )}
+          {needsDocument && isPass && (
+            <p className="muted">
+              {use
+                ? "This is the same pass request: check it before authorizing."
+                : "Review one use to see exactly what you'd authorize. Nothing of yours is sent."}
+            </p>
+          )}
           {needsDocument && isForm && (
             <>
               {use && (
@@ -847,7 +932,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               <WorkflowForm fields={formFields} values={formValues} onChange={setForm} />
             </>
           )}
-          {needsDocument && !isForm && (
+          {needsDocument && !isForm && !isPass && (
             <label className="field">
               <span>{use ? "Paste the same document to check it" : "Document"}</span>
               <textarea
@@ -927,6 +1012,7 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
             fields={fields}
             workflow={isWorkflow}
             analysis={isAnalysis}
+            pass={isPass}
             inDoubt={!!use && s.inDoubt?.useId === use.id}
           />
           {isWorkflow && use?.execution?.fulfilled && <CustomerCaseTrack requestId={use.id} />}

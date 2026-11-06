@@ -25,6 +25,7 @@ import {
   validatorFor,
 } from "./invocations.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
+import { WEB_APP_CONFIG, WEB_APP_KIND, WEB_APP_VALIDATOR } from "./webApp.ts";
 import {
   requiredWorkflowCases,
   validateWorkflowSpec,
@@ -533,6 +534,9 @@ export class Evaluations {
         .get(p.id)
     )
       throw new HttpError(409, "A check is already running for this product");
+    // 006a: a web app's release check is its isolated logic check (WEB_APP_RELEASE.md §2).
+    if (artifact.checked.kind === WEB_APP_KIND)
+      return this.webAppRun(viewer, p, artifact.job_id, artifact.digest, fixture?.version ?? 0);
     const own = fixture ? (JSON.parse(fixture.cases) as EvalCase[]) : [];
     // A workflow is checked by its own required cases (WORKFLOW_ENGINE.md §4); the founder's
     // invoice cases don't apply to it.
@@ -721,6 +725,87 @@ export class Evaluations {
     return Number(changed.changes) === 1;
   }
 
+  /**
+   * 006a: a web app version's release check, from its latest PASSED isolated logic check of this
+   * exact digest. A check by a test double counts only while stand-in releases are on (labelled).
+   * Nothing runs here: the run is complete as recorded.
+   */
+  private webAppRun(
+    viewer: Person,
+    p: { id: string; business_id: string },
+    jobId: string,
+    digest: string,
+    fixtureVersion: number,
+  ) {
+    const c = this.db
+      .prepare(
+        "SELECT id, engine, result, finished_at FROM app_checks WHERE project_id = ? AND job_id = ? AND digest = ? AND state = 'passed' ORDER BY created_at DESC, rowid DESC LIMIT 1",
+      )
+      .get(p.id, jobId, digest) as
+      | { id: string; engine: string | null; result: string | null; finished_at: string | null }
+      | undefined;
+    if (!c)
+      throw new HttpError(
+        409,
+        "This version's logic checks haven't passed in the isolated worker, so it can't be released",
+        "not_checked",
+      );
+    const engine = c.engine ? (JSON.parse(c.engine) as Record<string, string>) : {};
+    const double = engine.engine === "test-double";
+    if (double && !this.runtime.appStandIn)
+      throw new HttpError(
+        409,
+        "Its logic checks ran on a test double, not an isolated worker. Releasing needs the real worker host, which isn't set up yet.",
+        "checks_on_double",
+      );
+    const id = randomUUID();
+    const t = this.runtime.iso();
+    const results = [
+      {
+        id: "logic_checks",
+        name: "Isolated logic checks of this exact version",
+        required: true,
+        raw: {
+          state: "passed",
+          outcome: "passed",
+          invocation: null,
+          failure: null,
+          check: c.id,
+          engine,
+        },
+        score: "pass",
+        fields: [],
+        explanation: double
+          ? "Passed on a test double (a stand-in release: not isolation evidence)"
+          : "Passed in the isolated worker",
+      },
+    ];
+    this.store.requireNoHandover(p.business_id);
+    this.db
+      .prepare(
+        `INSERT INTO eval_runs (id, project_id, business_id, artifact_job, artifact_digest, fixture_version, policy, validator, provider_config, requested_by, state, results, passed, failed, errors, not_applicable, total, created_at, finished_at, runner)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'complete', ?, 1, 0, 0, 0, 1, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        p.id,
+        p.business_id,
+        jobId,
+        digest,
+        fixtureVersion,
+        RELEASE_POLICY,
+        WEB_APP_VALIDATOR,
+        WEB_APP_CONFIG,
+        viewer.id,
+        JSON.stringify(results),
+        t,
+        t,
+        this.runtime.runner,
+      );
+    const view = this.view(this.runRow(id) as RunRow);
+    return { run: view, done: Promise.resolve(view) };
+  }
+
   /** Whether a run still checks this version under today's model, validator and cases. */
   currency(r: RunRow): { current: boolean; passed: boolean; reasons: string[] } {
     // Stale: anything the result depended on has changed, or the run didn't finish.
@@ -742,12 +827,21 @@ export class Evaluations {
     // case must be present and have passed.
     const results = JSON.parse(r.results) as CaseResult[];
     const required = results.filter((x) => x.required);
+    // 006a: a stand-in release stops being current when stand-in releases are turned off.
+    if (
+      checked?.kind === WEB_APP_KIND &&
+      !this.runtime.appStandIn &&
+      r.results.includes('"engine":"test-double"')
+    )
+      stale.push("Its logic checks ran on a test double, and stand-in releases are off");
     const requiredCount =
-      checked?.kind === WORKFLOW_KIND
-        ? requiredWorkflowCases(checked.spec).length
-        : checked?.kind === ANALYSIS_KIND
-          ? requiredAnalysisCases(checked.spec).length
-          : REQUIRED_INVOICE_CASES.length;
+      checked?.kind === WEB_APP_KIND
+        ? 1
+        : checked?.kind === WORKFLOW_KIND
+          ? requiredWorkflowCases(checked.spec).length
+          : checked?.kind === ANALYSIS_KIND
+            ? requiredAnalysisCases(checked.spec).length
+            : REQUIRED_INVOICE_CASES.length;
     const requiredOk =
       required.length === requiredCount && required.every((x) => x.score === "pass");
     const passed = r.state === "complete" && requiredOk && r.passed === r.total;

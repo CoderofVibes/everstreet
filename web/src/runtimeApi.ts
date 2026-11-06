@@ -148,6 +148,19 @@ export interface Release {
   retired_at: string | null;
   checks_current: boolean;
   reasons: string[];
+  /** 006a: a web app release's customer terms (null for other products). */
+  app_terms?: AppTerms | null;
+  /** 006a: its logic checks ran on a test double (a labelled stand-in release). */
+  stand_in?: boolean;
+}
+
+/** 006a: how customers get a released web app. */
+export interface AppTerms {
+  access: "free" | "pass";
+  pass_days: number | null;
+  platform_limitations: string;
+  limitations: string;
+  terms_digest?: string;
 }
 
 export interface Candidate {
@@ -171,6 +184,8 @@ export interface Releases {
   releases: Release[];
   candidates: Candidate[];
   note: string;
+  /** 006a: the web app's stable customer address, once released. */
+  app?: { app_id: string; free_url: string | null } | null;
 }
 
 async function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
@@ -217,6 +232,28 @@ export const runtimeApi = {
       artifact_job,
       eval_run,
     }),
+  /** 006a: the customer terms to review before releasing a web app version. */
+  appTerms: (
+    projectId: string,
+    artifact_job: string,
+    app_terms: { access: "free" | "pass"; pass_days?: number; limitations: string },
+  ) =>
+    call<{ terms: AppTerms & { app: string; digest: string }; terms_digest: string }>(
+      `/api/product-projects/${projectId}/releases/app-terms`,
+      "POST",
+      { artifact_job, app_terms },
+    ),
+  releaseApp: (
+    projectId: string,
+    body: {
+      artifact_job: string;
+      eval_run: string;
+      app_terms: { access: "free" | "pass"; pass_days?: number; limitations: string };
+      terms_digest: string;
+    },
+  ) => call<Releases>(`/api/product-projects/${projectId}/releases`, "POST", body),
+  withdraw: (projectId: string) =>
+    call<Releases>(`/api/product-projects/${projectId}/releases/withdraw`, "POST"),
   rollback: (projectId: string, releaseId: string) =>
     call<Releases>(`/api/product-projects/${projectId}/releases/${releaseId}/rollback`, "POST"),
 };

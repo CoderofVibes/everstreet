@@ -209,11 +209,14 @@ export function runtimeWorld(
     founder: Awaited<ReturnType<typeof join>>,
     projectId: string,
     spec: unknown = INVOICE_SPEC,
+    /** 006a: "app" builds a web app version (spec is then a web_app_bundle). */
+    intent: "build" | "app" = "build",
   ) => {
     builder.spec = spec;
     const r = await founder(`/api/product-projects/${projectId}/builds`, "POST", {
       idempotency_key: `build-key-${String(++n).padStart(4, "0")}`,
       revision: 1,
+      intent,
       budget: {
         max_input_tokens: 10_000,
         max_output_tokens: 2_000,
