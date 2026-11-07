@@ -5,6 +5,7 @@ version = "0.3.0"
 edition = "2021"
 license = "MIT"
 publish = false
+repository = "https://github.com/CoderofVibes/everstreet"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -28,3 +29,11 @@ near-api = "=0.8.6"
 near-sandbox = { version = "=0.3.16", features = ["generate"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
+
+[package.metadata.near.reproducible_build]
+# NEAR's pinned build image (the one github.com/near/intents uses); the build is checkable by
+# anyone with the repository: `cargo near build reproducible-wasm` from this crate.
+image = "sourcescan/cargo-near:0.22.0-rust-1.97.1"
+image_digest = "sha256:7467038bdddc86484b73b416eeadce926ff59013e128e53dec5a19e1cb4b2234"
+passed_env = []
+container_build_command = ["cargo", "near", "build", "non-reproducible-wasm", "--locked"]
