@@ -27,6 +27,27 @@ sha256sum ../target/near/business_v3/business_v3.wasm
 The earlier testnet series (1 and 2) used plain builds without a build record; series 3 deploys
 these.
 
+## The fixed companions (Nov 7, 2026)
+
+After the Nov 7 attack review the two companions were fixed in source (`docs/SAFETY_CASE.md`) and
+built the same way from commit `24ac5fbf07a1ba2947ff6e69b0f7674ef6ceab92`. Each was built twice
+and came out byte-identical. business-v3 did not change.
+
+| Contract | Bytes | sha256 |
+|---|---|---|
+| asset-key | 198,296 | `e123359c2fd50beaf74df0d5ec0be802c046ab481602bbcd5530c496de225106` |
+| spend-allowance | 221,772 | `3bb096761fb5c49ce0d120fffbdbfdfea00d22fce321e3f10a1833c899e6b4cb` |
+
+```bash
+git checkout 24ac5fbf07a1ba2947ff6e69b0f7674ef6ceab92
+cd contracts/asset-key          # or spend-allowance
+cargo near build reproducible-wasm
+```
+
+The local-node tests can run on a recorded build instead of a fresh one:
+`WASM_ASSET_KEY=<file> WASM_SPEND_ALLOWANCE=<file> WASM_BUSINESS_V3=<file> cargo test -p asset-key --test sandbox`
+(and `-p spend-allowance`).
+
 ## Deployed on NEAR testnet (series 3, Nov 6 2026)
 
 Each account was created, funded, deployed and initialized in one transaction, with no access

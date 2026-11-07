@@ -34,6 +34,16 @@ fn id(n: &str) -> AccountId {
 }
 
 fn build(manifest: &str) -> Vec<u8> {
+    // A recorded build can be tested instead of a fresh one (the reproducible wasm about to be
+    // deployed): WASM_ASSET_KEY, WASM_BUSINESS_V3, ... name its file.
+    let var = format!(
+        "WASM_{}",
+        manifest.split('/').next().unwrap().replace('-', "_").to_uppercase()
+    );
+    if let Ok(file) = std::env::var(&var) {
+        eprintln!("{var}: {file}");
+        return std::fs::read(file).expect("wasm read");
+    }
     let path = cargo_near_build::build_with_cli(cargo_near_build::BuildOpts {
         manifest_path: Some(format!("{}/../{manifest}", env!("CARGO_MANIFEST_DIR")).into()),
         no_abi: true,
