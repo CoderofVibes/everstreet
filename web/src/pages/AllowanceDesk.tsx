@@ -96,6 +96,11 @@ export function AllowanceDesk({
                 <Row label="Per payment">{amt(g.per_payment)} hard cap</Row>
                 <Row label={`Per ${periodWords(g.period_ms)}`}>{amt(g.per_period)}</Row>
                 <Row label="Owner review">Above {amt(g.review_above)} · exact invoice</Row>
+                <Row label="How it works">
+                  Up to {amt(g.per_payment)} the agent pays alone; above {amt(g.review_above)} it
+                  waits for your approval of that exact invoice; anything between the two is
+                  refused.
+                </Row>
                 <Row label="Sale">Ends unless the buyer grants it again</Row>
               </Rows>
             )}

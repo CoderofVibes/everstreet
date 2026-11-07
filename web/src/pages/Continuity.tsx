@@ -354,9 +354,11 @@ function ObservedSections({
               </dd>
             </dl>
             <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-              Amounts are exact base units of the asset account; no decimals or dollar value are
-              assumed. {v.claims_note} These totals don't show any one customer's remaining uses, or
-              that the service is running.
+              {v.token
+                ? "Amounts are the contract's exact figures in the asset's units; no dollar value is assumed."
+                : "Amounts are exact base units of the asset account; no decimals or dollar value are assumed."}{" "}
+              {v.claims_note} These totals don't show any one customer's remaining uses, or that the
+              service is running.
             </p>
           </section>
 

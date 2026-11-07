@@ -112,7 +112,6 @@ function ExactCall({ call }: { call: SaleAction["call"] }) {
       <details>
         <summary>Exact arguments</summary>
         <pre className="mono wrap sale-args">{JSON.stringify(call.args, null, 2)}</pre>
-        <p className="muted">Attached, exactly: {call.deposit} yoctoNEAR</p>
       </details>
     </>
   );
@@ -353,7 +352,9 @@ export function ReviewSummary({ p, s }: { p: SalePreview; s: SaleSetup }) {
         <>
           <dt>Price</dt>
           <dd>
-            <Amount base={price} s={s} /> <span className="muted mono">({price} base units)</span>
+            <span title={`${price} base units`}>
+              <Amount base={price} s={s} />
+            </span>
           </dd>
         </>
       )}
@@ -361,8 +362,9 @@ export function ReviewSummary({ p, s }: { p: SalePreview; s: SaleSetup }) {
         <>
           <dt>Amount</dt>
           <dd>
-            <Amount base={str("amount") as string} s={s} />{" "}
-            <span className="muted mono">({str("amount")} base units)</span>
+            <span title={`${str("amount")} base units`}>
+              <Amount base={str("amount") as string} s={s} />
+            </span>
           </dd>
         </>
       )}
@@ -959,7 +961,12 @@ function OtherActions({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: S
   if (!d || d.state === "closing" || s.open.length > 0) return null;
   const items: { kind: SaleKind; label: string }[] = [];
   if (s.roles.buyer && d.escrow !== "0")
-    items.push({ kind: "unfund", label: "Withdraw your escrow (undoes your acceptance)" });
+    items.push({
+      kind: "unfund",
+      label: d.buyer_accepted
+        ? "Withdraw your escrow (undoes your acceptance)"
+        : "Withdraw your escrow (it comes back as a claim you collect)",
+    });
   if (s.roles.buyer || s.roles.seller)
     items.push({ kind: "cancel", label: "Cancel the sale (ends it for both sides)" });
   return (

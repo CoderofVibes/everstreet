@@ -168,9 +168,9 @@ export function ClosingLedger({
 
         <section className="card" aria-labelledby="ledger-included">
           <h2 id="ledger-included" className="ledger-h">
-            Included at close
+            What the close moves
           </h2>
-          <Rows label="Included at close">
+          <Rows label="What the close moves">
             <Row label="Owner role">
               <span className="mono wrap">{d.buyer}</span> · generation {d.expected_generation + 1}
             </Row>
@@ -197,7 +197,9 @@ export function ClosingLedger({
               </Row>
             )}
             <Row label="Ends at close">Every other operator</Row>
-            <Row label="Not included">Domains, provider accounts, secrets</Row>
+            <Row label="Outside the contract">
+              Domains, provider accounts, secrets: handed over separately, with their own evidence
+            </Row>
           </Rows>
         </section>
 

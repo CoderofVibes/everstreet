@@ -54,6 +54,14 @@ Two different guarantees, kept apart:
   not applied automatically. This is idempotent and monotonic, not atomic with the chain: the
   app can lag the contract, and it is proven in unit tests against an in-memory chain double,
   not yet on testnet.
+- **Companions read control at the moment of the call, two receipts before they act.** The
+  external-asset key and the supplier allowance (`contracts/asset-key`, `contracts/spend-allowance`)
+  hold no authority of their own: each request asks the business contract `get_control()` and acts
+  in a callback with the answer it was handed. A sale that closes between that read and the
+  callback lets one payment, withdrawal or signature the seller started land after the close (the
+  November 7 attack review, finding 2). The window is a block or two and the amounts are bounded
+  by the budget's caps, but it is real: the buyer's first shift drains the budget and moves the
+  external role, and a buyer who cares checks both before accepting.
 
 ## Who can change the rules (inspected at deployment)
 

@@ -55,7 +55,7 @@ export function Start() {
       return;
     setBusy(true);
     try {
-      const p = await api.startProject(route, route === "started" ? name : undefined);
+      const p = await api.startProject(route, name.trim() || undefined);
       go(`/studio/${p.id}`);
     } catch (e) {
       setError((e as Error).message);

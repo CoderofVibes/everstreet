@@ -45,6 +45,27 @@ Seven notes were left as design facts or checked in the app. For example, the sa
 a seller who stays on as an operator, and it no longer warns that an offer expired once both sides
 have accepted and the sale is closing.
 
+## The second review (2026-11-07)
+
+A second cold reviewer, again with only the contracts and their design notes, attacked business-v3
+and its two companions (`contracts/asset-key`, `contracts/spend-allowance`), playing buyer, seller,
+former owner, operator, the budget's agent, a supplier, a customer, an outsider and the network
+(`reports/2026-11-07_attack-review.md`). business-v3 held every promise: 39 attacks, every one
+refused. The companions did not:
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| 1 | High | asset-key signs `setController` for any address at any nonce the caller names, so a seller can pre-sign a hand-over of the external registry and broadcast it at the close, racing the buyer | Open: the fix (a target generation resolved through the signer's derived key, nonces in order) changes the contract and needs a new testnet companion account |
+| 3 | High | spend-allowance's `approve` changes no state before its cross-contract call; a retried approve pays an invoice twice and corrupts the books | Open: a two-line state fix, same redeploy |
+| 2 | Medium | Both companions act on a control reading two receipts old; a payment, withdrawal or signature the seller starts just before the close lands after it | Documented window: the buyer's first shift drains the budget and moves the role; stated in `docs/AUTHORITY.md` |
+| 4, 5, 6 | Medium | The agent can freeze the budget with reviewable invoices (no owner reject); invoices grow storage nobody pays for; a failed signer receipt keeps the caller's deposit | Open, same redeploy |
+| 7, 8 | Low | Anyone can reserve the budget for two blocks; a refused invoice can't be retried; an oversized period bricks `pay` | Open, same redeploy |
+
+The reviewer's 60 tests are in the repository (`attack_tests3.rs` in business-v3, `attack_tests.rs`
+in each companion); the `*_finding_*` tests show each open attack succeeding until its fix lands.
+Until the companions are fixed and redeployed, the external-asset and supplier-budget features are
+demonstrations of the pattern (authority follows the business contract), not promises.
+
 ## Reproduce it
 
 The reviewer's tests are in the repository, with the five that proved findings 1–4 turned around
@@ -83,7 +104,10 @@ CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbo
   NEAR's intents verifier beside it (`data/evidence/v3-*-testnet.json`). Series 2 ran the same
   source as a plain build (`3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6`,
   `data/evidence/v3-series-2/`); series 1 ran the earlier code (`data/evidence/v3-series-1/`).
-- **Everstreet's own server** follows the contract rather than enforcing it. A separate cold review
-  covered its permissions (`reports/2026-11-06_permissions-review.md`). Its one real gap, a sale
-  closed on the contract while Everstreet still showed the seller as owner, now closes within 15
-  seconds, not instantly.
+- **Everstreet's own server** follows the contract rather than enforcing it. Two cold reviews
+  covered its permissions (`reports/2026-11-06_permissions-review.md`,
+  `reports/2026-11-07_permissions-review.md`). The first found a sale closed on the contract while
+  Everstreet still showed the seller as owner; that window is now at most 15 seconds. The second
+  found the solver filling an intents swap that no longer funded a sale, two quotes for one deal
+  both filled, and a former owner still reading the business's economics and companions; all fixed
+  the same day, with the review's 47 tests kept (`server/test/permissions-review-2/`).

@@ -139,10 +139,15 @@ export class WorkflowCases {
       )
       .get(businessId);
     // First-use review #39/#62: an open case shows its subject (the first field the customer
-    // filled in), read from the same protected copy staff already open one by one. Closed cases
-    // aren't read.
+    // filled in), read from the same protected copy staff already open one by one. Nov 7,
+    // finding 59: the newest closed cases keep their subject too, so a case just resolved can
+    // still be found by name; older closed ones aren't read.
     const titles = new Map<string, string>();
-    for (const c of rows.filter((x) => !x.closed_at).slice(0, 40)) {
+    const titled = [
+      ...rows.filter((x) => !x.closed_at).slice(0, 40),
+      ...rows.filter((x) => x.closed_at).slice(0, 12),
+    ];
+    for (const c of titled) {
       const fields = await this.content.load(c.request_id).catch(() => null);
       const spec = fields ? this.specOf(c) : null;
       const first = spec?.intake.fields.find(

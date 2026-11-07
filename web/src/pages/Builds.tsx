@@ -166,8 +166,8 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
         <span className={`pill ${STATE_CLASS[job.state]}`}>{BUILD_STATE_LABEL[job.state]}</span>
       </div>
       <p className="muted" style={{ fontSize: 13 }}>
-        Requested by {job.requested_by} {ago(job.created_at)} · {job.provider} · attempt{" "}
-        {job.attempt || "not started"}
+        Requested by {job.requested_by} {ago(job.created_at)} · {job.provider}
+        {job.attempt ? ` · model attempt ${job.attempt}` : " · no model run"}
         {job.retry_of ? " · a retry" : ""}
       </p>
       <dl className="doc-grid" style={{ marginTop: 8 }}>

@@ -546,7 +546,9 @@ export function dashboard(
     if (live)
       attention.push({
         kind: "sale",
-        text: "A sale is in progress: its terms wait for acceptance",
+        text: (live as { seller_accepted?: boolean }).seller_accepted
+          ? "A sale is in progress: you accepted; waiting for the buyer"
+          : "A sale is in progress: its terms wait for your acceptance",
         link: `/sales/${b.id}`,
       });
     else if (!rehearsal && rehearsable(db, b.id))

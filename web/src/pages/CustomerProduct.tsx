@@ -1039,16 +1039,20 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
             <p className="muted use-note">None yet.</p>
           ) : (
             <ul className="use-recent">
-              {s.recent.slice(0, 8).map((r) => (
-                <li key={r.id}>
-                  <Link to={`/uses/${r.id}`}>{r.product.name}</Link>
-                  <span className="muted">
-                    {" "}
-                    · {r.headline.title.toLowerCase()} ·{" "}
-                    {new Date(r.created_at).toLocaleDateString()}
-                  </span>
-                </li>
-              ))}
+              {/* First-use review (Nov 7, finding 71): this business's uses, not every product's. */}
+              {s.recent
+                .filter((r) => !s.offer || r.business.slug === s.offer.business.slug)
+                .slice(0, 8)
+                .map((r) => (
+                  <li key={r.id}>
+                    <Link to={`/uses/${r.id}`}>{r.product.name}</Link>
+                    <span className="muted">
+                      {" "}
+                      · {r.headline.title.toLowerCase()} ·{" "}
+                      {new Date(r.created_at).toLocaleDateString()}
+                    </span>
+                  </li>
+                ))}
             </ul>
           )}
         </section>

@@ -113,9 +113,16 @@ export function WorkflowCaseBoard({
                         key={c.request_id}
                         className={`wf-card${shownOpen === c.request_id ? " is-open" : ""}`}
                         aria-expanded={shownOpen === c.request_id}
-                        onClick={() =>
-                          setOpen(shownOpen === c.request_id ? null : { scope, id: c.request_id })
-                        }
+                        onClick={() => {
+                          setOpen(shownOpen === c.request_id ? null : { scope, id: c.request_id });
+                          // First-use review (Nov 7, finding 61): the panel opens below the board.
+                          if (shownOpen !== c.request_id)
+                            window.setTimeout(() => {
+                              const panel = document.getElementById("wf-case-panel");
+                              if (panel && typeof panel.scrollIntoView === "function")
+                                panel.scrollIntoView({ block: "start", behavior: "smooth" });
+                            }, 50);
+                        }}
                       >
                         {c.title ? (
                           <span className="wf-card-title">{c.title}</span>
@@ -210,7 +217,7 @@ function CaseDetailPanel({
     key === null ? "" : (d?.case.stages.find((s) => s.key === key)?.label ?? key);
 
   return (
-    <section className="wf-detail" aria-label="Request details">
+    <section className="wf-detail" aria-label="Request details" id="wf-case-panel">
       <div className="row">
         <h3 style={{ margin: 0 }} ref={heading} tabIndex={-1}>
           Request <span className="mono">{requestId.slice(0, 8)}</span>

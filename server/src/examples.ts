@@ -123,17 +123,17 @@ export function ledgerlineExample(path = DEFAULT_LEDGERLINE_RECORD) {
   const figures = {
     unit_price: {
       value: price,
-      unit: "tUSD base units (6 decimals)",
+      unit: "TUSD base units (6 decimals)",
       source: "rehearsal_app_record",
     },
     prepaid: {
       value: mul(bought, price),
-      unit: "tUSD base units",
+      unit: "TUSD base units",
       derived_from: "free at bought_100 (near_testnet_final) × unit price (rehearsal_app_record)",
     },
     earned_by_end: {
       value: mul(end?.consumed, price),
-      unit: "tUSD base units",
+      unit: "TUSD base units",
       derived_from: "consumed at after_update (near_testnet_final) × unit price",
     },
     owed_at_close: { value: closed?.free ?? null, unit: "uses", source: "near_testnet_final" },

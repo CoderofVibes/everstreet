@@ -65,12 +65,16 @@ export function AgentPurchases({ v, businessId }: { v: AgentPurchasesView; busin
       <header className="sale-head">
         <div className="eyebrow">Operate · paid per use</div>
         <h1 className="display sale-title">Agent purchases</h1>
+        <p className="muted" style={{ margin: "4px 0 0" }}>
+          Nothing to do here: agents pay from their own accounts. This page records what each was
+          offered and what the contract confirmed.
+        </p>
       </header>
       <div className="sale-grid proof-grid">
         <div className="sale-main">
           {v.offers.length === 0 && (
             <section className="card">
-              <p className="muted">No 402 offers yet</p>
+              <p className="muted">No agent has asked to pay yet.</p>
             </section>
           )}
           {v.offers.map((o) => {
@@ -92,7 +96,10 @@ export function AgentPurchases({ v, businessId }: { v: AgentPurchasesView; busin
                   )}
                 </div>
                 <dl className="proof-rows">
-                  <Row label="HTTP response">402 · exact offer</Row>
+                  <Row label="What happened">
+                    The agent asked to use the product without units and was sent the exact purchase
+                    (HTTP 402 Payment Required)
+                  </Row>
                   <Row label="Reason">{REASON[o.reason] ?? o.reason}</Row>
                   <Row label="Offered">
                     {o.units === null ? "Registration first" : `${o.units} units · ${amt(o)}`}
@@ -125,7 +132,7 @@ export function AgentPurchases({ v, businessId }: { v: AgentPurchasesView; busin
             <dl className="proof-rows">
               <Row label="Units granted">{v.totals.units_granted}</Row>
               <Row label="Purchases pending">{v.totals.pending}</Row>
-              <Row label="402 offers">{v.totals.offers}</Row>
+              <Row label="Offers sent to agents">{v.totals.offers}</Row>
               <Row label="Not paid">{v.totals.unpaid}</Row>
             </dl>
           </section>
