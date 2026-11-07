@@ -9,8 +9,9 @@
 //! owner grants again. Customer money never enters here: the budget is funded separately (a
 //! token transfer with msg "fund").
 //!
-//! - Payments above the review threshold wait for the owner to approve that exact invoice (by
-//!   its digest); approved payments count toward the period cap like any other.
+//! - The agent pays alone only up to the per-payment cap. An invoice above the review threshold
+//!   waits for the owner to approve that exact invoice (by its digest); anything between the two
+//!   is refused. Approved payments count toward the period cap like any other.
 //! - An amount is reserved the moment a payment is asked for, before any cross-contract call, so
 //!   two payments racing for the last of the cap can't both pass; a refusal releases it.
 //! - A transfer the token refuses becomes the supplier's claim, never lost and never paid twice.
@@ -206,6 +207,10 @@ impl SpendAllowance {
             "E_INPUT: per-payment cap within the period cap"
         );
         require!(
+            review_above.0 >= per_payment.0,
+            "E_INPUT: the review threshold is at least the per-payment cap"
+        );
+        require!(
             period_ms.0 >= 60_000,
             "E_INPUT: a period of at least a minute"
         );
@@ -380,8 +385,10 @@ impl SpendAllowance {
             g.suppliers.contains(&supplier),
             "E_SUPPLIER: not an allowed supplier"
         );
+        // The agent's own cap is hard; only invoices above the review threshold go to the owner.
+        let review = amount.0 > g.review_above.0;
         require!(
-            amount.0 > 0 && amount.0 <= g.per_payment.0,
+            amount.0 > 0 && (review || amount.0 <= g.per_payment.0),
             "E_CAP: above the per-payment cap"
         );
         self.roll_period(&g);
@@ -401,7 +408,7 @@ impl SpendAllowance {
             generation: g.generation,
             at_ms: U64(env::block_timestamp_ms()),
         };
-        if amount.0 > g.review_above.0 {
+        if review {
             let p = Payment {
                 state: PaymentState::AwaitingApproval,
                 ..p

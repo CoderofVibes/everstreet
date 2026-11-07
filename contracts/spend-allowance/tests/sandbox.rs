@@ -277,7 +277,7 @@ async fn the_allowance_pays_within_its_caps_and_ends_at_the_sale() {
     assert_eq!(n(&w.allowance().await["balance"]), 60 * D);
 
     // Only the business's current owner can grant.
-    let grant = json!({ "agent": "agent", "suppliers": ["quill"], "per_payment": (2 * D).to_string(), "per_period": (5 * D).to_string(), "period_ms": "604800000", "review_above": (1_500_000u128).to_string() });
+    let grant = json!({ "agent": "agent", "suppliers": ["quill"], "per_payment": D.to_string(), "per_period": (5 * D).to_string(), "period_ms": "604800000", "review_above": (1_500_000u128).to_string() });
     assert_eq!(
         w.refused("noah", "vault", "grant", grant.clone()).await,
         "E_NOT_OWNER"
@@ -318,7 +318,7 @@ async fn the_allowance_pays_within_its_caps_and_ends_at_the_sale() {
             "agent",
             "vault",
             "pay",
-            json!({ "supplier": "quill", "amount": (3 * D).to_string(), "invoice": inv(1) })
+            json!({ "supplier": "quill", "amount": (1_200_000u128).to_string(), "invoice": inv(1) })
         )
         .await,
         "E_CAP"
@@ -388,13 +388,13 @@ async fn the_allowance_pays_within_its_caps_and_ends_at_the_sale() {
     assert_eq!(w.payment(&inv(3)).await, "Paid");
     assert_eq!(w.tusd("quill").await, 3_600_000);
 
-    // The period cap counts approved payments too: 0.9 + 0.9 + 1.8 = 3.6 of 5; 1.5 more is over.
+    // The period cap counts approved payments too: 0.9 + 0.9 + 1.8 = 3.6 of 5; 1.6 more is over.
     assert_eq!(
         w.refused(
             "agent",
             "vault",
             "pay",
-            json!({ "supplier": "quill", "amount": (1_500_000u128).to_string(), "invoice": inv(4) })
+            json!({ "supplier": "quill", "amount": (1_600_000u128).to_string(), "invoice": inv(4) })
         )
         .await,
         "E_PERIOD_CAP"
