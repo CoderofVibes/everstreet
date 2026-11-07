@@ -598,7 +598,35 @@ export class V3Intents {
     // superseded, never "ended" or "applied" by another version's outcome. An earlier version, or
     // the same version with another digest, party or price, contradicts the contract: conflict.
     const terms = JSON.parse(r.terms) as { price: string };
-    if (o.version > r.version) return { state: "superseded", code: `revised_then_${o.status}` };
+    if (o.version > r.version) {
+      // Permissions review 3, finding 6: the seller revised with their own wallet, then the deal
+      // closed between the same two parties. The close is the contract's fact and ownership here
+      // follows it; the recorded terms were revised away, which the applied result notes.
+      const recordedLater = this.db
+        .prepare(
+          "SELECT 1 FROM v3_intents WHERE business_id = ? AND deal_seq = ? AND version = ? AND id != ? LIMIT 1",
+        )
+        .get(r.business_id, r.deal_seq, o.version, r.id);
+      if (
+        !recordedLater &&
+        o.status === "closed" &&
+        o.seller === r.seller_account &&
+        o.buyer === r.buyer_account &&
+        o.generation_after === r.expected_generation + 1
+      ) {
+        const c = s.control;
+        if (c.generation < o.generation_after) return { state: "pending", code: "control_behind" };
+        if (c.generation > o.generation_after || c.owner !== r.buyer_account)
+          return { state: "conflict", code: "newer_transfer" };
+        if (
+          this.personFor(r.buyer_account) !== r.buyer_person_id ||
+          this.personFor(r.seller_account) !== r.seller_person_id
+        )
+          return { state: "conflict", code: "mapping_changed" };
+        return { state: "apply", outcome: o };
+      }
+      return { state: "superseded", code: `revised_then_${o.status}` };
+    }
     if (
       o.version !== r.version ||
       o.digest !== r.digest ||

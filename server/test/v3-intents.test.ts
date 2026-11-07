@@ -451,17 +451,18 @@ describe("003k reconciliation applies only an exact, coherent close", () => {
 
   it("a closed outcome that differs in version, digest, party, price or generation changes nothing", async () => {
     // Synthetic, each coherent: one field of the contract fixture's outcome (and control) changed.
-    // A later version (revised, then closed) supersedes the v1 intent instead (job 003k1); it
-    // still changes no authority.
+    // A later version (revised outside Everstreet, then closed between the same two parties, with
+    // no intent recorded for that version) is applied to the v1 intent: the close is the
+    // contract's fact and ownership follows it (permissions review 3, finding 6). With an intent
+    // recorded for the later version, that one applies and v1 is superseded (003k1, below).
     const revised = world();
     const rid = await withIntent(revised);
     const rbefore = authority(revised);
     revised.transport.next(edit(CLOSED, "get_outcomes", (os) => (os[0].version = 2)));
     expect((await reconcile(revised.n, revised.bid, rid)).body).toMatchObject({
-      state: "superseded",
-      code: "revised_then_closed",
+      state: "applied",
     });
-    expect(authority(revised)).toEqual(rbefore);
+    expect(authority(revised)).not.toEqual(rbefore);
     const cases: [string, Record<string, string>][] = [
       ["digest", edit(CLOSED, "get_outcomes", (os) => (os[0].digest = "c".repeat(64)))],
       ["price", edit(CLOSED, "get_outcomes", (os) => (os[0].price = "299000000000000000000"))],

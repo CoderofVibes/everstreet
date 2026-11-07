@@ -576,8 +576,15 @@ export function CustomerAccess({
       </section>
     );
   const busy = st.busy || sale.busy !== null;
-  const v = st.view;
-  const notice = sale.notice ?? st.notice;
+  // Second first-use pass (Nov 7, finding 24): a business with no contract here gets one
+  // explanation and no form, whichever read noticed it first.
+  const unbound =
+    st.notice?.code === "unbound" ||
+    /isn't connected to a v3 contract|isn't bound to a contract|no contract on the chain/.test(
+      `${st.notice?.text ?? ""} ${sale.notice?.text ?? ""}`,
+    );
+  const v = unbound ? null : st.view;
+  const notice = unbound ? null : (sale.notice ?? st.notice);
   return (
     <section className="card customer-access" aria-labelledby="access-title">
       <h2 id="access-title">Set up customer access</h2>
@@ -597,10 +604,15 @@ export function CustomerAccess({
           Reading the contract…
         </p>
       )}
-      {st.status === "error" && st.notice?.code === "unbound" && (
-        <p className="notice info">{st.notice.text}</p>
+      {unbound && (
+        <p className="notice info">
+          This business has no contract on the chain here, so customers can't buy from it yet. A
+          contract is connected by whoever runs this deployment, not from this page; in this demo
+          only the example businesses have one. Everything else (brief, build, release, public page)
+          works without it.
+        </p>
       )}
-      {st.status === "error" && st.notice?.code !== "unbound" && (
+      {!unbound && st.status === "error" && (
         <div role="alert">
           <p className="notice error">{st.notice?.text ?? "This couldn't be read."}</p>
           <button

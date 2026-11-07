@@ -11,7 +11,7 @@
 // Totals across businesses are summed only within the same asset; tokens and USD never mix.
 
 import type { Db } from "./db.ts";
-import { rehearsable } from "./digitalDesk.ts";
+import { liveDeal, rehearsable } from "./digitalDesk.ts";
 import { publicPageOutdated } from "./publication.ts";
 import type { Person } from "./store.ts";
 import { tokenMetaOf } from "./tokenMeta.ts";
@@ -546,7 +546,7 @@ export function dashboard(
     if (live)
       attention.push({
         kind: "sale",
-        text: (live as { seller_accepted?: boolean }).seller_accepted
+        text: liveDeal(db, b.id)?.seller_accepted
           ? "A sale is in progress: you accepted; waiting for the buyer"
           : "A sale is in progress: its terms wait for your acceptance",
         link: `/sales/${b.id}`,

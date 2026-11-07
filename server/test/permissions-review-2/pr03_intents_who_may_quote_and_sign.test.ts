@@ -9,8 +9,9 @@ describe("pr03: who may quote, read and sign an intents funding", () => {
     expect((await w.quote(w.stranger)).status).toBe(404);
     expect((await w.quote(w.cara)).status).toBe(404);
     const seller = await w.quote(w.ava);
-    expect(seller.status).toBe(403);
-    expect(seller.body.code).toBe("not_buyer");
+    // Review 3, finding 4: one answer for anyone who isn't the live deal's buyer.
+    expect(seller.status).toBe(409);
+    expect(seller.body.code).toBe("no_deal");
     expect((await w.quote(w.noah, "other.token.near")).status).toBe(400);
     expect((await w.quote(w.noah)).status).toBe(200);
   });

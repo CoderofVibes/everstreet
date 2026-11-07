@@ -183,6 +183,10 @@ function CloseEvidence({ p }: { p: HandoffProofView }) {
 
 function Rights({ p }: { p: HandoffProofView }) {
   const r = p.rights;
+  // Second first-use pass (Nov 7, finding 67): the figure every other page shows comes first.
+  const prepaidFact = p.facts.find((f) => f.key === "prepaid_value_at_close");
+  const prepaid =
+    prepaidFact?.value === null || prepaidFact === undefined ? null : String(prepaidFact.value);
   const amount = (v: string | null) =>
     v === null ? (
       <span className="unknown">Not recorded</span>
@@ -211,8 +215,11 @@ function Rights({ p }: { p: HandoffProofView }) {
         <Row label="Carried over" source={p.source}>
           {[
             ...ops,
+            prepaid !== null
+              ? `${amount(prepaid)} prepaid by all customers (the contract's total)`
+              : null,
             r.carried_over.units !== null
-              ? `${r.carried_over.units} customer units (${r.carried_over.customers} ${r.carried_over.customers === 1 ? "customer" : "customers"})`
+              ? `${r.carried_over.units} unused units of the ${r.carried_over.customers} ${r.carried_over.customers === 1 ? "customer" : "customers"} who used it here`
               : null,
           ]
             .filter(Boolean)

@@ -323,7 +323,12 @@ export class Store {
       // An account already linked to something else is never silently taken over.
       // Permissions review 2, finding 8: the same refusal as any other failed sign-in, so a key
       // holder learns nothing about whether the account has records here.
-      if (linked) throw new HttpError(401, "That sign-in was refused", "sign_in_refused");
+      if (linked)
+        throw new HttpError(
+          401,
+          "That sign-in couldn't be verified; start again",
+          "sign_in_signature",
+        );
       const person: Person = {
         id: randomUUID(),
         display_name: accountId.slice(0, 80),

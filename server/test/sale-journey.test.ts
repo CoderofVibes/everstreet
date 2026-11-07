@@ -241,8 +241,8 @@ describe("003wf2 revision, cancel, expiry, unfund and claims", () => {
     expect(cancel.check?.body.resolution).toMatchObject({ kind: "confirmed", result: "cancelled" });
     expect(s.sale.outcomesView()[0]).toMatchObject({ status: "cancelled", escrow_returned: PRICE });
     // Nothing for a live deal is offered once none is live.
-    expect((await s.prepare(s.noah, "fund")).body.code).toBe("no_live_deal");
-    expect((await s.prepare(s.noah, "accept")).body.code).toBe("no_live_deal");
+    expect((await s.prepare(s.noah, "fund")).body.code).toBe("not_participant");
+    expect((await s.prepare(s.noah, "accept")).body.code).toBe("not_participant");
     const party = (await s.setup(s.noah)).body.party as Json;
     expect(party.escrow_return_claim).toBe(String(2n * BigInt(PRICE)));
     // A second deal that expires; the seller ends it once it has.
@@ -841,5 +841,29 @@ describe("judge rehearsal (Nov 7): the sale-action order is enforced", () => {
     expect(
       (await s.ava(`/api/sales/actions/${c.body.action.id}/requested`, "POST", {})).body.ask,
     ).toBe("granted");
+  });
+});
+
+describe("second first-use pass (Nov 7): the desk follows the seller's own acceptance at once", () => {
+  it("the sale item says 'waiting for the buyer' as soon as the seller's acceptance is confirmed here", async () => {
+    const s = await saleWorld();
+    await s.act(s.ava, SELLER, "propose", proposal());
+    await s.act(s.noah, BUYER, "register");
+    await s.act(s.noah, BUYER, "fund");
+    const before = (await s.ava(`/api/businesses/${s.biz}/digital-desk`)).body;
+    expect(before.work.find((w: Json) => w.key === "sale")).toMatchObject({ who: "you" });
+    const accepted = await s.act(s.ava, SELLER, "accept");
+    expect(accepted.check?.body.resolution?.kind).toBe("confirmed");
+    // No new chain observation was recorded in between: the confirmed action counts.
+    const after = (await s.ava(`/api/businesses/${s.biz}/digital-desk`)).body;
+    expect(after.work.find((w: Json) => w.key === "sale")).toMatchObject({
+      who: "system",
+      label: "sale in progress: waiting for the buyer",
+    });
+    const dash = (await s.ava("/api/me/dashboard")).body;
+    const item = dash.businesses
+      .flatMap((b: Json) => b.attention as Json[])
+      .find((a: Json) => a.kind === "sale");
+    expect(item?.text).toMatch(/waiting for the buyer/);
   });
 });

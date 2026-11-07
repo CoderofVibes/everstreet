@@ -896,7 +896,8 @@ export class SaleActions {
    */
   async currentContext(viewer: Viewer, businessId: string) {
     const g = this.proofContext(viewer, businessId);
-    if (g.localOwner) return g;
+    // Permissions review 3, finding 5: the owner here is current only while the contract agrees;
+    // after a close the chain wins at once, not at the next watcher pass.
     const reader = this.reader as CustomerViewTransport;
     const block = await reader.finalBlock(g.binding.network);
     const a = await reader.view({
@@ -1106,7 +1107,11 @@ export class SaleActions {
     // buyer whose deal ended) keeps their own claims, payouts, actions and outcomes, but not the
     // business's current sale, customer totals or handover. (Owner and operators stay: they are the
     // public answer to "who holds authority now", which a former seller is shown.)
-    const current = localOwner || (d != null && (d.buyer === g.account || d.seller === g.account));
+    // Permissions review 3, finding 5: the owner here is current only while the contract agrees;
+    // once the chain names someone else, the former owner's page keeps only their own receipts.
+    const current =
+      (localOwner && s.control.owner === g.account) ||
+      (d != null && (d.buyer === g.account || d.seller === g.account));
     return {
       business: { id: g.business.id, name: g.business.name },
       network: g.binding.network,
@@ -1303,7 +1308,7 @@ export class SaleActions {
     input: Record<string, unknown>,
   ) {
     if (typeof kind !== "string" || !SALE_KINDS.includes(kind as SaleKind))
-      bad(400, "kind must be one of the sale actions", "bad_kind");
+      bad(400, `kind must be one of: ${SALE_KINDS.join(", ")}`, "bad_kind");
     const g = this.gate(viewer, businessId);
     const termsFor =
       (kind === "propose" || kind === "revise") &&
@@ -1356,6 +1361,15 @@ export class SaleActions {
     let call: WalletCall;
     let review: Record<string, unknown>;
     let doc: { text: string; hash: string; buyer_person: string } | null = null;
+    // Permissions review 3, finding 4: someone who is neither side of this business's sale learns
+    // nothing about whether a deal exists; the role is checked before the deal is looked at.
+    if (
+      ["fund", "accept", "unfund", "cancel", "expire", "revise", "abort"].includes(kind) &&
+      !roles.buyer &&
+      !roles.seller &&
+      !localOwner
+    )
+      no("not_participant", "Nothing on this sale is yours to do now.");
     const needDeal = () => {
       if (!d) no("no_live_deal", "No sale is in progress on the contract at this reading.");
       if (d?.state === "closing" && kind !== "abort")
@@ -1727,12 +1741,12 @@ export class SaleActions {
           effects:
             kind === "unfund"
               ? [
-                  `Your escrow (${live.escrow} base units) becomes your returned-escrow claim; your acceptance, if any, is cleared.`,
+                  `Your escrow (${readableAmount(live.escrow, meta.decimals)} ${meta.symbol}) becomes your returned-escrow claim; your acceptance, if any, is cleared.`,
                 ]
               : [
                   `Deal ${live.seq} ends ${kind === "cancel" ? "cancelled" : "as expired"}; nothing changes hands.`,
                   live.escrow !== "0"
-                    ? `The buyer's escrow (${live.escrow} base units) becomes their returned-escrow claim.`
+                    ? `The buyer's escrow (${readableAmount(live.escrow, meta.decimals)} ${meta.symbol}) becomes their returned-escrow claim.`
                     : "No escrow is held.",
                 ],
           conditions: [

@@ -364,13 +364,13 @@ export function everstreetApi(store: Store, options: AppOptions) {
       ? store.sessionAccount(getCookie(c, COOKIE))
       : null;
   app.get("/api/operator/writer-history", (c) => {
-    if (!options.writerHistory) throw new HttpError(404, "Not found");
     me(c);
+    if (!options.writerHistory) throw new HttpError(404, "Not found");
     return c.json(options.writerHistory.list(operatorAccount(c)));
   });
   app.post("/api/operator/writer-history/check", async (c) => {
-    if (!options.writerHistory) throw new HttpError(404, "Not found");
     const person = me(c);
+    if (!options.writerHistory) throw new HttpError(404, "Not found");
     return c.json(await options.writerHistory.check(operatorAccount(c), person.id, await body(c)));
   });
 
@@ -710,9 +710,13 @@ export function everstreetApi(store: Store, options: AppOptions) {
     return c.json(await companionRead(() => useEconomics.build(g.business.id, g.binding)));
   });
   // Which companions a business has here (configuration only; no read): for the desk's links.
-  app.get("/api/businesses/:id/companions", (c) => {
-    // Permissions review 2, finding 5: the owner's desk only; any other id answers like a missing one.
-    store.ownedBusiness(me(c), c.req.param("id"));
+  app.get("/api/businesses/:id/companions", async (c) => {
+    // Permissions review 2, finding 5: the owner's desk only; any other id answers like a missing
+    // one. Review 3, finding 5: the owner here, while the contract agrees.
+    const viewer = me(c);
+    store.ownedBusiness(viewer, c.req.param("id"));
+    if (companions.binding(c.req.param("id")))
+      await companionRead(() => sales.currentContext(viewer, c.req.param("id")));
     const b = companions.binding(c.req.param("id"));
     return c.json({ asset: Boolean(b?.asset), allowance: Boolean(b?.allowance) });
   });
@@ -762,7 +766,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
   // signature and withdrawal; Everstreet only quotes and fills as the labelled solver).
   app.get("/api/sales/:business/intents", async (c) => {
     const viewer = me(c);
-    const g = sales.proofContext(viewer, c.req.param("business"));
+    const g = await companionRead(() => sales.currentContext(viewer, c.req.param("business")));
     const offers = intentsFunding.offers(g.business.id);
     if (!offers) throw new HttpError(404, "Intents funding isn't set up here.", "no_intents");
     const funding = await companionRead(async () =>
@@ -1536,7 +1540,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
     if (!v3.bindingFor(id))
       for (const w of view.work)
         if (w.key.startsWith("offer:")) {
-          w.label = `${w.label.split(":")[0]}: released; it needs the business's contract before customers can buy (not connected here)`;
+          w.who = "system";
+          w.label = `${w.label.split(":")[0]}: released; customers can buy once whoever runs this deployment connects the business's contract (not connected here)`;
           w.link = { to: "continuity" };
         }
     return c.json(view);

@@ -624,7 +624,37 @@ export class CustomerWorkspace {
     return this.act("run", async (gen) => {
       this.applyUse(await this.port.execute(use.id, text === null ? {} : { input: text }), gen);
       await this.loadRecent();
+      this.followSettlement(use.id, gen);
     });
+  }
+
+  /**
+   * Second first-use pass (Nov 7, finding 58): after a run the background worker settles the unit
+   * within seconds; the page reads it again a few times so a returned unit shows without a click.
+   */
+  private followSettlement(id: string, gen: number, tries = 4) {
+    const pending = new Set([
+      "reserved_awaiting_settlement",
+      "charge_pending",
+      "release_pending",
+      "unknown",
+    ]);
+    const tick = (left: number) => {
+      if (left === 0 || gen !== this.generation || this.state.use?.id !== id) return;
+      if (!pending.has(this.state.use.units.unit)) return;
+      setTimeout(() => {
+        if (gen !== this.generation || this.state.use?.id !== id || this.state.busy !== null)
+          return tick(left - 1);
+        this.port
+          .use(id)
+          .then((u) => {
+            if (gen === this.generation && this.state.use?.id === id) this.applyUse(u, gen);
+            tick(left - 1);
+          })
+          .catch(() => tick(left - 1));
+      }, 1500);
+    };
+    tick(tries);
   }
 
   showResult() {

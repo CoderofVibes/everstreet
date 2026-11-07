@@ -199,13 +199,34 @@ export class Companions {
         ? (await this.opts.evm.controller(cfg.registry)).toLowerCase()
         : null;
       const at = addresses.find((a) => a.address.toLowerCase() === controller)?.generation ?? null;
-      const pending = this.db
+      const pendingRow = this.db
         .prepare(
-          "SELECT id, state, evm_hash, updated_at FROM companion_actions WHERE business_id = ? AND kind = 'feed_move' AND state IN ('external_pending','external_final','external_failed') ORDER BY updated_at DESC LIMIT 1",
+          "SELECT id, state, evm_hash, updated_at, call FROM companion_actions WHERE business_id = ? AND kind = 'feed_move' AND state IN ('external_pending','external_final','external_failed') ORDER BY updated_at DESC LIMIT 1",
         )
         .get(businessId) as
-        | { id: string; state: string; evm_hash: string; updated_at: string }
+        | { id: string; state: string; evm_hash: string; updated_at: string; call: string }
         | undefined;
+      const pending = pendingRow
+        ? {
+            id: pendingRow.id,
+            state: pendingRow.state,
+            evm_hash: pendingRow.evm_hash,
+            updated_at: pendingRow.updated_at,
+          }
+        : undefined;
+      // Permissions review 3, finding 11: a move the other chain has not finalized is still
+      // pending here; the role is reported at the generation it is moving from until then.
+      let shown = at;
+      if (pendingRow?.state === "external_pending") {
+        try {
+          const from = (
+            JSON.parse(pendingRow.call) as { args?: { action?: { from_generation?: number } } }
+          ).args?.action?.from_generation;
+          if (typeof from === "number") shown = from;
+        } catch {
+          // an unreadable call: the controller read stands
+        }
+      }
       asset = {
         account: b.asset.account,
         registry: cfg.registry,
@@ -213,7 +234,7 @@ export class Companions {
         chain: this.opts.evm?.chainName ?? null,
         source: this.opts.evm?.source ?? null,
         controller,
-        controller_generation: at,
+        controller_generation: shown,
         addresses,
         move: pending ?? null,
       };
@@ -282,10 +303,12 @@ export class Companions {
     kind: CompanionKind,
     input: Record<string, unknown>,
   ) {
-    if (!this.binding(businessId))
-      bad(404, "This business has no companions here.", "no_companions");
+    // Permissions review 3, finding 7: the owner first, so a non-owner learns nothing about the
+    // business's companions from the answer.
     if (control.owner !== who.account)
       bad(409, "Only the business's current owner can ask for this.", "not_owner");
+    if (!this.binding(businessId))
+      bad(404, "This business has no companions here.", "no_companions");
     const v = await this.view(businessId, network, control);
     let call: {
       receiverId: string;
@@ -304,10 +327,10 @@ export class Companions {
           "The registry's controller isn't any generation's address of this business.",
           "foreign_controller",
         );
-      if (a.controller_generation === control.generation)
-        bad(409, "The role is already at your address.", "already_moved");
       if (a.move?.state === "external_pending")
         bad(409, "A move is already pending.", "move_pending");
+      if (a.controller_generation === control.generation)
+        bad(409, "The role is already at your address.", "already_moved");
       const from = a.controller_generation as number;
       const fromAddress = a.addresses.find((x) => x.generation === from)?.address as string;
       const to = a.addresses.find((x) => x.generation === control.generation)?.address as string;

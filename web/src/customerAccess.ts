@@ -226,7 +226,7 @@ export class CustomerAccessFlow {
             ? {
                 tone: "info",
                 code,
-                text: "This business has no contract on the chain here, so nothing can be offered to customers yet. In this demo only the example businesses have one; on a real deployment the operator connects it in the configuration. Everything else (brief, build, release, public page) works without it.",
+                text: "This business has no contract on the chain here, so customers can't buy from it yet.",
               }
             : { tone: "warn", code, text: (e as Error).message },
       });

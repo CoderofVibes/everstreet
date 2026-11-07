@@ -181,15 +181,28 @@ export function CustomerResult({
     URL.revokeObjectURL(url);
   };
   const complete = res.outcome === "extracted";
+  // Second first-use pass (Nov 7, finding 57): a plain refusal (nothing read, nothing noticed) is
+  // said as one, not as a partial result; an answer with something noticed still needs checking.
+  const refused =
+    res.outcome === "refused" && res.missing.length === 0 && res.issues.length === 0 && !res.reason;
   return (
     <div className={`use-answer ${complete ? "is-complete" : "is-partial"}`}>
       {!complete && (
         <p className="use-answer-warning" role="note">
-          <strong>Not a complete extraction.</strong>{" "}
-          {res.missing.length > 0
-            ? `Missing: ${res.missing.map((k) => res.fields.find((f) => f.key === k)?.label ?? k).join(", ")}. `
-            : "The product couldn't read every required field. "}
-          Don't rely on it without checking your document.
+          {refused ? (
+            <>
+              <strong>Refused.</strong> The product didn't read this as the kind of document it
+              handles, so nothing was charged.
+            </>
+          ) : (
+            <>
+              <strong>Not a complete extraction.</strong>{" "}
+              {res.missing.length > 0
+                ? `Missing: ${res.missing.map((k) => res.fields.find((f) => f.key === k)?.label ?? k).join(", ")}. `
+                : "The product couldn't read every required field. "}
+              Don't rely on it without checking your document.
+            </>
+          )}
         </p>
       )}
       <div className="row" style={{ marginBottom: 12 }}>
@@ -526,7 +539,9 @@ export function ResultArea({
     x.state === "running"
       ? `Running on your ${sentWord(use?.offer.product.kind)}…`
       : x.result === "available"
-        ? "Your result is ready. Show it when you like: only you can read it."
+        ? x.fulfilled
+          ? "Your result is ready. Show it when you like: only you can read it."
+          : "No usable result: the product refused this document, so nothing is charged. Show the answer to see why."
         : x.result === "pending"
           ? "Your result is being saved privately."
           : x.result === "expired"

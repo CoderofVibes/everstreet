@@ -268,8 +268,11 @@ export class IntentsFunding {
     if (!this.opts.solver) bad(503, "No solver is connected here.", "no_solver");
     const offer =
       b.offers.find((o) => o.token === token) ?? bad(400, "That token isn't offered.", "bad_token");
-    const d = (await this.deal(b)) ?? bad(409, "There is no live deal.", "no_deal");
-    if (d.buyer !== who.account) bad(403, "Only the deal's buyer funds it.", "not_buyer");
+    // Permissions review 3, finding 4: one answer whether there is no deal or someone else's.
+    const d0 = await this.deal(b);
+    if (d0 === null || d0.buyer !== who.account)
+      bad(409, "There is no live deal for you to fund.", "no_deal");
+    const d = d0 as NonNullable<typeof d0>;
     if (d.escrow !== "0") bad(409, "The escrow is already funded.", "funded");
     const price = BigInt(d.price);
     const give = ceilDiv(price * BigInt(offer.rate_num), BigInt(offer.rate_den));
@@ -347,37 +350,86 @@ export class IntentsFunding {
     const solver = this.opts.solver ?? bad(503, "No solver is connected here.", "no_solver");
     if (r.state !== "quoted") return this.status(personId, id);
     if (this.now() >= r.deadline_ms) bad(409, "The quote expired.", "expired");
-    // Permissions review 2, findings 1 and 2: the quote's conditions are read again at the moment
-    // of the fill, from the business contract. The solver fills only a swap that still funds this
-    // sale (the same deal, this buyer, escrow still empty), and only once per deal: a second quote
-    // for a deal whose price was already swapped funds nothing.
-    const d0 = await this.deal(b);
-    if (d0 === null || d0.seq !== r.deal_seq) {
-      this.set(id, { state: "refused", error: "no live deal for this quote" });
-      bad(409, "There is no live deal for this quote; nothing moved.", "no_deal");
-    }
-    const d = d0 as NonNullable<typeof d0>;
-    if (d.buyer !== r.account) {
-      this.set(id, { state: "refused", error: "the deal names another buyer" });
-      bad(409, "The deal names another buyer; nothing moved.", "not_buyer");
-    }
-    if (d.escrow !== "0") {
-      this.set(id, { state: "refused", error: "the escrow is already funded" });
-      bad(409, "The escrow is already funded; nothing moved.", "funded");
-    }
-    const other = this.db
-      .prepare(
-        "SELECT 1 FROM intent_fundings WHERE business_id = ? AND deal_seq = ? AND id != ? AND (state = 'swapped' OR (state IN ('swapping','unknown') AND deadline_ms > ?)) LIMIT 1",
-      )
-      .get(r.business_id, r.deal_seq, id, this.now());
-    if (other) {
+    // Permissions reviews 2 and 3: the solver fills a deal once. The rule is decided against the
+    // verifier's own record (every other quote of this deal is asked whether its nonce was spent,
+    // whatever this server remembers about it), and this quote claims the deal in one synchronous
+    // write before any further await, so two signs at the same instant can't both pass.
+    const refuseFilled = () => {
       this.set(id, { state: "refused", error: "another quote for this deal was filled" });
-      bad(
+      return bad(
         409,
         "This sale's price was already swapped under another quote; nothing moved.",
         "already_filled",
       );
+    };
+    const others = this.db
+      .prepare(
+        "SELECT id, account, nonce, state, deadline_ms FROM intent_fundings WHERE business_id = ? AND deal_seq = ? AND id != ? AND state IN ('swapped','swapping','unknown')",
+      )
+      .all(r.business_id, r.deal_seq, id) as Pick<
+      Row,
+      "id" | "account" | "nonce" | "state" | "deadline_ms"
+    >[];
+    for (const o of others) {
+      if (o.state === "swapped") refuseFilled();
+      const [used] = (await this.reads(b.network, [
+        [r.verifier, "is_nonce_used", { account_id: o.account, nonce: o.nonce }],
+      ]).catch(() => [null])) as [boolean | null];
+      if (used === true) {
+        this.set(o.id, { state: "swapped" });
+        refuseFilled();
+      }
+      // Still in flight (or unreadable) and not past its deadline: it may yet land.
+      if (used === null || o.deadline_ms > this.now()) refuseFilled();
     }
+    const claim = this.db
+      .prepare(
+        "UPDATE intent_fundings SET state = 'swapping', updated_at = ? WHERE id = ? AND state = 'quoted' AND NOT EXISTS (SELECT 1 FROM intent_fundings o WHERE o.business_id = ? AND o.deal_seq = ? AND o.id != ? AND (o.state = 'swapped' OR (o.state IN ('swapping','unknown') AND o.deadline_ms > ?)))",
+      )
+      .run(new Date(this.now()).toISOString(), id, r.business_id, r.deal_seq, id, this.now());
+    if (claim.changes !== 1) {
+      const again = this.row(personId, id);
+      if (again.state !== "quoted") return this.status(personId, id);
+      refuseFilled();
+    }
+    // The claim is held from here. A precondition the buyer can fix returns the quote to them;
+    // one that can't be fixed refuses it; the verifier's answer decides the rest.
+    const back = () => this.set(id, { state: "quoted" });
+    const refuse = (error: string, text: string, code: string) => {
+      this.set(id, { state: "refused", error });
+      return bad(409, text, code);
+    };
+    // The quote's conditions, read again from the business contract at the moment of the fill: the
+    // same deal at the same version and price, this buyer, escrow still empty.
+    const d0 = await this.deal(b).catch((e: unknown) => {
+      back();
+      throw e;
+    });
+    if (d0 === null || d0.seq !== r.deal_seq)
+      refuse(
+        "no live deal for this quote",
+        "There is no live deal for this quote; nothing moved.",
+        "no_deal",
+      );
+    const d = d0 as NonNullable<typeof d0>;
+    if (d.buyer !== r.account)
+      refuse(
+        "the deal names another buyer",
+        "The deal names another buyer; nothing moved.",
+        "not_buyer",
+      );
+    if (d.escrow !== "0")
+      refuse(
+        "the escrow is already funded",
+        "The escrow is already funded; nothing moved.",
+        "funded",
+      );
+    if (d.version !== r.version || d.price !== r.get_amount)
+      refuse(
+        "the deal was revised after the quote",
+        "The deal was revised since this quote; take a new quote.",
+        "revised",
+      );
     const message = this.buyerMessage(r);
     const nonce = Buffer.from(r.nonce, "base64");
     // A wallet may sign with or without the callback URL it was given: whichever it signed.
@@ -392,16 +444,25 @@ export class IntentsFunding {
         signature: input.signature,
       }),
     );
-    if (callbackUrl === undefined)
+    if (callbackUrl === undefined) {
+      back();
       bad(400, "The signature isn't over this quote.", "bad_signature");
+    }
     const [hasKey, inside] = (await this.reads(b.network, [
       [r.verifier, "has_public_key", { account_id: r.account, public_key: input.public_key }],
       [r.verifier, "mt_balance_of", { account_id: r.account, token_id: `nep141:${r.give_token}` }],
-    ])) as [boolean, string];
-    if (!hasKey)
+    ]).catch((e: unknown) => {
+      back();
+      throw e;
+    })) as [boolean, string];
+    if (!hasKey) {
+      back();
       bad(409, "Register your signing key with the verifier first.", "key_not_registered");
-    if (BigInt(inside) < BigInt(r.give_amount))
+    }
+    if (BigInt(inside) < BigInt(r.give_amount)) {
+      back();
       bad(409, "The deposit is short of the quote.", "underpaid");
+    }
     const buyer = signedPayload({
       message,
       nonce,
@@ -410,7 +471,13 @@ export class IntentsFunding {
       publicKey: input.public_key,
       signature: Buffer.from(input.signature, "base64"),
     });
-    const signed = [buyer, await this.solverSide(r, b, solver)];
+    const signed = [
+      buyer,
+      await this.solverSide(r, b, solver).catch((e: unknown) => {
+        back();
+        throw e;
+      }),
+    ];
     const [sim] = (await this.reads(b.network, [
       [r.verifier, "simulate_intents", { signed }],
     ]).catch((e: unknown) => {
@@ -424,7 +491,6 @@ export class IntentsFunding {
       this.set(id, { state: "refused", error: "invariant violated" });
       bad(409, "The two sides don't match; nothing moved.", "refused");
     }
-    this.set(id, { state: "swapping" });
     try {
       const out = await solver.execute(r.verifier, signed);
       // Permissions review 2, finding 6: the solver's own answer is not the record. The swap is
@@ -489,7 +555,7 @@ export class IntentsFunding {
       // The swap credited the buyer's tUSD inside the verifier; once less than the swapped amount
       // is left inside, the buyer withdrew it (their total balance elsewhere proves nothing).
       if (funded) stage = "funded";
-      else if (BigInt(insideGet) < BigInt(r.get_amount)) stage = "delivered";
+      else if (BigInt(insideGet) === 0n) stage = "delivered";
       else stage = "swapped";
     } else if ((state === "unknown" || state === "swapping") && !expired) {
       stage = "unknown";

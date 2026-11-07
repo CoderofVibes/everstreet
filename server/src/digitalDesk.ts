@@ -51,14 +51,29 @@ export function liveDeal(
     const d = (
       JSON.parse(row.snapshot) as {
         control?: {
-          live_deal?: { state: string; seller_accepted: boolean; buyer_accepted: boolean } | null;
+          live_deal?: {
+            seq?: string;
+            state: string;
+            seller_accepted: boolean;
+            buyer_accepted: boolean;
+          } | null;
         };
       }
     ).control?.live_deal;
+    // Second first-use pass (Nov 7, finding 41): an acceptance the owner made through this
+    // server counts as soon as its check confirmed it, before the next chain observation.
+    const sellerAcceptedHere =
+      d !== null &&
+      d !== undefined &&
+      db
+        .prepare(
+          "SELECT 1 FROM sale_actions WHERE business_id = ? AND kind = 'accept' AND state = 'confirmed' AND deal_seq = ? AND person_id = (SELECT owner_id FROM businesses WHERE id = ?) LIMIT 1",
+        )
+        .get(businessId, String(d.seq ?? ""), businessId) !== undefined;
     return d
       ? {
           state: d.state,
-          seller_accepted: d.seller_accepted === true,
+          seller_accepted: d.seller_accepted === true || sellerAcceptedHere,
           buyer_accepted: d.buyer_accepted === true,
         }
       : null;

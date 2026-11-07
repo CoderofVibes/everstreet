@@ -75,10 +75,10 @@ describe("escrow funding through the intents verifier", () => {
     await s.act(s.ava, SELLER, "propose", proposal());
     await s.act(s.noah, BUYER, "register");
 
-    // The seller can't quote: only the deal's buyer funds it.
+    // The seller can't quote: only the deal's buyer funds it (one answer for anyone else).
     expect(
       (await s.ava(`/api/sales/${s.biz}/intents/quote`, "POST", { token: ALT_TOKEN })).body.code,
-    ).toBe("not_buyer");
+    ).toBe("no_deal");
     const q = await s.noah(`/api/sales/${s.biz}/intents/quote`, "POST", { token: ALT_TOKEN });
     expect(q.status).toBe(200);
     expect(q.body).toMatchObject({

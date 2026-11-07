@@ -65,7 +65,7 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
     signature: string;
     callback_url: string | null;
   } | null>(null);
-  const [reviewing, setReviewing] = useState<"deposit" | null>(null);
+  const [reviewing, setReviewing] = useState<"deposit" | "sign" | null>(null);
 
   const load = useCallback(() => {
     intentsHttp
@@ -169,6 +169,8 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
       setSigned(sig);
       await submit(sig);
     });
+  // Second first-use pass (Nov 7, finding 63): registering the key is its own step; the swap is
+  // reviewed and signed afterwards, never submitted inside this click.
   const register = () =>
     run("register", async () => {
       if (!signed) throw new Error("Sign first.");
@@ -179,7 +181,8 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
         gas: GAS,
         deposit: "1",
       });
-      await submit(signed);
+      setSigned(null);
+      setNeedsKey(null);
     });
   const withdraw = (tokenAccount: string, amount: string) =>
     run("withdraw", () =>
@@ -320,14 +323,43 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
           </Step>
           {/* First-use review (Nov 7, finding 78): registering the key is its own step. */}
           <Step done={at >= 2 || (stage === "deposited" && !needsKey && signed !== null)}>
-            Register my signing key with the verifier (first time only){" "}
+            Register my signing key with the verifier (only when it asks, the first time){" "}
             {stage === "deposited" &&
               needsKey &&
               btn("Register my signing key", "register", register, true)}
           </Step>
           <Step done={at >= 2}>
             Sign the swap with my wallet{" "}
-            {stage === "deposited" && !needsKey && btn("Sign with my wallet", "sign", sign, true)}
+            {stage === "deposited" &&
+              !needsKey &&
+              reviewing !== "sign" &&
+              btn("Review the swap", "sign", () => setReviewing("sign"), true)}
+            {stage === "deposited" && !needsKey && reviewing === "sign" && (
+              // biome-ignore lint/a11y/useSemanticElements: phrasing context (inside a list item's sentence); a fieldset isn't allowed here
+              <span className="companion-review" role="group" aria-label="Review: the swap">
+                <dl className="facts">
+                  <div className="companion-effect">
+                    <dt>You give</dt>
+                    <dd>{give(f.give.amount)} (already inside the verifier)</dd>
+                  </div>
+                  <div className="companion-effect">
+                    <dt>You get</dt>
+                    <dd>
+                      {tokenAmount(f.get.amount, dec)} {sym}, credited to you inside the verifier
+                    </dd>
+                  </div>
+                  <div className="companion-effect">
+                    <dt>Verifier</dt>
+                    <dd className="mono wrap">{v.verifier}</dd>
+                  </div>
+                  <div className="companion-effect">
+                    <dt>Until</dt>
+                    <dd>{clock(f.deadline_ms)}; both sides swap or neither does</dd>
+                  </div>
+                </dl>
+                {btn("Ask my wallet to sign exactly this", "sign", sign, true)}
+              </span>
+            )}
           </Step>
           <Step done={at >= 3}>
             Withdraw {tokenAmount(f.get.amount, dec)} {sym} to my account{" "}

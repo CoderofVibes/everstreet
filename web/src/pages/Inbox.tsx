@@ -33,6 +33,35 @@ export function Inbox() {
           ),
       )
       .catch(() => setNeeds(null));
+    // Second first-use pass (Nov 7, finding 61): a buyer's sale in progress needs them too.
+    (async () => {
+      try {
+        const r = await fetch("/api/me/v3/handovers", { credentials: "same-origin" });
+        if (!r.ok) return;
+        const d = (await r.json()) as {
+          handovers?: {
+            business?: { id?: unknown; name?: unknown };
+            receipt?: { role?: unknown; status?: unknown };
+          }[];
+        };
+        const seen = new Set<string>();
+        const mine: { business: string; text: string; link: string }[] = [];
+        for (const h of d.handovers ?? []) {
+          const id = h.business?.id;
+          if (typeof id !== "string" || h.receipt?.role !== "buyer" || seen.has(id)) continue;
+          if (h.receipt?.status !== "recorded") continue;
+          seen.add(id);
+          mine.push({
+            business: typeof h.business?.name === "string" ? h.business.name : "A business",
+            text: "You are buying this business: see where the sale stands",
+            link: `/sales/${id}`,
+          });
+        }
+        if (mine.length > 0) setNeeds((prev) => [...(prev ?? []), ...mine]);
+      } catch {
+        // the handovers couldn't be read: the rest still shows
+      }
+    })();
     // First-use review (Nov 7, finding 64): a case worker's assigned cases need them too.
     (async () => {
       try {
