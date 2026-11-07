@@ -49,4 +49,29 @@ describe("recorded testnet proof", () => {
     const links = [...host.querySelectorAll("a[href^='https://testnet.nearblocks.io/txns/']")];
     expect(links.length).toBeGreaterThanOrEqual(8);
   });
+
+  it("shows each sale at the moment control changed, then the customer after the last one", () => {
+    const e = ledgerlineExample();
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root?.render(createElement(RecordedProof, { e: e as never })));
+    const strip = host.querySelector(".handover-strip");
+    expect(strip).not.toBeNull();
+    const rows = strip?.querySelectorAll(".hand-list .hand-row") ?? [];
+    expect(rows).toHaveLength(3);
+    expect(rows[2]?.textContent).toContain("noor-v3s3");
+    expect(rows[2]?.textContent).toContain("ines-v3s4");
+    expect(rows[2]?.textContent).toContain("E_NOT_OWNER");
+    // Each close and each refusal links to the explorer.
+    const links = [...(strip?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"));
+    expect(links.filter((l) => l?.startsWith("https://testnet.nearblocks.io/txns/"))).toHaveLength(
+      6,
+    );
+    expect(rows[0]?.textContent).toContain("80");
+    expect(rows[1]?.textContent).toContain("Not read");
+    expect(strip?.querySelector(".hand-after")?.textContent).toMatch(
+      /78 unused · 22 used · 100 bought/,
+    );
+  });
 });

@@ -40,6 +40,35 @@ interface Example {
     head: { hash: string; height: number };
     reproduce: string;
   };
+  handovers?: Handovers;
+}
+interface TxRef {
+  hash: string | null;
+  explorer: string | null;
+}
+export interface Handovers {
+  sales: {
+    from: { account: string | null; generation: number | null };
+    to: { account: string | null; generation: number | null };
+    closed: TxRef & { block: string | null };
+    former_owner_refused:
+      | null
+      | (TxRef & { method: string | null; receiver: string | null; code: string; record: string });
+    customer_unused_at_close: string | null;
+    record: string;
+  }[];
+  after: null | {
+    block: string | null;
+    owner: string | null;
+    generation: number | null;
+    customer: {
+      account: string | null;
+      unused: string | null;
+      used: string | null;
+      bought: string | null;
+    };
+    record: string;
+  };
 }
 
 function Row({
@@ -65,6 +94,119 @@ function Row({
 }
 
 const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-6)}`;
+/** The account's first label (the full id is in the title). */
+const who = (a: string | null) =>
+  a ? (
+    <span className="mono" title={a}>
+      {a.split(".")[0]}
+    </span>
+  ) : (
+    "—"
+  );
+const txLink = (t: TxRef | null) =>
+  t?.hash && t.explorer ? (
+    <a href={t.explorer} target="_blank" rel="noreferrer" className="mono">
+      {short(t.hash)}
+    </a>
+  ) : (
+    <span className="unknown">Not recorded</span>
+  );
+
+/** Each recorded sale at the moment control changed, then the business after the last one. */
+export function HandoverStrip({ h }: { h: Handovers }) {
+  if (h.sales.length === 0) return null;
+  return (
+    <section className="card handover-strip" aria-labelledby="rp-hand">
+      <h2 id="rp-hand" className="sale-h3">
+        Sales of this business
+      </h2>
+      <ol className="hand-list">
+        {h.sales.map((x, i) => (
+          <li key={x.closed.hash ?? i} className="hand-row">
+            <div className="hand-cell">
+              <span className="hand-k">Sale {i + 1}</span>
+              <span>
+                {who(x.from.account)} → {who(x.to.account)}
+              </span>
+              <span className="muted">
+                generation {x.from.generation ?? "—"} → {x.to.generation ?? "—"}
+              </span>
+            </div>
+            <div className="hand-cell">
+              <span className="hand-k">Closed</span>
+              <span>block {x.closed.block ?? "—"}</span>
+              <span className="row hand-src">
+                {txLink(x.closed)}
+                <SourceTag source="testnet_final" block={x.closed.block} />
+              </span>
+            </div>
+            <div className="hand-cell">
+              <span className="hand-k">Former owner after the close</span>
+              {x.former_owner_refused ? (
+                <>
+                  <span>
+                    <span className="mono">{x.former_owner_refused.method}</span> refused ·{" "}
+                    <span className="mono">{x.former_owner_refused.code}</span>
+                  </span>
+                  <span className="row hand-src">
+                    {txLink(x.former_owner_refused)}
+                    <SourceTag source="testnet_receipt" />
+                  </span>
+                </>
+              ) : (
+                <span className="unknown">Not recorded</span>
+              )}
+            </div>
+            <div className="hand-cell">
+              <span className="hand-k">Customer's unused uses at the close</span>
+              {x.customer_unused_at_close ? (
+                <span className="hand-big">{x.customer_unused_at_close}</span>
+              ) : (
+                <span className="unknown" title="This run didn't read the customer">
+                  Not read
+                </span>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+      {h.after && (
+        <div className="hand-row hand-after">
+          <div className="hand-cell">
+            <span className="hand-k">Now</span>
+            <span>
+              {who(h.after.owner)} · generation {h.after.generation ?? "—"}
+            </span>
+          </div>
+          <div className="hand-cell">
+            <span className="hand-k">Read at</span>
+            <span className="row hand-src">
+              block {h.after.block ?? "—"}
+              <SourceTag source="testnet_final" block={h.after.block} />
+            </span>
+          </div>
+          <div className="hand-cell hand-wide">
+            <span className="hand-k">Customer {who(h.after.customer.account)}</span>
+            <span>
+              <span className="hand-big">{h.after.customer.unused ?? "—"}</span> unused ·{" "}
+              {h.after.customer.used ?? "—"} used · {h.after.customer.bought ?? "—"} bought
+            </span>
+          </div>
+        </div>
+      )}
+      <details className="proof-small">
+        <summary>Check these records</summary>
+        {[...new Set([...h.sales.map((x) => x.record), ...(h.after ? [h.after.record] : [])])].map(
+          (r) => (
+            <p key={r}>
+              <code>npx tsx scripts/verify-rehearsal.ts {r} --live</code>
+            </p>
+          ),
+        )}
+      </details>
+    </section>
+  );
+}
 
 export function RecordedProof({ e }: { e: Example }) {
   const at = (n: string) => e.checkpoints.find((c) => c.name === n) ?? null;
@@ -100,6 +242,7 @@ export function RecordedProof({ e }: { e: Example }) {
           <SourceLegend only={["testnet_final", "testnet_receipt", "light_client", "everstreet"]} />
         </details>
       </header>
+      {e.handovers && <HandoverStrip h={e.handovers} />}
       <section className="card proof-hero" aria-labelledby="rp-cont">
         <div className="eyebrow" id="rp-cont">
           Customer's unused uses · prepaid before the sale

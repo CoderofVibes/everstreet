@@ -180,7 +180,116 @@ export function ledgerlineExample(path = DEFAULT_LEDGERLINE_RECORD) {
     refusals,
     releases,
     light_client: lightClientOfClose(str(r.header.contract?.account, ACCOUNT)),
+    handovers: handoversOf(str(r.header.contract?.account, ACCOUNT)),
   };
+}
+
+/** The verified records of every recorded sale of the example business, in order. */
+export const DEFAULT_SALE_RECORDS = [
+  DEFAULT_LEDGERLINE_RECORD,
+  join("data", "evidence", "v3-ext-testnet.json"),
+  join("data", "evidence", "v3-s4-testnet.json"),
+];
+/** A read-only snapshot after all of them (scripts/ledgerline-after-sales.ts). */
+export const DEFAULT_AFTER_SALES = join("data", "evidence", "ledgerline-after-sales-testnet.json");
+
+function verifiedRecord(path: string): Json | null {
+  try {
+    const raw = readFileSync(path, "utf8");
+    if (!verifyRehearsal(raw).ok) return null;
+    const r = JSON.parse(raw) as Json;
+    return r.header?.network === "testnet" && r.outcome?.completed === true ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Each recorded sale of the business, at the moment control changed: the closing transaction and
+ * the first block after it, the former owner's first refused call after the close (searched in
+ * that record and the later ones), and the customer's unused units at the close when the record
+ * read them. Then the snapshot after the last sale. Only records whose digests verify, for this
+ * contract; every value comes from a named field.
+ */
+export function handoversOf(
+  contract: string | null,
+  paths = DEFAULT_SALE_RECORDS,
+  afterPath = DEFAULT_AFTER_SALES,
+) {
+  const records = paths
+    .map((path) => ({ path, r: verifiedRecord(path) }))
+    .filter(
+      (x): x is { path: string; r: Json } => !!x.r && x.r.header.contract?.account === contract,
+    );
+  // Every step in recorded order across the records.
+  const all = records.flatMap(({ path, r }) => (r.steps as Json[]).map((s) => ({ path, r, s })));
+  const txOf = (s: Json) => {
+    const hash = str(s.chain?.hash, HASH);
+    return { hash, explorer: hash ? `${EXPLORER}${hash}` : null };
+  };
+  const sales = all.flatMap(({ path, r, s }, i) => {
+    if (s.kind !== "transaction" || s.app?.resolution?.result !== "closed") return [];
+    const seller = str(s.signer?.account, ACCOUNT);
+    const cps = (r.checkpoints as Json[]).filter((c) => c.views?.control);
+    const closedAt = cps.findIndex((c) => c.views.control.owner !== seller);
+    const closed = closedAt >= 0 ? cps[closedAt] : null;
+    const before = cps
+      .slice(0, Math.max(closedAt, 0))
+      .reverse()
+      .find((c) => c.views.control.owner === seller);
+    const refused = all
+      .slice(i + 1)
+      .find(
+        (x) =>
+          x.s.kind === "transaction" &&
+          x.s.signer?.account === seller &&
+          /E_NOT_OWNER/.test(
+            `${x.s.chain?.error ?? ""} ${JSON.stringify(x.s.app?.resolution ?? {})}`,
+          ),
+      );
+    const free = closed?.views?.entitlement ? str(closed.views.entitlement.free, DIGITS) : null;
+    return [
+      {
+        from: { account: seller, generation: int(before?.views?.control?.generation) },
+        to: {
+          account: str(closed?.views?.control?.owner, ACCOUNT),
+          generation: int(closed?.views?.control?.generation),
+        },
+        closed: { ...txOf(s), block: str(closed?.views?.block?.height, DIGITS) },
+        former_owner_refused: refused
+          ? {
+              method: str(refused.s.call?.method, /^[a-z_]{1,40}$/),
+              receiver: str(refused.s.call?.receiver, ACCOUNT),
+              code: "E_NOT_OWNER",
+              ...txOf(refused.s),
+              record: refused.path.replaceAll("\\", "/"),
+            }
+          : null,
+        customer_unused_at_close: free,
+        record: path.replaceAll("\\", "/"),
+      },
+    ];
+  });
+  const snap = verifiedRecord(afterPath);
+  const view =
+    snap?.header.contract?.account === contract
+      ? (snap?.checkpoints as Json[])?.at(-1)?.views
+      : null;
+  const after = view
+    ? {
+        block: str(view.block?.height, DIGITS),
+        owner: str(view.control?.owner, ACCOUNT),
+        generation: int(view.control?.generation),
+        customer: {
+          account: str(snap?.header.accounts?.customer, ACCOUNT),
+          unused: str(view.entitlement?.free, DIGITS),
+          used: str(view.entitlement?.consumed, DIGITS),
+          bought: str(view.entitlement?.purchased, DIGITS),
+        },
+        record: afterPath.replaceAll("\\", "/"),
+      }
+    : null;
+  return { sales, after };
 }
 
 /** The committed light-client proof of the recorded close (scripts/verify-light-client.ts). */

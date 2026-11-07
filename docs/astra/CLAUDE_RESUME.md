@@ -35,6 +35,16 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **AGREED LIST (Tony, Nov 7 evening), in order:** (1) the handover strip on /proof/ledgerline:
+  DONE (each of Ledgerline's three testnet sales at the close: block and transaction, the former
+  owner's first refused call on chain, the customer's units; then a read-only snapshot after the
+  last sale, `scripts/ledgerline-after-sales.ts`, `data/evidence/ledgerline-after-sales-testnet.json`:
+  78 unused, 22 used of 100). (2) A "seller pays itself" check in the evidence room and the
+  buyer's view: levels 1 and 2 (seller/operator/team accounts; the contract's `sponsor_shell`
+  payer), demo case, attack-suite case; testnet run only with Tony's yes. (3) A static hosted
+  proof site: only after Tony says yes to publishing (host his call). (4) README with Astra (Tony
+  has the prompt; competitor names stay out of the repo). THEN a cold Fable review of 1 to 3 only.
+
 - **SERIES 4 DONE (Nov 7; Tony: "Yes on the testnet deploy")**: the fixed companions on testnet.
   Reproducible builds of 24ac5fb, each built twice byte-identical (asset-key e123359c...,
   spend-allowance 3bb09676...; `docs/BUILDS.md`), local-node tests pass on those exact files

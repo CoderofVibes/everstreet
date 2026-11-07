@@ -95,7 +95,17 @@ const allowedPath = (p: string) =>
   /^\.checkpoints\[\]\.(name|at|block|free|consumed|owner|owner_role|generation|source)$/.test(p) ||
   /^\.transactions\[\]\.(step|role|method|receiver|hash|explorer|succeeded|source)$/.test(p) ||
   /^\.refusals\[\]\.(step|status|source)$/.test(p) ||
-  /^\.releases\[\]\.(step|by|source)$/.test(p);
+  /^\.releases\[\]\.(step|by|source)$/.test(p) ||
+  // The handover strip (each recorded sale; the snapshot after the last one).
+  /^\.handovers(\.sales|\.after)?$/.test(p) ||
+  /^\.handovers\.sales\[\]\.(from|to)(\.(account|generation))?$/.test(p) ||
+  /^\.handovers\.sales\[\]\.closed(\.(hash|explorer|block))?$/.test(p) ||
+  /^\.handovers\.sales\[\]\.former_owner_refused(\.(method|receiver|code|hash|explorer|record))?$/.test(
+    p,
+  ) ||
+  /^\.handovers\.sales\[\]\.(customer_unused_at_close|record)$/.test(p) ||
+  /^\.handovers\.after\.(block|owner|generation|record|customer)$/.test(p) ||
+  /^\.handovers\.after\.customer\.(account|unused|used|bought)$/.test(p);
 
 describe("the public example (verified testnet record -> allowlisted projection)", () => {
   it("derives the headline figures from the record and tags every figure with its own source", () => {
