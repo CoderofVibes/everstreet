@@ -18,6 +18,7 @@ import { forkSuccessorRunner } from "../server/src/successorRunner.ts";
 import type { Json } from "../server/test/customer-world.ts";
 import { ALT_TOKEN, VERIFIER } from "../server/test/intents-chain.ts";
 import { labelScript } from "./lib/customerPreview.ts";
+import { agentPurchases } from "./lib/demo/agents.ts";
 import { simulatedClock } from "./lib/demo/clock.ts";
 import { signalwatchSaleAction, simulateHistory } from "./lib/demo/history.ts";
 import {
@@ -49,6 +50,8 @@ simulatedClock.begin(start);
 console.log("Running 30 simulated days (fictional, synthetic chain)…");
 const w = await demoWorld({ dbPath: join(DIR, "demo.db") });
 const log = await simulateHistory(w, { start });
+// Two agents meet Signalwatch's HTTP 402 (one pays from its own account, one doesn't).
+await agentPurchases(w);
 simulatedClock.realTime();
 // A fresh month of runtime budget for the businesses that run a model, so a visitor's own request
 // runs (the simulated month may have used up the default).

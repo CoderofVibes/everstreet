@@ -11,6 +11,7 @@ import { AcquireListing } from "./pages/AcquireListing.tsx";
 import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
 import { AgentAccessPage } from "./pages/AgentAccess.tsx";
+import { AgentPurchasesPage } from "./pages/AgentPurchasesDesk.tsx";
 import { AllowanceDeskPage } from "./pages/AllowanceDesk.tsx";
 import { AttackDocketPage } from "./pages/AttackDocket.tsx";
 import { BuildHome } from "./pages/Build.tsx";
@@ -261,6 +262,14 @@ function Routes() {
       <AllowanceDeskPage
         key={`${person?.id ?? "anon"}:${allowanceDesk.id}`}
         id={allowanceDesk.id as string}
+      />
+    );
+  const agentPurchases = match("/desk/:id/agent-purchases", path);
+  if (agentPurchases)
+    return (
+      <AgentPurchasesPage
+        key={`${person?.id ?? "anon"}:${agentPurchases.id}`}
+        id={agentPurchases.id as string}
       />
     );
   const value = match("/desk/:id/value", path);

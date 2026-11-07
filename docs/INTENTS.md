@@ -33,11 +33,20 @@ cargo near build non-reproducible-wasm --locked --features=contract --abi-featur
 sha256sum ../../target/near/defuse/defuse.wasm
 ```
 
-That build is 1,287,300 bytes with sha256
-`3ca782c552bdbd8d2cfbc44cdca82a816b8683de8be68556be5472fb0d47ace2`. It is not reproducible
-yet; the reproducible build (`make defuse REPRODUCIBLE=1`, NEAR's pinned image) needs Docker
-and replaces it before any testnet deployment. The prebuilt `releases/defuse-0.2.10.wasm` in
-that repository is not used: it reports version 0.2.9 and carries no build information.
+The reproducible build runs in NEAR's pinned image (`sourcescan/cargo-near:0.22.0-rust-1.97.1`,
+digest named in the crate's Cargo.toml) and embeds its build information (NEP-330):
+
+```bash
+cd ~/vendor/near-intents/contracts/defuse
+cargo near build reproducible-wasm --no-locked
+```
+
+It is 1,297,007 bytes with sha256
+`257b53c5ba0deff95ca870c7de944d92d6617eeae65f008782b6d95a513193c8` (base58
+`3XKA3xB2Dz92QhELLkWhZ2j66fR7JYYKPRi3A3J4LFzX`), and the local-node test below passes with it.
+An earlier plain build (1,287,300 bytes, no build information) is superseded. The prebuilt
+`releases/defuse-0.2.10.wasm` in that repository is not used: it reports version 0.2.9 and
+carries no build information.
 
 The verifier needs a newer node than our other local tests: its test runs on nearcore 2.14.0,
 the version NEAR's own verifier tests use.

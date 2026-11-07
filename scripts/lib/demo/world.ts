@@ -361,6 +361,7 @@ export async function demoWorld(opts: { dbPath: string }) {
     customers,
     noah,
     caller,
+    person,
     use,
     founderId,
     submission: canonicalSubmission,

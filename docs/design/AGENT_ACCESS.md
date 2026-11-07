@@ -76,6 +76,27 @@ tools.
 - An unknown tool is a protocol error (-32602). Refusals such as revoked or used up are tool
   errors (`isError: true`) with their code.
 
+## An agent as its own customer: HTTP 402 (Nov 6)
+
+An agent with its own NEAR account needs no grant from anyone: it signs in with that account
+(NEP-413, as a person's wallet does) and is a customer like any other. It pays from its own
+account and its own gas; Everstreet relays nothing.
+
+- `POST /api/customer/offers/:offer/prepare` with no units answers **402 Payment Required**
+  instead of 409. The body is the exact offer: the contract, token, plan and unit price; any
+  step still needed first (`before`: the registration, token storage), each with its exact call;
+  and the purchase (`purchase`: units, amount, the `buy` call and its terms digest). `buy: {units,
+  install}` in the request picks the quantity and the agent's own use key.
+- The agent records the purchase (`POST /api/customer/offers/:offer/purchases` with that digest),
+  sends the call from its own account, and has it checked by its own transaction
+  (`POST /api/customer/purchases/:id/check`). Units exist only when the business contract's own
+  receipt logged `units_bought` for that account; a 402, a signature, or another account's
+  transaction grants nothing (`server/test/payment-402.test.ts`).
+- Each 402 is recorded with its terms digest (`payment_offers`). The owner sees them at
+  `/desk/:id/agent-purchases` (`GET /api/businesses/:id/agent-purchases`, owner only): the offer,
+  and whether the contract confirmed a purchase for it. In the demo, one agent pays and one
+  doesn't (`scripts/lib/demo/agents.ts`).
+
 ## Evidence
 
 `server/test/agent-access.test.ts` (3): an independent client with only the bearer token, over

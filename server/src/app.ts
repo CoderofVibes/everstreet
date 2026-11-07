@@ -37,6 +37,7 @@ import { ManagedRuntime } from "./invocations.ts";
 import { Members } from "./members.ts";
 import { customerOperations } from "./operations.ts";
 import { Opportunities } from "./opportunities.ts";
+import { PaymentOffers } from "./paymentOffers.ts";
 import { Payments } from "./payments.ts";
 import { Portfolio } from "./portfolio.ts";
 import { Products } from "./products.ts";
@@ -194,6 +195,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     options.platformOrigin ?? null,
   );
   const purchases = new CustomerPurchases(store.db, options.customer?.reader ?? null);
+  const paymentOffers = new PaymentOffers(store.db, store);
   // Job 003wf2: a Direct sale through each participant's own wallet (read and verify only).
   // The handoff proof reads through the same reader as the sale; its source is configured (the
   // synthetic chain, a local NEAR node or testnet), never guessed from the data.
@@ -822,9 +824,42 @@ export function everstreetApi(store: Store, options: AppOptions) {
     c.json(await customerUses.deviceKeys(me(c), c.req.param("offer"))),
   );
   app.post("/api/customer/offers/:offer/prepare", async (c) => {
-    const r = await customerUses.prepare(me(c), c.req.param("offer"), await body(c));
-    return c.json(r, r.created ? 201 : 200);
+    const viewer = me(c);
+    const offerId = c.req.param("offer");
+    const input = (await body(c)) as Record<string, unknown>;
+    try {
+      const r = await customerUses.prepare(viewer, offerId, input);
+      return c.json(r, r.created ? 201 : 200);
+    } catch (e) {
+      // No units: 402 with the exact purchase (src/paymentOffers.ts). Only the contract's
+      // purchase grants a unit; this answer grants nothing.
+      if (!(e instanceof HttpError) || (e.code !== "no_entitlement" && e.code !== "no_free_unit"))
+        throw e;
+      const want = (input.buy ?? {}) as { units?: unknown; install?: unknown };
+      const units = Number.isInteger(want.units) ? (want.units as number) : 1;
+      const setup = await purchases.setup(viewer, offerId, {
+        units,
+        install: (want.install ?? null) as never,
+      });
+      const o = store.db
+        .prepare("SELECT business_id FROM customer_offers WHERE id = ?")
+        .get(offerId) as { business_id: string };
+      return c.json(
+        paymentOffers.issue(
+          viewer,
+          { offerId, businessId: o.business_id },
+          e.code,
+          setup as never,
+          e.message,
+        ),
+        402,
+      );
+    }
   });
+  // The owner's view of HTTP 402 offers and the purchases the contract confirmed for them.
+  app.get("/api/businesses/:id/agent-purchases", (c) =>
+    c.json(paymentOffers.forOwner(me(c), c.req.param("id"))),
+  );
   app.get("/api/customer/uses/:id", (c) => c.json(customerUses.status(me(c), c.req.param("id"))));
   app.post("/api/customer/uses/:id/confirm", async (c) =>
     c.json(await customerUses.confirm(me(c), c.req.param("id"), await body(c))),

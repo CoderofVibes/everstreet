@@ -428,7 +428,10 @@ describe("003m customer preparation and reservation (real API, injected adapters
     const noah = w.person("Noah Fenn");
     expect((await go(noah, ok)).body.code).toBe("no_chain_account");
     w.link(noah.id, "noah.near"); // a linked account with no entitlement on the contract
-    expect((await go(noah, ok)).body.code).toBe("no_entitlement");
+    // No entitlement: HTTP 402 with the exact offer (src/paymentOffers.ts), not a bare refusal.
+    const none = await go(noah, ok);
+    expect(none.status).toBe(402);
+    expect(none.body).toMatchObject({ code: "payment_required", reason: "no_entitlement" });
     expect((await go(w.cara, { ...ok, key_slot: 1 })).body.code).toBe("key_not_active");
     expect((await go(w.cara, { ...ok, key_slot: 9 })).status).toBe(400);
     expect((await go(w.cara, { ...ok, input: "x".repeat(20_001) })).status).toBe(400);
