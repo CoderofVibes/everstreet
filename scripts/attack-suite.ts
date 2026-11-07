@@ -1,7 +1,8 @@
-// The attack suite (Case Docket): nine groups of attacks on a sale, each run beside a clean run
-// from the same pinned starting state. After each attack the protected values (owner,
-// generation, escrow, customer units, pending payouts) are read again and must equal what they
-// were before it. Group 9 plants faults into the state on purpose and shows which named check
+// The attack suite (Case Docket): nine groups of attacks on a sale and its companions (the
+// external feed and the supplier allowance), each run beside a clean run from the same pinned
+// starting state. After each attack the protected values (owner, generation, escrow, customer
+// units, pending payouts, the feed's controller, the supplier budget) are read again and must
+// equal what they were before it. Group 9 plants faults into the state on purpose and shows which named check
 // catches each one, so a passing suite means something.
 //
 // SYNTHETIC: these cases run through Everstreet's real routes over the synthetic chain
@@ -13,10 +14,56 @@
 
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { attachCompanions, signerOf, testAddress } from "../server/test/companion-chain.ts";
 import { CUSTOMER, FixtureReader, type Json } from "../server/test/customer-world.ts";
 import { BUYER, PRICE, proposal, SELLER, saleWorld } from "../server/test/sale-world.ts";
 
 type World = Awaited<ReturnType<typeof saleWorld>>;
+type Companions = ReturnType<typeof attachCompanions>;
+
+const FEED = "feed.synthetic.near";
+const BUDGET = "budget.synthetic.near";
+const AGENT = "agent.synthetic.near";
+const SUPPLIER = "larchmere.synthetic.near";
+/** An EVM address the former seller controls outside the business (fictional). */
+const SELLER_EVM = `0x${"5e11e7".repeat(6)}5e11`;
+/** Each world's companions (the external feed and the supplier allowance). */
+const companionsOf = new WeakMap<World, Companions>();
+const co = (s: World) => companionsOf.get(s) as Companions;
+
+/** A sale world with both companions: the feed at generation 1's address, a granted budget. */
+async function world(grant: { per_payment?: string; per_period?: string } = {}) {
+  const s = await saleWorld();
+  const c = attachCompanions(
+    s.w.chain,
+    s.BUSINESS,
+    () => {
+      const v = s.sale.controlView() as Json;
+      return {
+        owner: String(v.owner),
+        generation: Number(v.generation),
+        control_seq: String(v.control_seq),
+      };
+    },
+    { asset: FEED, allowance: BUDGET, token: s.TOKEN },
+  );
+  c.allowance.fund(60_000_000n);
+  c.allowance.walletCall(SELLER, {
+    methodName: "grant",
+    args: {
+      agent: AGENT,
+      suppliers: [SUPPLIER],
+      per_payment: grant.per_payment ?? "2000000",
+      per_period: grant.per_period ?? "60000000",
+      period_ms: "604800000",
+      review_above: "5000000",
+    },
+    gas: "1",
+    deposit: "0",
+  });
+  companionsOf.set(s, c);
+  return s;
+}
 
 interface Protected {
   owner: string;
@@ -24,6 +71,10 @@ interface Protected {
   escrow: string;
   customer_units: string;
   pending_payouts: number;
+  /** The external feed's controller (an EVM address on the registry). */
+  feed_controller: string;
+  /** The supplier budget held by the allowance companion. */
+  supplier_budget: string;
 }
 
 interface Case {
@@ -45,6 +96,8 @@ const protectedOf = (s: World): Protected => {
     escrow: d ? String(d.escrow) : "0",
     customer_units: String((s.w.chain.ent(CUSTOMER) as Json)?.free ?? "0"),
     pending_payouts: (s.sale.pendingView() as Json[]).length,
+    feed_controller: co(s).registry.controller,
+    supplier_budget: String(co(s).allowance.balance),
   };
 };
 const same = (a: Protected, b: Protected) => JSON.stringify(a) === JSON.stringify(b);
@@ -57,7 +110,7 @@ const refusalOf = (out: Json): string | null => {
 
 /** A proposed and funded sale (the pinned start for most cases). */
 async function funded() {
-  const s = await saleWorld();
+  const s = await world();
   await s.act(s.ava, SELLER, "propose", proposal());
   await s.act(s.noah, BUYER, "register");
   await s.act(s.noah, BUYER, "fund");
@@ -179,7 +232,7 @@ await pair(
   2,
   "Wallet answer lost",
   async () => {
-    const s = await saleWorld();
+    const s = await world();
     await s.act(s.ava, SELLER, "propose", proposal());
     await s.act(s.noah, BUYER, "register");
     return s;
@@ -409,13 +462,7 @@ await pair(
 await pair(
   7,
   "Escrow beyond the price",
-  async () => {
-    const s = await saleWorld();
-    await s.act(s.ava, SELLER, "propose", proposal());
-    await s.act(s.noah, BUYER, "register");
-    await s.act(s.noah, BUYER, "fund");
-    return s;
-  },
+  funded,
   async (s) => {
     const r = await s.setup(s.noah);
     return {
@@ -486,6 +533,177 @@ await pair(
   },
 );
 
+// ---------- Companions: the external feed and the supplier allowance ----------
+
+/** One request to the feed companion; its answer (signed, or refused with a code). */
+function feedRequest(s: World, signer: string, action: Json, nonce: number) {
+  const out = co(s).asset.walletCall(signer, {
+    methodName: "request",
+    args: {
+      action,
+      tx: {
+        nonce: String(nonce),
+        gas_limit: "80000",
+        max_fee_per_gas: "3000000000",
+        max_priority_fee_per_gas: "1000000000",
+      },
+    },
+    gas: "1",
+    deposit: "1",
+  });
+  const v = (out.status as Json).SuccessValue;
+  return v
+    ? (JSON.parse(Buffer.from(String(v), "base64").toString()) as Json)
+    : { refused: refusalOf(out) };
+}
+/** Relays a signed feed answer to the registry and lets it become final. */
+function relay(s: World, answer: Json, action: Json, nonce: number) {
+  const from = signerOf(
+    Uint8Array.from(Buffer.from(String(answer.payload), "hex")),
+    answer.signature,
+  );
+  const hash = `0x${String(answer.payload)}`;
+  co(s).registry.submit(hash, from, nonce, action as never);
+  co(s).registry.mine(3);
+  return co(s).registry.statusOf(hash);
+}
+/** The allowance's answer to one agent payment: a refusal code, or null if it went through. */
+function payRefusal(s: World, supplier: string, amount: bigint, invoice: string) {
+  try {
+    const r = co(s).allowance.pay(AGENT, supplier, amount, invoice);
+    return r.value.startsWith("E_") ? r.value : null;
+  } catch (e) {
+    return /^(E_[A-Z_]+)/.exec((e as Error).message)?.[1] ?? null;
+  }
+}
+const gen = (n: number) => testAddress(FEED, `gen-${n}`);
+const inv = (i: number) => i.toString(16).padStart(2, "0").repeat(32);
+await pair(
+  1,
+  "Former seller asks for the feed role",
+  closed,
+  async (s) => {
+    const move = { kind: "set_controller", to: gen(2), from_generation: 1 };
+    const a = feedRequest(s, BUYER, move, 0);
+    return { what: "New owner moves the feed role to their address", result: relay(s, a, move, 0) };
+  },
+  async (s) => {
+    const a = feedRequest(
+      s,
+      SELLER,
+      { kind: "set_controller", to: SELLER_EVM, from_generation: 1 },
+      0,
+    );
+    return {
+      what: "Former seller asks the feed companion to sign the role over to an address of theirs",
+      refusal: a.refused ? String(a.refused) : null,
+    };
+  },
+);
+
+/** Held between the start and the attack: the seller's publish signed before the close. */
+const held = new WeakMap<World, { answer: Json; action: Json }>();
+await pair(
+  4,
+  "Feed signature from before the close",
+  async () => {
+    const s = await funded();
+    const action = { kind: "publish", digest: "22".repeat(32) };
+    held.set(s, { answer: feedRequest(s, SELLER, action, 0), action });
+    await s.act(s.noah, BUYER, "accept");
+    await s.act(s.ava, SELLER, "accept");
+    const move = { kind: "set_controller", to: gen(2), from_generation: 1 };
+    relay(s, feedRequest(s, BUYER, move, 0), move, 0);
+    return s;
+  },
+  async (s) => {
+    const action = { kind: "publish", digest: "44".repeat(32) };
+    return {
+      what: "The buyer publishes from generation 2's address",
+      result: relay(s, feedRequest(s, BUYER, action, 0), action, 0),
+    };
+  },
+  async (s) => {
+    const h = held.get(s) as { answer: Json; action: Json };
+    const status = relay(s, h.answer, h.action, 1);
+    return {
+      what: "A publish the seller signed before the close is sent after the role moved",
+      refusal: status === "failed" ? "Registry: not controller" : null,
+    };
+  },
+);
+
+await pair(
+  3,
+  "Supplier payment after the close",
+  closed,
+  async (s) => {
+    const w = await world();
+    const r = payRefusal(w, SUPPLIER, 900_000n, inv(1));
+    void s;
+    return { what: "Agent pays the supplier before any sale", result: r ?? "paid" };
+  },
+  async (s) => ({
+    what: "Agent pays the supplier under the seller's grant after the business changed hands",
+    refusal: payRefusal(s, SUPPLIER, 900_000n, inv(2)),
+  }),
+);
+
+await pair(
+  6,
+  "Invoice from a supplier not allowed",
+  funded,
+  async (s) => ({
+    what: "Agent pays the allowed supplier",
+    result: payRefusal(s, SUPPLIER, 900_000n, inv(3)) ?? "paid",
+  }),
+  async (s) => ({
+    what: "Agent is given an invoice from another payee",
+    refusal: payRefusal(s, "invoice-forger.near", 900_000n, inv(4)),
+  }),
+);
+
+await pair(
+  6,
+  "Invoice paid twice",
+  async () => {
+    const s = await funded();
+    payRefusal(s, SUPPLIER, 900_000n, inv(5));
+    return s;
+  },
+  async (s) => ({
+    what: "Agent pays a new invoice",
+    result: payRefusal(s, SUPPLIER, 900_000n, inv(6)) ?? "paid",
+  }),
+  async (s) => ({
+    what: "The same invoice is submitted again",
+    refusal: payRefusal(s, SUPPLIER, 900_000n, inv(5)),
+  }),
+);
+
+await pair(
+  7,
+  "The last of the period's cap, asked for twice",
+  async () => {
+    const s = await world({ per_period: "3000000" });
+    payRefusal(s, SUPPLIER, 2_000_000n, inv(7));
+    payRefusal(s, SUPPLIER, 1_000_000n, inv(8));
+    return s;
+  },
+  async () => {
+    const s = await world({ per_period: "3000000" });
+    payRefusal(s, SUPPLIER, 2_000_000n, inv(7));
+    return {
+      what: "The last 1 TUSD of a 3 TUSD period is paid once",
+      result: payRefusal(s, SUPPLIER, 1_000_000n, inv(8)) ?? "paid",
+    };
+  },
+  async (s) => ({
+    what: "A second payment asks for the same last 1 TUSD",
+    refusal: payRefusal(s, SUPPLIER, 1_000_000n, inv(9)),
+  }),
+);
+
 // ---------- 9. Faults planted in our own checks ----------
 interface Planted {
   fault: string;
@@ -517,6 +735,9 @@ const planted: Planted[] = [];
   await plant("A payout marked complete before its callback", "pending_payouts", (s) => {
     const v = s.sale.pendingView.bind(s.sale);
     s.sale.pendingView = () => [...v(), { planted: true } as never];
+  });
+  await plant("The feed role moved without the owner", "feed_controller", (s) => {
+    co(s).registry.controller = SELLER_EVM.toLowerCase();
   });
   await plant("The generation number skipped", "generation", (s) => {
     (s.sale as unknown as { generation: number }).generation += 1;

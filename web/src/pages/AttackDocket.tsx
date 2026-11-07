@@ -13,6 +13,8 @@ interface Protected {
   escrow: string;
   customer_units: string;
   pending_payouts: number;
+  feed_controller?: string;
+  supplier_budget?: string;
 }
 interface Case {
   group: number;
@@ -41,6 +43,8 @@ const VALUE_LABEL: Record<keyof Protected, string> = {
   escrow: "Escrow (base units)",
   customer_units: "Customer units",
   pending_payouts: "Pending payouts",
+  feed_controller: "Feed controller",
+  supplier_budget: "Supplier budget (base units)",
 };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -54,7 +58,9 @@ const valuesWord = (c: Case) =>
       : "exactly once";
 
 function CaseView({ c, source }: { c: Case; source: Suite["source"] }) {
-  const keys = Object.keys(VALUE_LABEL) as (keyof Protected)[];
+  const keys = (Object.keys(VALUE_LABEL) as (keyof Protected)[]).filter(
+    (k) => c.protected.before[k] !== undefined,
+  );
   return (
     <article className="docket-case">
       <h3 className="docket-case-name">{c.name}</h3>
