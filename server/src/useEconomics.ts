@@ -10,10 +10,14 @@
 
 import { createHash } from "node:crypto";
 import type { Companions } from "./companions.ts";
-import type { CustomerViewTransport, PinnedBlock } from "./customerRead.ts";
+import { type CustomerViewTransport, decodeEntitlement, type PinnedBlock } from "./customerRead.ts";
 import type { Db } from "./db.ts";
+import { revenueSources, sellerSide } from "./revenueSources.ts";
 import { tokenMetaOf } from "./tokenMeta.ts";
-import { type BlockRef, decodeTreasury, V3ReadError } from "./v3read.ts";
+import { type BlockRef, decodeControl, decodeTreasury, V3ReadError } from "./v3read.ts";
+
+/** At most this many customers' registrations are read for one answer (the rest: unchecked). */
+const PAYERS_READ_MAX = 50;
 
 /** The invoice digest the agent pays a supplier with for one delivered use. */
 export const supplierInvoiceFor = (useId: string) =>
@@ -32,16 +36,24 @@ export class UseEconomics {
     if (!reader) throw new V3ReadError("unavailable", "no reader");
     const charged = this.db
       .prepare(
-        `SELECT r.id, r.plan_id, s.updated_at FROM customer_settlements s JOIN customer_requests r ON r.id = s.request_id
+        `SELECT r.id, r.plan_id, r.customer_account, r.person_id, s.updated_at FROM customer_settlements s JOIN customer_requests r ON r.id = s.request_id
          WHERE r.business_id = ? AND s.state = 'charged' ORDER BY s.updated_at`,
       )
-      .all(businessId) as { id: string; plan_id: number; updated_at: string }[];
+      .all(businessId) as {
+      id: string;
+      plan_id: number;
+      customer_account: string;
+      person_id: string;
+      updated_at: string;
+    }[];
     const planId = charged.at(-1)?.plan_id ?? 1;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
     let block: PinnedBlock;
     let plan: { unit_price: string } | null;
     let treasury: ReturnType<typeof decodeTreasury>;
+    let bizControl: ReturnType<typeof decodeControl>;
+    const payers = new Map<string, string | null>();
     try {
       block = (await reader.finalBlock(binding.network, controller.signal)) as PinnedBlock;
       const v = async (method: string, args: Record<string, unknown>) =>
@@ -56,10 +68,21 @@ export class UseEconomics {
             })
           ).result,
         ) as unknown;
-      [plan, treasury] = await Promise.all([
+      [plan, treasury, bizControl] = await Promise.all([
         v("get_plan", { plan_id: planId }) as Promise<{ unit_price: string } | null>,
         v("get_treasury", {}).then(decodeTreasury),
+        v("get_control", {}).then(decodeControl),
       ]);
+      // Who paid for each customer's registration (the contract's storage payer), same block.
+      const customers = [...new Map(charged.map((u) => [u.customer_account, u.plan_id]))];
+      await Promise.all(
+        customers.slice(0, PAYERS_READ_MAX).map(async ([customer, plan_id]) => {
+          const e = await v("get_entitlement", { customer, plan_id })
+            .then(decodeEntitlement)
+            .catch(() => null);
+          payers.set(customer, e?.storage_payer ?? null);
+        }),
+      );
     } finally {
       clearTimeout(timer);
     }
@@ -122,12 +145,22 @@ export class UseEconomics {
       scenario: {
         uses_last_30_days: charged.filter((u) => Date.parse(u.updated_at) >= since).length,
       },
+      revenue_sources: revenueSources(
+        charged,
+        price,
+        sellerSide(this.db, businessId, {
+          owner: bizControl.owner,
+          operators: bizControl.operators.map((o) => o.account),
+        }),
+        payers,
+      ),
       sources: {
         revenue: "contract",
         customer_funds_owed: "contract",
         earned_uses: "everstreet",
         supplier_cost: view?.allowance ? "contract" : null,
         founder_costs: "everstreet",
+        revenue_sources: "contract and everstreet",
       },
     };
   }

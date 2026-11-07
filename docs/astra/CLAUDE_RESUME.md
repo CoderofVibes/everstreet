@@ -39,9 +39,15 @@ visual direction), then Opus builds.
   DONE (each of Ledgerline's three testnet sales at the close: block and transaction, the former
   owner's first refused call on chain, the customer's units; then a read-only snapshot after the
   last sale, `scripts/ledgerline-after-sales.ts`, `data/evidence/ledgerline-after-sales-testnet.json`:
-  78 unused, 22 used of 100). (2) A "seller pays itself" check in the evidence room and the
-  buyer's view: levels 1 and 2 (seller/operator/team accounts; the contract's `sponsor_shell`
-  payer), demo case, attack-suite case; testnet run only with Tony's yes. (3) A static hosted
+  78 unused, 22 used of 100). (2) "Seller pays its own business": DONE on the sale's economics
+  (`/sales/:id/economics`, owner and buyer; `server/src/revenueSources.ts`): earned revenue split
+  into independent customers and customers linked to the seller (the owner or an operator on the
+  contract; the owner's or team's accounts or person here; the contract's registration payer),
+  an unread registration counted apart, and what isn't checked (money routed through other
+  accounts, recruited third parties). Demo: Delphine paid for Theo's Signalwatch registration, so
+  Noah sees 28 TUSD independent and 28 linked. Attack suite 27/27 ("Seller pays its own
+  business"). Not done: a testnet run (needs Tony's yes); the buyer scenario still projects from
+  all uses. (3) A static hosted
   proof site: only after Tony says yes to publishing (host his call). (4) README with Astra (Tony
   has the prompt; competitor names stay out of the repo). THEN a cold Fable review of 1 to 3 only.
 

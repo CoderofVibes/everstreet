@@ -30,7 +30,39 @@ export interface UseEconomicsView {
     founder_costs_usd_cents: number | null;
   };
   scenario: { uses_last_30_days: number };
+  revenue_sources?: RevenueSources;
 }
+
+type LinkReason =
+  | "owner_account"
+  | "operator"
+  | "owner_here"
+  | "team_here"
+  | "registration_paid_by_seller";
+interface Bucket {
+  customers: number;
+  uses: number;
+  revenue: string | null;
+}
+export interface RevenueSources {
+  independent: Bucket;
+  linked: Bucket & { accounts: { account: string; uses: number; reasons: LinkReason[] }[] };
+  unchecked: Bucket;
+  checked: LinkReason[];
+  not_checked: string[];
+}
+
+const REASON: Record<LinkReason, string> = {
+  owner_account: "the owner on the contract",
+  operator: "an operator on the contract",
+  owner_here: "the owner in Everstreet",
+  team_here: "a team member in Everstreet",
+  registration_paid_by_seller: "registration paid by the seller's side",
+};
+const NOT_CHECKED: Record<string, string> = {
+  funding_through_other_accounts: "money routed through other accounts",
+  recruited_third_parties: "third parties the seller recruited",
+};
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -40,6 +72,60 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
         <span className="proof-value">{children}</span>
       </dd>
     </div>
+  );
+}
+
+/** Earned revenue split by who paid it: independent customers and the seller's own side. */
+export function RevenueBySource({
+  r,
+  amt,
+}: {
+  r: RevenueSources;
+  amt: (base: string | null) => ReactNode;
+}) {
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const line = (b: Bucket) => (
+    <>
+      {amt(b.revenue)}
+      <span className="muted">
+        {" "}
+        · {plural(b.customers, "customer")} · {plural(b.uses, "use")}
+      </span>
+    </>
+  );
+  return (
+    <section className="card revenue-sources" aria-labelledby="ue-sources">
+      <h2 id="ue-sources" className="ledger-h">
+        Earned revenue by source
+      </h2>
+      <dl className="proof-rows">
+        <Row label="Independent customers">{line(r.independent)}</Row>
+        <Row label="Linked to the seller">
+          {r.linked.customers === 0 ? <span className="muted">None found</span> : line(r.linked)}
+        </Row>
+        {r.unchecked.customers > 0 && <Row label="Registration not read">{line(r.unchecked)}</Row>}
+      </dl>
+      {r.linked.accounts.length > 0 && (
+        <ul className="linked-list">
+          {r.linked.accounts.map((x) => (
+            <li key={x.account}>
+              <span className="mono" title={x.account}>
+                {x.account}
+              </span>{" "}
+              <span className="muted">· {plural(x.uses, "use")} · </span>
+              {x.reasons.map((k) => REASON[k]).join("; ")}
+            </li>
+          ))}
+        </ul>
+      )}
+      <details className="ledger-terms">
+        <summary>What's checked</summary>
+        <dl className="proof-rows">
+          <Row label="Checked">{r.checked.map((k) => REASON[k]).join("; ")}</Row>
+          <Row label="Not checked">{r.not_checked.map((k) => NOT_CHECKED[k] ?? k).join("; ")}</Row>
+        </dl>
+      </details>
+    </section>
   );
 }
 
@@ -137,6 +223,7 @@ export function UseEconomics({ e, businessId }: { e: UseEconomicsView; businessI
               </dl>
             </details>
           </section>
+          {e.revenue_sources && <RevenueBySource r={e.revenue_sources} amt={amt} />}
           <section className="card" aria-labelledby="ue-scenario">
             <h2 id="ue-scenario" className="ledger-h">
               Buyer scenario · {t?.symbol ?? "token"}

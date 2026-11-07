@@ -581,6 +581,38 @@ await pair(
   },
 );
 
+/** A funded sale whose customer has made one charged use (revenue the buyer is shown). */
+async function fundedWithUse() {
+  const s = await funded();
+  const u = await s.customerUse();
+  if (u.unit !== "charged") throw new Error(`setup: the customer's use is ${u.unit}`);
+  return s;
+}
+await pair(
+  8,
+  "Seller pays its own business",
+  fundedWithUse,
+  async (s) => {
+    const r = (await s.noah(`/api/sales/${s.biz}/economics`)).body.revenue_sources;
+    return {
+      what: "The buyer reviews the sale's earned revenue, paid by an independent customer",
+      result: `${r.independent.customers} independent customer · ${r.linked.customers} linked`,
+    };
+  },
+  async (s) => {
+    // The contract records who paid for a customer's registration (sponsor_shell): the seller.
+    (s.w.chain.ents.get(CUSTOMER) as Json).storage_payer = SELLER;
+    const r = (await s.noah(`/api/sales/${s.biz}/economics`)).body.revenue_sources;
+    const flagged =
+      r?.independent.customers === 0 &&
+      r?.linked.accounts?.[0]?.reasons?.includes("registration_paid_by_seller");
+    return {
+      what: "The seller paid for a customer's registration, then shows that customer's uses as the business's revenue",
+      refusal: flagged ? "Flagged · registration paid by the seller" : null,
+    };
+  },
+);
+
 // ---------- Companions: the external feed and the supplier allowance ----------
 
 /** One request to the feed companion; its answer (signed, or refused with a code). */

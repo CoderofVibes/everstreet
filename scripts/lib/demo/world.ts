@@ -96,7 +96,15 @@ export async function demoWorld(opts: { dbPath: string }) {
     const c = chains.add(ACCOUNTS[key]);
     const base = c.ent(CUSTOMER);
     if (!base) throw new Error("fixture entitlement missing");
-    for (const cu of CUSTOMERS) c.ents.set(cu.account, structuredClone(base));
+    // Each customer paid for their own registration (the contract's storage payer)...
+    for (const cu of CUSTOMERS)
+      c.ents.set(cu.account, { ...structuredClone(base), storage_payer: cu.account });
+    // ...except Theo on Signalwatch: Delphine paid for it (fictional), so a buyer reviewing the
+    // sale sees his uses there as revenue linked to the seller.
+    if (key === "signalwatch") {
+      const theo = c.ents.get("theo.near");
+      if (theo) theo.storage_payer = FOUNDER.account;
+    }
     // Each product's own fictional price per use (test tokens, 6 decimals).
     c.plan = { ...c.plan, unit_price: PRICES[key] };
     c.attachSale({ owner: FOUNDER.account });

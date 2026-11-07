@@ -1,7 +1,7 @@
 {
   "format": "everstreet.attack-suite",
   "version": 1,
-  "commit": "6388abe14d574a540d9d371f2ba95a7a2ce1f5ac",
+  "commit": "6f7b3f6ef949f3cff508819c3bb5e3e01b37178d",
   "uncommitted": true,
   "source": "synthetic",
   "label": "Fixture results: Everstreet's real routes over the synthetic chain, which follows the business contract's rules. Not the contract's own code.",
@@ -585,6 +585,42 @@
       "passed": true
     },
     {
+      "group": 8,
+      "name": "Seller pays its own business",
+      "clean": {
+        "what": "The buyer reviews the sale's earned revenue, paid by an independent customer",
+        "result": "1 independent customer · 0 linked"
+      },
+      "attack": {
+        "what": "The seller paid for a customer's registration, then shows that customer's uses as the business's revenue",
+        "refusal": "Flagged · registration paid by the seller"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "99",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "99",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
       "group": 1,
       "name": "Former seller asks for the feed role",
       "clean": {
@@ -1009,8 +1045,8 @@
     }
   ],
   "summary": {
-    "cases": 26,
-    "passed": 26,
+    "cases": 27,
+    "passed": 27,
     "planted": 5,
     "caught": 5,
     "failures": []

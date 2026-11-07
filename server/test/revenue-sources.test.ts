@@ -1,0 +1,132 @@
+// Revenue a seller paid to their own business (server/src/revenueSources.ts): earned revenue split
+// into independent customers and customers linked to the seller's side, each with its reason; a
+// customer whose registration payer couldn't be read is never counted as independent.
+
+import { describe, expect, it } from "vitest";
+import { revenueSources } from "../src/revenueSources.ts";
+import { CUSTOMER } from "./customer-world.ts";
+import { SELLER, saleWorld } from "./sale-world.ts";
+
+const side = (
+  accounts: [string, string][],
+  owner: string | null = "p-owner",
+  team: string[] = [],
+) => ({
+  accounts: new Map(accounts) as never,
+  ownerPerson: owner,
+  teamPersons: new Set(team),
+});
+
+describe("revenue by source (the classification)", () => {
+  it("splits uses by customer and names each link", () => {
+    const uses = [
+      { customer_account: "ana.near", person_id: "p-ana" },
+      { customer_account: "ana.near", person_id: "p-ana" },
+      { customer_account: "own.near", person_id: "p-x" },
+      { customer_account: "op.near", person_id: "p-y" },
+      { customer_account: "alt.near", person_id: "p-owner" },
+      { customer_account: "mate.near", person_id: "p-team" },
+      { customer_account: "sponsored.near", person_id: "p-z" },
+    ];
+    const payers = new Map<string, string | null>([
+      ["ana.near", "ana.near"],
+      ["own.near", "own.near"],
+      ["op.near", "op.near"],
+      ["alt.near", "alt.near"],
+      ["mate.near", "mate.near"],
+      ["sponsored.near", "own.near"],
+    ]);
+    const r = revenueSources(
+      uses,
+      10n,
+      side(
+        [
+          ["own.near", "owner_account"],
+          ["op.near", "operator"],
+        ],
+        "p-owner",
+        ["p-team"],
+      ),
+      payers,
+    );
+    expect(r.independent).toEqual({ customers: 1, uses: 2, revenue: "20" });
+    expect(r.linked).toMatchObject({ customers: 5, uses: 5, revenue: "50" });
+    const why = Object.fromEntries(r.linked.accounts.map((x) => [x.account, x.reasons]));
+    expect(why).toEqual({
+      "own.near": ["owner_account"],
+      "op.near": ["operator"],
+      "alt.near": ["owner_here"],
+      "mate.near": ["team_here"],
+      "sponsored.near": ["registration_paid_by_seller"],
+    });
+    expect(r.unchecked.customers).toBe(0);
+    expect(r.not_checked).toEqual(["funding_through_other_accounts", "recruited_third_parties"]);
+  });
+
+  it("a customer whose registration payer wasn't read is unchecked, not independent", () => {
+    const r = revenueSources(
+      [{ customer_account: "ana.near", person_id: "p-ana" }],
+      10n,
+      side([]),
+      new Map([["ana.near", null]]),
+    );
+    expect(r.independent.customers).toBe(0);
+    expect(r.unchecked).toEqual({ customers: 1, uses: 1, revenue: "10" });
+  });
+
+  it("without a price the revenue is unknown, never zero", () => {
+    const r = revenueSources(
+      [{ customer_account: "ana.near", person_id: "p-ana" }],
+      null,
+      side([]),
+      new Map([["ana.near", "ana.near"]]),
+    );
+    expect(r.independent).toEqual({ customers: 1, uses: 1, revenue: null });
+  });
+});
+
+describe("revenue by source on the sale's economics (owner and buyer view)", () => {
+  it("an independent customer's uses count as independent", async () => {
+    const s = await saleWorld();
+    expect((await s.customerUse()).unit).toBe("charged");
+    const e = await s.ava(`/api/sales/${s.biz}/economics`);
+    expect(e.status).toBe(200);
+    expect(e.body.revenue_sources.independent).toMatchObject({ customers: 1, uses: 1 });
+    expect(e.body.revenue_sources.linked.customers).toBe(0);
+  });
+
+  it("a customer whose registration the seller paid for is linked, with the contract's reason", async () => {
+    const s = await saleWorld();
+    expect((await s.customerUse()).unit).toBe("charged");
+    // The contract records the seller as the registration's payer (sponsor_shell).
+    const ent = s.w.chain.ents.get(CUSTOMER) as Record<string, unknown>;
+    ent.storage_payer = SELLER;
+    const e = await s.ava(`/api/sales/${s.biz}/economics`);
+    expect(e.body.revenue_sources.independent.customers).toBe(0);
+    expect(e.body.revenue_sources.linked).toMatchObject({
+      customers: 1,
+      uses: 1,
+      revenue: e.body.books.earned_revenue,
+      accounts: [{ account: CUSTOMER, uses: 1, reasons: ["registration_paid_by_seller"] }],
+    });
+  });
+
+  it("the seller's own second account here is linked, even with the customer's own registration", async () => {
+    const s = await saleWorld();
+    expect((await s.customerUse()).unit).toBe("charged");
+    const owner = (
+      s.w.state.store.db.prepare("SELECT owner_id FROM businesses WHERE id = ?").get(s.biz) as {
+        owner_id: string;
+      }
+    ).owner_id;
+    s.w.state.store.db
+      .prepare(
+        "INSERT OR REPLACE INTO person_accounts (account_id, person_id, network, created_at) VALUES (?, ?, 'testnet', ?)",
+      )
+      .run(CUSTOMER, owner, new Date().toISOString());
+    const e = await s.ava(`/api/sales/${s.biz}/economics`);
+    expect(e.body.revenue_sources.linked.accounts).toEqual([
+      { account: CUSTOMER, uses: 1, reasons: ["owner_here"] },
+    ]);
+  });
+});

@@ -96,6 +96,8 @@ export interface EntitlementV3 {
   last_hold_root: string;
   keys: KeyV3[];
   paused: boolean;
+  /** Who paid for this registration (sponsor_shell's payer, or the customer themselves). */
+  storage_payer?: string;
 }
 
 const PLAN_KEYS = [
@@ -206,7 +208,7 @@ export function decodeEntitlement(v: unknown): EntitlementV3 | null {
   u64(o.hold_opened_at_ms, "entitlement.hold_opened_at_ms");
   u128(o.claim, "entitlement.claim");
   u8(o.pending_refs, "entitlement.pending_refs");
-  account(o.storage_payer, "entitlement.storage_payer");
+  const storagePayer = account(o.storage_payer, "entitlement.storage_payer");
   u128(o.storage_paid, "entitlement.storage_paid");
   return {
     reg_id: u64(o.reg_id, "entitlement.reg_id"),
@@ -231,6 +233,7 @@ export function decodeEntitlement(v: unknown): EntitlementV3 | null {
     last_hold_root: hex32(o.last_hold_root, "entitlement.last_hold_root"),
     keys,
     paused: bool(o.paused, "entitlement.paused"),
+    storage_payer: storagePayer,
   };
 }
 
