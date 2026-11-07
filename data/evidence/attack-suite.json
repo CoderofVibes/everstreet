@@ -1,8 +1,8 @@
 {
   "format": "everstreet.attack-suite",
   "version": 1,
-  "commit": "bcefc28e282a75e2775779cfb6b9045657fb9e22",
-  "uncommitted": true,
+  "commit": "35515d801397240cb5996a56032b69157e777a52",
+  "uncommitted": false,
   "source": "synthetic",
   "label": "Fixture results: Everstreet's real routes over the synthetic chain, which follows the business contract's rules. Not the contract's own code.",
   "groups": [
@@ -61,14 +61,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -91,14 +95,18 @@
           "generation": 2,
           "escrow": "0",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "buyer.near",
           "generation": 2,
           "escrow": "0",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -121,14 +129,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -151,14 +163,18 @@
           "generation": 1,
           "escrow": "0",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -181,14 +197,18 @@
           "generation": 2,
           "escrow": "0",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "buyer.near",
           "generation": 2,
           "escrow": "0",
           "customer_units": "99",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -211,14 +231,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -241,14 +265,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -271,14 +299,18 @@
           "generation": 2,
           "escrow": "0",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "buyer.near",
           "generation": 2,
           "escrow": "0",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -301,14 +333,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -331,14 +367,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -361,14 +401,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -391,14 +435,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -421,14 +469,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -451,14 +503,18 @@
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "founder.near",
           "generation": 1,
           "escrow": "250000000",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         }
       },
       "unchanged": true,
@@ -481,14 +537,222 @@
           "generation": 2,
           "escrow": "0",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
         },
         "after": {
           "owner": "buyer.near",
           "generation": 2,
           "escrow": "0",
           "customer_units": "100",
-          "pending_payouts": 0
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 1,
+      "name": "Former seller asks for the feed role",
+      "clean": {
+        "what": "New owner moves the feed role to their address",
+        "result": "final"
+      },
+      "attack": {
+        "what": "Former seller asks the feed companion to sign the role over to an address of theirs",
+        "refusal": "E_NOT_OWNER"
+      },
+      "protected": {
+        "before": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
+        },
+        "after": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 4,
+      "name": "Feed signature from before the close",
+      "clean": {
+        "what": "The buyer publishes from generation 2's address",
+        "result": "final"
+      },
+      "attack": {
+        "what": "A publish the seller signed before the close is sent after the role moved",
+        "refusal": "Registry: not controller"
+      },
+      "protected": {
+        "before": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0xfa04a9b5015c164751dfbf7b8e771a5f6bd95a93",
+          "supplier_budget": "60000000"
+        },
+        "after": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0xfa04a9b5015c164751dfbf7b8e771a5f6bd95a93",
+          "supplier_budget": "60000000"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 3,
+      "name": "Supplier payment after the close",
+      "clean": {
+        "what": "Agent pays the supplier before any sale",
+        "result": "paid"
+      },
+      "attack": {
+        "what": "Agent pays the supplier under the seller's grant after the business changed hands",
+        "refusal": "E_GRANT_ENDED"
+      },
+      "protected": {
+        "before": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
+        },
+        "after": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 6,
+      "name": "Invoice from a supplier not allowed",
+      "clean": {
+        "what": "Agent pays the allowed supplier",
+        "result": "paid"
+      },
+      "attack": {
+        "what": "Agent is given an invoice from another payee",
+        "refusal": "E_SUPPLIER"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 6,
+      "name": "Invoice paid twice",
+      "clean": {
+        "what": "Agent pays a new invoice",
+        "result": "paid"
+      },
+      "attack": {
+        "what": "The same invoice is submitted again",
+        "refusal": "E_REPLAY"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "59100000"
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "59100000"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 7,
+      "name": "The last of the period's cap, asked for twice",
+      "clean": {
+        "what": "The last 1 TUSD of a 3 TUSD period is paid once",
+        "result": "paid"
+      },
+      "attack": {
+        "what": "A second payment asks for the same last 1 TUSD",
+        "refusal": "E_PERIOD_CAP"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "57000000"
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "57000000"
         }
       },
       "unchanged": true,
@@ -512,16 +776,21 @@
       "caught": true
     },
     {
+      "fault": "The feed role moved without the owner",
+      "invariant": "feed_controller",
+      "caught": true
+    },
+    {
       "fault": "The generation number skipped",
       "invariant": "generation",
       "caught": true
     }
   ],
   "summary": {
-    "cases": 15,
-    "passed": 15,
-    "planted": 4,
-    "caught": 4,
+    "cases": 21,
+    "passed": 21,
+    "planted": 5,
+    "caught": 5,
     "failures": []
   }
 }
