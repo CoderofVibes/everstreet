@@ -1,7 +1,7 @@
 {
   "format": "everstreet.attack-suite",
   "version": 1,
-  "commit": "35515d801397240cb5996a56032b69157e777a52",
+  "commit": "17e8623d53206a5c696f46a3f122ed925ea38ea6",
   "uncommitted": false,
   "source": "synthetic",
   "label": "Fixture results: Everstreet's real routes over the synthetic chain, which follows the business contract's rules. Not the contract's own code.",
@@ -63,7 +63,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -72,7 +73,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -97,7 +99,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "buyer.near",
@@ -106,7 +109,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -131,7 +135,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -140,7 +145,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -165,7 +171,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -174,7 +181,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -199,7 +207,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "buyer.near",
@@ -208,7 +217,8 @@
           "customer_units": "99",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -233,7 +243,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -242,7 +253,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -267,7 +279,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -276,7 +289,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -301,7 +315,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "buyer.near",
@@ -310,7 +325,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -335,7 +351,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -344,7 +361,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -369,7 +387,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -378,7 +397,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -403,7 +423,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -412,7 +433,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -437,7 +459,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -446,7 +469,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -471,7 +495,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -480,7 +505,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -505,7 +531,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -514,7 +541,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -539,7 +567,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "buyer.near",
@@ -548,7 +577,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -573,7 +603,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "buyer.near",
@@ -582,7 +613,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -607,7 +639,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0xfa04a9b5015c164751dfbf7b8e771a5f6bd95a93",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "buyer.near",
@@ -616,7 +649,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0xfa04a9b5015c164751dfbf7b8e771a5f6bd95a93",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -641,7 +675,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "buyer.near",
@@ -650,7 +685,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -675,7 +711,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -684,7 +721,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "60000000"
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -709,7 +747,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "59100000"
+          "supplier_budget": "59100000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -718,7 +757,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "59100000"
+          "supplier_budget": "59100000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         }
       },
       "unchanged": true,
@@ -743,7 +783,8 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "57000000"
+          "supplier_budget": "57000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
         },
         "after": {
           "owner": "founder.near",
@@ -752,7 +793,152 @@
           "customer_units": "100",
           "pending_payouts": 0,
           "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
-          "supplier_budget": "57000000"
+          "supplier_budget": "57000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 6,
+      "name": "Solver signs the buyer's side",
+      "clean": {
+        "what": "Buyer and solver each sign their own side; the verifier swaps",
+        "result": "swapped"
+      },
+      "attack": {
+        "what": "The solver signs a side as the buyer, giving the buyer 1 base unit of tUSD",
+        "refusal": "Verifier: not the buyer's key"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]],[\"buyer.near\",[[\"nep141:talt.synthetic.near\",\"312500000\"]]]]"
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]],[\"buyer.near\",[[\"nep141:talt.synthetic.near\",\"312500000\"]]]]"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 6,
+      "name": "Fill smaller than the quote",
+      "clean": {
+        "what": "The solver pays exactly the quoted tUSD",
+        "result": "swapped"
+      },
+      "attack": {
+        "what": "The solver's side pays 1 tUSD less than the buyer signed for",
+        "refusal": "Verifier: the sides don't balance"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]],[\"buyer.near\",[[\"nep141:talt.synthetic.near\",\"312500000\"]]]]"
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]],[\"buyer.near\",[[\"nep141:talt.synthetic.near\",\"312500000\"]]]]"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 2,
+      "name": "A filled swap sent again",
+      "clean": {
+        "what": "After a lost response, the verifier is asked whether the buyer's nonce is spent",
+        "result": "spent: the swap happened once"
+      },
+      "attack": {
+        "what": "The same signed pair is submitted a second time",
+        "refusal": "Verifier: nonce already used"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"750000000\"],[\"nep141:talt.synthetic.near\",\"312500000\"]]],[\"buyer.near\",[[\"nep141:talt.synthetic.near\",\"0\"],[\"nep141:tusd.near\",\"250000000\"]]]]"
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"750000000\"],[\"nep141:talt.synthetic.near\",\"312500000\"]]],[\"buyer.near\",[[\"nep141:talt.synthetic.near\",\"0\"],[\"nep141:tusd.near\",\"250000000\"]]]]"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 2,
+      "name": "Delivered shown as funded",
+      "clean": {
+        "what": "The buyer funds escrow with the existing request",
+        "result": "funded · escrow 250000000"
+      },
+      "attack": {
+        "what": "The swapped tUSD is in the buyer's account; the app is asked whether escrow is funded",
+        "refusal": "Not funded until the business contract shows it"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"750000000\"],[\"nep141:talt.synthetic.near\",\"312500000\"]]],[\"buyer.near\",[[\"nep141:talt.synthetic.near\",\"0\"],[\"nep141:tusd.near\",\"0\"]]]]"
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"750000000\"],[\"nep141:talt.synthetic.near\",\"312500000\"]]],[\"buyer.near\",[[\"nep141:talt.synthetic.near\",\"0\"],[\"nep141:tusd.near\",\"0\"]]]]"
         }
       },
       "unchanged": true,
@@ -787,8 +973,8 @@
     }
   ],
   "summary": {
-    "cases": 21,
-    "passed": 21,
+    "cases": 25,
+    "passed": 25,
     "planted": 5,
     "caught": 5,
     "failures": []
