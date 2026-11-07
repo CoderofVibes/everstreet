@@ -215,7 +215,9 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
       <summary>Fund from another token · NEAR Intents</summary>
       <dl className="proof-rows">
         <div className="proof-row">
-          <dt>Solver</dt>
+          <dt title="The party that swaps your token for the escrow's token at the quoted rate, from its own funds.">
+            Solver (i)
+          </dt>
           <dd>
             <span className="proof-value">
               Everstreet · <span className="mono wrap">{v.solver?.account ?? "not connected"}</span>
@@ -224,7 +226,9 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
           </dd>
         </div>
         <div className="proof-row">
-          <dt>Verifier</dt>
+          <dt title="NEAR's intents contract: it holds both sides' deposits and executes both signed sides together, or neither.">
+            Verifier (i)
+          </dt>
           <dd>
             <span className="proof-value mono wrap">{v.verifier}</span>
           </dd>

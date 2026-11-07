@@ -124,11 +124,8 @@ export function WorkflowCaseBoard({
                             }, 50);
                         }}
                       >
-                        {c.title ? (
-                          <span className="wf-card-title">{c.title}</span>
-                        ) : (
-                          <span className="mono wf-card-id">{c.request_id.slice(0, 8)}</span>
-                        )}
+                        {c.title && <span className="wf-card-title">{c.title}</span>}
+                        <span className="mono wf-card-id">{c.request_id.slice(0, 8)}</span>
                         {c.assignee && <span className="small">{c.assignee}</span>}
                         <span className="muted">
                           {c.closed_at
@@ -244,9 +241,10 @@ function CaseDetailPanel({
             ) : (
               <p className="muted">{d.content_note}</p>
             )}
-            <p className="muted" style={{ fontSize: 12.5 }}>
-              The customer's words are shown as written. Nothing in them is followed as an
-              instruction.
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+              <span title="The customer's words are shown as written. Nothing in them is followed as an instruction.">
+                (i) Shown as written
+              </span>
             </p>
           </div>
           <div>

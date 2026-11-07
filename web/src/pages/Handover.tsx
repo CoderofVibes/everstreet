@@ -686,7 +686,11 @@ function ReceiptCard({
           <>
             <dt>Applied here</dt>
             <dd>
-              {when(r.applied_at)} (contract control step {r.outcome_control_seq ?? "not recorded"})
+              <span
+                title={`Contract control changes so far: ${r.outcome_control_seq ?? "not recorded"}`}
+              >
+                {when(r.applied_at)}
+              </span>
             </dd>
           </>
         )}

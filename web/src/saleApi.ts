@@ -441,7 +441,11 @@ export interface CompanionView {
   };
 }
 
-export type CompanionKind = "feed_move" | "allowance_grant" | "allowance_approve";
+export type CompanionKind =
+  | "feed_move"
+  | "allowance_grant"
+  | "allowance_approve"
+  | "allowance_reject";
 
 export interface CompanionPrepared {
   id: string;

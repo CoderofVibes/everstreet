@@ -114,7 +114,9 @@ function ActingContext() {
       <button
         type="button"
         className="btn btn-secondary"
-        onClick={() => requireSignIn("Join to start a business, follow one, or ask for a service.")}
+        onClick={() =>
+          requireSignIn("Join to build or start a business, follow one, or ask for a service.")
+        }
       >
         Sign in or join
       </button>

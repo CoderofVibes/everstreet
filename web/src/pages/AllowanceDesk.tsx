@@ -93,7 +93,7 @@ export function AllowanceDesk({
                 <Row label="Agent">
                   <span className="mono wrap">{g.agent}</span>
                 </Row>
-                <Row label="Per payment">{amt(g.per_payment)} hard cap</Row>
+                <Row label="Agent pays alone">Up to {amt(g.per_payment)} a payment</Row>
                 <Row label={`Per ${periodWords(g.period_ms)}`}>{amt(g.per_period)}</Row>
                 <Row label="Owner review">Above {amt(g.review_above)} · exact invoice</Row>
                 <Row label="How it works">
@@ -137,6 +137,14 @@ export function AllowanceDesk({
                     input={{ invoice: p.invoice }}
                     label="Approve this invoice"
                     onDone={reload}
+                  />{" "}
+                  <CompanionRequest
+                    businessId={businessId}
+                    view={v}
+                    kind="allowance_reject"
+                    input={{ invoice: p.invoice }}
+                    label="Reject it"
+                    onDone={reload}
                   />
                 </p>
               )}
@@ -179,8 +187,11 @@ export function AllowanceDesk({
         <div className="sale-main">
           <section className="card" aria-labelledby="al-period">
             <h2 id="al-period" className="ledger-h">
-              This {g ? periodWords(g.period_ms) : "period"}
+              Spent this {g ? periodWords(g.period_ms) : "period"}
             </h2>
+            <p className="muted small" style={{ margin: 0 }}>
+              Counts invoices awaiting your approval from the moment they arrive.
+            </p>
             <p className="allowance-figure">
               <strong>{t ? tokenAmount(a.spent_in_period, t.decimals) : a.spent_in_period}</strong>
               {g && <span className="muted"> / {amt(g.per_period)}</span>}
@@ -200,7 +211,7 @@ export function AllowanceDesk({
               </>
             )}
             <Rows label="Budget">
-              <Row label="Budget">{amt(a.balance)}</Row>
+              <Row label="Balance">{amt(a.balance)}</Row>
               <Row label="Reserved">{amt(a.reserved)}</Row>
               <Row label="Available">{amt(a.available)}</Row>
               <Row label="Customer money">Excluded</Row>

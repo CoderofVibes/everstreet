@@ -71,6 +71,11 @@ export interface RuntimeList {
   budget: RuntimeBudget;
   limits: { maxInputChars: number };
   invocations: Invocation[];
+  /** A workflow or agent-service build's request form, by build (artifact job id). */
+  forms?: Record<
+    string,
+    { key: string; label: string; type: string; required: boolean; options: string[] }[]
+  >;
 }
 
 export interface EvalCase {

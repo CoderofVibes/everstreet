@@ -93,6 +93,13 @@ export interface AppOptions {
   /** Companion contracts per business (external asset, supplier allowance) and the other chain. */
   companions?: CompanionOptions;
   /** Escrow funding from another token through NEAR's intents verifier, with Everstreet as solver. */
+  /**
+   * The demo only (Tony, Nov 7): connects a new synthetic business contract, owned by `owner`, to a
+   * business with none, appending its binding to the configured v3 list; returns that binding.
+   */
+  demoContracts?: {
+    connect(businessId: string, owner: string): { network: string; account: string };
+  };
   intents?: IntentsOptions;
   /**
    * Job 003wf3: whether a managed Gated close is possible for a business now (the coordinator's
@@ -341,8 +348,35 @@ export function everstreetApi(store: Store, options: AppOptions) {
       localPreview: options.localPreview,
       identity: identity.mode,
       wallet: identity.mode === "verified" ? (options.wallet ?? null) : null,
+      demo_contracts: Boolean(options.demoContracts),
     }),
   );
+  // Tony (Nov 7): in the demo only, the owner of a business with no contract can connect a new
+  // synthetic one, owned by their own account, so the "Start building" route reaches customers.
+  // Real deployments have no such option: their contracts are connected in the configuration.
+  app.post("/api/businesses/:id/demo-contract", (c) => {
+    const viewer = me(c);
+    const id = c.req.param("id");
+    store.ownedBusiness(viewer, id);
+    const demo = options.demoContracts ?? null;
+    if (!demo) throw new HttpError(404, "Not available");
+    if (v3.bindingFor(id))
+      throw new HttpError(409, "This business already has a contract.", "bound");
+    // The account this session proved (verified sign-in), else the one linked to the person.
+    const account =
+      (identity.mode === "verified" ? store.sessionAccount(getCookie(c, COOKIE)) : null) ??
+      (
+        store.db
+          .prepare(
+            "SELECT account_id FROM chain_accounts WHERE owner_kind = 'person' AND owner_id = ? LIMIT 1",
+          )
+          .get(viewer.id) as { account_id: string } | undefined
+      )?.account_id;
+    if (!account)
+      throw new HttpError(409, "You have no NEAR account linked here.", "no_chain_account");
+    const binding = demo.connect(id, account);
+    return c.json({ binding, synthetic: true }, 201);
+  });
 
   // ---------- account ----------
 
@@ -738,7 +772,12 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const viewer = me(c);
     const g = sales.proofContext(viewer, c.req.param("business"));
     const b = (await body(c)) as { kind?: unknown; input?: Record<string, unknown> };
-    if (b.kind !== "feed_move" && b.kind !== "allowance_grant" && b.kind !== "allowance_approve")
+    if (
+      b.kind !== "feed_move" &&
+      b.kind !== "allowance_grant" &&
+      b.kind !== "allowance_approve" &&
+      b.kind !== "allowance_reject"
+    )
       throw new HttpError(400, "Unknown request kind.", "bad_kind");
     return c.json(
       await companionRead(async () =>
@@ -1540,9 +1579,13 @@ export function everstreetApi(store: Store, options: AppOptions) {
     if (!v3.bindingFor(id))
       for (const w of view.work)
         if (w.key.startsWith("offer:")) {
-          w.who = "system";
-          w.label = `${w.label.split(":")[0]}: released; customers can buy once whoever runs this deployment connects the business's contract (not connected here)`;
-          w.link = { to: "continuity" };
+          if (options.demoContracts) {
+            w.label = `${w.label.split(":")[0]}: released; connect a demo contract to offer it to customers`;
+          } else {
+            w.who = "system";
+            w.label = `${w.label.split(":")[0]}: released; customers can buy once whoever runs this deployment connects the business's contract (not connected here)`;
+            w.link = { to: "continuity" };
+          }
         }
     return c.json(view);
   });

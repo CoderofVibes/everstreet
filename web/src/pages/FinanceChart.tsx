@@ -285,7 +285,7 @@ export function EarnedCostChart({ months, title }: { months: FinMonth[]; title: 
         {months.some(beforeOpening) && <span>– Before the account opened (no records)</span>}
       </div>
       <p className="fin-detail" aria-live="polite">
-        {shown ? describe(shown) : "Focus or point at a month for its figures."}
+        {shown ? describe(shown) : "Point at a month for its figures."}
       </p>
     </figure>
   );
@@ -396,7 +396,7 @@ export function CashChart({ months }: { months: FinMonth[] }) {
         </span>
       </div>
       <p className="fin-detail" aria-live="polite">
-        {shown ? text(shown) : "Focus or point at a month for its figures."}
+        {shown ? text(shown) : "Point at a month for its figures."}
       </p>
     </figure>
   );

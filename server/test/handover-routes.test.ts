@@ -157,6 +157,9 @@ const CLASS: Record<string, Class> = {
   "POST /api/customer/uses/:id/execute": "customer_admission",
   // evidence
   "POST /api/businesses/:id/v3/refresh": "evidence",
+  // The demo only (Tony, Nov 7): a business with no contract connects a synthetic one. It
+  // changes no owner state of a business that has a contract (refused 409 then).
+  "POST /api/businesses/:id/demo-contract": "evidence",
   // not a mutation of an existing business's owner state: the person's own session, wallet and
   // profile; a new business or idea; buyer organisations; public visitors; needs and help
   "POST /api/product-projects": "not_business",

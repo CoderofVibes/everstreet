@@ -134,7 +134,7 @@ describe("the Ledgerline example page", () => {
       await act(async () => new Promise((r) => setTimeout(r, 10)));
     expect(text()).toMatch(/15 tUSD/);
     expect(text()).toMatch(/80 uses/);
-    expect(text()).toMatch(/NEAR testnet, final/);
+    expect(text()).toMatch(/Testnet final read/);
     expect(calls).toEqual(["/api/examples/ledgerline"]);
     await act(async () => root?.unmount());
     root = null;

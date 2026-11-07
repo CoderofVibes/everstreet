@@ -66,7 +66,7 @@ export function settlementText(s: Operations["settlement"]): string {
 
 /** Job 003t1: the books' empty message names only what is missing (payments and revenue). */
 export function booksEmptyMessage(hasOperations: boolean): string {
-  return `No payment or revenue records yet. Earned revenue, cash and cost charts appear once payments are on or a cost is entered; until then revenue is not known, not zero.${
+  return `No payment or revenue records yet.${
     hasOperations
       ? " Customer uses and runtime cost from this app's own records are shown below."
       : ""

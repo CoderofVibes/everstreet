@@ -106,7 +106,7 @@ export function RequestFields({
 const WORDS: Record<Readiness["kind"], string> = {
   ready: "Ready: the contract shows this device's key enrolled. You still approve each use.",
   pending:
-    "This device has a key waiting to be enrolled. The contract doesn't show it yet; you can ask your wallet again with the same key.",
+    "This device has made a key for this product; the contract doesn't show it enrolled yet. Enroll it below with your wallet.",
   revoked: "This device's key was revoked.",
   elsewhere:
     "This device has no key for this product. Other keys are enrolled for your account (another device, or this browser's storage was cleared).",

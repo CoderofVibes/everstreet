@@ -30,7 +30,10 @@ export function expectedCompanionCall(
     const action = args.action as { kind?: string; to?: string; from_generation?: number };
     const to = a.addresses.find((x) => x.generation === v.control.generation)?.address;
     if (action?.kind !== "set_controller") return "not a controller move";
-    if (!to || action.to?.toLowerCase() !== to.toLowerCase()) return "not to your address";
+    // The companion derives the destination itself; the review must name your own address.
+    if (action.to !== undefined) return "it names a destination";
+    const reviewed = (p.review as { to_address?: string }).to_address;
+    if (!to || reviewed?.toLowerCase() !== to.toLowerCase()) return "not to your address";
     if (action.from_generation !== a.controller_generation)
       return "not from the current controller";
     return null;
@@ -47,7 +50,8 @@ export function expectedCompanionCall(
       return "the suppliers changed";
     return null;
   }
-  if (c.methodName !== "approve" || args.invoice !== input.invoice) return "not this invoice";
+  const method = p.kind === "allowance_reject" ? "reject" : "approve";
+  if (c.methodName !== method || args.invoice !== input.invoice) return "not this invoice";
   return null;
 }
 

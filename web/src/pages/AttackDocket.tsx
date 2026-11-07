@@ -160,9 +160,14 @@ export function AttackDocket({ suite }: { suite: Suite }) {
           <span className="pill success">
             {suite.summary.caught} of {suite.summary.planted} planted faults caught
           </span>
-          <span className="pill">
-            Commit <span className="mono">{suite.commit.slice(0, 7)}</span>
+          <span className="pill" title="The repository commit the suite ran at.">
+            Run at commit <span className="mono">{suite.commit.slice(0, 7)}</span>
           </span>
+        </p>
+        <p className="muted proof-small">
+          Each case runs Everstreet's real routes against a synthetic chain that follows the
+          contract's rules (marked Fixture). Where a case also ran on NEAR testnet, its testnet pair
+          links to the transaction. The contract's own code is attacked separately, in its tests.
         </p>
         <p className="muted proof-small">{suite.label}</p>
       </header>

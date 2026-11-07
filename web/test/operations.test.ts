@@ -67,7 +67,7 @@ describe("003t1 current work, settlement and the books' empty message say exactl
 
   it("the books' empty message names payments and revenue only and never calls them zero", () => {
     expect(booksEmptyMessage(false)).toMatch(/^No payment or revenue records yet\./);
-    expect(booksEmptyMessage(false)).toContain("not known, not zero");
+    expect(booksEmptyMessage(false)).not.toContain("zero");
     expect(booksEmptyMessage(false)).not.toContain("below");
     expect(booksEmptyMessage(true)).toContain(
       "Customer uses and runtime cost from this app's own records are shown below.",

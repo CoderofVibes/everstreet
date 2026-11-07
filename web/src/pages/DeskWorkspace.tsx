@@ -350,7 +350,7 @@ export function DigitalWorkspace({
             </Link>
             {desk.project_id && (
               <Link to={`/studio/${desk.project_id}`} className="btn btn-quiet btn-sm">
-                Edit page and legacy offering
+                Edit the page and its booking offer
               </Link>
             )}
           </div>
@@ -359,7 +359,7 @@ export function DigitalWorkspace({
         <DeskImports businessId={b.id} />
         {showOffer && (
           <div className="ws-legacy-offer">
-            <div className="eyebrow">Your page's legacy offering</div>
+            <div className="eyebrow">Your page's booking offer</div>
             <OfferCard offer={desk.offer} family={b.family} action={desk.action} />
             {desk.missing.length > 0 && (
               <div className="card" style={{ padding: 18 }}>

@@ -7,6 +7,7 @@ export function Inbox() {
   const { person, account, requireSignIn } = useSession();
   const [box, setBox] = useState<{ received: Inquiry[]; sent: Inquiry[] } | null>(null);
   const [replies, setReplies] = useState<Record<string, string>>({});
+  const [ownedCount, setOwnedCount] = useState(0);
   // First-use review #57: what waits on you across your businesses, from the same read as the
   // portfolio's "Needs you today", so the two never disagree.
   const [needs, setNeeds] = useState<{ business: string; text: string; link: string }[] | null>(
@@ -25,12 +26,15 @@ export function Inbox() {
           d: {
             businesses?: { name: string; attention: { text: string; link: string }[] }[];
           } | null,
-        ) =>
-          setNeeds(
-            (d?.businesses ?? []).flatMap((b) =>
+        ) => {
+          setOwnedCount(d?.businesses?.length ?? 0);
+          setNeeds((prev) => [
+            ...(d?.businesses ?? []).flatMap((b) =>
               b.attention.map((a) => ({ business: b.name, text: a.text, link: a.link })),
             ),
-          ),
+            ...(prev ?? []),
+          ]);
+        },
       )
       .catch(() => setNeeds(null));
     // Second first-use pass (Nov 7, finding 61): a buyer's sale in progress needs them too.
@@ -113,6 +117,9 @@ export function Inbox() {
       </div>
     );
   if (!box) return <div className="page muted">Loading…</div>;
+  // Second first-use pass (Nov 7, finding 49): a person who runs no business here isn't shown an
+  // owner's empty mailbox.
+  const ownsAny = ownedCount > 0;
   return (
     <div className="page narrow">
       <h1 className="display" style={{ fontSize: 40 }}>
@@ -130,7 +137,7 @@ export function Inbox() {
           </ul>
         </section>
       )}
-      <section className="card">
+      <section className="card" hidden={box.received.length === 0 && !ownsAny}>
         <h2>Messages to your businesses</h2>
         {box.received.length === 0 && <p className="muted">No messages.</p>}
         {box.received.map((i) => (

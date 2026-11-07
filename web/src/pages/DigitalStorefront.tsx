@@ -95,6 +95,7 @@ export function DigitalStorefront({
   following,
   onFollow,
   preview = false,
+  prices = {},
 }: {
   name: string;
   d: DigitalPublic;
@@ -104,8 +105,12 @@ export function DigitalStorefront({
   following?: boolean;
   onFollow?: () => void;
   preview?: boolean;
+  /** Each offer's price per use, by offer id, where its token is known. */
+  prices?: Record<string, string | null>;
 }) {
   const action = primaryAction(d);
+  // Second first-use pass (Nov 7, finding 50): one Use button for a single product.
+  const oneProduct = d.products.length === 1 && action.kind === "use";
   const kind = d.products[0]?.family_label ?? family;
   return (
     <div className="sf">
@@ -161,17 +166,7 @@ export function DigitalStorefront({
       </header>
 
       <div className="sf-body">
-        {d.example ? (
-          <Example e={d.example} />
-        ) : (
-          <section className="sf-example sf-example-none">
-            <h2 className="sf-section-title">How it works</h2>
-            <p className="muted" style={{ margin: 0 }}>
-              No example has been published for this product yet.
-              {action.kind === "use" ? " Open the product to try it yourself." : ""}
-            </p>
-          </section>
-        )}
+        {d.example && <Example e={d.example} />}
         <div className="sf-side">
           {d.capabilities.length > 0 && (
             <section>
@@ -196,9 +191,13 @@ export function DigitalStorefront({
                   <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: "wrap" }}>
                     <span className="muted" style={{ fontSize: 13 }}>
                       {PRODUCT_PUBLIC_STATUS[p.status]}
+                      {p.use_offer_id && prices[p.use_offer_id]
+                        ? ` · ${prices[p.use_offer_id]}`
+                        : ""}
                     </span>
                     <span className="spacer" />
                     {p.use_offer_id &&
+                      !oneProduct &&
                       (preview ? (
                         <span className="btn btn-secondary btn-sm" aria-disabled="true">
                           Use this product (preview)

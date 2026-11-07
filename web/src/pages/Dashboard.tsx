@@ -725,6 +725,16 @@ export function Dashboard({ d, environment }: { d: Json; environment?: string })
       ) : (
         <>
           <Summary d={d} bs={bs} />
+          {/* Second first-use pass (Nov 7, finding 69): a bought business's earlier figures are
+              its previous owner's. */}
+          {bs
+            .filter((b) => typeof b.ownership?.acquired_at === "string")
+            .map((b) => (
+              <p key={b.id} className="muted small" style={{ margin: "4px 0 0" }}>
+                {b.name}: yours since {new Date(b.ownership.acquired_at).toLocaleDateString()};
+                figures before that are the previous owner's.
+              </p>
+            ))}
           <div className="db-top">
             <div className="db-main">
               {selling.length > 0 && <Acquisitions d={d} selling={selling} />}

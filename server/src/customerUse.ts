@@ -215,6 +215,14 @@ const HEX64 = /^[0-9a-f]{128}$/;
 const NETWORK = /^[a-z][a-z0-9-]{0,31}$/;
 const OPEN = ["prepared", "reserve_requested", "reserve_unknown", "reserved"] as const;
 const iso = () => new Date().toISOString();
+/** A stored timestamp in words for an owner's screen (UTC, to the minute). */
+const readable = (at: string | null) => {
+  if (at === null) return "never";
+  const d = new Date(at);
+  return Number.isNaN(d.getTime())
+    ? at
+    : `${d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC`;
+};
 
 type State =
   | "prepared"
@@ -853,7 +861,7 @@ export class CustomerUses {
             key: "release",
             label: "Tested release",
             state: "configured",
-            detail: `${this.productName(release.id).name} is the active release here, since ${release.activated_at}.`,
+            detail: `${this.productName(release.id).name} is the active release here, since ${readable(release.activated_at)}.`,
             next: null,
           }
         : {
@@ -876,7 +884,7 @@ export class CustomerUses {
             label: "Business page",
             state: "unavailable",
             detail: "Not published, so customers can't open any offer.",
-            next: "Publish the business page from the studio.",
+            next: "Publish the business page from the business desk (Public page).",
           },
       b
         ? {
@@ -986,10 +994,10 @@ export class CustomerUses {
       {
         key: "authorization",
         label: "Customer authorization",
-        state: "unavailable",
+        state: "configured",
         detail:
-          "The app ships no signer or wallet connection, so customers can't authorize a use here yet.",
-        next: "A wallet connection is a later, reviewed step; nothing to enter here.",
+          "Each customer authorizes every use with a key kept on their own device, enrolled once through their own wallet.",
+        next: null,
       },
       (counts.active ?? 0) > 0
         ? {
@@ -1069,7 +1077,7 @@ export class CustomerUses {
         key: "cleanup",
         label,
         state: "observed" as const,
-        detail: `${enforced} Background maintenance is running (last heartbeat ${h.worker.heartbeat_at}); ${deleted} deleted so far.${waiting}${failing}`,
+        detail: `${enforced} Background maintenance is running (last checked in ${readable(h.worker.heartbeat_at)}); ${deleted} deleted so far.${waiting}${failing}`,
         next: null,
       };
     if (deleted > 0)
@@ -1123,7 +1131,7 @@ export class CustomerUses {
         key: "maintenance",
         label,
         state: "observed" as const,
-        detail: `Running: last heartbeat ${h.worker.heartbeat_at}, last pass ${h.worker.last_pass_at ?? "not finished yet"}.${tail} A heartbeat doesn't show every connected service is healthy.`,
+        detail: `Running: last checked in ${readable(h.worker.heartbeat_at)}, last pass ${h.worker.last_pass_at ? readable(h.worker.last_pass_at) : "not finished yet"}.${tail} A heartbeat doesn't show every connected service is healthy.`,
         next: attention ? "Open the affected customer uses; they say what is needed." : null,
       };
     if (h.worker.state === "overdue")
@@ -1131,7 +1139,7 @@ export class CustomerUses {
         key: "maintenance",
         label,
         state: "unknown" as const,
-        detail: `Overdue: the last heartbeat was ${h.worker.heartbeat_at}.${tail}`,
+        detail: `Overdue: it last checked in ${readable(h.worker.heartbeat_at)}.${tail}`,
         next: "The operator checks the maintenance process; customers can still check their own uses.",
       };
     // Job 002d2: a pass run on request is evidence that it ran, not a schedule.

@@ -14,14 +14,16 @@ import {
   type AssetAction,
   addressOf,
   type MpcSignature,
+  payloadOf,
   publicKeyFromSigner,
   signedTx,
   signerOf,
   type TxParams,
   txHashOf,
+  unsignedTx,
 } from "./evm.ts";
 import { HttpError } from "./store.ts";
-import { tokenMetaOf } from "./tokenMeta.ts";
+import { readableAmount, tokenMetaOf } from "./tokenMeta.ts";
 import { type BlockRef, V3ReadError } from "./v3read.ts";
 
 /** The other chain, as Everstreet reaches it (a synthetic double, or an EVM testnet RPC). */
@@ -53,7 +55,11 @@ export interface CompanionOptions {
   now?: () => number;
 }
 
-export type CompanionKind = "feed_move" | "allowance_grant" | "allowance_approve";
+export type CompanionKind =
+  | "feed_move"
+  | "allowance_grant"
+  | "allowance_approve"
+  | "allowance_reject";
 
 interface ActionRow {
   id: string;
@@ -79,17 +85,30 @@ interface ActionRow {
 }
 
 export function migrateCompanions(db: Db) {
-  db.exec(`
+  // Attack review (Nov 7), finding 4: an invoice can be rejected. A table made before that
+  // allowed three kinds; it is rebuilt with the fourth, rows kept.
+  const old = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'companion_actions'")
+    .get() as { sql: string } | undefined;
+  if (old && !old.sql.includes("allowance_reject")) {
+    db.exec("ALTER TABLE companion_actions RENAME TO companion_actions_v1");
+    db.exec(TABLE);
+    db.exec("INSERT INTO companion_actions SELECT * FROM companion_actions_v1");
+    db.exec("DROP TABLE companion_actions_v1");
+  }
+  db.exec(TABLE);
+}
+
+const TABLE = `
     CREATE TABLE IF NOT EXISTS companion_actions (
       id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id),
       person_id TEXT NOT NULL REFERENCES people(id), account TEXT NOT NULL,
-      kind TEXT NOT NULL CHECK (kind IN ('feed_move','allowance_grant','allowance_approve')),
+      kind TEXT NOT NULL CHECK (kind IN ('feed_move','allowance_grant','allowance_approve','allowance_reject')),
       call TEXT NOT NULL, review TEXT NOT NULL,
       state TEXT NOT NULL CHECK (state IN ('prepared','refused','confirmed','external_pending','external_final','external_failed','unknown')),
       tx_hash TEXT, evm_hash TEXT, result TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     ) STRICT;
-  `);
-}
+  `;
 
 const bad = (status: 404 | 409 | 503, message: string, code: string): never => {
   throw new HttpError(status, message, code);
@@ -336,11 +355,12 @@ export class Companions {
       const to = a.addresses.find((x) => x.generation === control.generation)?.address as string;
       const fees = await evm.fees();
       const tx: TxParams = { nonce: String(await evm.nonce(fromAddress)), ...fees };
-      const action: AssetAction = { kind: "set_controller", to, from_generation: from };
+      // Attack review (Nov 7), finding 1: the companion derives the destination itself (the
+      // current generation's address); the request names only where the role moves from.
       call = {
         receiverId: a.account,
         methodName: "request",
-        args: { action, tx },
+        args: { action: { kind: "set_controller", from_generation: from }, tx },
         gas: "250000000000000",
         deposit: "1",
       };
@@ -383,10 +403,15 @@ export class Companions {
         gas: "100000000000000",
         deposit: "0",
       };
+      const t = v?.token ?? null;
+      const amt = (base: string) =>
+        t ? `${readableAmount(base, t.decimals) ?? base} ${t.symbol}` : `${base} base units`;
+      const days = Math.round(Number(args.period_ms) / 86_400_000);
       review = {
         ...args,
         effects: [
-          `The agent can pay the allowed suppliers within these caps while you own generation ${control.generation}.`,
+          `The agent ${args.agent} can pay ${args.suppliers.join(", ")}: up to ${amt(args.per_payment)} a payment on its own, up to ${amt(args.per_period)} every ${days === 7 ? "week" : `${days} days`}; anything above ${amt(args.review_above)} waits for your approval of that exact invoice.`,
+          `It holds while you own generation ${control.generation}.`,
         ],
         conditions: ["It ends again if the business is sold."],
       };
@@ -396,9 +421,10 @@ export class Companions {
       const p =
         a.awaiting.find((x) => x.invoice === invoice) ??
         bad(409, "That invoice isn't awaiting approval.", "not_awaiting");
+      const rejecting = kind === "allowance_reject";
       call = {
         receiverId: a.account,
-        methodName: "approve",
+        methodName: rejecting ? "reject" : "approve",
         args: { invoice },
         gas: "100000000000000",
         deposit: "0",
@@ -407,7 +433,11 @@ export class Companions {
         supplier: p.supplier,
         amount: p.amount,
         invoice,
-        effects: ["Pays this exact invoice now; it counts toward the period's cap."],
+        effects: rejecting
+          ? [
+              "Refuses this invoice: nothing is paid, and its reserved amount returns to the budget.",
+            ]
+          : ["Pays this exact invoice now; it counts toward the period's cap."],
         conditions: ["Refused if the business changed hands since it was submitted."],
       };
     }
@@ -515,17 +545,33 @@ export class Companions {
       to_generation: number;
     };
     const answer = value as { payload: string; signature: MpcSignature };
-    const args = (JSON.parse(row.call) as { args: { action: AssetAction; tx: TxParams } }).args;
+    const args = (
+      JSON.parse(row.call) as {
+        args: { action: { kind: string; from_generation: number }; tx: TxParams };
+      }
+    ).args;
+    const action: AssetAction = {
+      kind: "set_controller",
+      to: review.to_address,
+      from_generation: args.action.from_generation,
+    };
     const chainId = BigInt(review.chain_id);
     const payload = Uint8Array.from(Buffer.from(answer.payload, "hex"));
+    // The companion chose the destination; it must be the reviewed one, byte for byte.
+    if (
+      Buffer.from(payloadOf(unsignedTx(chainId, review.registry, args.tx, action))).toString(
+        "hex",
+      ) !== answer.payload
+    )
+      bad(409, "The companion signed a different transaction than reviewed.", "wrong_payload");
     const from = signerOf(payload, answer.signature);
     if (from.toLowerCase() !== review.from_address.toLowerCase())
       bad(409, "The signature isn't from the reviewed address.", "wrong_signer");
-    const raw = signedTx(chainId, review.registry, args.tx, args.action, answer.signature);
+    const raw = signedTx(chainId, review.registry, args.tx, action, answer.signature);
     const evmHash = await evm.broadcast(raw, {
       from,
       nonce: Number(args.tx.nonce),
-      action: args.action,
+      action,
     });
     this.set(id, {
       state: "external_pending",

@@ -188,8 +188,15 @@ export class AssetKeyDouble {
         max_fee_per_gas: String(this.config.max_fee_per_gas),
       });
     if (method === "get_path") return JSON.stringify(`gen-${Number(args.generation)}`);
+    if (method === "get_signed_nonce") {
+      const n = this.signedNonce.get(`gen-${Number(args.generation)}`);
+      return JSON.stringify(n === undefined ? null : String(n));
+    }
     return undefined;
   }
+
+  /** The highest nonce signed per path (the fixed contract's nonce discipline). */
+  readonly signedNonce = new Map<string, bigint>();
 
   private request(caller: string, deposit: bigint, action: AssetAction, tx: TxParams) {
     if (deposit < 1n) refuse("E_DEPOSIT: attach the signer's fee");
@@ -200,11 +207,13 @@ export class AssetKeyDouble {
       BigInt(tx.max_priority_fee_per_gas) > BigInt(tx.max_fee_per_gas)
     )
       refuse("E_FEE: fee out of range");
-    try {
-      callData(action);
-    } catch {
-      refuse("E_INPUT: the action's fields are malformed");
-    }
+    // A publish's digest is checked at entry; a move names no destination (it is derived).
+    if (action.kind === "publish")
+      try {
+        callData(action);
+      } catch {
+        refuse("E_INPUT: the action's fields are malformed");
+      }
     const c = this.control();
     const refused = (code: string) => ({
       logs: [event("asset-key", "asset_refused", { caller, code })],
@@ -212,12 +221,23 @@ export class AssetKeyDouble {
     });
     if (c.owner !== caller) return refused("E_NOT_OWNER");
     let generation = c.generation;
+    let signedAction: AssetAction = action;
     if (action.kind === "set_controller") {
-      if (action.from_generation === 0 || action.from_generation > c.generation)
+      // As the fixed contract: the destination is always the current generation's own address,
+      // derived here; a caller's `to` is ignored. Moving from the current generation is refused.
+      if (action.from_generation === 0 || action.from_generation >= c.generation)
         return refused("E_GENERATION");
       generation = action.from_generation;
+      signedAction = {
+        kind: "set_controller",
+        from_generation: action.from_generation,
+        to: addressOf(secp256k1.getPublicKey(testKey(this.account, `gen-${c.generation}`), false)),
+      };
     }
-    const unsigned = unsignedTx(this.config.chain_id, this.config.registry, tx, action);
+    // Nonce discipline: at most one past the highest nonce signed for this path.
+    const highest = this.signedNonce.get(`gen-${generation}`);
+    if (BigInt(tx.nonce) > (highest === undefined ? 0n : highest + 1n)) return refused("E_NONCE");
+    const unsigned = unsignedTx(this.config.chain_id, this.config.registry, tx, signedAction);
     const payload = payloadOf(unsigned);
     const path = `gen-${generation}`;
     const raw = secp256k1.sign(payload, testKey(this.account, path), {
@@ -234,6 +254,8 @@ export class AssetKeyDouble {
       recovery_id: rec,
     };
     this.signed++;
+    if (highest === undefined || BigInt(tx.nonce) > highest)
+      this.signedNonce.set(path, BigInt(tx.nonce));
     const hexPayload = Buffer.from(payload).toString("hex");
     return {
       logs: [
@@ -245,7 +267,7 @@ export class AssetKeyDouble {
           path,
           payload: hexPayload,
           nonce: tx.nonce,
-          action,
+          action: signedAction,
         }),
       ],
       value: { generation, path, payload: hexPayload, unsigned_tx: toHex(unsigned), signature },
@@ -447,10 +469,21 @@ export class AllowanceDouble {
       this.spentInPeriod = 0n;
       return { value: "granted", logs: [this.ev("allowance_granted", { grant: this.grant })] };
     }
+    if (method === "reject") {
+      const p = this.payments.get(String(args.invoice)) ?? refuse("E_NO_PAYMENT: no such invoice");
+      if (p.state !== "AwaitingApproval") refuse("E_STATE: not awaiting approval");
+      if (this.grant?.granted_by !== signer)
+        refuse("E_NOT_OWNER: only the grant's owner can reject");
+      if (c.owner !== signer) return { value: "E_NOT_OWNER", logs: [] };
+      return { value: "rejected", logs: this.refuseHeld(String(args.invoice), p, "E_REJECTED") };
+    }
     if (method === "approve") {
       const p = this.payments.get(String(args.invoice)) ?? refuse("E_NO_PAYMENT: no such invoice");
       if (p.state !== "AwaitingApproval") refuse("E_STATE: not awaiting approval");
-      if (c.owner !== signer) refuse("E_NOT_OWNER: only the business's current owner can approve");
+      if (this.grant?.granted_by !== signer)
+        refuse("E_NOT_OWNER: only the grant's owner can approve");
+      // As the fixed contract: the owner check answers a code (the invoice stays awaiting).
+      if (c.owner !== signer) return { value: "E_NOT_OWNER", logs: [] };
       if (!this.grant || this.grant.generation !== c.generation || p.generation !== c.generation)
         return {
           value: "E_GRANT_ENDED",

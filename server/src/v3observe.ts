@@ -307,7 +307,13 @@ export class V3Observations {
 
   /** The operator-configured binding, if any. */
   bindingFor(businessId: string): V3Binding | undefined {
-    return this.bindings.get(businessId);
+    const known = this.bindings.get(businessId);
+    if (known) return known;
+    // Tony (Nov 7): the demo can connect a synthetic contract to a new business at run time; it
+    // appends to the same configured list, which is read here once and then kept.
+    const added = this.opts.bindings.find((b) => b.business_id === businessId);
+    if (added) this.bindings.set(businessId, added);
+    return added;
   }
 
   /** The recorded projection and its (core) snapshot, or null if nothing has been observed. */
@@ -583,7 +589,7 @@ export class V3Observations {
     // Job 003j: every state names the control epoch it was read under, so a page can drop what
     // it shows when the business changes hands (or comes back), and fence late answers.
     const owner_epoch = `${business.owner_id}:${this.store.controlEpoch(viewer, businessId).generation}`;
-    const binding = this.bindings.get(businessId);
+    const binding = this.bindingFor(businessId);
     if (!binding)
       return {
         state: "unbound" as const,
@@ -746,7 +752,7 @@ export class V3Observations {
   /** Takes a snapshot through the transport and records it; owner only, fenced on control. */
   async refresh(viewer: Person, businessId: string, input: { period?: unknown } = {}) {
     const epoch = this.store.controlEpoch(viewer, businessId);
-    const binding = this.bindings.get(businessId);
+    const binding = this.bindingFor(businessId);
     if (!binding) throw new HttpError(409, "This business isn't connected to a v3 contract here");
     let period: number | undefined;
     if (input.period !== undefined && input.period !== null) {

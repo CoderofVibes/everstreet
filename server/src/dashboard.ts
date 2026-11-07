@@ -431,9 +431,9 @@ export function dashboard(
       (
         db
           .prepare(
-            "SELECT COUNT(*) AS n FROM workflow_cases WHERE business_id = ? AND closed_at IS NULL",
+            "SELECT COUNT(*) AS n FROM workflow_cases WHERE business_id = ? AND closed_at IS NULL AND (assignee_account IS NULL OR assignee_account IN (SELECT account_id FROM person_accounts WHERE person_id = (SELECT owner_id FROM businesses WHERE id = ?) UNION SELECT account_id FROM chain_accounts WHERE owner_kind = 'person' AND owner_id = (SELECT owner_id FROM businesses WHERE id = ?)))",
           )
-          .get(b.id) as { n: number } | undefined
+          .get(b.id, b.id, b.id) as { n: number } | undefined
       )?.n ?? 0;
     const rehearsal = db
       .prepare(
@@ -532,7 +532,7 @@ export function dashboard(
     if (openCases > 0)
       attention.push({
         kind: "open_cases",
-        text: `${openCases} open customer request${openCases === 1 ? "" : "s"}`,
+        text: `${openCases} open customer request${openCases === 1 ? "" : "s"} nobody has taken`,
         link: `/desk/${b.id}?view=products#desk-cases`,
       });
     // First-use review (Nov 7, findings 52 and 66): a published page that names a release the
@@ -590,6 +590,15 @@ export function dashboard(
         owner_account: obs?.owner ?? null,
         transfers: transfers.n,
         last_transfer_at: transfers.last,
+        /** When this viewer became the owner here, if they bought it (the figures before are the seller's). */
+        acquired_at:
+          (
+            db
+              .prepare(
+                "SELECT at FROM ownership WHERE business_id = ? AND to_id = ? ORDER BY id DESC LIMIT 1",
+              )
+              .get(b.id, viewer.id) as { at: string } | undefined
+          )?.at ?? null,
         sale_in_progress: live !== null,
       },
       rehearsal: rehearsal ? { state: rehearsal.state, finished_at: rehearsal.finished_at } : null,

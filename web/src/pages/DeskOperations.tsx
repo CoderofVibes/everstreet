@@ -256,11 +256,11 @@ export function UsageChart({ months }: { months: OpsMonth[] }) {
           </span>
         )}
         {months.some((m) => m.so_far && m.usage.requested > 0) && (
-          <span>Dashed frame: this month so far</span>
+          <span>Dashed: this month so far</span>
         )}
       </div>
       <p className="fin-detail" aria-live="polite">
-        {shown ? describeUsage(shown) : "Focus or point at a month for its figures."}
+        {shown ? describeUsage(shown) : "Point at a month for its figures."}
       </p>
     </figure>
   );
@@ -382,7 +382,7 @@ export function CostChart({ months }: { months: OpsMonth[] }) {
         </span>
       </div>
       <p className="fin-detail" aria-live="polite">
-        {shown ? describeCost(shown) : "Focus or point at a month for its figures."}
+        {shown ? describeCost(shown) : "Point at a month for its figures."}
       </p>
     </figure>
   );

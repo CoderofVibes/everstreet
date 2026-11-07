@@ -149,7 +149,10 @@ export async function demoWorld(opts: { dbPath: string }) {
   intents.alt.ledger.registered.add(BUYER.account);
   const protection = new SyntheticProtection();
   protection.ceiling = 1_000_000; // a month of requests (the double's default budget is a test's)
-  const v3 = {
+  const v3: {
+    transport: DemoChains;
+    bindings: { business_id: string; network: string; account: string }[];
+  } = {
     transport: chains,
     bindings: (Object.keys(ACCOUNTS) as BusinessKey[]).map((k) => ({
       business_id: business[k].id,
@@ -171,11 +174,29 @@ export async function demoWorld(opts: { dbPath: string }) {
       second: { name: "Synthetic provider B", reader: secondProvider },
     },
   };
+  // Tony (Nov 7): a new business can connect a synthetic contract of its own, owned by its
+  // founder's account, with plan 1 at a fictional price and no customers yet.
+  const demoContracts = {
+    connect(businessId: string, owner: string) {
+      const account = `biz-${businessId.slice(0, 8)}.demo.near`;
+      if (!chains.chains.has(account)) {
+        const c = chains.add(account);
+        c.ents.clear();
+        c.plan = { ...c.plan, unit_price: "1000000" };
+        c.tokenRegistered.add(account);
+        c.attachSale({ owner });
+      }
+      const binding = { business_id: businessId, network: "testnet", account };
+      if (!v3.bindings.some((b) => b.business_id === businessId)) v3.bindings.push(binding);
+      return { network: binding.network, account };
+    },
+  };
   const make = (extra: Partial<Parameters<typeof everstreetApi>[1]> = {}) =>
     everstreetApi(store, {
       localPreview: true,
       environment: "Demo (simulated history)",
       v3,
+      demoContracts,
       customer: customerOptions as never,
       runtime: rw.runtime,
       companions: {

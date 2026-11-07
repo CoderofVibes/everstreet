@@ -55,16 +55,18 @@ refused. The companions did not:
 
 | # | Severity | Finding | Status |
 |---|---|---|---|
-| 1 | High | asset-key signs `setController` for any address at any nonce the caller names, so a seller can pre-sign a hand-over of the external registry and broadcast it at the close, racing the buyer | Open: the fix (a target generation resolved through the signer's derived key, nonces in order) changes the contract and needs a new testnet companion account |
-| 3 | High | spend-allowance's `approve` changes no state before its cross-contract call; a retried approve pays an invoice twice and corrupts the books | Open: a two-line state fix, same redeploy |
+| 1 | High | asset-key signs `setController` for any address at any nonce the caller names, so a seller can pre-sign a hand-over of the external registry and broadcast it at the close, racing the buyer | Fixed in source: the request names no destination (the companion derives the current generation's address through the signer's `derived_public_key`), a generation can't move to itself, and a path signs at most one nonce past the highest it signed. A seller can still pre-sign transactions one at a time to delay the buyer's move, never to keep the role. Not yet on testnet |
+| 3 | High | spend-allowance's `approve` changes no state before its cross-contract call; a retried approve pays an invoice twice and corrupts the books | Fixed in source: `Approving` before the control call; only the grant's maker may start an approval. Not yet on testnet |
 | 2 | Medium | Both companions act on a control reading two receipts old; a payment, withdrawal or signature the seller starts just before the close lands after it | Documented window: the buyer's first shift drains the budget and moves the role; stated in `docs/AUTHORITY.md` |
-| 4, 5, 6 | Medium | The agent can freeze the budget with reviewable invoices (no owner reject); invoices grow storage nobody pays for; a failed signer receipt keeps the caller's deposit | Open, same redeploy |
-| 7, 8 | Low | Anyone can reserve the budget for two blocks; a refused invoice can't be retried; an oversized period bricks `pay` | Open, same redeploy |
+| 4, 5, 6 | Medium | The agent can freeze the budget with reviewable invoices (no owner reject); invoices grow storage nobody pays for; a failed signer receipt keeps the caller's deposit | Fixed in source: an owner `reject` and a 7-day expiry anyone may apply; `pay` charges its storage to the agent; a failed signature returns the deposit. Not yet on testnet |
+| 7, 8 | Low | Anyone can reserve the budget for two blocks; a refused invoice can't be retried; an oversized period bricks `pay` | Fixed in source: a withdrawal reserves only after the owner check; a refused invoice can be paid again; the period is bounded and its arithmetic saturates. Not yet on testnet |
 
 The reviewer's 60 tests are in the repository (`attack_tests3.rs` in business-v3, `attack_tests.rs`
-in each companion); the `*_finding_*` tests show each open attack succeeding until its fix lands.
-Until the companions are fixed and redeployed, the external-asset and supplier-budget features are
-demonstrations of the pattern (authority follows the business contract), not promises.
+in each companion). Each companion finding's test now asserts its fix; the two finding-2 tests are
+kept as `*_documented_*`. The fixed companions pass their unit and local-node tests in WSL. The
+companions on testnet (`feed-key-v3s3`, `budget-v3s3`) still run the earlier code: until new
+accounts are deployed and the companion series runs again, those testnet records show the pattern
+(authority follows the business contract), not the fixed contracts.
 
 ## Reproduce it
 

@@ -213,7 +213,13 @@ export class CustomerAccessFlow {
         this.sale.load(),
       ]);
       if (!this.alive || mine !== this.reads) return;
-      this.set({ status: "ready", view, draft: this.state.draft ?? this.initialDraft(view) });
+      // A fresh reading clears what an earlier failed one said (a contract connected since, say).
+      this.set({
+        status: "ready",
+        view,
+        draft: this.state.draft ?? this.initialDraft(view),
+        notice: this.state.notice?.code === "unbound" ? null : this.state.notice,
+      });
     } catch (e) {
       if (!this.alive || mine !== this.reads) return;
       // First-use review (Nov 7, finding 30): a business with no contract here is a fact to state,

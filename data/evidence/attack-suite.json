@@ -1,8 +1,8 @@
 {
   "format": "everstreet.attack-suite",
   "version": 1,
-  "commit": "3bf895fd9eab55750592c6f14a7b6e1401994487",
-  "uncommitted": false,
+  "commit": "6388abe14d574a540d9d371f2ba95a7a2ce1f5ac",
+  "uncommitted": true,
   "source": "synthetic",
   "label": "Fixture results: Everstreet's real routes over the synthetic chain, which follows the business contract's rules. Not the contract's own code.",
   "groups": [
@@ -621,6 +621,42 @@
       "passed": true
     },
     {
+      "group": 1,
+      "name": "Seller pre-signs a hand-over before the close",
+      "clean": {
+        "what": "The owner publishes from their own address",
+        "result": "final"
+      },
+      "attack": {
+        "what": "While still the owner, the seller asks the companion to sign the role over to an address of theirs, and to sign a transaction far ahead of its nonce",
+        "refusal": "E_GENERATION, E_NONCE"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0,
+          "feed_controller": "0x0b38c7e259fd1b779cab32bda39fbc362323d627",
+          "supplier_budget": "60000000",
+          "verifier_balances": "[[\"solver.synthetic.near\",[[\"nep141:tusd.near\",\"1000000000\"]]]]"
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
       "group": 4,
       "name": "Feed signature from before the close",
       "clean": {
@@ -973,8 +1009,8 @@
     }
   ],
   "summary": {
-    "cases": 25,
-    "passed": 25,
+    "cases": 26,
+    "passed": 26,
     "planted": 5,
     "caught": 5,
     "failures": []

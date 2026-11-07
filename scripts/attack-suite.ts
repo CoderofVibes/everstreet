@@ -649,6 +649,32 @@ await pair(
   },
 );
 
+// Attack review (Nov 7), finding 1: while still the owner, the seller can no longer have the
+// external role signed over to an address of their own, nor pre-sign transactions far ahead.
+await pair(
+  1,
+  "Seller pre-signs a hand-over before the close",
+  funded,
+  async (s) => {
+    const action = { kind: "publish", digest: "11".repeat(32) };
+    const a = feedRequest(s, SELLER, action, 0);
+    return { what: "The owner publishes from their own address", result: relay(s, a, action, 0) };
+  },
+  async (s) => {
+    const a = feedRequest(
+      s,
+      SELLER,
+      { kind: "set_controller", to: SELLER_EVM, from_generation: 1 },
+      1,
+    );
+    const b = feedRequest(s, SELLER, { kind: "publish", digest: "33".repeat(32) }, 9);
+    return {
+      what: "While still the owner, the seller asks the companion to sign the role over to an address of theirs, and to sign a transaction far ahead of its nonce",
+      refusal: a.refused && b.refused ? `${String(a.refused)}, ${String(b.refused)}` : null,
+    };
+  },
+);
+
 /** Held between the start and the attack: the seller's publish signed before the close. */
 const held = new WeakMap<World, { answer: Json; action: Json }>();
 await pair(

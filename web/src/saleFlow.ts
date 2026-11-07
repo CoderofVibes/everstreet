@@ -225,7 +225,11 @@ export class SaleFlow {
         });
         return false;
       }
-      this.set({ status: "ready", setup: s });
+      // A fresh reading clears a "no contract here" left by an earlier one (connected since).
+      const unbound = /isn't connected to a v3 contract|isn't bound to a contract/.test(
+        this.state.notice?.text ?? "",
+      );
+      this.set({ status: "ready", setup: s, ...(unbound ? { notice: null } : {}) });
       return true;
     } catch (e) {
       if (!this.alive || mine !== this.reads) return false;

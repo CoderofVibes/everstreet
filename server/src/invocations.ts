@@ -1200,7 +1200,63 @@ export class ManagedRuntime {
       budget: this.budgetFor(p.business_id),
       limits: RUNTIME_LIMITS,
       invocations: rows.map((r) => this.view(r)),
+      forms: this.formsOf(p.id),
     };
+  }
+
+  /**
+   * Second first-use pass (Nov 7, finding 22): the request form of each workflow or agent-service
+   * build of this project, by build, so the owner tries their product through its own fields
+   * instead of typing JSON. Labels and keys only; nothing a customer sent.
+   */
+  private formsOf(projectId: string) {
+    const rows = this.db
+      .prepare(
+        "SELECT a.job_id, a.kind, a.content FROM build_artifacts a JOIN build_jobs j ON j.id = a.job_id WHERE j.project_id = ? AND a.kind IN ('workflow_spec','analysis_spec') ORDER BY a.created_at DESC LIMIT 20",
+      )
+      .all(projectId) as { job_id: string; kind: string; content: string }[];
+    const out: Record<
+      string,
+      { key: string; label: string; type: string; required: boolean; options: string[] }[]
+    > = {};
+    for (const r of rows) {
+      try {
+        const spec = JSON.parse(r.content) as {
+          intake?: {
+            fields?: {
+              key: string;
+              label: string;
+              type: string;
+              required?: boolean;
+              options?: string[];
+            }[];
+          };
+          source?: { key: string; label: string };
+          context?: { key: string; label: string }[];
+        };
+        if (r.kind === "workflow_spec")
+          out[r.job_id] = (spec.intake?.fields ?? []).map((f) => ({
+            key: f.key,
+            label: f.label,
+            type: f.type,
+            required: f.required === true,
+            options: f.options ?? [],
+          }));
+        else if (spec.source)
+          out[r.job_id] = [
+            { ...spec.source, type: "long_text", required: true, options: [] },
+            ...(spec.context ?? []).map((f) => ({
+              ...f,
+              type: "text",
+              required: false,
+              options: [],
+            })),
+          ];
+      } catch {
+        // an unreadable artifact has no form to offer
+      }
+    }
+    return out;
   }
 
   view(r: InvocationRow) {

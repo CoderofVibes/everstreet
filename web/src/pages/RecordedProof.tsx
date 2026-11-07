@@ -6,7 +6,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "../router.tsx";
 import type { EvidenceSource } from "../saleApi.ts";
-import { SourceTag } from "./HandoffProof.tsx";
+import { SourceLegend, SourceTag } from "./HandoffProof.tsx";
 
 interface Checkpoint {
   name: string;
@@ -87,13 +87,22 @@ export function RecordedProof({ e }: { e: Example }) {
         <div className="eyebrow">Recorded example · Ledgerline · NEAR testnet</div>
         <h1 className="display sale-title">Handoff proof</h1>
         <p className="muted proof-small">
-          Record <span className="mono">{e.record.digest.slice(0, 12)}</span> · commit{" "}
-          <span className="mono">{e.record.commit.slice(0, 7)}</span>
+          A run recorded on NEAR testnet by the repository's rehearsal script at commit{" "}
+          <span className="mono">{e.record.commit.slice(0, 7)}</span> (record{" "}
+          <span className="mono" title={e.record.digest}>
+            {e.record.digest.slice(0, 12)}
+          </span>
+          )
         </p>
+        {/* Second first-use pass (Nov 7, finding 2): what each badge means, once. */}
+        <details className="proof-small">
+          <summary>What the badges mean</summary>
+          <SourceLegend only={["testnet_final", "testnet_receipt", "light_client", "everstreet"]} />
+        </details>
       </header>
       <section className="card proof-hero" aria-labelledby="rp-cont">
         <div className="eyebrow" id="rp-cont">
-          Customer · prepaid before the sale
+          Customer's unused uses · prepaid before the sale
         </div>
         <p className="proof-units">
           <span>{closed?.free ?? "—"}</span>
@@ -104,8 +113,8 @@ export function RecordedProof({ e }: { e: Example }) {
           <span>{next?.free ?? "—"}</span>
         </p>
         <div className="row proof-hero-tags">
-          {bought?.free && <span className="pill">{bought.free} bought</span>}
-          {closed?.free && <span className="pill">{closed.free} at close</span>}
+          {bought?.free && <span className="pill">{bought.free} uses bought</span>}
+          {closed?.free && <span className="pill">{closed.free} unused at close</span>}
           {next?.free && <span className="pill success">Next use settled under the buyer</span>}
           <SourceTag source="testnet_final" block={next?.block} />
         </div>
@@ -118,7 +127,14 @@ export function RecordedProof({ e }: { e: Example }) {
             </h2>
             <dl className="proof-rows">
               <Row label="Business contract">
-                <span className="mono wrap">{e.contract.account}</span>
+                <a
+                  className="mono wrap"
+                  href={`https://testnet.nearblocks.io/address/${e.contract.account}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {e.contract.account}
+                </a>
               </Row>
               <Row label="Code hash" source="everstreet">
                 <span className="mono" title={e.contract.code_hash}>
@@ -141,11 +157,12 @@ export function RecordedProof({ e }: { e: Example }) {
               >
                 {e.light_client ? (
                   <>
-                    Proved against block header{" "}
+                    The close at block {e.light_client.block.height}, proved against the later
+                    header at height {e.light_client.head.height} (
                     <span className="mono" title={e.light_client.head.hash}>
                       {short(e.light_client.head.hash)}
-                    </span>{" "}
-                    · height {e.light_client.head.height}
+                    </span>
+                    )
                   </>
                 ) : (
                   <span className="unknown">Not attached</span>
@@ -157,8 +174,8 @@ export function RecordedProof({ e }: { e: Example }) {
               <Row label="Next settled use" source="testnet_final" block={next?.block}>
                 1 · {next?.free ?? "—"} remaining
               </Row>
-              <Row label="Results" source="everstreet">
-                Stand-in model
+              <Row label="Customer results" source="everstreet">
+                Produced by a labelled stand-in model, not a real AI
               </Row>
             </dl>
           </section>
@@ -171,11 +188,13 @@ export function RecordedProof({ e }: { e: Example }) {
                 <Row
                   key={r.step}
                   label={
-                    r.step === "old_owner_denied" ? "Former owner reads" : "Former owner writes"
+                    r.step === "old_owner_denied"
+                      ? "Former owner reads in Everstreet"
+                      : "Former owner writes in Everstreet"
                   }
                   source="everstreet"
                 >
-                  Refused ({r.status})
+                  Refused (HTTP {r.status})
                 </Row>
               ))}
               <Row label="Buyer operates" source="testnet_final" block={closed?.block}>
@@ -189,6 +208,7 @@ export function RecordedProof({ e }: { e: Example }) {
             <h2 id="rp-verify" className="sale-h3">
               Check it yourself
             </h2>
+            <p className="proof-small muted">From a checkout of the repository:</p>
             <p className="proof-small">
               <code>
                 npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json --live

@@ -11,6 +11,7 @@ import {
 } from "../api.ts";
 import { businessProducts, type FreeApp, type OfferView } from "../customerApi.ts";
 import { Link } from "../router.tsx";
+import { tokenAmount } from "../saleCalls.ts";
 import { useSession } from "../session.tsx";
 import { TokenAmount } from "../TokenAmount.tsx";
 import { Avatar, FAMILY_LABEL, money, OfferCard } from "../ui.tsx";
@@ -263,12 +264,15 @@ export function StorefrontView({
   preview,
   onSent,
   digitalOffers = 0,
+  offers = [],
 }: {
   page: PublicBusiness;
   preview?: boolean;
   onSent?: () => void;
   /** Job 003q1: released digital offers shown above, so "no offer" isn't said beside them. */
   digitalOffers?: number;
+  /** The released offers, for their prices on the storefront (second first-use pass, #50). */
+  offers?: OfferView[];
 }) {
   const { person, requireSignIn, wallet } = useSession();
   const [message, setMessage] = useState("");
@@ -329,6 +333,14 @@ export function StorefrontView({
           following={following.on}
           onFollow={page.viewer_is_owner ? undefined : toggleFollow}
           preview={preview}
+          prices={Object.fromEntries(
+            offers.map((o) => [
+              o.offer_id,
+              o.terms.token
+                ? `${tokenAmount(String(BigInt(o.terms.unit_price) * BigInt(o.terms.units_per_use)), o.terms.token.decimals)} ${o.terms.token.symbol} per use`
+                : null,
+            ]),
+          )}
         />
       )}
       {digital && page.viewer_is_owner && !preview && (
@@ -486,15 +498,11 @@ export function StorefrontView({
                 </div>
               )}
             </section>
-          ) : !digital ? (
+          ) : !digital && page.interested > 0 ? (
             <section className="card">
               <div className="eyebrow">Numbers</div>
               <p className="muted" style={{ margin: 0 }}>
-                {page.interested > 0
-                  ? `${page.interested} ${page.interested === 1 ? "person has" : "people have"} responded so far. `
-                  : "No responses yet. "}
-                Revenue, costs and an estimate of what it's worth appear here if the founder chooses
-                to share them.
+                {`${page.interested} ${page.interested === 1 ? "person has" : "people have"} responded so far.`}
               </p>
             </section>
           ) : null}
@@ -644,6 +652,7 @@ export function PublicPage({ slug }: { slug: string }) {
       <StorefrontView
         page={page}
         digitalOffers={offers.length}
+        offers={offers}
         onSent={() => api.page(slug).then(setPage)}
       />
     </div>

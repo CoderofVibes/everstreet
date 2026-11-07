@@ -148,7 +148,7 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
       const r = await w.use(
         pick([cara, ines, theo]),
         offers.relaydesk,
-        w.submission({ subject, details: `FICTIONAL. ${details}`, urgency }),
+        w.submission({ subject, details, urgency }),
       );
       log.uses.push({
         business: "relaydesk",

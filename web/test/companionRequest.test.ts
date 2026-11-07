@@ -45,39 +45,52 @@ const view: CompanionView = {
   },
 };
 
-const move = (args: Record<string, unknown>, receiverId = "feed.near"): CompanionPrepared => ({
+const move = (
+  args: Record<string, unknown>,
+  receiverId = "feed.near",
+  to = "0xBBB",
+): CompanionPrepared => ({
   id: "x",
   kind: "feed_move",
-  review: {},
+  review: { to_address: to },
   call: { receiverId, methodName: "request", args, gas: "1", deposit: "1" },
 });
 
 describe("companion requests are re-derived in the browser", () => {
   it("accepts exactly the move to your generation's address from the controller's generation", () => {
+    // The companion derives the destination (attack review, Nov 7): the request names none, and
+    // the review shows your own address.
     const ok = move({
-      action: { kind: "set_controller", to: "0xBBB", from_generation: 1 },
+      action: { kind: "set_controller", from_generation: 1 },
       tx: {},
     });
     expect(expectedCompanionCall(ok, view, {})).toBeNull();
   });
-  it("catches a changed destination, source, receiver or kind", () => {
+  it("catches a named or changed destination, source, receiver or kind", () => {
     expect(
       expectedCompanionCall(
-        move({ action: { kind: "set_controller", to: "0xccc", from_generation: 1 } }),
+        move({ action: { kind: "set_controller", to: "0xbbb", from_generation: 1 } }),
+        view,
+        {},
+      ),
+    ).toBe("it names a destination");
+    expect(
+      expectedCompanionCall(
+        move({ action: { kind: "set_controller", from_generation: 1 } }, "feed.near", "0xccc"),
         view,
         {},
       ),
     ).toBe("not to your address");
     expect(
       expectedCompanionCall(
-        move({ action: { kind: "set_controller", to: "0xbbb", from_generation: 2 } }),
+        move({ action: { kind: "set_controller", from_generation: 2 } }),
         view,
         {},
       ),
     ).toBe("not from the current controller");
     expect(
       expectedCompanionCall(
-        move({ action: { kind: "set_controller", to: "0xbbb", from_generation: 1 } }, "evil.near"),
+        move({ action: { kind: "set_controller", from_generation: 1 } }, "evil.near"),
         view,
         {},
       ),

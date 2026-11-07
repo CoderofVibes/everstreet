@@ -162,6 +162,12 @@ export function PurchasePanel({
   // wait for a purchase in progress is done once that purchase is set aside or finished.
   const lastUnit = useRef<string | null>(unitKey);
   const [owed, setOwed] = useState(false);
+  const [buyOpen, setBuyOpen] = useState(false);
+  // Anything started on this panel keeps it open (its notices and reviews stay in view).
+  const [acted, setActed] = useState(false);
+  useEffect(() => {
+    if (s.busy !== null || s.review !== null) setActed(true);
+  }, [s.busy, s.review]);
   useEffect(() => {
     if (unitKey === lastUnit.current) return;
     lastUnit.current = unitKey;
@@ -177,6 +183,32 @@ export function PurchasePanel({
   if (!account || !wallet || !flow) return null;
   const setup = s.setup;
   const readAt = s.readAtMs ? new Date(s.readAtMs).toLocaleTimeString() : null;
+  // Second first-use pass (Nov 7, findings 51 and 54): with uses already prepaid, the purchase
+  // form waits behind one button.
+  const hasUses = Boolean(setup?.entitlement && Number(setup.entitlement.free) > 0);
+  if (
+    hasUses &&
+    !buyOpen &&
+    !acted &&
+    s.busy === null &&
+    s.review === null &&
+    s.notice === null &&
+    !setup?.open &&
+    (setup?.unresolved ?? []).length === 0
+  )
+    return (
+      <section className="card use-device" aria-labelledby="buy-title">
+        <h3 id="buy-title">Your uses</h3>
+        <p className="muted">
+          {setup?.entitlement?.free} uses ready for you
+          {readAt ? ` (read ${readAt})` : ""}. Each costs{" "}
+          {setup && <TokenAmount base={setup.plan.unit_price} setup={setup} />}.
+        </p>
+        <button type="button" className="btn btn-quiet btn-sm" onClick={() => setBuyOpen(true)}>
+          Buy more uses
+        </button>
+      </section>
+    );
   const busy = s.busy !== null;
   const status =
     s.busy === "wallet"

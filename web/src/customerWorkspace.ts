@@ -149,7 +149,7 @@ const message = (e: unknown) =>
       : LOST;
 
 /** Review #65: in verified mode the device's key comes first. */
-export const ENROLL_FIRST = "Enroll this device's key below; then review your request.";
+export const ENROLL_FIRST = "Enroll this device's key above; then review your request.";
 
 export class CustomerWorkspace {
   private state: WorkspaceState = {

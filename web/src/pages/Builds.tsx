@@ -171,14 +171,23 @@ function JobDetail({ summary, onChanged }: { summary: BuildJob; onChanged: () =>
         {job.retry_of ? " · a retry" : ""}
       </p>
       <dl className="doc-grid" style={{ marginTop: 8 }}>
-        <dt>Cost</dt>
-        <dd>{usageText(job)}</dd>
-        <dt>Reserved</dt>
-        <dd>
-          {job.reserved_cents > 0
-            ? `${cents(job.reserved_cents)} held (worst case, not a charge)`
-            : "Nothing held"}
-        </dd>
+        {job.dispatched || job.reserved_cents > 0 ? (
+          <>
+            <dt>Cost</dt>
+            <dd>{usageText(job)}</dd>
+            <dt>Reserved</dt>
+            <dd>
+              {job.reserved_cents > 0
+                ? `${cents(job.reserved_cents)} held (worst case, not a charge)`
+                : "Nothing held"}
+            </dd>
+          </>
+        ) : (
+          <>
+            <dt>Cost</dt>
+            <dd>Nothing: no AI was used</dd>
+          </>
+        )}
         {job.failure && (
           <>
             <dt>Why</dt>
@@ -637,7 +646,14 @@ export function BuildsView({
               {headRevision}.
             </p>
           )}
-          {list.engine === "workflow" || list.engine === "analysis" ? (
+          {(list.engine === "workflow" || list.engine === "analysis") &&
+          list.jobs.some(
+            (j) => j.revision === headRevision && j.state !== "failed" && j.state !== "cancelled",
+          ) ? (
+            <p className="muted" style={{ fontSize: 13.5 }}>
+              Revision {headRevision} is built. Save a new revision of the brief to build again.
+            </p>
+          ) : list.engine === "workflow" || list.engine === "analysis" ? (
             <StartCompile
               kind={list.engine}
               projectId={projectId}

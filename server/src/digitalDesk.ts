@@ -274,14 +274,30 @@ export function digitalDesk(
   }
   // First-use review #38/#41: open customer requests (a SaaS workflow's cases) and a sale in
   // progress are work too; the desk never says "nothing is waiting" while they are.
+  // Second first-use pass (Nov 7, finding 42): requests a teammate has taken are theirs, not the
+  // owner's to-do; they are listed apart.
   add({
     key: "cases",
     who: "you",
     count: count(
-      "SELECT COUNT(*) AS n FROM workflow_cases WHERE business_id = ? AND closed_at IS NULL",
+      "SELECT COUNT(*) AS n FROM workflow_cases WHERE business_id = ? AND closed_at IS NULL AND (assignee_account IS NULL OR assignee_account IN (SELECT account_id FROM person_accounts WHERE person_id = (SELECT owner_id FROM businesses WHERE id = ?) UNION SELECT account_id FROM chain_accounts WHERE owner_kind = 'person' AND owner_id = (SELECT owner_id FROM businesses WHERE id = ?)))",
+      businessId,
+      businessId,
       businessId,
     ),
-    label: "open customer requests",
+    label: "open customer requests nobody on your team has taken",
+    link: { to: "cases" },
+  });
+  add({
+    key: "team_cases",
+    who: "system",
+    count: count(
+      "SELECT COUNT(*) AS n FROM workflow_cases WHERE business_id = ? AND closed_at IS NULL AND NOT (assignee_account IS NULL OR assignee_account IN (SELECT account_id FROM person_accounts WHERE person_id = (SELECT owner_id FROM businesses WHERE id = ?) UNION SELECT account_id FROM chain_accounts WHERE owner_kind = 'person' AND owner_id = (SELECT owner_id FROM businesses WHERE id = ?)))",
+      businessId,
+      businessId,
+      businessId,
+    ),
+    label: "open customer requests your team is working on",
     link: { to: "cases" },
   });
   // First-use review (Nov 7, findings 52 and 66): a public page naming a superseded release sends

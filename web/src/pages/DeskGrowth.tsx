@@ -343,7 +343,6 @@ export function DeskShare({ desk }: { desk: Desk }) {
             <span className="muted">Followers:</span> {extras.sources.followers}
           </p>
           <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>
-            “Unknown” means we couldn't tell, not that nobody came.{" "}
             <Link to="/explore">See how you look on Explore</Link>.
           </p>
         </div>

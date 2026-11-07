@@ -435,10 +435,11 @@ const fetchLedgerline = async (): Promise<Json> => {
 };
 
 const SOURCE_WORDS: Record<string, string> = {
-  near_testnet_final: "NEAR testnet, final",
-  near_testnet_tx: "NEAR testnet transaction",
-  rehearsal_app_record: "the app's record of the run",
-  stand_in_model: "stand-in model",
+  near_testnet_final: "Testnet final read",
+  near_testnet_tx: "Testnet transaction",
+  rehearsal_app_record: "Everstreet record",
+  stand_in_model: "Stand-in model",
+  derived: "Computed from the checkpoints below",
 };
 function Source({ s }: { s: string | undefined }) {
   return <span className="prov">{s ? (SOURCE_WORDS[s] ?? s) : "derived"}</span>;
@@ -551,11 +552,15 @@ function LedgerlineExample({ tab }: { tab: string }) {
               <span className="small muted">
                 100 uses at {amount(x.figures.unit_price.value)} each
               </span>
+              <Source s="derived" />
             </div>
             <div className="card">
-              <span className="muted small">Earned (uses charged by the contract)</span>
+              <span className="muted small">
+                Earned by the business (uses the contract charged)
+              </span>
               <strong>{amount(x.figures.earned_by_end.value)}</strong>
-              <span className="small muted">uses the contract charged, at the end of the run</span>
+              <span className="small muted">over the whole run, under both owners</span>
+              <Source s="derived" />
             </div>
             <div className="card">
               <span className="muted small">Still owed to the customer at the sale</span>
@@ -604,7 +609,10 @@ function LedgerlineExample({ tab }: { tab: string }) {
                   the business contract: {x.figures.control_before.role} →{" "}
                   {x.figures.control_after.role} <Source s="near_testnet_final" />
                 </li>
-                <li>the product, its releases and the customer offer</li>
+                <li>
+                  the product, its releases and the customer offer{" "}
+                  <Source s="rehearsal_app_record" />
+                </li>
                 <li>
                   and shipped a checked update a customer then used{" "}
                   <Source s="rehearsal_app_record" />
@@ -627,7 +635,10 @@ function LedgerlineExample({ tab }: { tab: string }) {
                   {x.figures.after_next_use.value}, a use on the buyer's update left{" "}
                   {x.figures.after_update.value} <Source s="near_testnet_final" />
                 </li>
-                <li>their earlier result, unchanged and readable only by them</li>
+                <li>
+                  their earlier result, unchanged and readable only by them{" "}
+                  <Source s="rehearsal_app_record" />
+                </li>
               </ul>
             </div>
           </div>

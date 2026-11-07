@@ -91,7 +91,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "preview", label: "Preview" },
   { id: "proposal", label: "Proposal" },
   { id: "brief", label: "Brief" },
-  { id: "checks", label: "Checks" },
+  { id: "checks", label: "Brief rules" },
   { id: "versions", label: "Versions" },
   { id: "builds", label: "Builds" },
   { id: "app", label: "Web app" },
@@ -263,7 +263,7 @@ function BriefDoc({ view, brief, starter }: { view: StudioView; brief: Brief; st
               </ul>
               {starter && (
                 <span className="starter-tag">
-                  Starter suggestions from {view.foundation.label}
+                  Placeholders from {view.foundation.label}: replace them with your own
                 </span>
               )}
             </>
@@ -432,7 +432,7 @@ function ChecksView({
       )}
       <section className="check-group">
         <h3>
-          <Icon name="check" /> Brief checks · {c.passed} of {c.deterministic.length} rules met
+          <Icon name="check" /> Brief rules · {c.passed} of {c.deterministic.length} met
         </h3>
         <p>
           Rules that check whether the brief and prototype of revision {view.head.number} say
@@ -1397,7 +1397,7 @@ export function ProductStudio({ id }: { id: string }) {
               ))}
               <li className={`tone-${shapeDone ? "done" : "now"}`}>
                 <button type="button" onClick={() => setTab("checks")}>
-                  <span className="ps-status-label">Brief checks</span>
+                  <span className="ps-status-label">Brief rules</span>
                   <span className="ps-status-value">
                     {view.checks.passed} of {total} rules met
                   </span>
@@ -1490,10 +1490,7 @@ export function ProductStudio({ id }: { id: string }) {
               {/* Job 001k: the two assistant tasks are named apart: this one shapes the brief
                   (proposals); the Web app view's composer changes the app's code. */}
               <span className="ctx-kicker">Companion · brief</span>
-              <span className="muted">
-                Shape the business brief in words; proposals open beside your revision. It doesn't
-                change the web app's code.
-              </span>
+              <span className="muted">Describe changes to the brief in words.</span>
             </div>
             {view.source && <SourcePanel source={view.source} />}
             {/* Job 001k: on the Web app view the app's own composer ("Change the web app") is the

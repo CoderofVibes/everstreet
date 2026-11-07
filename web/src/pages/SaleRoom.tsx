@@ -413,7 +413,14 @@ export function ReviewSummary({ p, s }: { p: SalePreview; s: SaleSetup }) {
       )}
       <dt>Attached NEAR</dt>
       <dd>
-        <span className="mono">{yocto(p.call.deposit)} NEAR</span>
+        {p.call.deposit === "1" ? (
+          <>
+            1 yoctoNEAR{" "}
+            <span className="muted">(the smallest unit; a confirmation, not a payment)</span>
+          </>
+        ) : (
+          <span className="mono">{yocto(p.call.deposit)} NEAR</span>
+        )}
         {typeof v.deposit_basis === "string" && <div className="muted">{v.deposit_basis}</div>}
       </dd>
     </dl>
@@ -802,7 +809,9 @@ function LedgerTerms({ s }: { s: SaleSetup }) {
         <dd>
           <Amount base={d.available_floor} s={s} />
         </dd>
-        <dt>Control sequence</dt>
+        <dt title="How many times the contract's control has changed; every request names the value it was reviewed at, so a stale one is refused.">
+          Control changes so far
+        </dt>
         <dd>{s.control.control_seq}</dd>
       </dl>
       {s.terms_doc ? (
@@ -954,6 +963,12 @@ export function Continuity({ s }: { s: SaleSetup }) {
     </aside>
   );
 }
+
+/** Second first-use pass (Nov 7, finding 65): the current step named as the thing to do. */
+const TO_DO: Record<string, string> = {
+  terms: "Propose the terms",
+  escrow: "Fund the escrow",
+};
 
 function OtherActions({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: SaleSetup }) {
   const d = s.control.live_deal;
@@ -1406,7 +1421,9 @@ export function SaleRoom({ id }: { id: string }) {
             className={`sale-step is-${x.status === "done" ? "completed" : x.status}`}
           >
             <span className="sale-step-status">{STEP_WORD[x.status]}</span>
-            <strong className="sale-step-title">{x.title}</strong>
+            <strong className="sale-step-title">
+              {x.status === "current" ? (TO_DO[x.key] ?? x.title) : x.title}
+            </strong>
             {x.detail && <span className="sale-step-detail">{x.detail}</span>}
           </li>
         ))}

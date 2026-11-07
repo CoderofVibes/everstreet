@@ -1018,15 +1018,18 @@ export function CustomerProduct({ offerId, useId }: { offerId?: string; useId?: 
               <span className={`pill ${unit.tone}`}>{unit.label}</span>
               <p className="use-note">{unit.text}</p>
               {use.units.source ? (
-                <p className="muted use-note">
+                <p
+                  className="muted use-note"
+                  title={`Read from ${wallet?.harness ? "synthetic-chain" : "NEAR"} block ${use.units.source.block.height} at ${time(use.units.source.block.timestamp_ms)}`}
+                >
                   {use.units.source.observed.free !== null &&
-                    `${use.units.source.observed.free} units free, ${use.units.source.observed.consumed} used, `}
-                  as read from {wallet?.harness ? "synthetic-chain" : "NEAR"} block{" "}
-                  <span className="mono">{use.units.source.block.height}</span> at{" "}
-                  {time(use.units.source.block.timestamp_ms)}.
+                    `${use.units.source.observed.free} units left, ${use.units.source.observed.consumed} used, `}
+                  as the contract shows (i).
                 </p>
               ) : (
-                <p className="muted use-note">Not read from the contract yet.</p>
+                <p className="muted use-note">
+                  Shown from your signed request; the contract's own reading follows.
+                </p>
               )}
             </>
           ) : (

@@ -6,6 +6,7 @@
 // details.
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { api } from "../api.ts";
 import {
   type AccessState,
   type AccessStep,
@@ -605,12 +606,13 @@ export function CustomerAccess({
         </p>
       )}
       {unbound && (
-        <p className="notice info">
-          This business has no contract on the chain here, so customers can't buy from it yet. A
-          contract is connected by whoever runs this deployment, not from this page; in this demo
-          only the example businesses have one. Everything else (brief, build, release, public page)
-          works without it.
-        </p>
+        <DemoContract
+          businessId={businessId}
+          onConnected={() => {
+            // Every section on this page read "no contract"; one fresh load reads them all again.
+            window.location.reload();
+          }}
+        />
       )}
       {!unbound && st.status === "error" && (
         <div role="alert">
@@ -677,5 +679,69 @@ export function CustomerAccess({
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * A business with no contract here. In the demo (Tony, Nov 7) its owner connects a synthetic one
+ * in one step; elsewhere the page says who connects it.
+ */
+function DemoContract({
+  businessId,
+  onConnected,
+}: {
+  businessId: string;
+  onConnected: () => void;
+}) {
+  const [available, setAvailable] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .env()
+      .then((e) => setAvailable(e.demo_contracts === true))
+      .catch(() => setAvailable(false));
+  }, []);
+  const connect = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/businesses/${businessId}/demo-contract`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(d.error ?? `It couldn't be connected (${r.status}).`);
+      }
+      onConnected();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (available === null) return null;
+  if (!available)
+    return (
+      <p className="notice info">
+        This business has no contract on the chain here, so customers can't buy from it yet. A
+        contract is connected by whoever runs this deployment, not from this page. Everything else
+        (brief, build, release, public page) works without it.
+      </p>
+    );
+  return (
+    <div className="notice info">
+      <p style={{ margin: "0 0 8px" }}>
+        This business has no contract yet, so customers can't buy from it. In this demo you can
+        connect one now: a synthetic contract on the demo's chain, owned by your account.
+      </p>
+      <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={connect}>
+        {busy ? "Connecting…" : "Connect a demo contract"}
+      </button>
+      {error && <p className="error-text">{error}</p>}
+    </div>
   );
 }

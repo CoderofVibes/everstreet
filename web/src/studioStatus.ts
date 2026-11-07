@@ -67,7 +67,7 @@ export function projectStatus(s: StatusInput): StudioStatus {
   if (s.releases === "unknown") {
     for (const [key, label] of [
       ["build", "Build"],
-      ["evaluation", "Checks"],
+      ["evaluation", "Release checks"],
       ["release", "Release"],
     ] as const)
       items.push({
@@ -96,11 +96,11 @@ export function projectStatus(s: StatusInput): StudioStatus {
     const check = cand?.latest_check ?? null;
     items.push({
       key: "evaluation",
-      label: "Checks",
+      label: "Release checks",
       value: !cand
         ? "Nothing to check yet"
         : !check
-          ? `Build ${short(cand.artifact_job)} not checked yet`
+          ? `Not run yet for build ${short(cand.artifact_job)}`
           : check.release_ready
             ? `${check.passed} of ${check.total} passed; ready to release`
             : `${check.passed} of ${check.total} passed; not releasable${

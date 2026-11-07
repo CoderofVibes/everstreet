@@ -54,7 +54,7 @@ describe("003r readiness: what is configured, unavailable or unknown, never all 
       cleanup: "unavailable",
       maintenance: "unavailable",
       runtime: "unavailable",
-      authorization: "unavailable",
+      authorization: "configured",
       offer: "unknown",
     });
     for (const i of items.filter((x) => x.state === "unavailable"))
@@ -65,13 +65,13 @@ describe("003r readiness: what is configured, unavailable or unknown, never all 
     expect(JSON.stringify(r.body)).not.toMatch(/api[_ ]?key|secret|password|credential/i);
   });
 
-  it("fully configured here still shows plan unknown and authorization unavailable; an offer is local", async () => {
+  it("fully configured here still shows plan unknown; authorization is the device key; an offer is local", async () => {
     const w = await customerWorld({ customer: { protection: new SyntheticProtection() } });
     await w.offer();
     const items = (await readiness(w)).body.readiness.items as Json[];
     const by = Object.fromEntries(items.map((i) => [i.key, i]));
     expect(by.plan.state).toBe("unknown");
-    expect(by.authorization.state).toBe("unavailable");
+    expect(by.authorization.state).toBe("configured");
     expect(by.offer).toMatchObject({ state: "configured" });
     expect(by.offer.detail).toMatch(/not proof/);
     expect(items.every((i) => ["configured", "observed"].includes(i.state))).toBe(false);

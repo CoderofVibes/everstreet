@@ -79,6 +79,13 @@ w.db
   )
   .run(NEWCOMER.id, NEWCOMER.name, new Date().toISOString());
 people[NEWCOMER.account] = NEWCOMER.id;
+// Her account is hers on the (synthetic) chain too, so a contract she connects names her as owner
+// and her sale and offer steps read it (Tony, Nov 7: the demo contract for a new business).
+w.db
+  .prepare(
+    "INSERT OR IGNORE INTO chain_accounts (owner_kind, owner_id, account_id, secret, tx, created_at) VALUES ('person', ?, ?, NULL, 'demo', ?)",
+  )
+  .run(NEWCOMER.id, NEWCOMER.account, new Date().toISOString());
 for (const [account, person] of Object.entries(people))
   w.db
     .prepare(
@@ -115,7 +122,8 @@ site.get("/__harness/label.js", (c) =>
   c.body(
     labelScript({
       label: "Demo · simulated history",
-      detail: "Fictional people and test tokens · synthetic wallet and chain",
+      detail:
+        "Fictional people and test tokens · synthetic wallet and chain · the wallet signs at once, without a window",
     }),
     200,
     { "content-type": "text/javascript" },
@@ -183,7 +191,12 @@ site.post("/__harness/tx", async (c) => {
     VERIFIER,
     ALT_TOKEN,
   ];
-  if (!businesses.includes(String(p.receiverId)) && p.receiverId !== "tusd.near")
+  // A demo contract a new business connected (Tony, Nov 7) is one of the demo's businesses too.
+  if (
+    !businesses.includes(String(p.receiverId)) &&
+    !w.chains.chains.has(String(p.receiverId)) &&
+    p.receiverId !== "tusd.near"
+  )
     return c.json(
       {
         error: "The synthetic wallet only calls the demo's businesses, their companions and token.",

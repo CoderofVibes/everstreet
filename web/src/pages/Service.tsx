@@ -308,6 +308,7 @@ export function ServiceView({
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState<string>("");
   const [text, setText] = useState("");
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
   /** The latest answer shown, with the request it belongs to (which may be an earlier one). */
   const [last, setLast] = useState<{ invocation: Invocation; attempt: Attempt } | null>(null);
   /**
@@ -410,6 +411,17 @@ export function ServiceView({
   const analysis = list.engine === "analysis";
   const budgetSet = workflow || list.budget.limit_cents !== null;
   const candidates = rel.candidates;
+
+  // The selected version's request form, when its build has one (workflow and agent service).
+  const selectedJob =
+    version === "release" ? (rel.active?.artifact_job ?? null) : version.replace(/^job:/, "");
+  const form = (workflow || analysis) && selectedJob ? (list.forms?.[selectedJob] ?? null) : null;
+  const setField = (key: string, value: string) => {
+    const next = { ...formValues, [key]: value };
+    setFormValues(next);
+    const filled = Object.fromEntries(Object.entries(next).filter(([, v]) => v.trim() !== ""));
+    setText(Object.keys(filled).length > 0 ? JSON.stringify(filled) : "");
+  };
 
   const action = runAction(requests);
   const busy = action === "wait";
@@ -642,20 +654,68 @@ export function ServiceView({
                 </button>
               ))}
             </div>
-            <label className="field">
-              <span>
-                {workflow || analysis
-                  ? 'A test request as JSON, one text value per form field, e.g. {"subject": "Export fails"}'
-                  : "Pasted text (the text itself isn't stored; the result is kept)"}
-              </span>
-              <textarea
-                className="input"
-                rows={8}
-                value={text}
-                maxLength={list.limits.maxInputChars}
-                onChange={(e) => setText(e.target.value)}
-              />
-            </label>
+            {form ? (
+              // Second first-use pass (Nov 7, finding 22): the product's own request form.
+              <fieldset className="try-form">
+                <legend className="muted" style={{ fontSize: 13 }}>
+                  A test request, as a customer would fill it in
+                </legend>
+                {form.map((f) => (
+                  <div className="field" key={f.key}>
+                    <label htmlFor={`try-${f.key}`}>
+                      {f.label}
+                      {f.required ? "" : " (optional)"}
+                    </label>
+                    {f.type === "choice" && f.options.length > 0 ? (
+                      <select
+                        id={`try-${f.key}`}
+                        className="input"
+                        value={formValues[f.key] ?? ""}
+                        onChange={(e) => setField(f.key, e.target.value)}
+                      >
+                        <option value="">Choose…</option>
+                        {f.options.map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    ) : f.type === "long_text" ? (
+                      <textarea
+                        id={`try-${f.key}`}
+                        className="input"
+                        rows={5}
+                        value={formValues[f.key] ?? ""}
+                        onChange={(e) => setField(f.key, e.target.value)}
+                      />
+                    ) : (
+                      <input
+                        id={`try-${f.key}`}
+                        className="input"
+                        inputMode={f.type === "number" ? "decimal" : undefined}
+                        value={formValues[f.key] ?? ""}
+                        onChange={(e) => setField(f.key, e.target.value)}
+                      />
+                    )}
+                  </div>
+                ))}
+              </fieldset>
+            ) : (
+              <label className="field">
+                <span>
+                  {workflow || analysis
+                    ? 'A test request as JSON, one text value per form field, e.g. {"subject": "Export fails"}'
+                    : "Pasted text (the text itself isn't stored; the result is kept)"}
+                </span>
+                <textarea
+                  className="input"
+                  rows={8}
+                  value={text}
+                  maxLength={list.limits.maxInputChars}
+                  onChange={(e) => setText(e.target.value)}
+                />
+              </label>
+            )}
             <div className="row" style={{ gap: 8, alignItems: "center" }}>
               {action === "full" ? (
                 // Every tracked request is unresolved: no new paid work until one is checked.
@@ -951,12 +1011,21 @@ export function ServiceView({
               : `${latestRun.passed} of ${latestRun.total} passed`}
           </h2>
           <p className="muted" style={{ fontSize: 13 }}>
-            {latestRun.basis} Release checks {latestRun.policy || "(older, now stale)"} · your cases
-            version {latestRun.fixture_version || "none"} · model{" "}
-            {latestRun.provider_config.model ?? "—"} · {latestRun.validator} · cost{" "}
-            {microUsd(latestRun.used_microcents)}
-            {latestRun.held_cents ? ` plus ${latestRun.held_cents}¢ unresolved` : ""}
+            {latestRun.basis}
+            {latestRun.validator === WORKFLOW_VALIDATOR
+              ? " No AI was used; nothing was spent."
+              : ` Cost ${microUsd(latestRun.used_microcents)}${latestRun.held_cents ? ` plus ${latestRun.held_cents}¢ unresolved` : ""}.`}
           </p>
+          <details className="advanced" style={{ fontSize: 13 }}>
+            <summary>Check details</summary>
+            <p className="muted" style={{ margin: "4px 0 0" }}>
+              Checker {latestRun.validator}
+              {latestRun.validator === WORKFLOW_VALIDATOR
+                ? ""
+                : ` · release policy ${latestRun.policy || "(older, now stale)"} · model ${latestRun.provider_config.model ?? "—"}`}{" "}
+              · your cases version {latestRun.fixture_version || "none"}
+            </p>
+          </details>
           <p style={{ fontSize: 13.5 }}>
             {latestRun.invalid_answers > 0 &&
               `${latestRun.invalid_answers} answer${latestRun.invalid_answers === 1 ? "" : "s"} failed the platform's format checks (counted apart from wrong values). `}

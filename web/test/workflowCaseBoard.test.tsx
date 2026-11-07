@@ -105,7 +105,7 @@ describe("the owner's case board", () => {
     await act(async () => card.click());
     await settle();
     expect(text()).toMatch(/Export button does nothing/);
-    expect(text()).toMatch(/shown as written/);
+    expect(text()).toMatch(/shown as written/i);
     const move = [...document.querySelectorAll("button")].find((x) =>
       /Move to Assigned/.test(x.textContent ?? ""),
     ) as HTMLButtonElement;

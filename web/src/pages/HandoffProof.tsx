@@ -49,6 +49,19 @@ export const SOURCE: Record<EvidenceSource, { mark: string; label: string; detai
   },
 };
 
+/** The evidence badges in one line each (the recorded proof's legend). */
+export function SourceLegend({ only }: { only: EvidenceSource[] }) {
+  return (
+    <ul className="proof-key proof-legend">
+      {only.map((k) => (
+        <li key={k}>
+          <SourceTag source={k} /> {SOURCE[k].detail}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function SourceTag({ source, block }: { source: EvidenceSource; block?: string | null }) {
   const s = SOURCE[source];
   return (
@@ -313,7 +326,8 @@ function Receipt({ p }: { p: HandoffProofView }) {
         </a>
       </p>
       <p className="muted proof-small">
-        Check it with <code>npx tsx scripts/verify-receipt.ts &lt;file&gt; --live</code>
+        From a checkout of the repository:{" "}
+        <code>npx tsx scripts/verify-receipt.ts &lt;file&gt; --live</code>
       </p>
     </section>
   );
@@ -337,9 +351,6 @@ function SourceKey({ p }: { p: HandoffProofView }) {
         </ul>
       </details>
       <Rows label="Other evidence">
-        <Row label="Light-client proof">
-          <span className="unknown">Not attached</span>
-        </Row>
         <Row label="Attack suite">
           <Link to="/attacks">What we tried to break</Link>
         </Row>

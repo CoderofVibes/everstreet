@@ -389,6 +389,8 @@ export const api = {
       identity?: "preview" | "verified";
       /** Job 003w-e1: the wallet controller's configuration (verified identity only). */
       wallet?: { network: "testnet"; available: boolean; harness: string | null } | null;
+      /** The demo only: a business with no contract may connect a synthetic one. */
+      demo_contracts?: boolean;
     }>("/api/env"),
   /** Job 003w-e1: a verified session also names its proven account. */
   me: () => call<{ person: Person | null; account?: string | null }>("/api/me"),

@@ -38,8 +38,18 @@ export function DeskList() {
   const [helping, setHelping] = useState<{ business_id: string; name: string; slug: string }[]>([]);
   // First-use review #58: a team member's businesses are part of their day too.
   const [teams, setTeams] = useState<MyTeamEntry[]>([]);
+  // Second first-use pass (Nov 7, finding 34): what needs the owner, per business, on the list.
+  const [needs, setNeeds] = useState<Record<string, number>>({});
   useEffect(() => {
     if (person) {
+      fetch("/api/me/dashboard?days=7", { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { businesses?: { id: string; attention: unknown[] }[] } | null) =>
+          setNeeds(
+            Object.fromEntries((d?.businesses ?? []).map((b) => [b.id, b.attention.length])),
+          ),
+        )
+        .catch(() => {});
       teamApi
         .mine()
         .then((r) => setTeams(r.teams))
@@ -110,10 +120,16 @@ export function DeskList() {
               <div>
                 <h3 style={{ fontSize: 18, margin: 0 }}>{r.name}</h3>
                 <span className="muted" style={{ fontSize: 14 }}>
-                  {r.published_at ? "Published" : "Private draft, not published"}
+                  {r.published_at ? "Page published" : "Page not published yet"}
                 </span>
               </div>
               <span className="spacer" />
+              {(needs[r.business_id] ?? 0) > 0 && (
+                <span className="pill caution">
+                  {needs[r.business_id]}{" "}
+                  {needs[r.business_id] === 1 ? "thing needs" : "things need"} you
+                </span>
+              )}
               {r.inquiries > 0 && (
                 <span className="pill lime">
                   {r.inquiries} {r.inquiries === 1 ? "response" : "responses"}

@@ -114,7 +114,9 @@ export function Home() {
           <Icon name="flask" />
           <span>
             <strong>What we tried to break</strong>
-            <span>Attacks on the contract, each refused, with its testnet pair where one ran.</span>
+            <span>
+              Attacks on the app and its contract rules, each refused; testnet pairs where they ran.
+            </span>
           </span>
         </Link>
       </nav>
