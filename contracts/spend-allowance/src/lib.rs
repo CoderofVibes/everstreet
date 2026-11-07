@@ -560,3 +560,6 @@ impl SpendAllowance {
         )
     }
 }
+
+#[cfg(test)]
+mod attack_tests;

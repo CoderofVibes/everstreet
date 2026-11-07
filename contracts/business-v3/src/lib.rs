@@ -3161,3 +3161,6 @@ mod tests;
 
 #[cfg(test)]
 mod attack_tests;
+
+#[cfg(test)]
+mod attack_tests3;

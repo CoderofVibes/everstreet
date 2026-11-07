@@ -412,3 +412,6 @@ mod tests {
         assert!(u[1] >= 0xc0);
     }
 }
+
+#[cfg(test)]
+mod attack_tests;
