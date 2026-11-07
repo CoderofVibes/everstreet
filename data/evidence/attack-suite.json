@@ -1,0 +1,527 @@
+{
+  "format": "everstreet.attack-suite",
+  "version": 1,
+  "commit": "bcefc28e282a75e2775779cfb6b9045657fb9e22",
+  "uncommitted": true,
+  "source": "synthetic",
+  "label": "Fixture results: Everstreet's real routes over the synthetic chain, which follows the business contract's rules. Not the contract's own code.",
+  "groups": [
+    {
+      "n": 1,
+      "title": "Changed terms and stale seller"
+    },
+    {
+      "n": 2,
+      "title": "Dropped response or misleading success"
+    },
+    {
+      "n": 3,
+      "title": "Old write admitted before close"
+    },
+    {
+      "n": 4,
+      "title": "Signed before the change"
+    },
+    {
+      "n": 5,
+      "title": "Poisoned observation"
+    },
+    {
+      "n": 6,
+      "title": "Quote or signer substitution"
+    },
+    {
+      "n": 7,
+      "title": "Shared-cap race and storage pressure"
+    },
+    {
+      "n": 8,
+      "title": "Evidence substitution"
+    },
+    {
+      "n": 9,
+      "title": "Faults planted in our checks"
+    }
+  ],
+  "cases": [
+    {
+      "group": 1,
+      "name": "Acceptance of changed terms",
+      "clean": {
+        "what": "Buyer accepts the exact terms",
+        "result": "accepted"
+      },
+      "attack": {
+        "what": "Buyer accepts a digest with one character changed",
+        "refusal": "E_TERMS"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 1,
+      "name": "Former seller acts as owner",
+      "clean": {
+        "what": "New owner sends the same owner action",
+        "result": "allowed"
+      },
+      "attack": {
+        "what": "Former seller's wallet asks to appoint itself after the close",
+        "refusal": "E_NOT_OWNER"
+      },
+      "protected": {
+        "before": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 1,
+      "name": "Replayed acceptance",
+      "clean": {
+        "what": "Seller accepts once",
+        "result": "closed"
+      },
+      "attack": {
+        "what": "Buyer's acceptance sent a second time",
+        "refusal": "E_ALREADY_ACCEPTED"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 2,
+      "name": "Wallet answer lost",
+      "clean": {
+        "what": "Buyer funds escrow",
+        "result": "funded"
+      },
+      "attack": {
+        "what": "Funding lands but the wallet's answer is lost; the buyer tries to fund again",
+        "refusal": "Not claimed until its own transaction shows it · funded"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 2,
+      "name": "Customer's settle answer lost",
+      "clean": {
+        "what": "Customer's use settles",
+        "result": "one unit charged"
+      },
+      "attack": {
+        "what": "The operator's settle lands but its answer is lost; it is retried",
+        "refusal": "Charged exactly once"
+      },
+      "protected": {
+        "before": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "99",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 3,
+      "name": "New customer hold while closing",
+      "clean": {
+        "what": "Customer's use before the closing starts",
+        "result": "one unit charged"
+      },
+      "attack": {
+        "what": "Customer's new use arrives after both accepted, before the closer closes",
+        "refusal": "New holds refused while closing · handover_pause"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 4,
+      "name": "Acceptance signed before a revision",
+      "clean": {
+        "what": "Buyer accepts the current version",
+        "result": "accepted"
+      },
+      "attack": {
+        "what": "Buyer's acceptance prepared for version 1, sent after the seller revised",
+        "refusal": "E_VERSION"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 5,
+      "name": "Provider reports another owner",
+      "clean": {
+        "what": "Two providers agree at the same block",
+        "result": "agree"
+      },
+      "attack": {
+        "what": "The second provider reports a different owner at the same block",
+        "refusal": "Uncertain · ownership record unchanged"
+      },
+      "protected": {
+        "before": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 5,
+      "name": "Answers from mixed blocks",
+      "clean": {
+        "what": "A coherent read at one block",
+        "result": "read at block 1002"
+      },
+      "attack": {
+        "what": "One view answers from a different block than the rest",
+        "refusal": "Read refused · read_failed"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 6,
+      "name": "Request changed after review",
+      "clean": {
+        "what": "The seller's revision is stored and sent exactly as reviewed",
+        "result": "revised"
+      },
+      "attack": {
+        "what": "The seller's revision is changed to a lower price after review, keeping the old review digest",
+        "refusal": "review_changed"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 6,
+      "name": "Signed by another account",
+      "clean": {
+        "what": "The buyer signs the buyer's acceptance",
+        "result": "accepted"
+      },
+      "attack": {
+        "what": "Another account signs the buyer's exact acceptance",
+        "refusal": "E_NOT_PARTY"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 7,
+      "name": "One request asked twice",
+      "clean": {
+        "what": "One wallet ask for one request",
+        "result": "accepted"
+      },
+      "attack": {
+        "what": "Two tabs ask the wallet for the same request at once",
+        "refusal": "One winner · already_asked"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 7,
+      "name": "Escrow beyond the price",
+      "clean": {
+        "what": "Escrow holds exactly the price",
+        "result": "250000000"
+      },
+      "attack": {
+        "what": "The buyer tries to fund the same deal again",
+        "refusal": "funded"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 8,
+      "name": "Another transaction's ID",
+      "clean": {
+        "what": "A request is confirmed by its own transaction",
+        "result": "accepted"
+      },
+      "attack": {
+        "what": "The buyer's acceptance is checked with the funding transaction's ID",
+        "refusal": "Not this request's transaction · not recorded"
+      },
+      "protected": {
+        "before": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "founder.near",
+          "generation": 1,
+          "escrow": "250000000",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    },
+    {
+      "group": 8,
+      "name": "Former owner reads customer data",
+      "clean": {
+        "what": "The new owner sees customer obligations",
+        "result": "shown"
+      },
+      "attack": {
+        "what": "The former seller reads the sale page and the proof after the close",
+        "refusal": "Counts only · no customer named"
+      },
+      "protected": {
+        "before": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0
+        },
+        "after": {
+          "owner": "buyer.near",
+          "generation": 2,
+          "escrow": "0",
+          "customer_units": "100",
+          "pending_payouts": 0
+        }
+      },
+      "unchanged": true,
+      "passed": true
+    }
+  ],
+  "planted": [
+    {
+      "fault": "The generation guard removed: control moves without a matching close",
+      "invariant": "owner",
+      "caught": true
+    },
+    {
+      "fault": "A duplicate charge allowed",
+      "invariant": "customer_units",
+      "caught": true
+    },
+    {
+      "fault": "A payout marked complete before its callback",
+      "invariant": "pending_payouts",
+      "caught": true
+    },
+    {
+      "fault": "The generation number skipped",
+      "invariant": "generation",
+      "caught": true
+    }
+  ],
+  "summary": {
+    "cases": 15,
+    "passed": 15,
+    "planted": 4,
+    "caught": 4,
+    "failures": []
+  }
+}

@@ -1798,3 +1798,28 @@ ul.plain { margin: 0; padding-left: 18px; }
 @media (max-width: 980px) { .ledger { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .ledger-cards { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 980px) { .ledger-rail .proof-row { grid-template-columns: minmax(120px, 34%) minmax(0, 1fr); } }
+
+/* ---------- The Case Docket (design/sale-proof/attacks-b) ---------- */
+.docket-summary { gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+.docket-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+.docket-nav { position: sticky; top: 84px; }
+.docket-nav ol { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 8px; font-size: 13.5px; }
+.docket-groups { display: grid; gap: 16px; min-width: 0; }
+.docket-groups .card + .card { margin-top: 0; }
+.docket-group { border-top: 3px solid var(--cobalt); scroll-margin-top: 84px; }
+.docket-case { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.docket-case-name { font-size: 15px; margin: 0 0 8px; }
+.docket-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.docket-run { display: grid; gap: 3px; border: 1px solid var(--line); border-left-width: 4px; border-radius: var(--radius-sm); padding: 9px 12px; font-size: 13.5px; min-width: 0; overflow-wrap: anywhere; }
+.docket-clean { border-left-color: var(--success); }
+.docket-attack { border-left-color: var(--error); }
+.docket-tags { gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.docket-refusal { background: var(--error-soft); border-color: #f6c5c0; color: var(--error); }
+.docket-values { margin-top: 8px; }
+.docket-values summary { cursor: pointer; color: var(--cobalt-ink); font-weight: 600; font-size: 13.5px; }
+.docket-planted { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 8px; }
+.docket-planted li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; border-top: 1px solid var(--line); padding-top: 8px; font-size: 14px; }
+@media (max-width: 860px) { .docket-layout { grid-template-columns: minmax(0, 1fr); } .docket-nav { position: static; } }
+@media (max-width: 600px) { .docket-pair { grid-template-columns: minmax(0, 1fr); } }
+.docket-group { min-width: 0; }
+.docket-tags .pill, .docket-planted .pill { white-space: normal; }

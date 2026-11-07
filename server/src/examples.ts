@@ -180,3 +180,18 @@ export function ledgerlineExample(path = DEFAULT_LEDGERLINE_RECORD) {
     releases,
   };
 }
+
+/** The Case Docket: the committed attack-suite results (scripts/attack-suite.ts), public. */
+export const DEFAULT_ATTACK_SUITE = "data/evidence/attack-suite.json";
+export function attackSuite(path = DEFAULT_ATTACK_SUITE) {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    throw new HttpError(404, "The attack suite's results aren't on this server", "suite_missing");
+  }
+  const r = JSON.parse(raw) as { format?: string; version?: number };
+  if (r.format !== "everstreet.attack-suite" || r.version !== 1)
+    throw new HttpError(503, "The attack suite's results aren't in a known format", "suite_format");
+  return r;
+}

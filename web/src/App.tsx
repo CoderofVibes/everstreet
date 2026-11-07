@@ -11,6 +11,7 @@ import { AcquireListing } from "./pages/AcquireListing.tsx";
 import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
 import { AgentAccessPage } from "./pages/AgentAccess.tsx";
+import { AttackDocketPage } from "./pages/AttackDocket.tsx";
 import { BuildHome } from "./pages/Build.tsx";
 import { BusinessBreakdown } from "./pages/BusinessBreakdown.tsx";
 import { Continuity } from "./pages/Continuity.tsx";
@@ -268,6 +269,8 @@ function Routes() {
       />
     );
   if (path === "/handovers") return <HandoversPage key={person?.id ?? "anon"} />;
+  // The Case Docket: what we tried to break (public).
+  if (path === "/attacks") return <AttackDocketPage />;
   // Job 003wf2: a Direct sale through each participant's own wallet; keyed by who is acting.
   // The handoff proof (Continuity Receipt) of the newest close this person took part in.
   const proofPage = match("/sales/:id/proof", path);

@@ -9,6 +9,7 @@
     "app": "vite build --config web/vite.config.ts && tsx server/src/main.ts",
     "demo": "vite build --config web/vite.config.ts && tsx scripts/demo.ts",
     "serve": "tsx server/src/main.ts",
+    "attacks": "tsx scripts/attack-suite.ts",
     "web:build": "vite build --config web/vite.config.ts",
     "web:dev": "vite --config web/vite.config.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
