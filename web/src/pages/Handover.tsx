@@ -22,6 +22,7 @@ import { Link } from "../router.tsx";
 import { STEP_WORD, saleCurrent, saleNext, saleSentence, saleSteps } from "../saleView.ts";
 import { useSession } from "../session.tsx";
 import { TokenAmount } from "../TokenAmount.tsx";
+import { chainWords } from "../wallet.ts";
 import { when } from "../when.ts";
 
 const STATUS: Record<IntentStatus, { label: string; tone: string }> = {
@@ -274,7 +275,7 @@ const NOT_TRANSFERRED =
   "Not handed over by applying a sale here: domains, provider and model accounts, secrets, or anything outside this app. Each needs its own verified transfer.";
 
 export function HandoverWorkspace({ id }: { id: string }) {
-  const { person } = useSession();
+  const { person, wallet } = useSession();
   const [c] = useState(
     () =>
       new OwnerHandover(handoverHttp, {
@@ -388,7 +389,7 @@ export function HandoverWorkspace({ id }: { id: string }) {
       </div>
       {/* Job 001i: identity, where the sale stands, and one next action, together. */}
       <header className="sale-head">
-        <div className="eyebrow">Sale and handover · business contract on NEAR testnet</div>
+        <div className="eyebrow">Sale and handover · business contract on {chainWords(wallet)}</div>
         <div className="sale-title-row">
           <h1 className="display sale-title">{name ?? "This business"}</h1>
           {next.action === "selling" ? (

@@ -255,7 +255,9 @@ export function everstreetApi(store: Store, options: AppOptions) {
       : null;
   const versionsOrRead = () =>
     appVersions ?? new AppVersions(store, appChecks, { previewOrigin: "", platformOrigin: "" });
-  const needDeals = () => {
+  // Permissions review 2, finding 7: sign-in is checked before the environment's connections.
+  const needDeals = (c?: { get: (k: "person") => Person | null }) => {
+    if (c) me(c);
     if (!deals)
       throw new HttpError(409, "Deals need payments on NEAR, which aren't connected here");
     return deals;
@@ -704,17 +706,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
   // Per-use economics a buyer can check (owner and buyer view; never customer content).
   const useEconomics = new UseEconomics(store.db, options.customer?.reader ?? null, companions);
   app.get("/api/sales/:business/economics", async (c) => {
-    const g = sales.proofContext(me(c), c.req.param("business"));
+    const g = await companionRead(() => sales.currentContext(me(c), c.req.param("business")));
     return c.json(await companionRead(() => useEconomics.build(g.business.id, g.binding)));
   });
   // Which companions a business has here (configuration only; no read): for the desk's links.
   app.get("/api/businesses/:id/companions", (c) => {
-    me(c);
+    // Permissions review 2, finding 5: the owner's desk only; any other id answers like a missing one.
+    store.ownedBusiness(me(c), c.req.param("id"));
     const b = companions.binding(c.req.param("id"));
     return c.json({ asset: Boolean(b?.asset), allowance: Boolean(b?.allowance) });
   });
   app.get("/api/companions/:business", async (c) => {
-    const g = sales.proofContext(me(c), c.req.param("business"));
+    const g = await companionRead(() => sales.currentContext(me(c), c.req.param("business")));
     return c.json(
       await companionRead(async () => {
         const control = await companions.control(g.binding);
@@ -1255,17 +1258,18 @@ export function everstreetApi(store: Store, options: AppOptions) {
 
   // ---------- bookings (through the booking service) ----------
 
-  const needBookings = () => {
+  const needBookings = (c?: { get: (k: "person") => Person | null }) => {
+    if (c) me(c);
     if (!bookings) throw new HttpError(409, "Bookings are not connected in this environment");
     return bookings;
   };
   app.get("/api/businesses/:id/sessions", async (c) =>
-    c.json({ sessions: await needBookings().ownerSessions(me(c), c.req.param("id")) }),
+    c.json({ sessions: await needBookings(c).ownerSessions(me(c), c.req.param("id")) }),
   );
   app.post("/api/businesses/:id/sessions", async (c) => {
     notDuringHandover(c.req.param("id"));
     return c.json(
-      { sessions: await needBookings().openSession(me(c), c.req.param("id"), await body(c)) },
+      { sessions: await needBookings(c).openSession(me(c), c.req.param("id"), await body(c)) },
       201,
     );
   });
@@ -1277,7 +1281,7 @@ export function everstreetApi(store: Store, options: AppOptions) {
     if (session && pricedAndPaid(session.business_id))
       throw new HttpError(409, "This session is paid; use Pay and book");
     return c.json(
-      await needBookings().book(me(c), c.req.param("id"), String(source ?? "unknown")),
+      await needBookings(c).book(me(c), c.req.param("id"), String(source ?? "unknown")),
       201,
     );
   });
@@ -1285,11 +1289,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const p = me(c);
     const paid = payments ? await payments.cancelPaid(p, c.req.param("id")) : null;
     if (paid)
-      return c.json({ ...(await needBookings().myBooking(p, c.req.param("id"))), payment: paid });
-    return c.json(await needBookings().cancel(p, c.req.param("id")));
+      return c.json({ ...(await needBookings(c).myBooking(p, c.req.param("id"))), payment: paid });
+    return c.json(await needBookings(c).cancel(p, c.req.param("id")));
   });
   app.get("/api/activity/bookings/:id/calendar.ics", async (c) =>
-    c.body(await needBookings().calendar(me(c), c.req.param("id")), 200, {
+    c.body(await needBookings(c).calendar(me(c), c.req.param("id")), 200, {
       "content-type": "text/calendar; charset=utf-8",
       "content-disposition": 'attachment; filename="everstreet-booking.ics"',
     }),
@@ -1297,7 +1301,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
 
   // ---------- payments on NEAR testnet ----------
 
-  const needPayments = () => {
+  const needPayments = (c?: { get: (k: "person") => Person | null }) => {
+    if (c) me(c);
     if (!payments) throw new HttpError(409, "Payments are not connected in this environment");
     return payments;
   };
@@ -1305,40 +1310,42 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.get("/api/wallet", async (c) => {
     const p = me(c);
     return c.json({
-      wallet: payments?.existingWallet(p) ? await needPayments().wallet(p) : null,
+      wallet: payments?.existingWallet(p) ? await needPayments(c).wallet(p) : null,
       info: payments?.info() ?? { enabled: false },
     });
   });
-  app.post("/api/wallet", async (c) => c.json({ wallet: await needPayments().wallet(me(c)) }, 201));
+  app.post("/api/wallet", async (c) =>
+    c.json({ wallet: await needPayments(c).wallet(me(c)) }, 201),
+  );
   app.post("/api/wallet/top-up", async (c) =>
-    c.json({ wallet: await needPayments().topUp(me(c)) }),
+    c.json({ wallet: await needPayments(c).topUp(me(c)) }),
   );
   app.post("/api/businesses/:id/payments/activate", async (c) =>
-    c.json(await needPayments().activate(me(c), c.req.param("id"), await body(c)), 201),
+    c.json(await needPayments(c).activate(me(c), c.req.param("id"), await body(c)), 201),
   );
   app.get("/api/businesses/:id/money", async (c) =>
-    c.json(await needPayments().money(me(c), c.req.param("id"))),
+    c.json(await needPayments(c).money(me(c), c.req.param("id"))),
   );
   app.post("/api/businesses/:id/withdraw", async (c) => {
     const { cents } = await body<{ cents?: number }>(c);
-    return c.json(await needPayments().withdraw(me(c), c.req.param("id"), Number(cents)));
+    return c.json(await needPayments(c).withdraw(me(c), c.req.param("id"), Number(cents)));
   });
   app.post("/api/payments/:id/deliver", async (c) =>
-    c.json(await needPayments().deliver(me(c), c.req.param("id"))),
+    c.json(await needPayments(c).deliver(me(c), c.req.param("id"))),
   );
   app.post("/api/public/sessions/:id/pay", async (c) => {
     const { source } = await body<{ source?: string }>(c);
     return c.json(
-      await needPayments().payAndBook(me(c), c.req.param("id"), String(source ?? "unknown")),
+      await needPayments(c).payAndBook(me(c), c.req.param("id"), String(source ?? "unknown")),
       201,
     );
   });
-  app.get("/api/payments/:id", (c) => c.json(needPayments().receipt(me(c), c.req.param("id"))));
+  app.get("/api/payments/:id", (c) => c.json(needPayments(c).receipt(me(c), c.req.param("id"))));
   app.post("/api/payments/:id/reconcile", async (c) =>
-    c.json(await needPayments().reconcile(me(c), c.req.param("id"))),
+    c.json(await needPayments(c).reconcile(me(c), c.req.param("id"))),
   );
   app.post("/api/payments/:id/retry", async (c) =>
-    c.json(await needPayments().retry(me(c), c.req.param("id"))),
+    c.json(await needPayments(c).retry(me(c), c.req.param("id"))),
   );
 
   // ---------- books and value (owner only) ----------
@@ -1589,20 +1596,20 @@ export function everstreetApi(store: Store, options: AppOptions) {
   // ---------- team: one scoped delegation, enforced by the business's contract ----------
 
   app.get("/api/businesses/:id/team", (c) =>
-    c.json({ team: needPayments().team(me(c), c.req.param("id")) }),
+    c.json({ team: needPayments(c).team(me(c), c.req.param("id")) }),
   );
   app.post("/api/businesses/:id/team", async (c) => {
     const { person_id } = await body<{ person_id?: string }>(c);
     notDuringHandover(c.req.param("id"));
     return c.json(
-      { team: await needPayments().addHelper(me(c), c.req.param("id"), String(person_id ?? "")) },
+      { team: await needPayments(c).addHelper(me(c), c.req.param("id"), String(person_id ?? "")) },
       201,
     );
   });
   app.delete("/api/businesses/:id/team/:personId", async (c) => {
     notDuringHandover(c.req.param("id"));
     return c.json({
-      team: await needPayments().removeHelper(me(c), c.req.param("id"), c.req.param("personId")),
+      team: await needPayments(c).removeHelper(me(c), c.req.param("id"), c.req.param("personId")),
     });
   });
   // ---------- acquisitions: buying profiles, the seller's listing, search, rooms ----------
@@ -1764,47 +1771,47 @@ export function everstreetApi(store: Store, options: AppOptions) {
   });
   app.post("/api/businesses/:id/deals", async (c) => {
     notDuringHandover(c.req.param("id"));
-    return c.json(await needDeals().propose(me(c), c.req.param("id"), await body(c)), 201);
+    return c.json(await needDeals(c).propose(me(c), c.req.param("id"), await body(c)), 201);
   });
   app.get("/api/businesses/:id/deals/snapshot", async (c) =>
     c.json(
-      await needDeals().snapshotPreview(
+      await needDeals(c).snapshotPreview(
         me(c),
         c.req.param("id"),
         String(c.req.query("buyer_id") ?? ""),
       ),
     ),
   );
-  app.get("/api/deals/:id", async (c) => c.json(await needDeals().view(me(c), c.req.param("id"))));
+  app.get("/api/deals/:id", async (c) => c.json(await needDeals(c).view(me(c), c.req.param("id"))));
   app.post("/api/deals/:id/revise", async (c) =>
-    c.json(await needDeals().revise(me(c), c.req.param("id"), await body(c))),
+    c.json(await needDeals(c).revise(me(c), c.req.param("id"), await body(c))),
   );
   app.post("/api/deals/:id/fund", async (c) =>
-    c.json(await needDeals().fund(me(c), c.req.param("id"))),
+    c.json(await needDeals(c).fund(me(c), c.req.param("id"))),
   );
   app.post("/api/deals/:id/test-dollars", async (c) =>
-    c.json(await needDeals().testDollars(me(c), c.req.param("id"))),
+    c.json(await needDeals(c).testDollars(me(c), c.req.param("id"))),
   );
   app.post("/api/deals/:id/withdraw-hold", async (c) =>
-    c.json(await needDeals().withdrawHold(me(c), c.req.param("id"))),
+    c.json(await needDeals(c).withdrawHold(me(c), c.req.param("id"))),
   );
   app.post("/api/deals/:id/accept", async (c) => {
     const { digest } = await body<{ digest?: string }>(c);
-    return c.json(await needDeals().accept(me(c), c.req.param("id"), String(digest ?? "")));
+    return c.json(await needDeals(c).accept(me(c), c.req.param("id"), String(digest ?? "")));
   });
   app.post("/api/deals/:id/cancel", async (c) =>
-    c.json(await needDeals().cancel(me(c), c.req.param("id"))),
+    c.json(await needDeals(c).cancel(me(c), c.req.param("id"))),
   );
   app.post("/api/deals/:id/claim", async (c) =>
-    c.json(await needDeals().claim(me(c), c.req.param("id"))),
+    c.json(await needDeals(c).claim(me(c), c.req.param("id"))),
   );
   app.post("/api/deals/:id/former-owner-check", async (c) =>
-    c.json(await needDeals().formerOwnerCheck(me(c), c.req.param("id"))),
+    c.json(await needDeals(c).formerOwnerCheck(me(c), c.req.param("id"))),
   );
   app.post("/api/deals/:id/items/:key", async (c) => {
     const { note } = await body<{ note?: string }>(c);
     return c.json(
-      await needDeals().markItem(me(c), c.req.param("id"), c.req.param("key"), String(note ?? "")),
+      await needDeals(c).markItem(me(c), c.req.param("id"), c.req.param("key"), String(note ?? "")),
     );
   });
 
@@ -1813,14 +1820,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
     return c.json({ businesses: payments?.helping(viewer) ?? [] });
   });
   app.get("/api/helping/:id", async (c) =>
-    c.json(await needPayments().helperDesk(me(c), c.req.param("id"))),
+    c.json(await needPayments(c).helperDesk(me(c), c.req.param("id"))),
   );
   // Job 005b: support confirmed now (Everstreet's record and the contract), fenced across the
   // check, and never over an existing answer.
   app.post("/api/helping/:id/inquiries/:inquiryId/reply", async (c) => {
     const { text } = await body<{ text?: string }>(c);
     return c.json(
-      await needPayments().helperReply(
+      await needPayments(c).helperReply(
         me(c),
         c.req.param("id"),
         c.req.param("inquiryId"),

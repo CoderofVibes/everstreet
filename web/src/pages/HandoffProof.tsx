@@ -79,6 +79,12 @@ function factValue(f: ProofFact, p: HandoffProofView) {
   if (f.key === "contract") return <span className="mono wrap">{v}</span>;
   if (f.key === "owner") return <span className="mono wrap">{v}</span>;
   if (f.key === "next_settled_use") return `1 · ${v} remaining`;
+  if (f.key === "prepaid_value_at_close")
+    return p.token ? (
+      `${tokenAmount(v, p.token.decimals)} ${p.token.symbol}`
+    ) : (
+      <span className="mono">{v}</span>
+    );
   return v;
 }
 

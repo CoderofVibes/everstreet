@@ -88,8 +88,17 @@ describe("001d1 after publishing, content is immutable and availability stays tr
     // is attached to it (an offer for another release is not this product).
     const live = (await x.page()).body.digital.products[0] as Json;
     expect(live.name).toBe("Invoice reader");
-    // The reviewed release's own offer is still active: it remains the Use target.
-    expect(live.use_offer_id).toBe(x.t.offer);
+    // First-use review (Nov 7, finding 66): the reviewed release's offer row is still active, but
+    // its release is superseded and refuses every use, so it is no Use target any more: the
+    // product reads not open, and the owner's desk says to republish.
+    expect(live.status).toBe("not_open");
+    expect(live.use_offer_id).toBeNull();
+    const desk = (await x.t.w.owner(`${x.biz}/digital-desk`)).body as Json;
+    expect(desk.work.map((w: Json) => w.key)).toContain("public_page");
+    const dash = (await x.t.w.owner("/api/me/dashboard")).body as Json;
+    expect(dash.businesses.flatMap((b: Json) => b.attention.map((a: Json) => a.kind))).toContain(
+      "public_page_outdated",
+    );
     // Offer the newer release, retire the reviewed one's: the newer offer is NOT attached to the
     // older reviewed name; the product reads not open until the owner reviews and republishes.
     const releaseB = (

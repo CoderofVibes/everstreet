@@ -98,6 +98,30 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
   let caseWorker = w.delphine;
   let teamMember: string | null = null;
 
+  /** Publishes a business's public profile through the real reviewed publish. */
+
+  const publishProfile = async (k: "ledgerline" | "relaydesk" | "signalwatch") => {
+    const biz = `/api/businesses/${w.business[k].id}`;
+
+    const base = (await w.delphine(`${biz}/public-profile`)).body as Json;
+
+    const draft = (
+      await w.delphine(`${biz}/public-profile/draft`, "PUT", {
+        base_rev: base.draft_rev,
+
+        draft: { ...PROFILES[k], products: [w.business[k].project] },
+      })
+    ).body as Json;
+
+    const pub = await w.delphine(`${biz}/public-profile/publish`, "POST", {
+      draft_rev: draft.draft_rev,
+
+      review: draft.review,
+    });
+
+    if (pub.status !== 200) throw new Error(`publish ${k}: ${pub.status} ${pub.body.error}`);
+  };
+
   for (let day = 0; day < days; day++) {
     simulatedClock.set(opts.start + day * DAY + 9 * 3_600_000); // 09:00 each simulated day
     const tick = () => simulatedClock.advance(7 * 60_000 + Math.floor(rnd() * 40 * 60_000));
@@ -193,21 +217,7 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
       // First-use review #5/#7/#37: each business's public profile is published through the
       // real reviewed publish (so it reads "open for customers" everywhere), and Relaydesk is
       // listed for sale, so the market isn't empty.
-      for (const k of ["ledgerline", "relaydesk", "signalwatch"] as const) {
-        const biz = `/api/businesses/${w.business[k].id}`;
-        const base = (await w.delphine(`${biz}/public-profile`)).body as Json;
-        const draft = (
-          await w.delphine(`${biz}/public-profile/draft`, "PUT", {
-            base_rev: base.draft_rev,
-            draft: { ...PROFILES[k], products: [w.business[k].project] },
-          })
-        ).body as Json;
-        const pub = await w.delphine(`${biz}/public-profile/publish`, "POST", {
-          draft_rev: draft.draft_rev,
-          review: draft.review,
-        });
-        if (pub.status !== 200) throw new Error(`publish ${k}: ${pub.status} ${pub.body.error}`);
-      }
+      for (const k of ["ledgerline", "relaydesk", "signalwatch"] as const) await publishProfile(k);
       const listed = await w.delphine(
         `/api/businesses/${w.business.relaydesk.id}/listing`,
         "PATCH",
@@ -243,7 +253,13 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
         w.business.ledgerline.project,
         "demo-offer-ledgerline-v2",
       );
-      log.events.push({ day, what: "Ledgerline v2 checked and released; new offer" });
+      // The public page named v1's release; republished so "Use" leads to the active release
+      // (first-use review Nov 7, finding 66).
+      await publishProfile("ledgerline");
+      log.events.push({
+        day,
+        what: "Ledgerline v2 checked and released; new offer; page republished",
+      });
     }
     if (day === 13) {
       tick();

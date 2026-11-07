@@ -164,7 +164,9 @@ export class HandoverRecords {
         group: "What you control",
         items: [
           {
-            text: `You control ${c.b.name} on this server (owner generation ${c.generation}).`,
+            // Judge rehearsal (Nov 7): this server counts changes of control; the contract's
+            // generation (the line below) starts at 1, so the two are not the same number.
+            text: `You control ${c.b.name} on this server (${c.generation === 0 ? "no change of control recorded here" : `${c.generation} ${c.generation === 1 ? "change" : "changes"} of control recorded here`}).`,
             kind: "current",
             basis: "This server's ownership record, checked on this read.",
             observed_at: new Date().toISOString(),

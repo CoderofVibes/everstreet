@@ -132,7 +132,7 @@ describe("001f1 availability changes move it between tabs, never duplicating it"
     expect(x.where(await x.explore(), x.slug)).toEqual({ open: 0, starting: 0 });
   });
 
-  it("a release change keeps it open while the reviewed release's offer is still active", async () => {
+  it("a release change moves it to starting until the owner republishes (its offer's release is superseded)", async () => {
     const x = await world();
     await x.publishDigital();
     const job = await x.t.w.rw.build(x.t.w.f.ava, x.t.w.f.project, {
@@ -140,10 +140,11 @@ describe("001f1 availability changes move it between tabs, never duplicating it"
       name: "A newer unreviewed name",
     });
     await x.t.w.rw.release(x.t.w.f, job);
+    // First-use review (Nov 7, finding 66): the reviewed release's offer refuses every use now,
+    // so the page is not "open"; it keeps the reviewed name and reads coming soon.
     const feed = await x.explore();
-    expect(x.where(feed, x.slug)).toEqual({ open: 1, starting: 0 });
-    // The public name stays the reviewed one.
-    expect(rowIn(feed, "open", x.slug).digital.products[0].name).toBe("Invoice reader");
+    expect(x.where(feed, x.slug)).toEqual({ open: 0, starting: 1 });
+    expect(rowIn(feed, "starting", x.slug).digital.products[0].name).toBe("Invoice reader");
   });
 });
 

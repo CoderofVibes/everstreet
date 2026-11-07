@@ -12,6 +12,7 @@
 
 import type { Db } from "./db.ts";
 import { rehearsable } from "./digitalDesk.ts";
+import { publicPageOutdated } from "./publication.ts";
 import type { Person } from "./store.ts";
 import { tokenMetaOf } from "./tokenMeta.ts";
 
@@ -533,6 +534,14 @@ export function dashboard(
         kind: "open_cases",
         text: `${openCases} open customer request${openCases === 1 ? "" : "s"}`,
         link: `/desk/${b.id}?view=products#desk-cases`,
+      });
+    // First-use review (Nov 7, findings 52 and 66): a published page that names a release the
+    // product no longer runs sends customers to an offer that refuses every use.
+    if (publicPageOutdated(db, b.id))
+      attention.push({
+        kind: "public_page_outdated",
+        text: "The public page names a superseded release: republish it so customers reach the active one",
+        link: `/desk/${b.id}/public`,
       });
     if (live)
       attention.push({

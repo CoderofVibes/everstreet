@@ -11,6 +11,7 @@ import { beforeOpening, missingReason, money, partialLabel } from "../finance.ts
 import { Link } from "../router.tsx";
 import { scopeList } from "../scopes.ts";
 import { useSession } from "../session.tsx";
+import { chainWords } from "../wallet.ts";
 import { CashChart, EarnedCostChart, Scroll } from "./FinanceChart.tsx";
 import { RoomPerformance } from "./RoomPerformance.tsx";
 
@@ -260,7 +261,7 @@ function Items({ title, items }: { title: string; items: ManifestItem[] }) {
 }
 
 export function AcquireRoom({ id }: { id: string }) {
-  const { person } = useSession();
+  const { person, wallet } = useSession();
   const actor = person?.id ?? null;
   // Job 003p: what's shown belongs to one person, one room and one load (see evidenceView.ts).
   const [view, setView] = useState<EvidenceView<Room>>(() => initial(actor, id));
@@ -646,7 +647,7 @@ export function AcquireRoom({ id }: { id: string }) {
               )}
               {room.operations.contract ? (
                 <a href={room.operations.contract.url} target="_blank" rel="noreferrer">
-                  The business's contract on NEAR testnet
+                  The business's contract on {chainWords(wallet)}
                 </a>
               ) : (
                 <p className="muted" style={{ fontSize: 14, margin: 0 }}>

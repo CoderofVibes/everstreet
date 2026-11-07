@@ -439,11 +439,14 @@ export class Publications {
  * under an older product's name. A snapshot from 001d without a release id matches by project.
  */
 function sectionOf(db: Db, snap: LiveSnapshot, publishedAt: string | null) {
+  // First-use review (Nov 7, finding 66): an offer counts only while its release is still the
+  // product's active one. A superseded release's offer refuses every use, so the storefront must
+  // not send a customer to it; the product reads "not open" until the owner republishes.
   const byRelease = db.prepare(
-    "SELECT id FROM customer_offers WHERE project_id = ? AND release_id = ? AND state = 'active' ORDER BY created_at DESC, id LIMIT 1",
+    "SELECT o.id FROM customer_offers o JOIN runtime_releases r ON r.id = o.release_id WHERE o.project_id = ? AND o.release_id = ? AND o.state = 'active' AND r.state = 'active' ORDER BY o.created_at DESC, o.id LIMIT 1",
   );
   const byProject = db.prepare(
-    "SELECT id FROM customer_offers WHERE project_id = ? AND state = 'active' ORDER BY created_at DESC, id LIMIT 1",
+    "SELECT o.id FROM customer_offers o JOIN runtime_releases r ON r.id = o.release_id WHERE o.project_id = ? AND o.state = 'active' AND r.state = 'active' ORDER BY o.created_at DESC, o.id LIMIT 1",
   );
   const products = snap.products.map((p) => {
     const o = !p.released
@@ -484,4 +487,25 @@ export function digitalPublic(db: Db, businessId: string): DigitalPublic | null 
     )
     .get(businessId) as { live: string; live_published_at: string } | undefined;
   return r ? sectionOf(db, JSON.parse(r.live) as LiveSnapshot, r.live_published_at) : null;
+}
+
+/** The live public profile names a product release that is no longer the product's active one. */
+export function publicPageOutdated(db: Db, businessId: string) {
+  const r = db
+    .prepare("SELECT live FROM public_profiles WHERE business_id = ? AND live IS NOT NULL")
+    .get(businessId) as { live: string } | undefined;
+  if (!r) return false;
+  let products: { project_id: string; release_id?: string | null }[] = [];
+  try {
+    products = (JSON.parse(r.live) as { products?: typeof products }).products ?? [];
+  } catch {
+    return false;
+  }
+  const active = db.prepare(
+    "SELECT id FROM runtime_releases WHERE project_id = ? AND state = 'active' LIMIT 1",
+  );
+  return products.some((p) => {
+    const a = active.get(p.project_id) as { id: string } | undefined;
+    return (a?.id ?? null) !== (p.release_id ?? a?.id ?? null);
+  });
 }

@@ -87,21 +87,47 @@ if (live) {
   const customer = r.header.accounts?.customer;
   const ent = customer ? await call("get_entitlement", { customer, plan_id: 1 }) : null;
   const last = [...r.checkpoints].reverse().find((c) => c.views.control)?.views;
-  const same = (a: unknown, b: unknown) => (String(a) === String(b) ? "matches" : "DIFFERS");
+  // Judge rehearsal (Nov 7): the exit code says whether the live facts hold. The code hash, the
+  // key count and the customer's units must match the record; the owner may legitimately have
+  // changed since (a later sale), which is reported as later history, not a mismatch.
+  let liveOk = true;
+  const same = (a: unknown, b: unknown) => {
+    if (String(a) === String(b)) return "matches";
+    liveOk = false;
+    return "DIFFERS from";
+  };
   console.log(`Live on NEAR testnet (${RPC}, final):`);
   console.log(
     `  code hash ${acc.code_hash} (${same(acc.code_hash, r.header.contract.code_hash_expected)} the record)`,
   );
   const n = (keys.keys as unknown[]).length;
+  if (n !== 0) liveOk = false;
   console.log(
     `  access keys: ${n} (${n === 0 ? "nobody can redeploy the code or take the account" : "WARNING: someone holds a key to this account"})`,
   );
-  console.log(
-    `  owner ${control.owner}, generation ${control.generation} (${same(control.owner, last?.control?.owner)} the record's last checkpoint)`,
-  );
+  const recordedOwner = last?.control?.owner;
+  const recordedGen = last?.control?.generation;
+  if (String(control.owner) === String(recordedOwner)) {
+    console.log(
+      `  owner ${control.owner}, generation ${control.generation} (matches the record's last checkpoint)`,
+    );
+  } else if (Number(control.generation) > Number(recordedGen ?? 0)) {
+    console.log(
+      `  owner ${control.owner}, generation ${control.generation}: changed since this record (its last checkpoint shows ${recordedOwner} at generation ${recordedGen}); a later sale moved control, so look for a later record of this business`,
+    );
+  } else {
+    liveOk = false;
+    console.log(
+      `  owner ${control.owner}, generation ${control.generation} (DIFFERS from the record's last checkpoint ${recordedOwner} at generation ${recordedGen}, and not by a later sale)`,
+    );
+  }
   if (ent)
     console.log(
       `  customer ${customer}: ${ent.free} unused, ${ent.consumed} used (${same(ent.free, last?.entitlement?.free)} the record)`,
     );
+  if (!liveOk) {
+    console.log("LIVE CHECK FAILED: the contract on testnet does not match this record.");
+    process.exit(1);
+  }
 }
 process.exit(v.ok ? 0 : 1);

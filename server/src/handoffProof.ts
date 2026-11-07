@@ -477,9 +477,21 @@ export class HandoffProof {
         source: txSource,
       },
       {
+        // The units of the customers this business served here, read one by one at the close.
         key: "units_at_close",
-        label: "Customers' units at close",
+        label: snap
+          ? `Unused units of the ${snap.customers.length} customer${snap.customers.length === 1 ? "" : "s"} served here, at close`
+          : "Unused units of the customers served here, at close",
         value: snap ? units.toString() : null,
+        source: src,
+        block: snap?.block.height ?? null,
+      },
+      {
+        // First-use review (Nov 7, finding 83): the contract's own total, so this page agrees
+        // with the sale page and the portfolio, which show the treasury's prepaid value.
+        key: "prepaid_value_at_close",
+        label: "All customers' prepaid value at close (the contract's total)",
+        value: snap ? snap.treasury.ent_free_value : null,
         source: src,
         block: snap?.block.height ?? null,
       },

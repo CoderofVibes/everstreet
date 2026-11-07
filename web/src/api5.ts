@@ -415,18 +415,24 @@ export const api5 = {
     ),
 };
 
-/** The buying profile this browser last used (a convenience; the server checks every call). */
+/**
+ * The buying profile this browser last used for this person (a convenience; the server checks
+ * every call). Keyed by the person, so another account signing in here never asks for someone
+ * else's profile (permissions review 2, note).
+ */
 export const rememberedBuyer = {
-  get: () => {
+  get: (personId: string | null | undefined) => {
+    if (!personId) return null;
     try {
-      return window.localStorage.getItem("es.buyer");
+      return window.localStorage.getItem(`es.buyer.${personId}`);
     } catch {
       return null;
     }
   },
-  set: (id: string) => {
+  set: (personId: string | null | undefined, id: string) => {
+    if (!personId) return;
     try {
-      window.localStorage.setItem("es.buyer", id);
+      window.localStorage.setItem(`es.buyer.${personId}`, id);
     } catch {
       // private window or blocked storage: the first profile is used instead
     }

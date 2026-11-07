@@ -9,6 +9,7 @@ import { catalogView } from "../homeView.ts";
 import { Icon, type IconName } from "../icons.tsx";
 import { Link, useRouter } from "../router.tsx";
 import { useSession } from "../session.tsx";
+import { chainWords } from "../wallet.ts";
 import { Composer, fetchProjects, ProjectCard, ReadFailed } from "./Build.tsx";
 import { FeaturedProduct, MarketList } from "./Market.tsx";
 import { ExampleBusinesses, SamplePanel } from "./Showcase.tsx";
@@ -26,7 +27,7 @@ const fetchNeeds = () => api.needs().then((r) => r.needs.slice(0, 3));
 
 export function Home() {
   const { go } = useRouter();
-  const { person } = useSession();
+  const { person, wallet } = useSession();
   const [category, setCategory] = useState("all");
   // Job 001f2: each read settles into data or an honest retry; a failure is never shown as an
   // empty catalog. The recent projects belong to the signed-in account only.
@@ -249,11 +250,11 @@ export function Home() {
 
       <section className="intact">
         <div>
-          <div className="eyebrow">Ownership on NEAR testnet</div>
+          <div className="eyebrow">Ownership on {chainWords(wallet)}</div>
           <h2>Built to change hands intact.</h2>
           <p style={{ color: "var(--on-ink-2)" }}>
-            A business here can have its own contract on NEAR testnet. When it is sold, both sides
-            accept the same exact terms on chain, and control moves to the buyer.
+            A business here can have its own contract on {chainWords(wallet)}. When it is sold, both
+            sides accept the same exact terms on chain, and control moves to the buyer.
           </p>
           <Link to="/acquire">Explore acquisitions</Link>
         </div>

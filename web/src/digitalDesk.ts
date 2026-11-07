@@ -70,6 +70,10 @@ export function workHref(w: Pick<DeskWorkItem, "link">, businessId: string): str
       return deskViewHref(businessId, "products", "desk-cases");
     case "sale":
       return `/sales/${businessId}`;
+    case "public":
+      return `/desk/${businessId}/public`;
+    case "allowance":
+      return `/desk/${businessId}/allowance`;
     default:
       return deskViewHref(businessId, "growth", "desk-checklist");
   }

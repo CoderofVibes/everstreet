@@ -8,6 +8,7 @@ import type { Db } from "./db.ts";
 import type { MaintenanceHealth } from "./maintenance.ts";
 import { currentCustomerWork, type SettlementWorker } from "./operations.ts";
 import { FOUNDATION_DEFS, type Foundation } from "./products.ts";
+import { publicPageOutdated } from "./publication.ts";
 import { tokenMetaOf } from "./tokenMeta.ts";
 
 export const DESK_PRODUCTS = 12;
@@ -21,7 +22,16 @@ export interface DeskWork {
   count: number;
   label: string;
   link: {
-    to: "customers" | "studio" | "inquiries" | "checklist" | "continuity" | "cases" | "sale";
+    to:
+      | "customers"
+      | "studio"
+      | "inquiries"
+      | "checklist"
+      | "continuity"
+      | "cases"
+      | "sale"
+      | "public"
+      | "allowance";
     project?: string;
   };
 }
@@ -258,6 +268,15 @@ export function digitalDesk(
     ),
     label: "open customer requests",
     link: { to: "cases" },
+  });
+  // First-use review (Nov 7, findings 52 and 66): a public page naming a superseded release sends
+  // customers to an offer that refuses every use; the desk never says "nothing is waiting" then.
+  add({
+    key: "public_page",
+    who: "you",
+    count: publicPageOutdated(db, businessId) ? 1 : 0,
+    label: "public page names a superseded release: republish it",
+    link: { to: "public" },
   });
   const deal = liveDeal(db, businessId);
   if (deal)

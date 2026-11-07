@@ -28,6 +28,9 @@ describe("003x control sheet and portable record", () => {
     const sheet = await f.ava(`/api/businesses/${f.business}/control-sheet`);
     expect(sheet.status).toBe(200);
     const groups = sheet.body.statements.map((g: { group: string }) => g.group);
+    // Judge rehearsal (Nov 7): the server's count of control changes is not called a generation.
+    expect(sheet.body.statements[0].items[0].text).toMatch(/change of control recorded here/);
+    expect(sheet.body.statements[0].items[0].text).not.toMatch(/owner generation/);
     expect(groups).toEqual([
       "What you control",
       "What customers keep",

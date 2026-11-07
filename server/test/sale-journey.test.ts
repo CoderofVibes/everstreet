@@ -819,3 +819,27 @@ describe("003wf2 wallet loss, recovery and admission", () => {
     expect(resolveSaleTx(row, real, "1".repeat(44))).toBeNull();
   });
 });
+
+describe("judge rehearsal (Nov 7): the sale-action order is enforced", () => {
+  it("a transaction hash for an action the wallet was never asked for is refused", async () => {
+    const s = await saleWorld();
+    const p = await s.prepare(s.ava, "propose", proposal());
+    expect(p.status).toBe(200);
+    const c = await s.ava(`/api/sales/${s.biz}/actions`, "POST", {
+      kind: "propose",
+      input: p.body.input,
+      action_digest: p.body.action_digest,
+      idempotency_key: "sale-propose-hash-before-ask",
+    });
+    expect(c.status).toBe(201);
+    const r = await s.ava(`/api/sales/actions/${c.body.action.id}/requested`, "POST", {
+      tx_hash: "11111111111111111111111111111111111111111111",
+    });
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe("not_requested");
+    // The action is still prepared; asking first, then naming the hash, is the way.
+    expect(
+      (await s.ava(`/api/sales/actions/${c.body.action.id}/requested`, "POST", {})).body.ask,
+    ).toBe("granted");
+  });
+});

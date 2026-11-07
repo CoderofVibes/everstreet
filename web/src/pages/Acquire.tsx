@@ -998,10 +998,13 @@ export function Acquire() {
   useEffect(() => {
     api5.meta().then(setMeta);
   }, []);
-  const loadWorkspace = useCallback(async (id: string) => {
-    setWs(await api5.workspace(id));
-    rememberedBuyer.set(id);
-  }, []);
+  const loadWorkspace = useCallback(
+    async (id: string) => {
+      setWs(await api5.workspace(id));
+      rememberedBuyer.set(person?.id, id);
+    },
+    [person?.id],
+  );
   const loadBuyers = useCallback(async () => {
     if (!person) {
       setBuyers([]);
@@ -1010,7 +1013,7 @@ export function Acquire() {
     }
     const { buyers: list } = await api5.buyers();
     setBuyers(list);
-    const remembered = rememberedBuyer.get();
+    const remembered = rememberedBuyer.get(person.id);
     const pick = list.find((b) => b.id === remembered) ?? list[0];
     if (pick) await loadWorkspace(pick.id);
     else setWs(null);
@@ -1039,7 +1042,7 @@ export function Acquire() {
               onSave={async (b) => {
                 const w = await api5.createBuyer(b);
                 setCreating(false);
-                rememberedBuyer.set(w.buyer.id);
+                rememberedBuyer.set(person?.id, w.buyer.id);
                 await loadBuyers();
               }}
             />

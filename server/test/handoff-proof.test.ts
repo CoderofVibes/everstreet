@@ -70,6 +70,11 @@ describe("handoff proof", () => {
     expect(facts.contract.source).toBe("everstreet");
     expect(facts.close_tx.value).toMatch(/^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
     expect(facts.close_tx.source).toBe("synthetic"); // the synthetic chain shows its outcome
+    // First-use review (Nov 7, finding 83): the units are those of the customers served here,
+    // said so; the contract's total prepaid value stands beside them.
+    expect(facts.units_at_close.label).toMatch(/served here/);
+    expect(facts.prepaid_value_at_close.value).toMatch(/^\d+$/);
+    expect(facts.prepaid_value_at_close.source).toBe("synthetic");
     expect(p.body.rights.ended[0]).toMatchObject({ what: "owner_role", account: SELLER });
     expect(p.body.rights.operates).toMatchObject({ account: BUYER, generation: 2, moved: true });
     expect(p.body.rights.seller_claim.owed).toBe(proposal().price);

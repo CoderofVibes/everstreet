@@ -4,7 +4,7 @@ import { Link } from "../router.tsx";
 import { useSession } from "../session.tsx";
 
 export function Inbox() {
-  const { person, requireSignIn } = useSession();
+  const { person, account, requireSignIn } = useSession();
   const [box, setBox] = useState<{ received: Inquiry[]; sent: Inquiry[] } | null>(null);
   const [replies, setReplies] = useState<Record<string, string>>({});
   // First-use review #57: what waits on you across your businesses, from the same read as the
@@ -33,7 +33,43 @@ export function Inbox() {
           ),
       )
       .catch(() => setNeeds(null));
-  }, [person]);
+    // First-use review (Nov 7, finding 64): a case worker's assigned cases need them too.
+    (async () => {
+      try {
+        const t = await fetch("/api/me/teams", { credentials: "same-origin" });
+        if (!t.ok) return;
+        const teams =
+          (
+            (await t.json()) as {
+              teams?: { business_id: string; business_name: string; role: string }[];
+            }
+          ).teams ?? [];
+        const mine: { business: string; text: string; link: string }[] = [];
+        for (const team of teams.filter((x) => x.role === "case_worker")) {
+          const b = await fetch(`/api/businesses/${team.business_id}/workflow-cases`, {
+            credentials: "same-origin",
+          });
+          if (!b.ok) continue;
+          const cases =
+            (
+              (await b.json()) as {
+                cases?: { assignee?: string | null; closed_at: string | null }[];
+              }
+            ).cases ?? [];
+          const n = cases.filter((c) => c.closed_at === null && c.assignee === account).length;
+          if (n > 0)
+            mine.push({
+              business: team.business_name,
+              text: `${n} case${n === 1 ? "" : "s"} assigned to you`,
+              link: `/team/${team.business_id}`,
+            });
+        }
+        if (mine.length > 0) setNeeds((prev) => [...(prev ?? []), ...mine]);
+      } catch {
+        // the boards couldn't be read: the owner items still show
+      }
+    })();
+  }, [person, account]);
   if (!person)
     return (
       <div className="page empty">

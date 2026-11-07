@@ -887,6 +887,38 @@ export class SaleActions {
     return { ...g, localOwner: g.business.owner_id === viewer.id };
   }
 
+  /**
+   * Permissions review 2, finding 3: the readings only a current participant may have (the
+   * business's economics, its companions). The owner here, the contract's owner, or the live
+   * deal's buyer; a past participant (a former seller, a buyer whose deal ended) gets the same
+   * 404 as a stranger, as the sale page's live facts already do. The deal is read from the
+   * contract at a final block, not from this server's record.
+   */
+  async currentContext(viewer: Viewer, businessId: string) {
+    const g = this.proofContext(viewer, businessId);
+    if (g.localOwner) return g;
+    const reader = this.reader as CustomerViewTransport;
+    const block = await reader.finalBlock(g.binding.network);
+    const a = await reader.view({
+      network: g.binding.network,
+      account: g.binding.account,
+      method: "get_control",
+      args: {},
+      block,
+    });
+    let control: { owner?: unknown; live_deal?: { buyer?: unknown } | null } = {};
+    try {
+      control = JSON.parse(a.result) as typeof control;
+    } catch {
+      throw new V3ReadError("malformed", "get_control returned invalid JSON");
+    }
+    const current =
+      control.owner === g.account ||
+      (control.live_deal != null && control.live_deal.buyer === g.account);
+    if (!current) bad(404, "No such sale");
+    return g;
+  }
+
   /** One coherent reading at one pinned final block, bounded by one deadline. */
   private async read(
     binding: { network: string; account: string },
@@ -1022,6 +1054,8 @@ export class SaleActions {
         s.party.escrow_return_claim !== "0" ||
         s.party.sale_proceeds_claim !== "0");
     return {
+      // "seller": the owner here and on the contract, who may propose a sale (a new owner too,
+      // once their purchase closed: the sale page offers a resale from it).
       seller: localOwner && s.control.owner === account,
       buyer: d?.buyer === account,
       former_seller: closedAsSeller && s.control.owner !== account,
@@ -2176,6 +2210,14 @@ export class SaleActions {
     if (input.tx_hash !== undefined) {
       if (typeof input.tx_hash !== "string" || !TX_HASH.test(input.tx_hash))
         bad(400, "That isn't a NEAR transaction ID", "bad_tx_hash");
+      // Judge rehearsal (Nov 7): a hash for an action nobody asked the wallet for is refused,
+      // not quietly ignored; the order is requested {} first, then the wallet, then check.
+      if (this.own(viewer, id).state === "prepared")
+        bad(
+          409,
+          "Ask the wallet first (POST requested with no body), then send its hash.",
+          "not_requested",
+        );
       this.db
         .prepare(
           "UPDATE sale_actions SET tx_hash = ?, rev = rev + 1, updated_at = ? WHERE id = ? AND tx_hash IS NULL AND state IN ('requested','unknown','no_longer_possible')",

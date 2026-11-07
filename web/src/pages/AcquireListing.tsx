@@ -18,6 +18,7 @@ function RequestForm({
   listingId: string;
   onSent: () => void;
 }) {
+  const { person } = useSession();
   const [buyers, setBuyers] = useState<{ id: string; name: string; role: string }[]>([]);
   const [buyerId, setBuyerId] = useState("");
   const [cats, setCats] = useState<string[]>(["financials", "operations"]);
@@ -28,10 +29,10 @@ function RequestForm({
     api5.buyers().then(({ buyers: list }) => {
       const able = list.filter((b) => b.role === "approve");
       setBuyers(able);
-      const remembered = rememberedBuyer.get();
+      const remembered = rememberedBuyer.get(person?.id);
       setBuyerId(able.find((b) => b.id === remembered)?.id ?? able[0]?.id ?? "");
     });
-  }, []);
+  }, [person?.id]);
   if (buyers.length === 0)
     return (
       <p className="muted" style={{ fontSize: 14 }}>

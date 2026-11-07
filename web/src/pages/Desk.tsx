@@ -229,6 +229,45 @@ export function DeskPage({ id }: { id: string }) {
     if (person) load();
   }, [person, load]);
   const { desk, error, digital, digitalError } = s;
+  // First-use review (Nov 7, finding 43): supplier invoices awaiting the owner's approval are work
+  // too. The allowance lives on a companion contract, read live, so it joins the list here.
+  const [awaiting, setAwaiting] = useState<DigitalDeskView["work"]>([]);
+  useEffect(() => {
+    if (!person || digital?.kind !== "digital") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const has = await fetch(`/api/businesses/${id}/companions`, { credentials: "same-origin" });
+        if (!has.ok || !((await has.json()) as { allowance?: boolean }).allowance) return;
+        const r = await fetch(`/api/companions/${id}`, { credentials: "same-origin" });
+        if (!r.ok) return;
+        const v = (await r.json()) as {
+          you_own_it?: boolean;
+          allowance?: { awaiting?: unknown[] } | null;
+        };
+        const n = v.you_own_it ? (v.allowance?.awaiting?.length ?? 0) : 0;
+        if (!cancelled)
+          setAwaiting(
+            n > 0
+              ? [
+                  {
+                    key: "allowance_awaiting",
+                    who: "you",
+                    count: n,
+                    label: `supplier invoice${n === 1 ? "" : "s"} await${n === 1 ? "s" : ""} your approval`,
+                    link: { to: "allowance" },
+                  },
+                ]
+              : [],
+          );
+      } catch {
+        // the companion couldn't be read: the list shows the rest
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [person, digital?.kind, id]);
   if (!person) return <SignInFirst reason="Sign in to open your desk." />;
   if (error)
     return (
@@ -248,7 +287,9 @@ export function DeskPage({ id }: { id: string }) {
     return (
       <DigitalWorkspace
         desk={desk}
-        digital={digital}
+        digital={
+          awaiting.length > 0 ? { ...digital, work: [...digital.work, ...awaiting] } : digital
+        }
         load={load}
         replies={replies}
         setReplies={setReplies}

@@ -142,7 +142,16 @@ export interface DeskWorkItem {
   count: number;
   label: string;
   link: {
-    to: "customers" | "studio" | "inquiries" | "checklist" | "continuity" | "cases" | "sale";
+    to:
+      | "customers"
+      | "studio"
+      | "inquiries"
+      | "checklist"
+      | "continuity"
+      | "cases"
+      | "sale"
+      | "public"
+      | "allowance";
     project?: string;
   };
 }

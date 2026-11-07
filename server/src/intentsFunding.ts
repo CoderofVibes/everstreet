@@ -347,6 +347,37 @@ export class IntentsFunding {
     const solver = this.opts.solver ?? bad(503, "No solver is connected here.", "no_solver");
     if (r.state !== "quoted") return this.status(personId, id);
     if (this.now() >= r.deadline_ms) bad(409, "The quote expired.", "expired");
+    // Permissions review 2, findings 1 and 2: the quote's conditions are read again at the moment
+    // of the fill, from the business contract. The solver fills only a swap that still funds this
+    // sale (the same deal, this buyer, escrow still empty), and only once per deal: a second quote
+    // for a deal whose price was already swapped funds nothing.
+    const d0 = await this.deal(b);
+    if (d0 === null || d0.seq !== r.deal_seq) {
+      this.set(id, { state: "refused", error: "no live deal for this quote" });
+      bad(409, "There is no live deal for this quote; nothing moved.", "no_deal");
+    }
+    const d = d0 as NonNullable<typeof d0>;
+    if (d.buyer !== r.account) {
+      this.set(id, { state: "refused", error: "the deal names another buyer" });
+      bad(409, "The deal names another buyer; nothing moved.", "not_buyer");
+    }
+    if (d.escrow !== "0") {
+      this.set(id, { state: "refused", error: "the escrow is already funded" });
+      bad(409, "The escrow is already funded; nothing moved.", "funded");
+    }
+    const other = this.db
+      .prepare(
+        "SELECT 1 FROM intent_fundings WHERE business_id = ? AND deal_seq = ? AND id != ? AND (state = 'swapped' OR (state IN ('swapping','unknown') AND deadline_ms > ?)) LIMIT 1",
+      )
+      .get(r.business_id, r.deal_seq, id, this.now());
+    if (other) {
+      this.set(id, { state: "refused", error: "another quote for this deal was filled" });
+      bad(
+        409,
+        "This sale's price was already swapped under another quote; nothing moved.",
+        "already_filled",
+      );
+    }
     const message = this.buyerMessage(r);
     const nonce = Buffer.from(r.nonce, "base64");
     // A wallet may sign with or without the callback URL it was given: whichever it signed.
@@ -396,7 +427,13 @@ export class IntentsFunding {
     this.set(id, { state: "swapping" });
     try {
       const out = await solver.execute(r.verifier, signed);
-      this.set(id, { state: "swapped", exec_hash: out.hash });
+      // Permissions review 2, finding 6: the solver's own answer is not the record. The swap is
+      // "swapped" only once the verifier shows the buyer's nonce spent; until then it is unknown,
+      // and status() keeps asking the verifier.
+      const [used] = (await this.reads(b.network, [
+        [r.verifier, "is_nonce_used", { account_id: r.account, nonce: r.nonce }],
+      ]).catch(() => [false])) as [boolean];
+      this.set(id, { state: used ? "swapped" : "unknown", exec_hash: out.hash });
     } catch (e) {
       if (e instanceof IntentsRefused) {
         this.set(id, { state: "refused", error: e.message.slice(0, 300) });
@@ -449,9 +486,10 @@ export class IntentsFunding {
     const expired = this.now() >= r.deadline_ms;
     let stage: IntentsStage;
     if (state === "swapped") {
+      // The swap credited the buyer's tUSD inside the verifier; once less than the swapped amount
+      // is left inside, the buyer withdrew it (their total balance elsewhere proves nothing).
       if (funded) stage = "funded";
-      else if (BigInt(insideGet) < BigInt(r.get_amount) && BigInt(own) >= BigInt(r.get_amount))
-        stage = "delivered";
+      else if (BigInt(insideGet) < BigInt(r.get_amount)) stage = "delivered";
       else stage = "swapped";
     } else if ((state === "unknown" || state === "swapping") && !expired) {
       stage = "unknown";

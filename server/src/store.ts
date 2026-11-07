@@ -321,7 +321,9 @@ export class Store {
         .prepare("SELECT owner_kind, owner_id FROM chain_accounts WHERE account_id = ?")
         .get(accountId) as { owner_kind: string; owner_id: string } | undefined;
       // An account already linked to something else is never silently taken over.
-      if (linked) throw new HttpError(409, "That account is already linked here", "account_linked");
+      // Permissions review 2, finding 8: the same refusal as any other failed sign-in, so a key
+      // holder learns nothing about whether the account has records here.
+      if (linked) throw new HttpError(401, "That sign-in was refused", "sign_in_refused");
       const person: Person = {
         id: randomUUID(),
         display_name: accountId.slice(0, 80),
