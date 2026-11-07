@@ -330,6 +330,9 @@ function SourceKey({ p }: { p: HandoffProofView }) {
         <Row label="Attack suite">
           <Link to="/attacks">What we tried to break</Link>
         </Row>
+        <Row label="On NEAR testnet">
+          <Link to="/proof/ledgerline">A recorded handoff</Link>
+        </Row>
       </Rows>
     </section>
   );

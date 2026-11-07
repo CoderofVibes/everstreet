@@ -42,6 +42,7 @@ import { ProductStudio } from "./pages/ProductStudio.tsx";
 import { Profile } from "./pages/Profile.tsx";
 import { PublicPage } from "./pages/PublicPage.tsx";
 import { PublicProfileEditor } from "./pages/PublicProfile.tsx";
+import { RecordedProofPage } from "./pages/RecordedProof.tsx";
 import { SaleRoom } from "./pages/SaleRoom.tsx";
 import { ExamplePage } from "./pages/Showcase.tsx";
 import { SignInReturn } from "./pages/SignInReturn.tsx";
@@ -282,6 +283,8 @@ function Routes() {
   if (path === "/handovers") return <HandoversPage key={person?.id ?? "anon"} />;
   // The Case Docket: what we tried to break (public).
   if (path === "/attacks") return <AttackDocketPage />;
+  // The recorded testnet example in the proof layout (public).
+  if (path === "/proof/ledgerline") return <RecordedProofPage />;
   // Job 003wf2: a Direct sale through each participant's own wallet; keyed by who is acting.
   // The handoff proof (Continuity Receipt) of the newest close this person took part in.
   // Per-use economics for the owner and a buyer reviewing the sale.
