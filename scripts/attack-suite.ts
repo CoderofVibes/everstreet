@@ -13,9 +13,14 @@
 //   npx tsx scripts/attack-suite.ts --check    # runs it and fails if any case fails
 
 import { execFileSync } from "node:child_process";
+import { generateKeyPairSync, type KeyObject, sign } from "node:crypto";
 import { writeFileSync } from "node:fs";
+import { nep413Digest } from "../server/src/identity.ts";
+import { intentMessage, versionedNonce } from "../server/src/intentsFunding.ts";
+import { toB58 } from "../server/src/lightClient.ts";
 import { attachCompanions, signerOf, testAddress } from "../server/test/companion-chain.ts";
 import { CUSTOMER, FixtureReader, type Json } from "../server/test/customer-world.ts";
+import { ALT_TOKEN, attachIntents, VERIFIER } from "../server/test/intents-chain.ts";
 import { BUYER, PRICE, proposal, SELLER, saleWorld } from "../server/test/sale-world.ts";
 
 type World = Awaited<ReturnType<typeof saleWorld>>;
@@ -30,6 +35,10 @@ const SELLER_EVM = `0x${"5e11e7".repeat(6)}5e11`;
 /** Each world's companions (the external feed and the supplier allowance). */
 const companionsOf = new WeakMap<World, Companions>();
 const co = (s: World) => companionsOf.get(s) as Companions;
+type Intents = ReturnType<typeof attachIntents> & { buyerKey: KeyObject; buyerPk: string };
+/** Each world's intents verifier, second token and solver (escrow funding from another token). */
+const intentsOf = new WeakMap<World, Intents>();
+const ix = (s: World) => intentsOf.get(s) as Intents;
 
 /** A sale world with both companions: the feed at generation 1's address, a granted budget. */
 async function world(grant: { per_payment?: string; per_period?: string } = {}) {
@@ -62,6 +71,40 @@ async function world(grant: { per_payment?: string; per_period?: string } = {}) 
     deposit: "0",
   });
   companionsOf.set(s, c);
+  const chain = s.w.chain as unknown as {
+    balances: Map<string, bigint>;
+    tokenRegistered: Set<string>;
+  };
+  const x = attachIntents(
+    s.w.chain,
+    { token: s.TOKEN, ledger: { balances: chain.balances, registered: chain.tokenRegistered } },
+    1_000_000_000n,
+  );
+  x.alt.ledger.balances.set(BUYER, 400_000_000n);
+  x.alt.ledger.registered.add(BUYER);
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const raw = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
+  intentsOf.set(s, {
+    ...x,
+    buyerKey: privateKey,
+    buyerPk: `ed25519:${toB58(Uint8Array.from(raw))}`,
+  });
+  s.w.state.app = s.w.make(s.w.state.store, undefined, {
+    customer: s.w.options(),
+    intents: {
+      bindings: [
+        {
+          business_id: s.biz,
+          network: "testnet",
+          account: s.BUSINESS,
+          asset: s.TOKEN,
+          verifier: VERIFIER,
+          offers: [{ token: ALT_TOKEN, symbol: "tALT", decimals: 6, rate_num: "5", rate_den: "4" }],
+        },
+      ],
+      solver: x.solver,
+    },
+  });
   return s;
 }
 
@@ -75,6 +118,8 @@ interface Protected {
   feed_controller: string;
   /** The supplier budget held by the allowance companion. */
   supplier_budget: string;
+  /** Every balance held inside the intents verifier (the buyer's deposit, the solver's float). */
+  verifier_balances: string;
 }
 
 interface Case {
@@ -98,6 +143,9 @@ const protectedOf = (s: World): Protected => {
     pending_payouts: (s.sale.pendingView() as Json[]).length,
     feed_controller: co(s).registry.controller,
     supplier_budget: String(co(s).allowance.balance),
+    verifier_balances: JSON.stringify(
+      [...ix(s).verifier.inside].map(([a, m]) => [a, [...m].map(([k, v]) => [k, String(v)])]),
+    ),
   };
 };
 const same = (a: Protected, b: Protected) => JSON.stringify(a) === JSON.stringify(b);
@@ -702,6 +750,173 @@ await pair(
     what: "A second payment asks for the same last 1 TUSD",
     refusal: payRefusal(s, SUPPLIER, 1_000_000n, inv(9)),
   }),
+);
+
+// ---------- Escrow funding from another token: the intents verifier and the solver ----------
+
+const GIVE = (BigInt(PRICE) * 5n) / 4n;
+/** One side of a swap, signed with the buyer's own key or the solver's. */
+function side(
+  s: World,
+  o: { signer: string; give: [string, bigint]; get: [string, bigint]; key: "buyer" | "solver" },
+) {
+  const deadline = Date.now() + 120_000;
+  const nonce = versionedNonce(ix(s).verifier.salt, deadline);
+  const message = intentMessage({
+    signer: o.signer,
+    deadlineMs: deadline,
+    give: { token: o.give[0], amount: String(o.give[1]) },
+    get: { token: o.get[0], amount: String(o.get[1]) },
+  });
+  const digest = nep413Digest({ message, nonce, recipient: VERIFIER });
+  const signature =
+    o.key === "buyer" ? sign(null, digest, ix(s).buyerKey) : ix(s).solver.sign(digest);
+  return {
+    standard: "nep413",
+    payload: { message, nonce: nonce.toString("base64"), recipient: VERIFIER },
+    public_key: o.key === "buyer" ? ix(s).buyerPk : ix(s).solver.publicKey,
+    signature: `ed25519:${toB58(Uint8Array.from(signature))}`,
+  };
+}
+const buyerSide = (s: World) =>
+  side(s, { signer: BUYER, give: [ALT_TOKEN, GIVE], get: [s.TOKEN, BigInt(PRICE)], key: "buyer" });
+const solverSide = (s: World, pay = BigInt(PRICE)) =>
+  side(s, {
+    signer: ix(s).solver.account,
+    give: [s.TOKEN, pay],
+    get: [ALT_TOKEN, GIVE],
+    key: "solver",
+  });
+/** The verifier's answer to one execute_intents: its refusal text, or null if it ran. */
+function execute(s: World, signed: Json[]) {
+  const out = ix(s).verifier.walletCall(ix(s).solver.account, {
+    methodName: "execute_intents",
+    args: { signed },
+    gas: "1",
+    deposit: "0",
+  });
+  return /Smart contract panicked: ([^"]+)/.exec(JSON.stringify(out.status))?.[1] ?? null;
+}
+const buyerCall = (s: World, receiverId: string, methodName: string, args: Json) =>
+  s.wallet(BUYER, { receiverId, methodName, args, gas: "100000000000000", deposit: "1" });
+/** A proposed, unfunded sale; the buyer's key registered and their tALT deposited. */
+async function deposited() {
+  const s = await world();
+  await s.act(s.ava, SELLER, "propose", proposal());
+  await s.act(s.noah, BUYER, "register");
+  buyerCall(s, VERIFIER, "add_public_key", { public_key: ix(s).buyerPk });
+  buyerCall(s, ALT_TOKEN, "ft_transfer_call", {
+    receiver_id: VERIFIER,
+    amount: String(GIVE),
+    msg: "",
+  });
+  return s;
+}
+const heldSwap = new WeakMap<World, Json[]>();
+
+await pair(
+  6,
+  "Solver signs the buyer's side",
+  deposited,
+  async (s) => ({
+    what: "Buyer and solver each sign their own side; the verifier swaps",
+    result: execute(s, [buyerSide(s), solverSide(s)]) ?? "swapped",
+  }),
+  async (s) => {
+    const forged = side(s, {
+      signer: BUYER,
+      give: [ALT_TOKEN, GIVE],
+      get: [s.TOKEN, 1n],
+      key: "solver",
+    });
+    const e = execute(s, [forged, solverSide(s, 1n)]);
+    return {
+      what: "The solver signs a side as the buyer, giving the buyer 1 base unit of tUSD",
+      refusal: e?.includes("doesn't exist for account") ? "Verifier: not the buyer's key" : null,
+    };
+  },
+);
+await pair(
+  6,
+  "Fill smaller than the quote",
+  deposited,
+  async (s) => ({
+    what: "The solver pays exactly the quoted tUSD",
+    result: execute(s, [buyerSide(s), solverSide(s)]) ?? "swapped",
+  }),
+  async (s) => {
+    const e = execute(s, [buyerSide(s), solverSide(s, BigInt(PRICE) - 1_000_000n)]);
+    return {
+      what: "The solver's side pays 1 tUSD less than the buyer signed for",
+      refusal: e?.includes("invariant") ? "Verifier: the sides don't balance" : null,
+    };
+  },
+);
+await pair(
+  2,
+  "A filled swap sent again",
+  async () => {
+    const s = await deposited();
+    const signed = [buyerSide(s), solverSide(s)];
+    execute(s, signed);
+    heldSwap.set(s, signed);
+    return s;
+  },
+  async (s) => {
+    const nonce = ((heldSwap.get(s) as Json[])[0] as Json).payload.nonce;
+    const used = ix(s).verifier.view("is_nonce_used", { account_id: BUYER, nonce });
+    return {
+      what: "After a lost response, the verifier is asked whether the buyer's nonce is spent",
+      result: used === "true" ? "spent: the swap happened once" : "not spent",
+    };
+  },
+  async (s) => {
+    const e = execute(s, heldSwap.get(s) as Json[]);
+    return {
+      what: "The same signed pair is submitted a second time",
+      refusal: e?.includes("nonce was already used") ? "Verifier: nonce already used" : null,
+    };
+  },
+);
+await pair(
+  2,
+  "Delivered shown as funded",
+  async () => {
+    const s = await deposited();
+    const q = await s.noah(`/api/sales/${s.biz}/intents/quote`, "POST", { token: ALT_TOKEN });
+    const digest = nep413Digest({
+      message: q.body.sign.message,
+      nonce: Buffer.from(q.body.sign.nonce, "base64"),
+      recipient: VERIFIER,
+    });
+    await s.noah(`/api/intents/${q.body.id}/sign`, "POST", {
+      public_key: ix(s).buyerPk,
+      signature: sign(null, digest, ix(s).buyerKey).toString("base64"),
+      callback_url: null,
+    });
+    buyerCall(s, VERIFIER, "ft_withdraw", { token: s.TOKEN, receiver_id: BUYER, amount: PRICE });
+    return s;
+  },
+  async (s) => {
+    await s.act(s.noah, BUYER, "fund");
+    const f = await s.noah(`/api/sales/${s.biz}/intents`);
+    const escrow = String((s.control().live_deal as Json).escrow);
+    return {
+      what: "The buyer funds escrow with the existing request",
+      result: `${f.body.funding.stage} · escrow ${escrow}`,
+    };
+  },
+  async (s) => {
+    const f = await s.noah(`/api/sales/${s.biz}/intents`);
+    const escrow = String((s.control().live_deal as Json).escrow);
+    return {
+      what: "The swapped tUSD is in the buyer's account; the app is asked whether escrow is funded",
+      refusal:
+        f.body.funding?.stage === "delivered" && escrow === "0"
+          ? "Not funded until the business contract shows it"
+          : null,
+    };
+  },
 );
 
 // ---------- 9. Faults planted in our own checks ----------

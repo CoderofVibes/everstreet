@@ -15,6 +15,7 @@ interface Protected {
   pending_payouts: number;
   feed_controller?: string;
   supplier_budget?: string;
+  verifier_balances?: string;
 }
 interface Case {
   group: number;
@@ -45,7 +46,24 @@ const VALUE_LABEL: Record<keyof Protected, string> = {
   pending_payouts: "Pending payouts",
   feed_controller: "Feed controller",
   supplier_budget: "Supplier budget (base units)",
+  verifier_balances: "Held in the intents verifier (base units)",
 };
+
+/** A protected value as text; the verifier's balances as "account token amount" pairs. */
+function shown(k: keyof Protected, v: unknown) {
+  if (k !== "verifier_balances") return String(v);
+  try {
+    const rows = JSON.parse(String(v)) as [string, [string, string][]][];
+    const parts = rows.flatMap(([who, m]) =>
+      m.map(
+        ([id, amt]) => `${who.split(".")[0]} ${amt} ${id.replace(/^nep141:/, "").split(".")[0]}`,
+      ),
+    );
+    return parts.length ? parts.join(", ") : "none";
+  } catch {
+    return String(v);
+  }
+}
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -94,7 +112,7 @@ function CaseView({ c, source }: { c: Case; source: Suite["source"] }) {
               <dt>{VALUE_LABEL[k]}</dt>
               <dd>
                 <span className="mono wrap">
-                  {String(c.protected.before[k])} → {String(c.protected.after[k])}
+                  {shown(k, c.protected.before[k])} → {shown(k, c.protected.after[k])}
                 </span>
               </dd>
             </div>

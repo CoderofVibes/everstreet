@@ -42,6 +42,7 @@ import { chainWords } from "../wallet.ts";
 import { when } from "../when.ts";
 import { ClosingLedger } from "./ClosingLedger.tsx";
 import { CompanionRequest } from "./CompanionRequest.tsx";
+import { IntentsFunding } from "./IntentsFunding.tsx";
 
 const EMPTY: SaleFlowState = {
   status: "loading",
@@ -1400,7 +1401,12 @@ export function SaleRoom({ id }: { id: string }) {
         ))}
       </ol>
       {s.control.live_deal && (
-        <ClosingLedger s={s} terms={<LedgerTerms s={s} />} companions={companions} />
+        <ClosingLedger
+          s={s}
+          terms={<LedgerTerms s={s} />}
+          companions={companions}
+          intents={<IntentsFunding s={s} onChange={() => void flow?.load()} />}
+        />
       )}
       <div className={s.control.live_deal ? "sale-grid ledger-below" : "sale-grid"}>
         <div className="sale-main">

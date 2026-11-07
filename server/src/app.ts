@@ -32,6 +32,7 @@ import { HandoverRecords } from "./handoverRecord.ts";
 import { verifyRecord } from "./handoverVerify.ts";
 import type { AccountSignIn } from "./identity.ts";
 import { type ImportInspector, type ImportSourceOptions, Imports } from "./imports.ts";
+import { IntentsFunding, type IntentsOptions } from "./intentsFunding.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { Members } from "./members.ts";
 import { customerOperations } from "./operations.ts";
@@ -90,6 +91,8 @@ export interface AppOptions {
   customer?: CustomerUseOptions;
   /** Companion contracts per business (external asset, supplier allowance) and the other chain. */
   companions?: CompanionOptions;
+  /** Escrow funding from another token through NEAR's intents verifier, with Everstreet as solver. */
+  intents?: IntentsOptions;
   /**
    * Job 003wf3: whether a managed Gated close is possible for a business now (the coordinator's
    * capability). Unset: never, so a Gated acceptance that would start closing is refused.
@@ -205,6 +208,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
     store.db,
     options.customer?.reader ?? null,
     options.companions ?? { bindings: [], evm: null },
+  );
+  const intentsFunding = new IntentsFunding(
+    store.db,
+    options.customer?.reader ?? null,
+    options.intents ?? { bindings: [], solver: null },
   );
   const sales = new SaleActions(store.db, store, v3, v3Intents, options.customer?.reader ?? null, {
     onClosed: (id, binding, seq) => proof.recordClose(id, binding, seq),
@@ -743,6 +751,55 @@ export function everstreetApi(store: Store, options: AppOptions) {
       throw new HttpError(400, "A transaction hash is required.", "bad_tx");
     return c.json(
       await companionRead(() => companions.sent(viewer.id, c.req.param("id"), b.tx_hash as string)),
+    );
+  });
+  // Escrow funding from another token through NEAR's intents verifier (the buyer's own deposit,
+  // signature and withdrawal; Everstreet only quotes and fills as the labelled solver).
+  app.get("/api/sales/:business/intents", async (c) => {
+    const viewer = me(c);
+    const g = sales.proofContext(viewer, c.req.param("business"));
+    const offers = intentsFunding.offers(g.business.id);
+    if (!offers) throw new HttpError(404, "Intents funding isn't set up here.", "no_intents");
+    const funding = await companionRead(async () =>
+      intentsFunding.latest(viewer.id, g.business.id),
+    );
+    return c.json({ ...offers, funding, account: g.account });
+  });
+  app.post("/api/sales/:business/intents/quote", async (c) => {
+    const viewer = me(c);
+    const g = sales.proofContext(viewer, c.req.param("business"));
+    const b = (await body(c)) as { token?: unknown };
+    if (typeof b.token !== "string") throw new HttpError(400, "A token is required.", "bad_token");
+    return c.json(
+      await companionRead(() =>
+        intentsFunding.quote(
+          { person_id: viewer.id, account: g.account },
+          g.business.id,
+          b.token as string,
+        ),
+      ),
+    );
+  });
+  app.get("/api/intents/:id", async (c) =>
+    c.json(await companionRead(() => intentsFunding.status(me(c).id, c.req.param("id")))),
+  );
+  app.post("/api/intents/:id/sign", async (c) => {
+    const viewer = me(c);
+    const b = (await body(c)) as {
+      public_key?: unknown;
+      signature?: unknown;
+      callback_url?: unknown;
+    };
+    if (typeof b.public_key !== "string" || typeof b.signature !== "string")
+      throw new HttpError(400, "A public key and signature are required.", "bad_signature");
+    return c.json(
+      await companionRead(() =>
+        intentsFunding.sign(viewer.id, c.req.param("id"), {
+          public_key: b.public_key as string,
+          signature: b.signature as string,
+          callback_url: typeof b.callback_url === "string" ? b.callback_url : null,
+        }),
+      ),
     );
   });
   app.get("/api/sales/:business/proof", async (c) =>

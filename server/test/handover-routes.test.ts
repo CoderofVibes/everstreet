@@ -143,6 +143,10 @@ const CLASS: Record<string, Class> = {
   // contract who owns it at that moment, so Everstreet only prepares and records.
   "POST /api/companions/:business/prepare": "allowed_recovery",
   "POST /api/companions/actions/:id/sent": "allowed_recovery",
+  // Escrow funding from another token: the buyer's own deposit, signature and withdrawal at the
+  // intents verifier; nothing here changes the sale, which counts escrow only from the contract.
+  "POST /api/sales/:business/intents/quote": "allowed_recovery",
+  "POST /api/intents/:id/sign": "allowed_recovery",
   "POST /api/sales/actions/:id/check": "allowed_recovery",
   "POST /api/sales/actions/:id/requested": "allowed_recovery",
   "POST /api/businesses/:id/v3/intents": "allowed_recovery",

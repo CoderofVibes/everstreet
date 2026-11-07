@@ -22,6 +22,7 @@ import {
   SyntheticProtection,
   TOKEN,
 } from "../../../server/test/customer-world.ts";
+import { ALT_TOKEN, attachIntents, VERIFIER } from "../../../server/test/intents-chain.ts";
 import { RELAYDESK_PROTOTYPE } from "../../../server/test/relaydesk.ts";
 import { correct, runtimeWorld, ScriptedRuntime } from "../../../server/test/runtime-world.ts";
 import { DemoChains, SecondProvider } from "./chains.ts";
@@ -133,6 +134,19 @@ export async function demoWorld(opts: { dbPath: string }) {
     gas: "1",
     deposit: "0",
   });
+  // Funding a sale's escrow from another token through a synthetic intents verifier, with
+  // Everstreet as the solver: its tUSD float sits in the verifier; the buyer holds tALT.
+  const ledger = chains.chains.get(ACCOUNTS.signalwatch) as unknown as {
+    balances: Map<string, bigint>;
+    tokenRegistered: Set<string>;
+  };
+  const intents = attachIntents(
+    chains,
+    { token: TOKEN, ledger: { balances: ledger.balances, registered: ledger.tokenRegistered } },
+    5_000_000_000n,
+  );
+  intents.alt.ledger.balances.set(BUYER.account, 2_000_000_000n);
+  intents.alt.ledger.registered.add(BUYER.account);
   const protection = new SyntheticProtection();
   protection.ceiling = 1_000_000; // a month of requests (the double's default budget is a test's)
   const v3 = {
@@ -173,6 +187,21 @@ export async function demoWorld(opts: { dbPath: string }) {
           },
         ],
         evm: companions.evm,
+      },
+      intents: {
+        bindings: [
+          {
+            business_id: business.signalwatch.id,
+            network: "testnet",
+            account: ACCOUNTS.signalwatch,
+            asset: TOKEN,
+            verifier: VERIFIER,
+            offers: [
+              { token: ALT_TOKEN, symbol: "tALT", decimals: 6, rate_num: "5", rate_den: "4" },
+            ],
+          },
+        ],
+        solver: intents.solver,
       },
       ...extra,
     });

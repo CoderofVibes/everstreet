@@ -1,0 +1,18 @@
+[package]
+name = "intents-funding"
+description = "Tests only: a buyer funds a sale's escrow with another test token through NEAR's intents verifier (built from NEAR's published source), with Everstreet as the labelled solver. No contract of ours changes."
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dev-dependencies]
+cargo-near-build = "=0.11.5"
+near-api = "=0.8.6"
+near-sandbox = { version = "=0.3.16", features = ["generate"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+base64 = "0.22"

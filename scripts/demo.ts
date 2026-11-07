@@ -16,6 +16,7 @@ import { base58Encode } from "../server/src/customerWriter.ts";
 import { AccountSignIn } from "../server/src/identity.ts";
 import { forkSuccessorRunner } from "../server/src/successorRunner.ts";
 import type { Json } from "../server/test/customer-world.ts";
+import { ALT_TOKEN, VERIFIER } from "../server/test/intents-chain.ts";
 import { labelScript } from "./lib/customerPreview.ts";
 import { simulatedClock } from "./lib/demo/clock.ts";
 import { signalwatchSaleAction, simulateHistory } from "./lib/demo/history.ts";
@@ -172,7 +173,13 @@ site.post("/__harness/sign-message", async (c) => {
 site.post("/__harness/tx", async (c) => {
   const p = (await c.req.json()) as Json;
   if (!controls.account) return c.json({ error: "The synthetic wallet has no account." }, 400);
-  const businesses = [...(Object.values(ACCOUNTS) as string[]), FEED_ACCOUNT, BUDGET_ACCOUNT];
+  const businesses = [
+    ...(Object.values(ACCOUNTS) as string[]),
+    FEED_ACCOUNT,
+    BUDGET_ACCOUNT,
+    VERIFIER,
+    ALT_TOKEN,
+  ];
   if (!businesses.includes(String(p.receiverId)) && p.receiverId !== "tusd.near")
     return c.json(
       {

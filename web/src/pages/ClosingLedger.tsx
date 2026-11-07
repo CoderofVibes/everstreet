@@ -63,10 +63,13 @@ export function ClosingLedger({
   s,
   terms,
   companions = null,
+  intents = null,
 }: {
   s: SaleSetup;
   terms: ReactNode;
   companions?: CompanionView | null;
+  /** The buyer's funding from another token (renders nothing for anyone else). */
+  intents?: ReactNode;
 }) {
   const d = s.control.live_deal;
   if (!d) return null;
@@ -129,6 +132,7 @@ export function ClosingLedger({
             <Row label="Route">Direct transfer to the business contract</Row>
             <Row label="Funding confirmation">Business contract</Row>
           </Rows>
+          {intents}
         </section>
 
         <section className="card" aria-labelledby="ledger-accept">

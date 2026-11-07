@@ -473,3 +473,55 @@ export const companionHttp = {
   sent: (id: string, tx_hash: string) =>
     call<CompanionAction>(`/api/companions/actions/${enc(id)}/sent`, "POST", { tx_hash }),
 };
+
+// ---------- escrow funding from another token (NEAR intents verifier) ----------
+
+export type IntentsStage =
+  | "quoted"
+  | "deposited"
+  | "swapped"
+  | "delivered"
+  | "funded"
+  | "expired"
+  | "refused"
+  | "refunded"
+  | "unknown";
+
+export interface IntentsFundingView {
+  id: string;
+  stage: IntentsStage;
+  deal_seq: string;
+  version: number;
+  verifier: string;
+  solver: { account: string; source: "synthetic" | "testnet" } | null;
+  give: {
+    token: string;
+    symbol: string | null;
+    decimals: number | null;
+    amount: string;
+    inside: string;
+  };
+  get: { token: string; amount: string; inside: string; own: string };
+  deadline_ms: number;
+  exec_hash: string | null;
+  error: string | null;
+  sign: { message: string; nonce: string; recipient: string } | null;
+}
+
+export interface IntentsPanelView {
+  verifier: string;
+  asset: string;
+  account: string;
+  offers: { token: string; symbol: string; decimals: number; rate_num: string; rate_den: string }[];
+  solver: { account: string; source: "synthetic" | "testnet" } | null;
+  funding: IntentsFundingView | null;
+}
+
+export const intentsHttp = {
+  view: (b: string) => call<IntentsPanelView>(`/api/sales/${enc(b)}/intents`),
+  quote: (b: string, token: string) =>
+    call<IntentsFundingView>(`/api/sales/${enc(b)}/intents/quote`, "POST", { token }),
+  status: (id: string) => call<IntentsFundingView>(`/api/intents/${enc(id)}`),
+  sign: (id: string, s: { public_key: string; signature: string; callback_url: string | null }) =>
+    call<IntentsFundingView>(`/api/intents/${enc(id)}/sign`, "POST", s),
+};

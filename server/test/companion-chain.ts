@@ -42,7 +42,7 @@ const event = (standard: string, name: string, data: unknown) =>
   `EVENT_JSON:${JSON.stringify({ standard, version: "1.0.0", event: name, data: [data] })}`;
 
 /** A wallet transaction's FINAL outcome, in the RPC's shape (one receipt, or a failure). */
-function outcome(
+export function outcome(
   receiver: string,
   signer: string,
   call: { methodName: string; args: Json; gas: string; deposit: string },
