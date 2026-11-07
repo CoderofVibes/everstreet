@@ -49,10 +49,14 @@ describe("step 7: 30 simulated days", () => {
       for (const b of d.businesses) {
         expect(b.daily).toHaveLength(30);
         expect(b.network_fees).toBeNull();
+        // The dashboard's window is 30 whole UTC days ending today; simulated day 0 falls inside
+        // or outside it depending on the time of day this runs, so it bounds the count.
         const charged = log.uses.filter(
           (u) => u.business === b.name.toLowerCase() && u.unit === "charged",
-        ).length;
-        expect(b.totals.delivered, b.name).toBe(charged);
+        );
+        const fromDayOne = charged.filter((u) => u.day >= 1).length;
+        expect(b.totals.delivered, b.name).toBeGreaterThanOrEqual(fromDayOne);
+        expect(b.totals.delivered, b.name).toBeLessThanOrEqual(charged.length);
         expect(b.credits?.units, b.name).toBeGreaterThan(0);
       }
       expect(Object.keys(d.totals.revenue)).toEqual(["tusd.near"]);

@@ -1379,8 +1379,12 @@ export function SaleRoom({ id }: { id: string }) {
         {next.action === "none" && <p className="muted">{next.why}</p>}
         {next.action === "operate" && s.roles.seller && !s.control.live_deal && !showTerms && (
           <p>
-            <button type="button" className="btn btn-secondary" onClick={() => setShowTerms(true)}>
-              Propose a resale
+            <button
+              type="button"
+              className="btn btn-quiet btn-sm"
+              onClick={() => setShowTerms(true)}
+            >
+              Propose a resale (when you decide to sell)
             </button>
           </p>
         )}

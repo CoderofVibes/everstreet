@@ -47,6 +47,7 @@ const periodWords = (ms: string) => {
 export function AllowanceDesk({
   v,
   businessId,
+  reload,
 }: {
   v: CompanionView;
   businessId: string;
@@ -130,7 +131,7 @@ export function AllowanceDesk({
                     kind="allowance_approve"
                     input={{ invoice: p.invoice }}
                     label="Approve this invoice"
-                    onDone={() => {}}
+                    onDone={reload}
                   />
                 </p>
               )}
@@ -206,7 +207,7 @@ export function AllowanceDesk({
                   view={v}
                   kind="allowance_grant"
                   label="Grant it again"
-                  onDone={() => {}}
+                  onDone={reload}
                 />
               </p>
             )}

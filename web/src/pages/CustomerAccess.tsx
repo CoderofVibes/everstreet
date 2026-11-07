@@ -597,7 +597,10 @@ export function CustomerAccess({
           Reading the contract…
         </p>
       )}
-      {st.status === "error" && (
+      {st.status === "error" && st.notice?.code === "unbound" && (
+        <p className="notice info">{st.notice.text}</p>
+      )}
+      {st.status === "error" && st.notice?.code !== "unbound" && (
         <div role="alert">
           <p className="notice error">{st.notice?.text ?? "This couldn't be read."}</p>
           <button

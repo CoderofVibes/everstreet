@@ -1531,6 +1531,14 @@ export function everstreetApi(store: Store, options: AppOptions) {
     const epoch = store.controlEpoch(p, id);
     const view = digitalDesk(store.db, id, new Date(), customerUses.operationsService(id));
     store.stillControls(p, epoch, { handover: "allow" }); // job 003wf3: a read
+    // First-use review (Nov 7, finding 30): without a contract here, a released product can't be
+    // offered; the item says so and leads to the ownership page, not to a form that refuses.
+    if (!v3.bindingFor(id))
+      for (const w of view.work)
+        if (w.key.startsWith("offer:")) {
+          w.label = `${w.label.split(":")[0]}: released; it needs the business's contract before customers can buy (not connected here)`;
+          w.link = { to: "continuity" };
+        }
     return c.json(view);
   });
   app.post("/api/businesses/:id/costs", async (c) => {

@@ -539,6 +539,11 @@ function LedgerlineExample({ tab }: { tab: string }) {
       {tab === "operate" && x && (
         <section aria-labelledby="op-h">
           <h2 id="op-h">Ledgerline, as its owner saw it</h2>
+          <p className="small muted">
+            Every checkpoint below is a read of the contract on NEAR testnet at the block shown; the
+            signed transactions, with explorer links, are under{" "}
+            <Link to="/example/ledgerline?tab=acquire">Acquire · The transactions</Link>.
+          </p>
           <div className="example-figures">
             <div className="card">
               <span className="muted small">Prepaid by the customer</span>

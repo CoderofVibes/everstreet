@@ -122,7 +122,7 @@ export const WALLET_SCRIPT = `// Review harness only: a SYNTHETIC wallet module 
       signOut: async () => { await post("/__harness/disconnect", {}); },
       getAccounts: async () => { const a = (await post("/__harness/account", {})).accountId; return a ? [{ accountId: a }] : []; },
       verifyOwner: async () => { throw new Error("not supported"); },
-      signMessage: async (p) => { if (window.__everstreetHarnessPicker) await pick(); return post("/__harness/sign-message", { message: p.message, recipient: p.recipient, nonce: b64(p.nonce), callbackUrl: p.callbackUrl ?? null, state: p.state ?? null }); },
+      signMessage: async (p) => { if (window.__everstreetHarnessPicker && !(await post("/__harness/account", {})).accountId) await pick(); return post("/__harness/sign-message", { message: p.message, recipient: p.recipient, nonce: b64(p.nonce), callbackUrl: p.callbackUrl ?? null, state: p.state ?? null }); },
       signAndSendTransaction: async (p) => post("/__harness/tx", { receiverId: p.receiverId, actions: p.actions.map((a) => ({ methodName: a.functionCall.methodName, args: new TextDecoder().decode(a.functionCall.args), gas: String(a.functionCall.gas), deposit: String(a.functionCall.deposit) })) }),
       signAndSendTransactions: async () => { throw new Error("not supported"); },
       getPublicKey: async () => { throw new Error("not supported"); },

@@ -65,6 +65,7 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
     signature: string;
     callback_url: string | null;
   } | null>(null);
+  const [reviewing, setReviewing] = useState<"deposit" | null>(null);
 
   const load = useCallback(() => {
     intentsHttp
@@ -87,7 +88,13 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
   const give = (base: string) =>
     `${tokenAmount(base, f?.give.decimals ?? 0)} ${f?.give.symbol ?? ""}`.trim();
   const fundedHere = d.escrow !== "0";
-  if (fundedHere && f?.stage !== "funded") return null;
+  // First-use review (Nov 7, finding 75): say why the route is closed instead of hiding it.
+  if (fundedHere && f?.stage !== "funded")
+    return (
+      <p className="muted small intents-funding" style={{ margin: "8px 0 0" }}>
+        Fund from another token (NEAR Intents): only while the escrow is unfunded.
+      </p>
+    );
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setError(null);
@@ -226,6 +233,13 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
               <span className="proof-value">
                 {give(f.give.amount)} → {tokenAmount(f.get.amount, dec)} {sym} · until{" "}
                 {clock(f.deadline_ms)}
+                {offer && (
+                  <span className="muted small">
+                    {" "}
+                    · {Number(offer.rate_num) / Number(offer.rate_den)} {offer.symbol} per {sym},
+                    the solver's fixed rate; the difference is its margin
+                  </span>
+                )}
               </span>
               <span
                 className={
@@ -269,22 +283,61 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
       {f && (
         <ol className="intents-steps">
           <Step done={at >= 1}>
-            Deposit {give(f.give.amount)}{" "}
-            {stage === "quoted" && btn("Deposit", "deposit", deposit, true)}
+            Deposit {give(f.give.amount)} into the verifier{" "}
+            {stage === "quoted" &&
+              reviewing !== "deposit" &&
+              btn("Review the deposit", "deposit", () => setReviewing("deposit"), true)}
+            {/* First-use review (Nov 7, finding 79): the deposit moves money, so it is reviewed
+                like every other wallet request. */}
+            {stage === "quoted" && reviewing === "deposit" && (
+              // biome-ignore lint/a11y/useSemanticElements: phrasing context (inside a list item's sentence); a fieldset isn't allowed here
+              <span className="companion-review" role="group" aria-label="Review: deposit">
+                <dl className="facts">
+                  <div className="companion-effect">
+                    <dt>Token contract</dt>
+                    <dd className="mono wrap">{f.give.token}</dd>
+                  </div>
+                  <div className="companion-effect">
+                    <dt>Method</dt>
+                    <dd className="mono">ft_transfer_call</dd>
+                  </div>
+                  <div className="companion-effect">
+                    <dt>Amount</dt>
+                    <dd>{give(f.give.amount)}</dd>
+                  </div>
+                  <div className="companion-effect">
+                    <dt>To</dt>
+                    <dd className="mono wrap">{v.verifier} (credited to your account inside it)</dd>
+                  </div>
+                  <div className="companion-effect">
+                    <dt>Attached</dt>
+                    <dd>1 yoctoNEAR (a confirmation, not a payment)</dd>
+                  </div>
+                </dl>
+                {btn("Ask my wallet for exactly this", "deposit", deposit, true)}
+              </span>
+            )}
           </Step>
-          <Step done={at >= 2}>
-            Sign the swap{" "}
-            {stage === "deposited" && !needsKey && btn("Sign with my wallet", "sign", sign, true)}
+          {/* First-use review (Nov 7, finding 78): registering the key is its own step. */}
+          <Step done={at >= 2 || (stage === "deposited" && !needsKey && signed !== null)}>
+            Register my signing key with the verifier (first time only){" "}
             {stage === "deposited" &&
               needsKey &&
               btn("Register my signing key", "register", register, true)}
+          </Step>
+          <Step done={at >= 2}>
+            Sign the swap with my wallet{" "}
+            {stage === "deposited" && !needsKey && btn("Sign with my wallet", "sign", sign, true)}
           </Step>
           <Step done={at >= 3}>
             Withdraw {tokenAmount(f.get.amount, dec)} {sym} to my account{" "}
             {stage === "swapped" &&
               btn("Withdraw", "withdraw", () => withdraw(f.get.token, f.get.inside), true)}
           </Step>
-          <Step done={at >= 4}>Fund escrow · confirmed by the business contract</Step>
+          <Step done={at >= 4}>
+            Fund escrow with the {sym}: the <strong>Fund escrow</strong> button at the top of this
+            page · confirmed by the business contract
+          </Step>
         </ol>
       )}
 

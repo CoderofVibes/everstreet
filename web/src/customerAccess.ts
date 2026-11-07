@@ -216,9 +216,19 @@ export class CustomerAccessFlow {
       this.set({ status: "ready", view, draft: this.state.draft ?? this.initialDraft(view) });
     } catch (e) {
       if (!this.alive || mine !== this.reads) return;
+      // First-use review (Nov 7, finding 30): a business with no contract here is a fact to state,
+      // not an error to retry.
+      const code = e instanceof SaleError ? e.code : undefined;
       this.set({
         status: this.state.view ? "ready" : "error",
-        notice: { tone: "warn", text: (e as Error).message },
+        notice:
+          code === "unbound"
+            ? {
+                tone: "info",
+                code,
+                text: "This business has no contract on the chain here, so nothing can be offered to customers yet. In this demo only the example businesses have one; on a real deployment the operator connects it in the configuration. Everything else (brief, build, release, public page) works without it.",
+              }
+            : { tone: "warn", code, text: (e as Error).message },
       });
     } finally {
       if (this.alive && mine === this.reads) this.set({ busy: false });

@@ -24,6 +24,8 @@ import { EXCLUSIVE, storedIsReviewed, verifyPreview } from "./saleCalls.ts";
 import type { WalletBoundary } from "./wallet.ts";
 
 export interface SaleNotice {
+  /** The server's stable code, when the notice is a refusal (e.g. "unbound"). */
+  code?: string;
   tone: "info" | "warn" | "ok";
   text: string;
 }
@@ -708,7 +710,9 @@ export function saleNext(st: SaleFlowState): Next {
         label: "",
         why: r.buyer
           ? "Waiting for the seller to accept."
-          : "Waiting for the buyer to fund and accept.",
+          : d.escrow === "0"
+            ? "Waiting for the buyer to fund and accept."
+            : "Waiting for the buyer to accept.",
       };
     }
   }

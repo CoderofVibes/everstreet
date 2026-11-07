@@ -90,6 +90,35 @@ export function Home() {
         </div>
       </section>
 
+      {/* First-use review (Nov 7, finding 1): the proof has a visible route from the home page. */}
+      <nav className="entries proof-entries" aria-label="What proves it">
+        <Link to="/example/ledgerline?tab=acquire" className="entry">
+          <Icon name="handshake" />
+          <span>
+            <strong>A recorded sale on NEAR testnet</strong>
+            <span>
+              Ledgerline changed hands; its customer kept 80 unused uses. Every transaction linked.
+            </span>
+          </span>
+        </Link>
+        <Link to="/proof/ledgerline" className="entry">
+          <Icon name="shield" />
+          <span>
+            <strong>The run, proved</strong>
+            <span>
+              The close transaction and the closing receipt, checked against a later block.
+            </span>
+          </span>
+        </Link>
+        <Link to="/attacks" className="entry">
+          <Icon name="flask" />
+          <span>
+            <strong>What we tried to break</strong>
+            <span>Attacks on the contract, each refused, with its testnet pair where one ran.</span>
+          </span>
+        </Link>
+      </nav>
+
       <nav className="entries" aria-label="Ways in">
         {paths.map((p) =>
           p.to ? (
@@ -202,7 +231,7 @@ export function Home() {
             )}
             {/* Real published products lead the live catalog (Astra 1). */}
             {lead && <FeaturedProduct b={lead} />}
-            <MarketList list={catalog.shown} />
+            <MarketList list={lead ? catalog.shown.filter((b) => b !== lead) : catalog.shown} />
             {catalog.more && (
               <p style={{ marginTop: 12 }}>
                 <Link to="/explore">See everything published on Explore</Link>
