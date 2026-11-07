@@ -1,0 +1,21 @@
+[package]
+name = "spend-allowance"
+description = "Companion to one business contract: an operating budget an agent can pay approved suppliers from, within caps, for one generation only; it ends at a sale unless the new owner grants it again"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.29.1"
+
+[dev-dependencies]
+near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
+cargo-near-build = "=0.11.5"
+near-api = "=0.8.6"
+near-sandbox = { version = "=0.3.16", features = ["generate"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
