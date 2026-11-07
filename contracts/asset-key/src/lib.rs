@@ -356,6 +356,24 @@ impl AssetKey {
 mod tests {
     use super::*;
 
+    /// The same bytes the app builds (server/src/evm.ts; server/test/evm.test.ts holds this hex).
+    #[test]
+    fn known_vector() {
+        let tx = TxParams {
+            nonce: U64(7),
+            gas_limit: U64(80_000),
+            max_fee_per_gas: U128(3_000_000_000),
+            max_priority_fee_per_gas: U128(1_000_000_000),
+        };
+        let a = Action::SetController {
+            to: format!("0x{}", "ab".repeat(20)),
+            from_generation: 1,
+        };
+        let u = unsigned_tx(11155111, &[0x22; 20], &tx, &call_data(&a));
+        println!("VECTOR {}", hex::encode(&u));
+        println!("PAYLOAD {}", hex::encode(near_sdk::env::keccak256(&u)));
+    }
+
     #[test]
     fn rlp_and_call_data_are_exact() {
         // RLP of small ints and empty values.
