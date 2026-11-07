@@ -1,7 +1,7 @@
 {
   "format": "everstreet.attack-suite",
   "version": 1,
-  "commit": "17e8623d53206a5c696f46a3f122ed925ea38ea6",
+  "commit": "3bf895fd9eab55750592c6f14a7b6e1401994487",
   "uncommitted": false,
   "source": "synthetic",
   "label": "Fixture results: Everstreet's real routes over the synthetic chain, which follows the business contract's rules. Not the contract's own code.",
