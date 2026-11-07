@@ -35,6 +35,23 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **ROUND 3 DONE (Nov 7 evening; Tony: "1 go ahead and fix, 2 fix, 3 skip dark theme, 4 keep the
+  picker; fix the Try tab, badges, studio labels and the rest of the second first-use pass")**:
+  e2b187e companion contracts fixed in source (asset-key derives the move's destination, nonce
+  discipline, deposit returned on a failed sign; spend-allowance Approving state, owner reject,
+  7-day expiry, pay charges its storage, withdraw reserves after the owner check), WSL 13/12/234
+  plus both local-node tests; 18d4132 app follows the new companion API, attack suite 26/26,
+  Rosa's demo contract (POST /api/businesses/:id/demo-contract, demo only; checked end to end in
+  the browser to an active offer), studio Try form, labels and the second-pass sweep. NOT DONE,
+  needs Tony: deploying the fixed companions to testnet (new accounts feed-key-v3s4 and
+  budget-v3s4 bound to ledgerline-v3-3b at generation 3, a new Sepolia registry, a sale to a new
+  buyer, then the companion moves, grant, approve and reject recorded; reproducible builds first;
+  a series-4 script still to write). Read-only balances Nov 7: root 16.8 testnet NEAR, Sepolia key
+  0.039 test ETH. Skipped with reasons (told Tony): invoice description (the contract keeps only a
+  digest), authorize and run as two steps (deliberate), exact base units on approval reviews
+  (amount provenance), studio first-screen density and the board panel's placement (Astra), the
+  demo's stand-in model refusing invoices it doesn't know (a real model is Tony's call).
+
 - **FABLE FULL REVIEW DONE (Nov 7; Fable 5.1 ran it)**. Four cold reviewers (first use, contract
   attacks, permissions, judge from a clean clone), briefs and reports in `reports/2026-11-07_*`,
   triage in `reports/2026-11-07_triage.md`; then fixes in small commits (7f96af0 server and judge
