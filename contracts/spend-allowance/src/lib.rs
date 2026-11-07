@@ -3,19 +3,30 @@
 //!
 //! The business contract stays the only source of authority. The current owner (asked of the
 //! business contract at the moment of the call) grants the allowance: the agent, the allowed
-//! suppliers, a cap per payment, a cap per period, and a review threshold. The grant is bound to
-//! the business's generation at that moment. Every payment asks the business contract again; once
-//! control has moved (a sale closed), the grant has ended: payments are refused until the new
-//! owner grants again. Customer money never enters here: the budget is funded separately (a
-//! token transfer with msg "fund").
+//! suppliers, a cap per payment, a cap per period (1 hour to 366 days), and a review threshold.
+//! The grant is bound to the business's generation at that moment. Every payment asks the business
+//! contract again; once control has moved (a sale closed), the grant has ended: payments are
+//! refused until the new owner grants again. Customer money never enters here: the budget is
+//! funded separately (a token transfer with msg "fund").
 //!
 //! - The agent pays alone only up to the per-payment cap. An invoice above the review threshold
 //!   waits for the owner to approve that exact invoice (by its digest); anything between the two
 //!   is refused. Approved payments count toward the period cap like any other.
+//! - The owner may instead reject an invoice awaiting approval; one left waiting for 7 days may be
+//!   expired by anyone. Either refuses it and releases what it reserved.
+//! - An approval or a rejection moves the invoice to `Approving` / `Rejecting` before it asks the
+//!   business contract, so a second one while the first is in flight fails (`E_STATE`) and an
+//!   invoice is never sent twice. If the business answers that the caller isn't the owner (or can't
+//!   be read), the invoice goes back to `AwaitingApproval`.
 //! - An amount is reserved the moment a payment is asked for, before any cross-contract call, so
-//!   two payments racing for the last of the cap can't both pass; a refusal releases it.
+//!   two payments racing for the last of the cap can't both pass; a refusal releases it. A
+//!   withdrawal reserves only after the business has confirmed the caller is the owner, so nobody
+//!   else can hold the budget.
 //! - A transfer the token refuses becomes the supplier's claim, never lost and never paid twice.
-//! - Each invoice digest is paid at most once.
+//! - Each invoice digest is paid at most once. A refused invoice may be submitted again (the new
+//!   payment replaces the refused record).
+//! - Each payment's record is paid for by the agent: `pay` charges the measured storage growth at
+//!   the storage price and refunds the rest of the attached deposit.
 //!
 //! No keys on this account; no admin; no upgrade.
 
@@ -30,6 +41,12 @@ use near_sdk::{
 const CONTROL_GAS: Gas = Gas::from_tgas(10);
 const TRANSFER_GAS: Gas = Gas::from_tgas(10);
 const CALLBACK_GAS: Gas = Gas::from_tgas(15);
+/// An invoice awaiting approval this long may be expired by anyone.
+pub const INVOICE_EXPIRY_MS: u64 = 7 * 86_400_000;
+pub const MIN_PERIOD_MS: u64 = 3_600_000;
+pub const MAX_PERIOD_MS: u64 = 366 * 86_400_000;
+/// A bound on one payment record's storage (the measured growth is what is charged).
+pub const PAYMENT_BYTES_BOUND: u64 = 500;
 
 #[near(serializers = [json])]
 #[derive(Clone, Debug)]
@@ -57,12 +74,16 @@ pub struct Grant {
 pub enum PaymentState {
     /// Above the review threshold: waits for the owner's approval of this exact invoice.
     AwaitingApproval,
+    /// An approval is in flight (the business contract is being asked who owns it).
+    Approving,
+    /// A rejection is in flight.
+    Rejecting,
     /// Reserved and sent to the token; the callback hasn't answered yet.
     Sending,
     Paid,
     /// The token refused the transfer: the amount is the supplier's claim.
     Claim,
-    /// Refused before any money moved (the reason is in the event log).
+    /// Refused before any money moved (the reason is in the event log). May be submitted again.
     Refused,
 }
 
@@ -92,7 +113,7 @@ pub struct SpendAllowance {
     grant: Option<Grant>,
     /// Token held here (funded, minus paid and claimed-out).
     balance: u128,
-    /// Reserved for payments in flight or awaiting approval.
+    /// Reserved for payments in flight or awaiting approval, and withdrawals in flight.
     reserved: u128,
     /// Owed to suppliers whose transfers failed.
     claims_total: u128,
@@ -134,11 +155,15 @@ impl SpendAllowance {
     // ---------- views ----------
 
     pub fn get_allowance(&self) -> near_sdk::serde_json::Value {
+        let byte_cost = env::storage_byte_cost().as_yoctonear();
         json!({
             "business": self.business, "token": self.token, "grant": self.grant,
             "balance": U128(self.balance), "reserved": U128(self.reserved),
             "claims_total": U128(self.claims_total), "available": U128(self.available()),
             "period_start_ms": U64(self.period_start_ms), "spent_in_period": U128(self.spent_in_period),
+            "storage_byte_cost": U128(byte_cost),
+            "pay_deposit": U128(PAYMENT_BYTES_BOUND as u128 * byte_cost),
+            "invoice_expiry_ms": U64(INVOICE_EXPIRY_MS),
         })
     }
 
@@ -160,7 +185,9 @@ impl SpendAllowance {
     }
 
     fn available(&self) -> u128 {
-        self.balance - self.reserved - self.claims_total
+        self.balance
+            .saturating_sub(self.reserved)
+            .saturating_sub(self.claims_total)
     }
 
     // ---------- funding (a token transfer with msg "fund") ----------
@@ -211,8 +238,8 @@ impl SpendAllowance {
             "E_INPUT: the review threshold is at least the per-payment cap"
         );
         require!(
-            period_ms.0 >= 60_000,
-            "E_INPUT: a period of at least a minute"
+            period_ms.0 >= MIN_PERIOD_MS && period_ms.0 <= MAX_PERIOD_MS,
+            "E_INPUT: a period of 1 hour to 366 days"
         );
         let g = Grant {
             agent,
@@ -256,17 +283,10 @@ impl SpendAllowance {
         "granted".to_string()
     }
 
-    /// Approves one invoice that waited for review; it is then paid like any other.
+    /// Approves one invoice that waited for review; it is then paid like any other. Only the
+    /// account that made the current grant may ask (a cheap filter; the business decides).
     pub fn approve(&mut self, invoice: String) -> Promise {
-        let p = self
-            .payments
-            .get(&invoice)
-            .cloned()
-            .unwrap_or_else(|| env::panic_str("E_NO_PAYMENT: no such invoice"));
-        require!(
-            p.state == PaymentState::AwaitingApproval,
-            "E_STATE: not awaiting approval"
-        );
+        self.begin_review(&invoice, PaymentState::Approving);
         self.control().then(
             Self::ext(env::current_account_id())
                 .with_static_gas(
@@ -285,27 +305,86 @@ impl SpendAllowance {
         invoice: String,
         #[callback_result] control: Result<ControlView, PromiseError>,
     ) -> PromiseOrValue<String> {
-        let p = self.payments.get(&invoice).cloned().expect("the payment");
-        let Ok(c) = control else {
-            env::panic_str("E_CONTROL_UNREAD: the business contract couldn't be read")
+        // Never a panic past this point: a panic would leave the invoice in `Approving`.
+        let p = match self.payments.get(&invoice) {
+            Some(p) if p.state == PaymentState::Approving => p.clone(),
+            _ => return PromiseOrValue::Value("E_STATE".to_string()),
         };
-        require!(
-            c.owner == caller,
-            "E_NOT_OWNER: only the business's current owner can approve"
-        );
+        let Ok(c) = control else {
+            return PromiseOrValue::Value(self.back_to_review(
+                &invoice,
+                &caller,
+                "E_CONTROL_UNREAD",
+            ));
+        };
+        if c.owner != caller {
+            return PromiseOrValue::Value(self.back_to_review(&invoice, &caller, "E_NOT_OWNER"));
+        }
         if !self.grant_live(c.generation) || p.generation != c.generation {
             return PromiseOrValue::Value(self.refuse(&invoice, "E_GRANT_ENDED"));
         }
         self.send(invoice, p)
     }
 
-    /// The current owner takes back budget nobody is owed (not reserved, not claimed).
+    /// Refuses one invoice awaiting approval and releases what it reserved. Only the account that
+    /// made the current grant may ask, and the business must confirm it is the owner.
+    pub fn reject(&mut self, invoice: String) -> Promise {
+        self.begin_review(&invoice, PaymentState::Rejecting);
+        self.control().then(
+            Self::ext(env::current_account_id())
+                .with_static_gas(CALLBACK_GAS)
+                .on_reject(env::predecessor_account_id(), invoice),
+        )
+    }
+
+    #[private]
+    pub fn on_reject(
+        &mut self,
+        caller: AccountId,
+        invoice: String,
+        #[callback_result] control: Result<ControlView, PromiseError>,
+    ) -> String {
+        match self.payments.get(&invoice) {
+            Some(p) if p.state == PaymentState::Rejecting => {}
+            _ => return "E_STATE".to_string(),
+        }
+        let Ok(c) = control else {
+            return self.back_to_review(&invoice, &caller, "E_CONTROL_UNREAD");
+        };
+        if c.owner != caller {
+            return self.back_to_review(&invoice, &caller, "E_NOT_OWNER");
+        }
+        self.refuse(&invoice, "E_REJECTED");
+        "rejected".to_string()
+    }
+
+    /// Anyone may refuse an invoice that has awaited approval for `INVOICE_EXPIRY_MS` (7 days),
+    /// releasing what it reserved.
+    pub fn expire_invoice(&mut self, invoice: String) -> String {
+        let p = self
+            .payments
+            .get(&invoice)
+            .cloned()
+            .unwrap_or_else(|| env::panic_str("E_NO_PAYMENT: no such invoice"));
+        require!(
+            p.state == PaymentState::AwaitingApproval,
+            "E_STATE: not awaiting approval"
+        );
+        require!(
+            env::block_timestamp_ms() >= p.at_ms.0.saturating_add(INVOICE_EXPIRY_MS),
+            "E_NOT_EXPIRED: it has waited less than 7 days"
+        );
+        self.refuse(&invoice, "E_EXPIRED");
+        "expired".to_string()
+    }
+
+    /// The current owner takes back budget nobody is owed (not reserved, not claimed). Nothing is
+    /// reserved until the business has confirmed the caller is the owner (in `on_withdraw`).
     pub fn withdraw(&mut self, amount: U128) -> Promise {
         require!(
             amount.0 > 0 && amount.0 <= self.available(),
             "E_AVAILABLE: more than is free"
         );
-        self.reserved += amount.0;
         self.control().then(
             Self::ext(env::current_account_id())
                 .with_static_gas(
@@ -325,15 +404,21 @@ impl SpendAllowance {
         #[callback_result] control: Result<ControlView, PromiseError>,
     ) -> PromiseOrValue<String> {
         let owner = control.map(|c| c.owner == caller).unwrap_or(false);
-        if !owner {
-            // Not a panic: a panic here would undo releasing the reservation.
-            self.reserved -= amount.0;
+        let code = if !owner {
+            Some("E_NOT_OWNER")
+        } else if amount.0 > self.available() {
+            Some("E_AVAILABLE")
+        } else {
+            None
+        };
+        if let Some(code) = code {
             event(
                 "withdraw_refused",
-                json!({ "caller": caller, "code": "E_NOT_OWNER" }),
+                json!({ "caller": caller, "code": code }),
             );
-            return PromiseOrValue::Value("E_NOT_OWNER".to_string());
+            return PromiseOrValue::Value(code.to_string());
         }
+        self.reserved += amount.0;
         self.transfer(caller.clone(), amount.0)
             .then(
                 Self::ext(env::current_account_id())
@@ -345,9 +430,9 @@ impl SpendAllowance {
 
     #[private]
     pub fn on_withdrawn(&mut self, to: AccountId, amount: U128) -> String {
-        self.reserved -= amount.0;
+        self.reserved = self.reserved.saturating_sub(amount.0);
         if near_sdk::is_promise_success() {
-            self.balance -= amount.0;
+            self.balance = self.balance.saturating_sub(amount.0);
             event("allowance_withdrawn", json!({ "to": to, "amount": amount }));
             "withdrawn".to_string()
         } else {
@@ -359,6 +444,9 @@ impl SpendAllowance {
 
     /// Pays an allowed supplier for one invoice, within the caps. Above the review threshold it
     /// waits for the owner's approval instead. The amount is reserved now, before anything else.
+    /// The record's storage is charged to the agent (attach `pay_deposit` from `get_allowance`;
+    /// the excess is refunded).
+    #[payable]
     pub fn pay(
         &mut self,
         supplier: AccountId,
@@ -378,7 +466,9 @@ impl SpendAllowance {
             "E_INPUT: the invoice digest is 64 hex characters"
         );
         require!(
-            self.payments.get(&invoice).is_none(),
+            self.payments
+                .get(&invoice)
+                .map_or(true, |p| p.state == PaymentState::Refused),
             "E_REPLAY: this invoice was already submitted"
         );
         require!(
@@ -393,7 +483,9 @@ impl SpendAllowance {
         );
         self.roll_period(&g);
         require!(
-            self.spent_in_period + amount.0 <= g.per_period.0,
+            self.spent_in_period
+                .checked_add(amount.0)
+                .is_some_and(|t| t <= g.per_period.0),
             "E_PERIOD_CAP: the period's cap would be exceeded"
         );
         require!(amount.0 <= self.available(), "E_BUDGET: not enough budget");
@@ -404,20 +496,24 @@ impl SpendAllowance {
             supplier,
             amount,
             invoice: invoice.clone(),
-            state: PaymentState::Sending,
+            state: if review {
+                PaymentState::AwaitingApproval
+            } else {
+                PaymentState::Sending
+            },
             generation: g.generation,
             at_ms: U64(env::block_timestamp_ms()),
         };
+        let before = env::storage_usage();
         if review {
-            let p = Payment {
-                state: PaymentState::AwaitingApproval,
-                ..p
-            };
             event("payment_awaiting_approval", json!({ "payment": p }));
-            self.payments.insert(invoice, p);
-            return PromiseOrValue::Value("awaiting_approval".to_string());
         }
         self.payments.insert(invoice.clone(), p);
+        self.payments.flush();
+        self.charge_storage(before);
+        if review {
+            return PromiseOrValue::Value("awaiting_approval".to_string());
+        }
         self.control()
             .then(
                 Self::ext(env::current_account_id())
@@ -449,10 +545,14 @@ impl SpendAllowance {
 
     #[private]
     pub fn on_sent(&mut self, invoice: String) -> String {
-        let mut p = self.payments.get(&invoice).cloned().expect("the payment");
-        self.reserved -= p.amount.0;
+        let mut p = match self.payments.get(&invoice) {
+            Some(p) if p.state == PaymentState::Sending => p.clone(),
+            // Only a payment this contract sent is settled here, and only once.
+            _ => return "E_STATE".to_string(),
+        };
+        self.reserved = self.reserved.saturating_sub(p.amount.0);
         if near_sdk::is_promise_success() {
-            self.balance -= p.amount.0;
+            self.balance = self.balance.saturating_sub(p.amount.0);
             p.state = PaymentState::Paid;
             event("payment_paid", json!({ "payment": p }));
         } else {
@@ -486,9 +586,9 @@ impl SpendAllowance {
 
     #[private]
     pub fn on_claimed(&mut self, who: AccountId, amount: U128) -> String {
-        self.reserved -= amount.0;
+        self.reserved = self.reserved.saturating_sub(amount.0);
         if near_sdk::is_promise_success() {
-            self.balance -= amount.0;
+            self.balance = self.balance.saturating_sub(amount.0);
             "paid".to_string()
         } else {
             *self.claims.entry(who).or_insert(0) += amount.0;
@@ -496,9 +596,11 @@ impl SpendAllowance {
             "claim".to_string()
         }
     }
+}
 
-    // ---------- internals ----------
+// ---------- internals ----------
 
+impl SpendAllowance {
     fn control(&self) -> Promise {
         Promise::new(self.business.clone()).function_call(
             "get_control".to_string(),
@@ -517,17 +619,72 @@ impl SpendAllowance {
 
     fn roll_period(&mut self, g: &Grant) {
         let now = env::block_timestamp_ms();
-        if now >= self.period_start_ms + g.period_ms.0 {
+        if now >= self.period_start_ms.saturating_add(g.period_ms.0) {
             self.period_start_ms = now;
             self.spent_in_period = 0;
         }
     }
 
-    /// Ends a payment that never moved money: its reservation and period count are released.
+    /// Charges the storage grown since `before` to the caller at the storage price and refunds the
+    /// rest of the attached deposit.
+    fn charge_storage(&self, before: u64) {
+        let grown = env::storage_usage().saturating_sub(before);
+        let cost = grown as u128 * env::storage_byte_cost().as_yoctonear();
+        let attached = env::attached_deposit().as_yoctonear();
+        require!(
+            attached >= cost,
+            format!("E_STORAGE: attach at least {cost} yoctoNEAR for {grown} bytes")
+        );
+        if attached > cost {
+            Promise::new(env::predecessor_account_id())
+                .transfer(NearToken::from_yoctonear(attached - cost))
+                .detach();
+        }
+    }
+
+    /// An approval or rejection starts: only for an invoice awaiting approval, only from the
+    /// account that made the current grant (the business confirms ownership in the callback). The
+    /// invoice is marked in flight before any cross-contract call.
+    fn begin_review(&mut self, invoice: &str, state: PaymentState) {
+        let mut p = self
+            .payments
+            .get(invoice)
+            .cloned()
+            .unwrap_or_else(|| env::panic_str("E_NO_PAYMENT: no such invoice"));
+        require!(
+            p.state == PaymentState::AwaitingApproval,
+            "E_STATE: not awaiting approval"
+        );
+        require!(
+            self.grant
+                .as_ref()
+                .is_some_and(|g| g.granted_by == env::predecessor_account_id()),
+            "E_NOT_OWNER: only the business's current owner can review"
+        );
+        p.state = state;
+        self.payments.insert(invoice.to_string(), p);
+    }
+
+    /// An approval or rejection the business didn't confirm: the invoice waits again.
+    fn back_to_review(&mut self, invoice: &str, caller: &AccountId, code: &str) -> String {
+        if let Some(p) = self.payments.get_mut(invoice) {
+            p.state = PaymentState::AwaitingApproval;
+        }
+        event(
+            "review_refused",
+            json!({ "invoice": invoice, "caller": caller, "code": code }),
+        );
+        code.to_string()
+    }
+
+    /// Ends a payment that never moved money: its reservation is released, and its count toward
+    /// the period cap if it was counted in the current period.
     fn refuse(&mut self, invoice: &str, code: &str) -> String {
         let mut p = self.payments.get(invoice).cloned().expect("the payment");
-        self.reserved -= p.amount.0;
-        self.spent_in_period = self.spent_in_period.saturating_sub(p.amount.0);
+        self.reserved = self.reserved.saturating_sub(p.amount.0);
+        if p.at_ms.0 >= self.period_start_ms {
+            self.spent_in_period = self.spent_in_period.saturating_sub(p.amount.0);
+        }
         p.state = PaymentState::Refused;
         event(
             "payment_refused",

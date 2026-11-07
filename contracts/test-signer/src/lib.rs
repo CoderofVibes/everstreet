@@ -46,8 +46,15 @@ impl TestSigner {
         })
     }
 
-    /// The test key's public key for (predecessor, path): uncompressed, hex.
-    pub fn derived_public_key(&self, path: String, predecessor: AccountId) -> String {
+    /// The test key's public key for (predecessor, path): uncompressed (`04 || x || y`), hex.
+    /// Takes the production signer's arguments (`domain_id` optional; only 0, secp256k1).
+    pub fn derived_public_key(
+        &self,
+        path: String,
+        predecessor: AccountId,
+        domain_id: Option<u32>,
+    ) -> String {
+        require!(domain_id.unwrap_or(0) == 0, "only domain 0 (secp256k1)");
         let key = key_for(predecessor.as_str(), &path);
         hex::encode(key.verifying_key().to_encoded_point(false).as_bytes())
     }

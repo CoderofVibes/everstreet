@@ -2,12 +2,16 @@
 //! a local stand-in for the MPC signer (test-signer; deterministic test keys, never public).
 //!
 //! What it shows, end to end:
-//! - the seller, as owner at generation 1, gets a `publish` signed from generation 1's address;
+//! - the seller, as owner at generation 1, gets a `publish` signed from generation 1's address,
+//!   at nonces 0 and 1 only: a nonce past the highest signed + 1 is refused `E_NONCE`;
+//! - the seller can't name a destination for the role (the action has none; a `to` is ignored),
+//!   and while generation 1 is current there is nothing to move (`E_GENERATION`);
 //! - anyone else asking is refused `E_NOT_OWNER` (deposit returned, nothing signed);
 //! - after the sale closes, the former seller is refused for every action, including moving the
 //!   role from their own generation's address;
-//! - the buyer moves the role from generation 1's address to generation 2's, then publishes from
-//!   generation 2's address;
+//! - the buyer moves the role from generation 1's address to generation 2's, an address the
+//!   companion derives itself through the signer's `derived_public_key` (naming any other address
+//!   yields the same transaction), then publishes from generation 2's address;
 //! - on a model of the registry (only its controller may act), a `publish` the seller had signed
 //!   before the close is rejected once the role has moved.
 //!
@@ -165,19 +169,30 @@ impl World {
             .assert_success();
     }
 
+    /// One request to the companion; the whole outcome.
+    async fn request_full(
+        &self,
+        who: &'static str,
+        action: Value,
+        nonce: u64,
+    ) -> ExecutionFinalResult {
+        let tx = json!({ "nonce": nonce.to_string(), "gas_limit": "80000", "max_fee_per_gas": "3000000000", "max_priority_fee_per_gas": "1000000000" });
+        self.ok(
+            who,
+            "asset",
+            "request",
+            json!({ "action": action, "tx": tx }),
+            NearToken::from_yoctonear(1),
+        )
+        .await
+    }
+
     /// One request to the companion; its return value (signed, or refused).
     async fn request(&self, who: &'static str, action: Value, nonce: u64) -> Value {
-        let tx = json!({ "nonce": nonce.to_string(), "gas_limit": "80000", "max_fee_per_gas": "3000000000", "max_priority_fee_per_gas": "1000000000" });
-        let r = self
-            .ok(
-                who,
-                "asset",
-                "request",
-                json!({ "action": action, "tx": tx }),
-                NearToken::from_yoctonear(1),
-            )
-            .await;
-        r.json::<Value>().expect("a JSON answer")
+        self.request_full(who, action, nonce)
+            .await
+            .json::<Value>()
+            .expect("a JSON answer")
     }
 }
 
@@ -200,46 +215,55 @@ fn signer_of(answer: &Value) -> [u8; 20] {
     address(&key)
 }
 
+/// The call data inside a signed answer's unsigned transaction: the last field before the empty
+/// access list (`0xa4` = a 36-byte string, then `0xc0`).
+fn call_data_of(answer: &Value) -> Vec<u8> {
+    let unsigned = hex::decode(&answer["unsigned_tx"].as_str().unwrap()[2..]).unwrap();
+    let n = unsigned.len();
+    assert_eq!((unsigned[n - 38], unsigned[n - 1]), (0xa4, 0xc0));
+    unsigned[n - 37..n - 1].to_vec()
+}
+
 fn address(key: &VerifyingKey) -> [u8; 20] {
     let p = key.to_encoded_point(false);
     let h = Keccak256::digest(&p.as_bytes()[1..]);
     h[12..].try_into().unwrap()
 }
 
-/// The address the stand-in signer derives for the companion at `path`.
+/// The address the stand-in signer derives for the companion at `path` (asked with the same
+/// arguments the companion uses, as for the production signer).
 async fn derived(w: &World, path: &str) -> [u8; 20] {
     let pk = w
         .view(
             "signer",
             "derived_public_key",
-            json!({ "path": path, "predecessor": "asset" }),
+            json!({ "path": path, "predecessor": "asset", "domain_id": 0 }),
         )
         .await;
     let bytes = hex::decode(pk.as_str().unwrap()).unwrap();
     address(&VerifyingKey::from_sec1_bytes(&bytes).unwrap())
 }
 
-/// A model of the registry: only its controller may act.
+/// A model of the registry: only its controller may act. It reads the signed call data itself.
 struct Registry {
     controller: [u8; 20],
     published: Vec<String>,
 }
 impl Registry {
-    fn apply(&mut self, from: [u8; 20], action: &Value) -> Result<(), &'static str> {
-        if from != self.controller {
+    fn apply(&mut self, answer: &Value) -> Result<(), &'static str> {
+        if signer_of(answer) != self.controller {
             return Err("not controller");
         }
-        match action["kind"].as_str().unwrap() {
-            "publish" => self
-                .published
-                .push(action["digest"].as_str().unwrap().to_string()),
-            "set_controller" => {
-                self.controller = hex::decode(&action["to"].as_str().unwrap()[2..])
-                    .unwrap()
-                    .try_into()
-                    .unwrap();
-            }
-            _ => unreachable!(),
+        let data = call_data_of(answer);
+        let publish = &Keccak256::digest(b"publish(bytes32)")[..4];
+        let set_controller = &Keccak256::digest(b"setController(address)")[..4];
+        if &data[..4] == publish {
+            self.published.push(hex::encode(&data[4..]));
+        } else if &data[..4] == set_controller {
+            assert_eq!(&data[4..16], &[0u8; 12]);
+            self.controller = data[16..].try_into().unwrap();
+        } else {
+            unreachable!()
         }
         Ok(())
     }
@@ -290,16 +314,36 @@ async fn control_of_the_external_asset_follows_the_business_owner() {
         published: vec![],
     };
 
-    // The seller, owner at generation 1, publishes from generation 1's address.
+    // The seller, owner at generation 1, publishes from generation 1's address (nonce 0: the first
+    // signature for a path).
     let publish = json!({ "kind": "publish", "digest": "11".repeat(32) });
     let a = w.request("mara", publish.clone(), 0).await;
     assert_eq!(a["generation"], 1);
     assert_eq!(signer_of(&a), gen1);
-    registry.apply(signer_of(&a), &publish).unwrap();
-    // Signed before the close and not yet sent: a second publish from generation 1's address.
+    registry.apply(&a).unwrap();
+    // Signed before the close and not yet sent: a second publish from generation 1's address, at
+    // the one nonce past the highest signed.
     let early = json!({ "kind": "publish", "digest": "22".repeat(32) });
     let held = w.request("mara", early.clone(), 1).await;
     assert_eq!(signer_of(&held), gen1);
+    // No stockpile of future nonces: anything past highest + 1 (now 2) is refused.
+    for nonce in [3u64, 5, 1_000_000] {
+        let r = w.request("mara", early.clone(), nonce).await;
+        assert_eq!(r["refused"], "E_NONCE", "nonce {nonce}");
+    }
+    assert_eq!(
+        w.view("asset", "get_signed_nonce", json!({ "generation": 1 }))
+            .await,
+        "1"
+    );
+    // While still the owner, the seller can't hand the role to an address of their choosing: the
+    // action has no destination (a `to` is ignored), and generation 1 is the current one, so
+    // there is nothing to move.
+    let grab = json!({ "kind": "set_controller", "to": format!("0x{}", "33".repeat(20)), "from_generation": 1 });
+    assert_eq!(
+        w.request("mara", grab.clone(), 2).await["refused"],
+        "E_GENERATION"
+    );
 
     // Anyone else is refused; nothing is signed and the deposit comes back.
     let refused = w.request("noah", publish.clone(), 0).await;
@@ -378,31 +422,68 @@ async fn control_of_the_external_asset_follows_the_business_owner() {
         w.request("mara", publish.clone(), 2).await["refused"],
         "E_NOT_OWNER"
     );
-    let grab = json!({ "kind": "set_controller", "to": format!("0x{}", "33".repeat(20)), "from_generation": 1 });
-    assert_eq!(w.request("mara", grab, 2).await["refused"], "E_NOT_OWNER");
+    assert_eq!(
+        w.request("mara", grab.clone(), 2).await["refused"],
+        "E_NOT_OWNER"
+    );
 
-    // The buyer moves the role: signed from generation 1's address, to generation 2's.
-    let rotate = json!({ "kind": "set_controller", "to": format!("0x{}", hex::encode(gen2)), "from_generation": 1 });
-    let r = w.request("noah", rotate.clone(), 2).await;
+    // The buyer moves the role: signed from generation 1's address (at most nonce 2 there), to
+    // generation 2's address, which the companion derived itself from the signer.
+    let rotate = json!({ "kind": "set_controller", "from_generation": 1 });
+    assert_eq!(
+        w.request("noah", rotate.clone(), 3).await["refused"],
+        "E_NONCE"
+    );
+    let full = w.request_full("noah", rotate.clone(), 2).await;
+    println!(
+        "set_controller request: {} Tgas burnt; per receipt: {}",
+        full.total_gas_burnt.as_tgas(),
+        full.receipt_outcomes()
+            .iter()
+            .map(|o| format!(
+                "{} {:.1}",
+                o.executor_id,
+                o.gas_burnt.as_gas() as f64 / 1e12
+            ))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let r = full.json::<Value>().expect("a JSON answer");
     assert_eq!(r["generation"], 1);
     assert_eq!(signer_of(&r), gen1);
-    registry.apply(signer_of(&r), &rotate).unwrap();
+    assert_eq!(&call_data_of(&r)[16..], &gen2[..]);
+    // Naming another address changes nothing: the same transaction (a replacement at nonce 2)
+    // still moves the role to generation 2's address only.
+    let named = w.request("noah", grab.clone(), 2).await;
+    assert_eq!(named["unsigned_tx"], r["unsigned_tx"]);
+    assert_ne!(&call_data_of(&named)[16..], &[0x33u8; 20][..]);
+    registry.apply(&r).unwrap();
     assert_eq!(registry.controller, gen2);
-    // A generation that doesn't exist yet is refused.
-    let ahead = json!({ "kind": "set_controller", "to": format!("0x{}", hex::encode(gen2)), "from_generation": 3 });
+    // A generation that doesn't exist yet, and the current one (nothing to move), are refused.
+    let ahead = json!({ "kind": "set_controller", "from_generation": 3 });
     assert_eq!(w.request("noah", ahead, 3).await["refused"], "E_GENERATION");
+    let same = json!({ "kind": "set_controller", "from_generation": 2 });
+    assert_eq!(w.request("noah", same, 0).await["refused"], "E_GENERATION");
 
     // The seller's earlier signature (generation 1's address) now controls nothing.
-    assert_eq!(
-        registry.apply(signer_of(&held), &early),
-        Err("not controller")
-    );
-    // The buyer publishes from generation 2's address.
+    assert_eq!(registry.apply(&held), Err("not controller"));
+    // The buyer publishes from generation 2's address (its path's first nonce, 0).
     let next = json!({ "kind": "publish", "digest": "44".repeat(32) });
     let b = w.request("noah", next.clone(), 0).await;
     assert_eq!((b["generation"].as_u64(), signer_of(&b)), (Some(2), gen2));
-    registry.apply(signer_of(&b), &next).unwrap();
+    registry.apply(&b).unwrap();
     assert_eq!(registry.published, vec!["11".repeat(32), "44".repeat(32)]);
+    assert_eq!(
+        (
+            w.view("asset", "get_signed_nonce", json!({ "generation": 1 }))
+                .await,
+            w.view("asset", "get_signed_nonce", json!({ "generation": 2 }))
+                .await,
+            w.view("asset", "get_signed_nonce", json!({ "generation": 3 }))
+                .await,
+        ),
+        (json!("2"), json!("0"), Value::Null)
+    );
     println!(
         "generation 1 address 0x{}\ngeneration 2 address 0x{}",
         hex::encode(gen1),

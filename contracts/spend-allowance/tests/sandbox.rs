@@ -1,7 +1,8 @@
 //! The supplier allowance on a real local NEAR node, with the real business-v3 contract and the
 //! test token: caps, the allowlist, review above a threshold, replay, the period cap, a failed
-//! transfer becoming the supplier's claim, and the grant ending when the business is sold, until
-//! the new owner grants again.
+//! transfer becoming the supplier's claim, the agent paying each record's storage, the owner
+//! rejecting an invoice (and a refused one submitted again), expiry not before 7 days, and the
+//! grant ending when the business is sold, until the new owner grants again and withdraws.
 //!
 //! Run in WSL from `contracts/`:
 //!   CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p spend-allowance --test sandbox -- --nocapture
@@ -177,7 +178,7 @@ impl World {
             "vault",
             "pay",
             json!({ "supplier": supplier, "amount": amount.to_string(), "invoice": invoice }),
-            NearToken::from_yoctonear(0),
+            NearToken::from_millinear(10), // the record's storage; the excess is refunded
         )
         .await
     }
@@ -367,11 +368,75 @@ async fn the_allowance_pays_within_its_caps_and_ends_at_the_sale() {
     );
     assert_eq!(w.tusd("quill").await, 1_800_000);
 
+    // The agent pays for each record's storage: nothing attached is refused.
+    assert_eq!(
+        w.refused(
+            "agent",
+            "vault",
+            "pay",
+            json!({ "supplier": "quill", "amount": "1000", "invoice": inv(8) })
+        )
+        .await,
+        "E_STORAGE"
+    );
+    assert_eq!(w.payment(&inv(8)).await, "none");
+    let quote = n(&w.allowance().await["pay_deposit"]);
+    assert!(quote > 0 && quote <= NearToken::from_millinear(10).as_yoctonear());
+
+    // The owner may reject an invoice awaiting approval: refused, and what it held is released.
+    let held = w.allowance().await;
+    let r = w.pay("quill", 1_600_000, &inv(7)).await;
+    assert_eq!(r.json::<String>().unwrap(), "awaiting_approval");
+    assert_eq!(
+        w.refused("agent", "vault", "reject", json!({ "invoice": inv(7) }))
+            .await,
+        "E_NOT_OWNER"
+    );
+    let rejected = w
+        .ok(
+            "mara",
+            "vault",
+            "reject",
+            json!({ "invoice": inv(7) }),
+            NearToken::from_yoctonear(0),
+        )
+        .await;
+    assert_eq!(rejected.json::<String>().unwrap(), "rejected");
+    assert_eq!(w.payment(&inv(7)).await, "Refused");
+    let after = w.allowance().await;
+    assert_eq!(
+        (&after["reserved"], &after["spent_in_period"]),
+        (&held["reserved"], &held["spent_in_period"])
+    );
+    // A refused invoice may be submitted again (it replaces the refused record); rejected again.
+    let r = w.pay("quill", 1_600_000, &inv(7)).await;
+    assert_eq!(r.json::<String>().unwrap(), "awaiting_approval");
+    w.ok(
+        "mara",
+        "vault",
+        "reject",
+        json!({ "invoice": inv(7) }),
+        NearToken::from_yoctonear(0),
+    )
+    .await;
+    assert_eq!(w.payment(&inv(7)).await, "Refused");
+
     // Above the review threshold: it waits for the owner's approval of that invoice.
     let r = w.pay("quill", 1_800_000, &inv(3)).await;
     assert_eq!(r.json::<String>().unwrap(), "awaiting_approval");
     assert_eq!(w.payment(&inv(3)).await, "AwaitingApproval");
     assert_eq!(w.tusd("quill").await, 1_800_000);
+    // Anyone may expire it, but only once it has waited 7 days.
+    assert_eq!(
+        w.refused(
+            "other",
+            "vault",
+            "expire_invoice",
+            json!({ "invoice": inv(3) })
+        )
+        .await,
+        "E_NOT_EXPIRED"
+    );
     assert_eq!(
         w.refused("agent", "vault", "approve", json!({ "invoice": inv(3) }))
             .await,
@@ -480,7 +545,7 @@ async fn the_allowance_pays_within_its_caps_and_ends_at_the_sale() {
     assert_eq!(
         w.allowance().await["reserved"],
         before["reserved"],
-        "a refused withdrawal releases its reservation"
+        "a refused withdrawal holds nothing"
     );
     w.ok(
         "noah",
@@ -494,8 +559,21 @@ async fn the_allowance_pays_within_its_caps_and_ends_at_the_sale() {
     w.pay("quill", 500_000, &inv(6)).await;
     assert_eq!(w.payment(&inv(6)).await, "Paid");
     assert_eq!(w.tusd("quill").await, 4_100_000);
+    // The new owner takes back part of the budget (reserved only once the business confirmed it).
+    let before = w.tusd("noah").await;
+    let wd = w
+        .ok(
+            "noah",
+            "vault",
+            "withdraw",
+            json!({ "amount": D.to_string() }),
+            NearToken::from_yoctonear(0),
+        )
+        .await;
+    assert_eq!(wd.json::<String>().unwrap(), "withdrawn");
+    assert_eq!(w.tusd("noah").await, before + D);
     let a = w.allowance().await;
-    assert_eq!(n(&a["balance"]), 60 * D - 4_100_000);
+    assert_eq!(n(&a["balance"]), 60 * D - 4_100_000 - D);
     assert_eq!((n(&a["reserved"]), n(&a["claims_total"])), (0, 0));
     assert_eq!(
         w.tusd("vault").await,
