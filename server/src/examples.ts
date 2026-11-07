@@ -7,6 +7,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { verifyLightClientProof } from "./lightClient.ts";
 import { verifyRehearsal } from "./rehearsalRecord.ts";
 import { HttpError } from "./store.ts";
 
@@ -178,7 +179,46 @@ export function ledgerlineExample(path = DEFAULT_LEDGERLINE_RECORD) {
     transactions,
     refusals,
     releases,
+    light_client: lightClientOfClose(str(r.header.contract?.account, ACCOUNT)),
   };
+}
+
+/** The committed light-client proof of the recorded close (scripts/verify-light-client.ts). */
+export const DEFAULT_LIGHT_CLIENT = "data/evidence/light-client-close.json";
+
+/**
+ * The recorded close's light-client proof, checked now: both the closing transaction and the
+ * business contract's closing receipt prove against the stored head, and the receipt is this
+ * contract returning "closed". Null when absent or when it doesn't check (never shown as proved).
+ */
+export function lightClientOfClose(contract: string | null, path = DEFAULT_LIGHT_CLIENT) {
+  let ev: Json;
+  try {
+    ev = JSON.parse(readFileSync(path, "utf8")) as Json;
+  } catch {
+    return null;
+  }
+  if (ev.format !== "everstreet.light-client-close" || ev.contract !== contract) return null;
+  try {
+    const a = verifyLightClientProof(ev.transaction.proof, ev.head);
+    const b = verifyLightClientProof(ev.receipt.proof, ev.head);
+    const o = ev.receipt.proof.outcome_proof.outcome;
+    const closed =
+      o.executor_id === contract &&
+      o.status?.SuccessValue === Buffer.from('"closed"').toString("base64") &&
+      (o.logs as string[]).some((l) => l.includes('"event":"sale_finalized"'));
+    if (!a.ok || !b.ok || !closed) return null;
+    return {
+      transaction: String(ev.transaction.hash),
+      receipt: String(ev.receipt.id),
+      block: b.block,
+      head: { hash: String(ev.head.hash), height: Number(ev.head.height) },
+      reproduce: `npx tsx scripts/verify-light-client.ts ${path} --live`,
+      source: "light_client_proof" as const,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** The Case Docket: the committed attack-suite results (scripts/attack-suite.ts), public. */

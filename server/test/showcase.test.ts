@@ -82,7 +82,10 @@ function keyPaths(v: unknown, prefix = ""): string[] {
 const ALLOWED = new Set(
   `.example .label .record .record.format .record.digest .record.commit .record.verified_offline
   .record.reproduce .network .contract .contract.account .contract.code_hash .model .model.source
-  .model.note .token .token.account .token.symbol .token.decimals .token.source .figures .checkpoints .transactions .refusals .releases`
+  .model.note .token .token.account .token.symbol .token.decimals .token.source .figures .checkpoints .transactions .refusals .releases
+  .light_client .light_client.transaction .light_client.receipt .light_client.block .light_client.block.hash
+  .light_client.block.height .light_client.head .light_client.head.hash .light_client.head.height
+  .light_client.reproduce .light_client.source`
     .split(/\s+/)
     .filter(Boolean),
 );
@@ -115,6 +118,12 @@ describe("the public example (verified testnet record -> allowlisted projection)
     }
     expect(x.model.source).toBe("stand_in_model");
     expect(x.refusals.map((r) => r.status)).toEqual([404, 404]);
+    // The close, proved with NEAR's light-client proof against a stated header (checked now).
+    expect(x.light_client).toMatchObject({
+      source: "light_client_proof",
+      block: { height: 276523318 },
+      head: { height: 276569158 },
+    });
   });
 
   it("is an allowlist: no field outside the named ones, no document text, results, keys or app bodies", () => {

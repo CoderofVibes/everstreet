@@ -42,6 +42,10 @@ describe("recorded testnet proof", () => {
     expect(text).toContain("Testnet receipt");
     expect(text).toContain("ledgerline-v3-2.everstreet.testnet");
     expect(text).toContain("Refused (404)");
+    // The close, proved with NEAR's light-client proof against a stated header.
+    expect(text).toContain("⬡ Light-client proof");
+    expect(text).toMatch(/Proved against block header .+ · height 276569158/);
+    expect(text).toContain("verify-light-client.ts");
     const links = [...host.querySelectorAll("a[href^='https://testnet.nearblocks.io/txns/']")];
     expect(links.length).toBeGreaterThanOrEqual(8);
   });

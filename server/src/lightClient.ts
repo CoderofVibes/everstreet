@@ -110,7 +110,7 @@ export function outcomeHash(proof: Json): Uint8Array {
   const hashes = [
     hash32(String(proof.id)),
     sha256(partial),
-    ...(o.logs as string[]).map((l) => sha256(Buffer.from(l, "utf8"))),
+    ...(o.logs as string[]).map((l) => sha256(Uint8Array.from(Buffer.from(l, "utf8")))),
   ];
   return sha256(cat(u32(hashes.length), ...hashes));
 }

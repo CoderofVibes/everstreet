@@ -33,6 +33,13 @@ interface Example {
   checkpoints: Checkpoint[];
   transactions: Tx[];
   refusals: { step: string; status: number | null }[];
+  light_client: null | {
+    transaction: string;
+    receipt: string;
+    block: { hash: string; height: number };
+    head: { hash: string; height: number };
+    reproduce: string;
+  };
 }
 
 function Row({
@@ -127,6 +134,23 @@ export function RecordedProof({ e }: { e: Example }) {
               <Row label="Close transaction" source="testnet_receipt">
                 {link(closeTx)}
               </Row>
+              <Row
+                label="Light-client proof"
+                source={e.light_client ? "light_client" : undefined}
+                block={e.light_client ? String(e.light_client.block.height) : null}
+              >
+                {e.light_client ? (
+                  <>
+                    Proved against block header{" "}
+                    <span className="mono" title={e.light_client.head.hash}>
+                      {short(e.light_client.head.hash)}
+                    </span>{" "}
+                    · height {e.light_client.head.height}
+                  </>
+                ) : (
+                  <span className="unknown">Not attached</span>
+                )}
+              </Row>
               <Row label="Units at close" source="testnet_final" block={closed?.block}>
                 {closed?.free ?? "—"}
               </Row>
@@ -170,6 +194,11 @@ export function RecordedProof({ e }: { e: Example }) {
                 npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json --live
               </code>
             </p>
+            {e.light_client && (
+              <p className="proof-small">
+                <code>{e.light_client.reproduce}</code>
+              </p>
+            )}
           </section>
           <section className="card" aria-labelledby="rp-tx">
             <h2 id="rp-tx" className="sale-h3">
