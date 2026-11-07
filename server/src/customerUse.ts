@@ -160,6 +160,15 @@ export interface CustomerUseOptions {
   writer: CustomerChainWriter | null;
   /** The platform's METERING account (operator configuration, never a contract fact). */
   operatorAccount: string | null;
+  /**
+   * The handoff proof: what the reader serves (its evidence label) and an optional second
+   * provider compared at the same block. Unset: testnet for the testnet transport, else synthetic.
+   */
+  proof?: {
+    source?: "synthetic" | "local_node" | "testnet";
+    primaryName?: string;
+    second?: { name: string; reader: CustomerViewTransport } | null;
+  };
   protection?: InputProtection | null;
   serveWindowMs?: number;
   submitMarginMs?: number;

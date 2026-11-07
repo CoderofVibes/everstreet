@@ -22,7 +22,7 @@ import {
 } from "../../../server/test/customer-world.ts";
 import { RELAYDESK_PROTOTYPE } from "../../../server/test/relaydesk.ts";
 import { correct, runtimeWorld, ScriptedRuntime } from "../../../server/test/runtime-world.ts";
-import { DemoChains } from "./chains.ts";
+import { DemoChains, SecondProvider } from "./chains.ts";
 
 export const FOUNDER = { name: "Delphine Marsh", account: "delphine.near" };
 export const BUYER = { name: "Noah Brandt", account: "buyer.near" };
@@ -103,12 +103,19 @@ export async function demoWorld(opts: { dbPath: string }) {
       account: ACCOUNTS[k],
     })),
   };
+  // The handoff proof compares two providers at the same block (both synthetic, labelled so).
+  const secondProvider = new SecondProvider(chains);
   const customerOptions = {
     reader: chains,
     writer: chains,
     operatorAccount: OPERATOR,
     now: () => Date.now(),
     protection,
+    proof: {
+      source: "synthetic",
+      primaryName: "Synthetic provider A",
+      second: { name: "Synthetic provider B", reader: secondProvider },
+    },
   };
   const make = (extra: Partial<Parameters<typeof everstreetApi>[1]> = {}) =>
     everstreetApi(store, {
@@ -119,7 +126,9 @@ export async function demoWorld(opts: { dbPath: string }) {
       runtime: rw.runtime,
       ...extra,
     });
-  const state = { app: make() };
+  // `ops`: the app the scripted callers use once the browser's app is the verified-sign-in one
+  // (scripts/demo.ts sets it); the same store, so both see the same businesses and sales.
+  const state = { app: make(), ops: null as ReturnType<typeof make> | null };
 
   let tokens = 0;
   const caller = (personId: string): Caller => {
@@ -130,7 +139,7 @@ export async function demoWorld(opts: { dbPath: string }) {
       new Date().toISOString(),
     );
     const call = async (path: string, method = "GET", body?: unknown) => {
-      const res = await state.app.request(path, {
+      const res = await (state.ops ?? state.app).request(path, {
         method,
         headers: { cookie: `es_session=${token}`, "content-type": "application/json" },
         body: body === undefined || method === "GET" ? undefined : JSON.stringify(body),
@@ -262,6 +271,7 @@ export async function demoWorld(opts: { dbPath: string }) {
     store,
     db,
     chains,
+    secondProvider,
     protection,
     business,
     offers,

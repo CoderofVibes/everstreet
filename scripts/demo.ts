@@ -18,7 +18,7 @@ import { forkSuccessorRunner } from "../server/src/successorRunner.ts";
 import type { Json } from "../server/test/customer-world.ts";
 import { labelScript } from "./lib/customerPreview.ts";
 import { simulatedClock } from "./lib/demo/clock.ts";
-import { simulateHistory } from "./lib/demo/history.ts";
+import { signalwatchSaleAction, simulateHistory } from "./lib/demo/history.ts";
 import { ACCOUNTS, BUYER, CUSTOMERS, demoWorld, FOUNDER } from "./lib/demo/world.ts";
 import { HARNESS_CSP, PICKER_FLAG, WALLET_SCRIPT } from "./lib/walletHarness.ts";
 
@@ -84,6 +84,8 @@ const signIn = new AccountSignIn(w.store, {
   reader: { isFullAccessKey: async (a, k) => a in people && k === accountKey },
   callbackUrl: `http://${HOST}:${PORT}/signin/return`,
 });
+// The scripted callers (demo controls) keep a local app over the same store.
+w.state.ops = w.make();
 w.state.app = w.make({
   localPreview: false,
   environment: "Demo: simulated history (fictional)",
@@ -224,6 +226,43 @@ ctl.post("/account/:id", (c) => {
   if (!(id in people)) return c.json({ error: "Not a demo account" }, 404);
   controls.account = id;
   return c.json({ account: id });
+});
+// Steps 1 and 2 of the README route without the browser: Delphine accepts, then Noah accepts and
+// the sale closes, each through the real sale routes and the synthetic wallet.
+ctl.post("/sale/accept-both", async (c) => {
+  const act = signalwatchSaleAction(w);
+  const seller = await act(w.delphine, FOUNDER.account, "accept");
+  const buyer = await act(w.noah, BUYER.account, "accept");
+  return c.json({
+    seller: seller.body?.resolution ?? seller.status,
+    buyer: buyer.body?.resolution ?? buyer.status,
+  });
+});
+// One Signalwatch use by Cara through the real customer routes (the same path as the simulated
+// history), for checking what happens after a close without walking the use page by hand.
+ctl.post("/use/signalwatch", async (c) => {
+  const cara = w.customers[0] as (typeof w.customers)[number];
+  const r = await w.use(
+    cara,
+    w.offers.signalwatch,
+    w.submission({
+      notes: [
+        "FICTIONAL. Northbeam API v4.2",
+        "- Added dark mode.",
+        "- Removed the Ledger Export API endpoint /v1/export on 2026-12-01.",
+      ].join("\n"),
+      relies: "We call the Ledger Export API every night, verify webhooks and use /v1/convert.",
+    }),
+  );
+  return c.json(r);
+});
+// The handoff proof's second provider misreports the owner (a poisoned observation), or agrees
+// again: POST /provider-b/disagree, POST /provider-b/agree.
+ctl.post("/provider-b/:mode", (c) => {
+  const mode = c.req.param("mode");
+  if (mode !== "disagree" && mode !== "agree") return c.json({ error: "disagree or agree" }, 400);
+  w.secondProvider.disagreeOwner = mode === "disagree" ? "someone-else.testnet" : null;
+  return c.json({ provider_b: mode });
 });
 
 const busy = (port: number) => (e: NodeJS.ErrnoException) => {

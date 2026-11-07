@@ -272,3 +272,92 @@ export const saleHttp: SalePort = {
   abandon: (id) => call(`/api/sales/actions/${enc(id)}/abandon`, "POST"),
   reconcile: (b, i) => call(`/api/businesses/${enc(b)}/v3/intents/${enc(i)}/reconcile`, "POST"),
 };
+
+// ---------- The handoff proof (Continuity Receipt) ----------
+
+export type EvidenceSource =
+  | "synthetic"
+  | "local_node"
+  | "testnet_final"
+  | "testnet_receipt"
+  | "light_client"
+  | "everstreet";
+
+export interface ProofFact {
+  key: string;
+  label: string;
+  value: string | number | null;
+  source: EvidenceSource;
+  block?: string | null;
+}
+
+export interface ProofProvider {
+  name: string;
+  owner: string;
+  generation: number;
+  control_seq: string;
+  block_height: string;
+  error: string | null;
+}
+
+export interface HandoffProofView {
+  business: { id: string; name: string };
+  network: string;
+  contract: string;
+  source: EvidenceSource;
+  block: { height: string; hash: string; timestamp_ms: string };
+  deal: {
+    seq: string;
+    version: number;
+    digest: string;
+    seller: string;
+    buyer: string;
+    price: string;
+    generation_after: number;
+    at_ms: string;
+  };
+  asset: string;
+  token: { symbol: string; decimals: number } | null;
+  viewer: { operates: boolean };
+  continuity: {
+    customer: { account: string | null; name: string | null } | null;
+    at_close: string | null;
+    after: string | null;
+    charged: number;
+    at_close_block: string | null;
+    after_block: string | null;
+  };
+  facts: ProofFact[];
+  rights: {
+    ended: { what: "owner_role" | "operator"; account: string; generation: number }[];
+    carried_over: {
+      operators: { account: string; caps: number }[];
+      customers: number | null;
+      units: string | null;
+    };
+    operates: { account: string; generation: number; moved: boolean };
+    seller_claim: { account: string; owed: string | null; in_flight: string };
+    still_possible: { customer: string | null; units: number; until_ms: string }[];
+  };
+  agreement: {
+    status: "agree" | "uncertain" | "single";
+    block: { height: string; hash: string };
+    providers: ProofProvider[];
+    last_coherent: {
+      block_height: string;
+      owner: string;
+      generation: number;
+      observed_at: string;
+    } | null;
+  };
+  snapshot: {
+    block: { height: string; hash: string; timestamp_ms: string };
+    code_hash: string | null;
+    keys: number | null;
+  } | null;
+}
+
+export const proofHttp = {
+  proof: (b: string) => call<HandoffProofView>(`/api/sales/${enc(b)}/proof`),
+  receiptUrl: (b: string) => `/api/sales/${enc(b)}/receipt`,
+};

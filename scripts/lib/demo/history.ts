@@ -272,17 +272,20 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
   return log;
 }
 
-/** The Signalwatch sale: proposed by Delphine, registered and funded by Noah; not accepted. */
-async function saleOfSignalwatch(w: DemoWorld) {
+/**
+ * One Signalwatch sale action through the real routes: prepare, the durable reviewed request,
+ * the wallet's transaction on the synthetic chain, and the check by its own transaction.
+ */
+export function signalwatchSaleAction(w: DemoWorld) {
   const biz = w.business.signalwatch.id;
-  const act = async (who: typeof w.delphine, account: string, kind: string, input: Json = {}) => {
+  return async (who: typeof w.delphine, account: string, kind: string, input: Json = {}) => {
     const p = await who(`/api/sales/${biz}/prepare`, "POST", { kind, input });
     if (p.status !== 200) throw new Error(`sale ${kind}: ${p.status} ${JSON.stringify(p.body)}`);
     const c = await who(`/api/sales/${biz}/actions`, "POST", {
       kind,
       input: p.body.input,
       action_digest: p.body.action_digest,
-      idempotency_key: `demo-sale-${kind}`,
+      idempotency_key: `demo-sale-${kind}-${account.replace(/[^A-Za-z0-9_-]/g, "_")}`,
     });
     if (c.status !== 201)
       throw new Error(`sale ${kind} action: ${c.status} ${JSON.stringify(c.body)}`);
@@ -294,6 +297,11 @@ async function saleOfSignalwatch(w: DemoWorld) {
     });
     return who(`/api/sales/actions/${action.id}/check`, "POST", {});
   };
+}
+
+/** The Signalwatch sale: proposed by Delphine, registered and funded by Noah; not accepted. */
+async function saleOfSignalwatch(w: DemoWorld) {
+  const act = signalwatchSaleAction(w);
   await act(w.delphine, FOUNDER.account, "propose", {
     buyer_account: BUYER.account,
     price: "180000000",

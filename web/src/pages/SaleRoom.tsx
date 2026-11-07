@@ -1092,7 +1092,10 @@ function FirstShift({ s, chain }: { s: SaleSetup; chain: string }) {
             : `kept: ${kept.map((o) => `${o.account}${sellerMark(o.account, s.outcomes.find((x) => x.buyer === s.account)?.seller)}`).join(", ")}`}
         </ShiftItem>
       </ul>
-      <Link to={`/desk/${s.business.id}`}>Customer requests and your desk</Link>
+      <p className="row">
+        <Link to={`/sales/${s.business.id}/proof`}>Handoff proof</Link>
+        <Link to={`/desk/${s.business.id}`}>Customer requests and your desk</Link>
+      </p>
     </section>
   );
 }
@@ -1133,6 +1136,9 @@ function FormerOwnerCheck({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; 
       >
         {last ? "Try again" : "Try an owner action"}
       </button>
+      <p>
+        <Link to={`/sales/${s.business.id}/proof`}>Handoff proof</Link>
+      </p>
     </section>
   );
 }

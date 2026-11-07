@@ -27,6 +27,7 @@ import {
 } from "./pages/ExpertHelp.tsx";
 import { Explore } from "./pages/Explore.tsx";
 import { Find } from "./pages/Find.tsx";
+import { HandoffProofPage } from "./pages/HandoffProof.tsx";
 import { HandoversPage, HandoverWorkspace } from "./pages/Handover.tsx";
 import { Helping } from "./pages/Helping.tsx";
 import { Home } from "./pages/Home.tsx";
@@ -268,6 +269,15 @@ function Routes() {
     );
   if (path === "/handovers") return <HandoversPage key={person?.id ?? "anon"} />;
   // Job 003wf2: a Direct sale through each participant's own wallet; keyed by who is acting.
+  // The handoff proof (Continuity Receipt) of the newest close this person took part in.
+  const proofPage = match("/sales/:id/proof", path);
+  if (proofPage)
+    return (
+      <HandoffProofPage
+        key={`${person?.id ?? "anon"}:${proofPage.id}`}
+        id={proofPage.id as string}
+      />
+    );
   const saleRoom = match("/sales/:id", path);
   if (saleRoom)
     return <SaleRoom key={`${person?.id ?? "anon"}:${saleRoom.id}`} id={saleRoom.id as string} />;

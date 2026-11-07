@@ -485,6 +485,37 @@ export class TestnetCustomerRpcTransport extends TestnetRpcTransport {
   }
 
   /**
+   * The handoff proof: the contract account's code hash and how many access keys it has, both at
+   * exactly `block` (`view_account` and `view_access_key_list`). Read-only; no key material is
+   * kept, only the count.
+   */
+  async accountState(input: {
+    network: string;
+    account: string;
+    block: BlockRef;
+    signal?: AbortSignal;
+  }): Promise<{ code_hash: string; keys: number }> {
+    if (input.network !== this.network) refuse("unsupported", "this transport reads testnet only");
+    if (!isAccountId(input.account)) refuse("unsupported", "not an account id");
+    const at = { block_id: hash(input.block.hash, "requested block"), account_id: input.account };
+    const acct = (await this.rpc(
+      "query",
+      { request_type: "view_account", ...at },
+      input.signal,
+    )) as Record<string, unknown> | null;
+    const code = acct?.code_hash;
+    if (typeof code !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(code))
+      return refuse("malformed", "the account has no code hash");
+    const list = (await this.rpc(
+      "query",
+      { request_type: "view_access_key_list", ...at },
+      input.signal,
+    )) as { keys?: unknown } | null;
+    if (!list || !Array.isArray(list.keys)) return refuse("malformed", "no access key list");
+    return { code_hash: code, keys: list.keys.length };
+  }
+
+  /**
    * Job 003web (§10.4): one transaction's FINAL outcome, raw (the purchase resolver checks its
    * exact identity, arguments and receipts). Null when it isn't known or isn't final.
    */

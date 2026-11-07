@@ -972,6 +972,15 @@ export class FixtureReader implements CustomerViewTransport {
   async txOutcome(hash: string) {
     return this.chain.txs.get(hash) ?? null;
   }
+  /** The handoff proof: the synthetic chain runs no contract code and its account has no keys. */
+  async accountState() {
+    return { code_hash: "synthetic", keys: 0 };
+  }
+  /**
+   * The handoff proof's second provider, misbehaving on purpose (a poisoned observation): while
+   * set, `get_control` answers with this owner instead of the chain's.
+   */
+  disagreeOwner: string | null = null;
   async view(input: { method: string; args: Record<string, unknown>; block: BlockRef }) {
     const during = this.duringRead;
     this.duringRead = null;
@@ -980,6 +989,8 @@ export class FixtureReader implements CustomerViewTransport {
     if (s && input.method in s.views)
       return { result: JSON.stringify(s.views[input.method]), block: input.block };
     let result = this.chain.answer(input.method, input.args);
+    if (this.disagreeOwner !== null && input.method === "get_control")
+      result = JSON.stringify({ ...(JSON.parse(result) as Json), owner: this.disagreeOwner });
     if (this.malformedNext && input.method !== "get_control") {
       this.malformedNext = false;
       // Synthetic mutation: an extra field the contract never sends.
@@ -1468,6 +1479,8 @@ export async function customerWorld(
     provider,
     service,
     runtimeFor,
+    /** The customer options the app is made with (tests remake the app with additions). */
+    options,
   };
 }
 

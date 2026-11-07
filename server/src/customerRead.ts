@@ -42,6 +42,13 @@ export interface CustomerViewTransport {
   }): Promise<{ result: string; block: BlockRef }>;
   /** Job 003web: one transaction's FINAL outcome, raw; null when unknown or not final. */
   txOutcome?(hash: string, sender: string, signal?: AbortSignal): Promise<unknown | null>;
+  /** The handoff proof: the account's code hash and access-key count at exactly `block`. */
+  accountState?(input: {
+    network: string;
+    account: string;
+    block: BlockRef;
+    signal?: AbortSignal;
+  }): Promise<{ code_hash: string; keys: number }>;
 }
 
 export interface PlanV3 {

@@ -1,7 +1,7 @@
 // Everstreet's HTTP API. Sessions are a cookie; every workspace route resolves the person from
 // it and the store checks ownership. Public routes read only published projections.
 
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { Acquisitions, type Criteria, interpretAcquire } from "./acquire.ts";
 import { AgentAccess } from "./agentAccess.ts";
@@ -26,6 +26,7 @@ import { Evaluations } from "./evaluations.ts";
 import { ledgerlineExample } from "./examples.ts";
 import { ExpertHelp } from "./expertHelp.ts";
 import { StoppedError } from "./fence.ts";
+import { HandoffProof } from "./handoffProof.ts";
 import { HandoverRecords } from "./handoverRecord.ts";
 import { verifyRecord } from "./handoverVerify.ts";
 import type { AccountSignIn } from "./identity.ts";
@@ -44,6 +45,7 @@ import { HttpError, type Person, type Store } from "./store.ts";
 import { SuccessorRehearsals, type SuccessorRunner } from "./successorRehearsal.ts";
 import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
+import { TestnetRpcTransport } from "./v3rpc.ts";
 import { type Overrides, Valuation } from "./value.ts";
 import { serveFree, servePass } from "./webApp.ts";
 import { WorkflowCases } from "./workflowCases.ts";
@@ -185,7 +187,17 @@ export function everstreetApi(store: Store, options: AppOptions) {
   );
   const purchases = new CustomerPurchases(store.db, options.customer?.reader ?? null);
   // Job 003wf2: a Direct sale through each participant's own wallet (read and verify only).
+  // The handoff proof reads through the same reader as the sale; its source is configured (the
+  // synthetic chain, a local NEAR node or testnet), never guessed from the data.
+  const proof = new HandoffProof(store.db, options.customer?.reader ?? null, {
+    source:
+      options.customer?.proof?.source ??
+      (options.customer?.reader instanceof TestnetRpcTransport ? "testnet" : "synthetic"),
+    primaryName: options.customer?.proof?.primaryName,
+    second: options.customer?.proof?.second ?? null,
+  });
   const sales = new SaleActions(store.db, store, v3, v3Intents, options.customer?.reader ?? null, {
+    onClosed: (id, binding, seq) => proof.recordClose(id, binding, seq),
     platformOperator: options.customer?.operatorAccount ?? null,
     handover: options.handover,
     serviceReadiness: (id, control) => customerUses.serviceReadiness(id, control),
@@ -638,6 +650,40 @@ export function everstreetApi(store: Store, options: AppOptions) {
   app.post("/api/sales/actions/:id/abandon", async (c) =>
     c.json(sales.abandon(me(c), c.req.param("id"))),
   );
+  // The handoff proof (Continuity Receipt): the newest close this viewer took part in, each fact
+  // with its source, and the exportable receipt (participants only, like the sale page).
+  const proofFor = async (c: Context, businessId: string) => {
+    const g = sales.proofContext(me(c), businessId);
+    try {
+      const p = await proof.build({
+        businessId,
+        businessName: g.business.name,
+        binding: g.binding,
+        viewerAccount: g.account,
+        localOwner: g.localOwner,
+      });
+      if (!p) throw new HttpError(404, "No closed sale here yet.", "no_close");
+      return p;
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      throw new HttpError(503, "NEAR couldn't be read just now; try again.", "read_failed");
+    }
+  };
+  app.get("/api/sales/:business/proof", async (c) =>
+    c.json(await proofFor(c, c.req.param("business"))),
+  );
+  app.get("/api/sales/:business/receipt", async (c) => {
+    const r = proof.receipt(await proofFor(c, c.req.param("business")));
+    return c.body(
+      `${JSON.stringify(r, null, 2)}
+`,
+      200,
+      {
+        "content-type": "application/json",
+        "content-disposition": `attachment; filename="handoff-receipt-deal-${r.deal.seq}.json"`,
+      },
+    );
+  });
   // Job 003w-e2: a fresh readback of the caller's own key slots for an offer (device readiness).
   app.get("/api/customer/offers/:offer/keys", async (c) =>
     c.json(await customerUses.deviceKeys(me(c), c.req.param("offer"))),

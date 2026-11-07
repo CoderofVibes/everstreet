@@ -695,6 +695,12 @@ export interface SaleOptions {
   };
   readTimeoutMs?: number;
   now?: () => number;
+  /** The handoff proof: records the close snapshot once a close confirms here. */
+  onClosed?: (
+    businessId: string,
+    binding: { network: string; account: string },
+    dealSeq: string,
+  ) => Promise<unknown>;
 }
 
 /** Job 003wf4: the platform account's current operator slot and what an appointment makes of it. */
@@ -865,6 +871,15 @@ export class SaleActions {
       binding: binding as { network: string; account: string },
       account: account as string,
     };
+  }
+
+  /**
+   * The handoff proof's context: the same participant gate as the sale page (404 to anyone who
+   * isn't part of this business's sales), the binding, and whether the viewer owns it here.
+   */
+  proofContext(viewer: Viewer, businessId: string) {
+    const g = this.gate(viewer, businessId);
+    return { ...g, localOwner: g.business.owner_id === viewer.id };
   }
 
   /** One coherent reading at one pinned final block, bounded by one deadline. */
@@ -2374,6 +2389,14 @@ export class SaleActions {
         });
         out = { handover: h ? { state: h.state, id: h.id } : null };
       } else if (p.kind === "accept" && res.result === "closed") {
+        // The handoff proof's snapshot at the first final block after the close (idempotent).
+        await this.opts
+          .onClosed?.(
+            p.business_id,
+            { network: p.network, account: p.contract },
+            String(review.deal_seq),
+          )
+          .catch(() => null);
         const intent = this.db
           .prepare(
             "SELECT id FROM v3_intents WHERE business_id = ? AND deal_seq = ? AND version = ? AND digest = ?",

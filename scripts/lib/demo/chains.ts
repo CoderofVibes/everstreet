@@ -105,6 +105,11 @@ export class DemoChains implements CustomerViewTransport, ViewTransport, Custome
     return reader.view(input as never);
   }
 
+  /** The handoff proof: the synthetic chain runs no contract code and its accounts have no keys. */
+  async accountState() {
+    return { code_hash: "synthetic", keys: 0 };
+  }
+
   async txOutcome(hash: string) {
     for (const c of this.chains.values()) {
       const o = c.txs.get(hash);
@@ -152,5 +157,23 @@ export class DemoChains implements CustomerViewTransport, ViewTransport, Custome
     const out = chain.walletCall(signer, call as never);
     this.align();
     return out;
+  }
+}
+
+/**
+ * The handoff proof's second provider over the same synthetic chain. `disagreeOwner` makes it
+ * misreport the owner (a poisoned observation), so the proof's Uncertain state can be shown.
+ */
+export class SecondProvider implements CustomerViewTransport {
+  readonly network = "testnet";
+  disagreeOwner: string | null = null;
+  constructor(private readonly chains: DemoChains) {}
+  finalBlock() {
+    return this.chains.finalBlock();
+  }
+  async view(input: Parameters<DemoChains["view"]>[0]) {
+    const r = await this.chains.view(input);
+    if (this.disagreeOwner === null || input.method !== "get_control") return r;
+    return { ...r, result: JSON.stringify({ ...JSON.parse(r.result), owner: this.disagreeOwner }) };
   }
 }
