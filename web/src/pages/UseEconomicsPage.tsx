@@ -29,7 +29,7 @@ export interface UseEconomicsView {
     supplier_cost: string | null;
     founder_costs_usd_cents: number | null;
   };
-  scenario: { uses_last_30_days: number };
+  scenario: { uses_last_30_days: number; independent_uses_last_30_days?: number };
   revenue_sources?: RevenueSources;
 }
 
@@ -139,7 +139,9 @@ export function UseEconomics({ e, businessId }: { e: UseEconomicsView; businessI
     ) : (
       <span className="mono">{base}</span>
     );
-  const [uses, setUses] = useState(String(Math.max(e.scenario.uses_last_30_days, 1)));
+  // Independent customers' uses only (revenue linked to the seller isn't projected).
+  const startUses = e.scenario.independent_uses_last_30_days ?? e.scenario.uses_last_30_days;
+  const [uses, setUses] = useState(String(Math.max(startUses, 1)));
   const [multiple, setMultiple] = useState("2");
   const margin = e.per_use.margin !== null ? BigInt(e.per_use.margin) : null;
   const n = /^\d{1,6}$/.test(uses) ? BigInt(uses) : null;
@@ -236,6 +238,9 @@ export function UseEconomics({ e, businessId }: { e: UseEconomicsView; businessI
                 value={uses}
                 onChange={(x) => setUses(x.target.value.trim())}
               />
+              <span className="muted proof-small">
+                Independent customers, last 30 days: {startUses}
+              </span>
             </label>
             <label className="field">
               <span>Contribution multiple</span>

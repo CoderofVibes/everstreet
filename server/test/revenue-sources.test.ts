@@ -93,6 +93,7 @@ describe("revenue by source on the sale's economics (owner and buyer view)", () 
     expect(e.status).toBe(200);
     expect(e.body.revenue_sources.independent).toMatchObject({ customers: 1, uses: 1 });
     expect(e.body.revenue_sources.linked.customers).toBe(0);
+    expect(e.body.scenario.independent_uses_last_30_days).toBe(e.body.scenario.uses_last_30_days);
   });
 
   it("a customer whose registration the seller paid for is linked, with the contract's reason", async () => {
@@ -103,6 +104,8 @@ describe("revenue by source on the sale's economics (owner and buyer view)", () 
     ent.storage_payer = SELLER;
     const e = await s.ava(`/api/sales/${s.biz}/economics`);
     expect(e.body.revenue_sources.independent.customers).toBe(0);
+    // The buyer's projection doesn't start from revenue linked to the seller.
+    expect(e.body.scenario.independent_uses_last_30_days).toBe(0);
     expect(e.body.revenue_sources.linked).toMatchObject({
       customers: 1,
       uses: 1,

@@ -69,14 +69,9 @@ export function sellerSide(
   return { accounts, ownerPerson: owner ?? null, teamPersons: new Set(team) };
 }
 
-/**
- * Splits charged uses into independent and linked customers. `payers` is the contract's storage
- * payer per customer account (null when it couldn't be read: unless something else links that
- * customer, it is counted as unchecked, never as independent by assumption).
- */
-export function revenueSources(
+/** Each customer account's bucket and reasons (see revenueSources). */
+export function classify(
   uses: ChargedUse[],
-  price: bigint | null,
   side: ReturnType<typeof sellerSide>,
   payers: Map<string, string | null>,
 ) {
@@ -87,11 +82,10 @@ export function revenueSources(
     c.persons.add(u.person_id);
     byCustomer.set(u.customer_account, c);
   }
-  const linked: { account: string; uses: number; reasons: LinkReason[] }[] = [];
-  let independentCustomers = 0;
-  let independentUses = 0;
-  let uncheckedCustomers = 0;
-  let uncheckedUses = 0;
+  const out = new Map<
+    string,
+    { bucket: "independent" | "linked" | "unchecked"; uses: number; reasons: LinkReason[] }
+  >();
   for (const [account, c] of byCustomer) {
     const reasons = new Set<LinkReason>();
     const own = side.accounts.get(account);
@@ -103,14 +97,35 @@ export function revenueSources(
     const payer = payers.get(account) ?? null;
     if (payer !== null && payer !== account && side.accounts.has(payer))
       reasons.add("registration_paid_by_seller");
-    if (reasons.size > 0)
-      linked.push({
-        account,
-        uses: c.uses,
-        reasons: REASONS_CHECKED.filter((r) => reasons.has(r)),
-      });
-    else if (payer === null) {
+    out.set(account, {
       // Not linked by anything read, but its registration's payer wasn't read: not independent.
+      bucket: reasons.size > 0 ? "linked" : payer === null ? "unchecked" : "independent",
+      uses: c.uses,
+      reasons: REASONS_CHECKED.filter((r) => reasons.has(r)),
+    });
+  }
+  return out;
+}
+
+/**
+ * Splits charged uses into independent and linked customers. `payers` is the contract's storage
+ * payer per customer account (null when it couldn't be read: unless something else links that
+ * customer, it is counted as unchecked, never as independent by assumption).
+ */
+export function revenueSources(
+  uses: ChargedUse[],
+  price: bigint | null,
+  side: ReturnType<typeof sellerSide>,
+  payers: Map<string, string | null>,
+) {
+  const linked: { account: string; uses: number; reasons: LinkReason[] }[] = [];
+  let independentCustomers = 0;
+  let independentUses = 0;
+  let uncheckedCustomers = 0;
+  let uncheckedUses = 0;
+  for (const [account, c] of classify(uses, side, payers)) {
+    if (c.bucket === "linked") linked.push({ account, uses: c.uses, reasons: c.reasons });
+    else if (c.bucket === "unchecked") {
       uncheckedCustomers++;
       uncheckedUses += c.uses;
     } else {

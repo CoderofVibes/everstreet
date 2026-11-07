@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import type { Companions } from "./companions.ts";
 import { type CustomerViewTransport, decodeEntitlement, type PinnedBlock } from "./customerRead.ts";
 import type { Db } from "./db.ts";
-import { revenueSources, sellerSide } from "./revenueSources.ts";
+import { classify, revenueSources, sellerSide } from "./revenueSources.ts";
 import { tokenMetaOf } from "./tokenMeta.ts";
 import { type BlockRef, decodeControl, decodeTreasury, V3ReadError } from "./v3read.ts";
 
@@ -121,6 +121,12 @@ export class UseEconomics {
     const since = this.now() - 30 * 86_400_000;
     const last = charged.at(-1) ?? null;
     const meta = tokenMetaOf(this.db, binding.network, treasury.asset);
+    const side = sellerSide(this.db, businessId, {
+      owner: bizControl.owner,
+      operators: bizControl.operators.map((o) => o.account),
+    });
+    const buckets = classify(charged, side, payers);
+    const recent = charged.filter((u) => Date.parse(u.updated_at) >= since);
     return {
       block: { height: block.height, hash: block.hash },
       token: meta ? { symbol: meta.symbol, decimals: meta.decimals } : null,
@@ -143,17 +149,13 @@ export class UseEconomics {
         founder_costs_usd_cents: founder.n > 0 ? founder.cents : null,
       },
       scenario: {
-        uses_last_30_days: charged.filter((u) => Date.parse(u.updated_at) >= since).length,
+        uses_last_30_days: recent.length,
+        // The buyer's projection starts from independent customers' uses only.
+        independent_uses_last_30_days: recent.filter(
+          (u) => buckets.get(u.customer_account)?.bucket === "independent",
+        ).length,
       },
-      revenue_sources: revenueSources(
-        charged,
-        price,
-        sellerSide(this.db, businessId, {
-          owner: bizControl.owner,
-          operators: bizControl.operators.map((o) => o.account),
-        }),
-        payers,
-      ),
+      revenue_sources: revenueSources(charged, price, side, payers),
       sources: {
         revenue: "contract",
         customer_funds_owed: "contract",
