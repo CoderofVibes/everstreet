@@ -19,7 +19,15 @@ import type { Json } from "../server/test/customer-world.ts";
 import { labelScript } from "./lib/customerPreview.ts";
 import { simulatedClock } from "./lib/demo/clock.ts";
 import { signalwatchSaleAction, simulateHistory } from "./lib/demo/history.ts";
-import { ACCOUNTS, BUYER, CUSTOMERS, demoWorld, FOUNDER } from "./lib/demo/world.ts";
+import {
+  ACCOUNTS,
+  BUDGET_ACCOUNT,
+  BUYER,
+  CUSTOMERS,
+  demoWorld,
+  FEED_ACCOUNT,
+  FOUNDER,
+} from "./lib/demo/world.ts";
 import { HARNESS_CSP, PICKER_FLAG, WALLET_SCRIPT } from "./lib/walletHarness.ts";
 
 const HOST = "127.0.0.1";
@@ -164,10 +172,12 @@ site.post("/__harness/sign-message", async (c) => {
 site.post("/__harness/tx", async (c) => {
   const p = (await c.req.json()) as Json;
   if (!controls.account) return c.json({ error: "The synthetic wallet has no account." }, 400);
-  const businesses = Object.values(ACCOUNTS) as string[];
+  const businesses = [...(Object.values(ACCOUNTS) as string[]), FEED_ACCOUNT, BUDGET_ACCOUNT];
   if (!businesses.includes(String(p.receiverId)) && p.receiverId !== "tusd.near")
     return c.json(
-      { error: "The synthetic wallet only calls the demo's businesses and token." },
+      {
+        error: "The synthetic wallet only calls the demo's businesses, their companions and token.",
+      },
       400,
     );
   if (!Array.isArray(p.actions) || p.actions.length !== 1)

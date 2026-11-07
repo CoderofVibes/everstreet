@@ -5,11 +5,20 @@
 // rehearsal, and a Direct sale of Signalwatch proposed and funded (not yet accepted). Every figure
 // the dashboard shows is read back from what these flows recorded. Deterministic (seeded).
 
+import { createHash } from "node:crypto";
 import type { Json } from "../../../server/test/customer-world.ts";
 import { INVOICE_SPEC } from "../../../server/test/runtime-world.ts";
 import { runSuccessorRehearsal } from "../successor/run.ts";
 import { simulatedClock } from "./clock.ts";
-import { BUYER, checkAndRelease, type DemoWorld, FOUNDER, offer } from "./world.ts";
+import {
+  AGENT_ACCOUNT,
+  BUYER,
+  checkAndRelease,
+  type DemoWorld,
+  FOUNDER,
+  offer,
+  SUPPLIER_ACCOUNT,
+} from "./world.ts";
 
 const DAY = 86_400_000;
 
@@ -137,6 +146,14 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
         outcome: r.outcome ?? r.code,
         unit: r.unit ?? null,
       });
+      // Its agent pays the model supplier for a delivered analysis from the allowance (fictional).
+      if (r.unit === "charged" && r.id)
+        w.companions.allowance.pay(
+          AGENT_ACCOUNT,
+          SUPPLIER_ACCOUNT,
+          SUPPLIER_COST,
+          createHash("sha256").update(`supplier-invoice-${r.id}`).digest("hex"),
+        );
     }
 
     // The desk works its open cases: one step on most of them, oldest first.
@@ -262,6 +279,13 @@ export async function simulateHistory(w: DemoWorld, opts: { days?: number; start
     if (day === 24) {
       tick();
       await saleOfSignalwatch(w);
+      // A larger invoice from the supplier waits for Delphine's approval (above 5 TUSD).
+      w.companions.allowance.pay(
+        AGENT_ACCOUNT,
+        SUPPLIER_ACCOUNT,
+        6_300_000n,
+        createHash("sha256").update("supplier-invoice-monthly-tier").digest("hex"),
+      );
       log.events.push({ day, what: "Signalwatch: Direct sale proposed to Noah Brandt and funded" });
     }
   }
@@ -298,6 +322,9 @@ export function signalwatchSaleAction(w: DemoWorld) {
     return who(`/api/sales/actions/${action.id}/check`, "POST", {});
   };
 }
+
+/** What Signalwatch pays its model supplier per delivered analysis: 0.90 TUSD (fictional). */
+export const SUPPLIER_COST = 900_000n;
 
 /** The Signalwatch sale: proposed by Delphine, registered and funded by Noah; not accepted. */
 async function saleOfSignalwatch(w: DemoWorld) {

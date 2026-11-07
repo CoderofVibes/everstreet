@@ -1823,3 +1823,14 @@ ul.plain { margin: 0; padding-left: 18px; }
 @media (max-width: 600px) { .docket-pair { grid-template-columns: minmax(0, 1fr); } }
 .docket-group { min-width: 0; }
 .docket-tags .pill, .docket-planted .pill { white-space: normal; }
+
+/* ---------- Companion requests (external asset, supplier allowance) ---------- */
+.companion-request { display: inline-flex; flex-direction: column; gap: 6px; vertical-align: top; color: var(--text); }
+.companion-review { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface-2); margin-top: 4px; }
+.companion-review .facts { grid-template-columns: 1fr; margin: 0; }
+.companion-effect { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 4px 10px; }
+.companion-args { font-size: 12px; max-height: 200px; overflow: auto; margin: 6px 0 0; }
+.allowance-figure { margin: 8px 0 10px; font-variant-numeric: tabular-nums; }
+.allowance-figure strong { font: 700 34px/1 var(--display); letter-spacing: -0.02em; color: var(--ink); }
+.allowance-meter { height: 12px; border: 1px solid var(--cobalt-line); border-radius: 999px; background: var(--surface); overflow: hidden; margin-bottom: 6px; }
+.allowance-meter span { display: block; height: 100%; background: repeating-linear-gradient(135deg, var(--cobalt) 0 6px, var(--cobalt-hover) 6px 9px); }

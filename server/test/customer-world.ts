@@ -479,11 +479,29 @@ export class FixtureChain {
    * ft_transfer_call, by their real rules. Returns the transaction's FINAL outcome (also kept by
    * hash for `tx`), with the business receipt's logs. A refusal is a failed transaction.
    */
+  /**
+   * Companion contracts next to this business (server/test/companion-chain.ts), by account:
+   * their views and wallet calls are routed to them; their transactions are kept like any other.
+   */
+  companions = new Map<
+    string,
+    {
+      view(method: string, args: Json): string | undefined;
+      walletCall?(signer: string, call: Json): Json;
+    }
+  >();
   walletCall(
     signer: string,
     call: { receiverId: string; methodName: string; args: Json; deposit: string; gas: string },
   ): Json {
     this.bump();
+    const companion = this.companions.get(call.receiverId);
+    if (companion?.walletCall) {
+      const out = companion.walletCall(signer, call);
+      this.txs.set(out.transaction.hash, out);
+      this.nextBlock();
+      return out;
+    }
     // Job 003wf2: the sale's calls go to the sale half of the same state (same ledger and log).
     if (this.sale && this.isSaleCall(call)) {
       this.sale.now = this.ts;
@@ -981,13 +999,24 @@ export class FixtureReader implements CustomerViewTransport {
    * set, `get_control` answers with this owner instead of the chain's.
    */
   disagreeOwner: string | null = null;
-  async view(input: { method: string; args: Record<string, unknown>; block: BlockRef }) {
+  async view(input: {
+    method: string;
+    args: Record<string, unknown>;
+    block: BlockRef;
+    account?: string;
+  }) {
     const during = this.duringRead;
     this.duringRead = null;
     during?.();
     const s = this.scripted;
     if (s && input.method in s.views)
       return { result: JSON.stringify(s.views[input.method]), block: input.block };
+    const companion = input.account ? this.chain.companions.get(input.account) : undefined;
+    if (companion) {
+      const v = companion.view(input.method, input.args);
+      if (v === undefined) throw new Error(`MethodNotFound: ${input.method}`);
+      return { result: v, block: input.block };
+    }
     let result = this.chain.answer(input.method, input.args);
     if (this.disagreeOwner !== null && input.method === "get_control")
       result = JSON.stringify({ ...(JSON.parse(result) as Json), owner: this.disagreeOwner });

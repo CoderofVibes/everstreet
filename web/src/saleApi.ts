@@ -390,3 +390,86 @@ export const proofHttp = {
   proof: (b: string) => call<HandoffProofView>(`/api/sales/${enc(b)}/proof`),
   receiptUrl: (b: string) => `/api/sales/${enc(b)}/receipt`,
 };
+
+// ---------- Companions (external asset, supplier allowance) ----------
+
+export interface CompanionPayment {
+  supplier: string;
+  amount: string;
+  invoice: string;
+  state: "AwaitingApproval" | "Sending" | "Paid" | "Claim" | "Refused";
+  generation: number;
+  at_ms: string;
+}
+
+export interface CompanionView {
+  control: { owner: string; generation: number };
+  you_own_it: boolean;
+  token?: { symbol: string; decimals: number } | null;
+  asset: null | {
+    account: string;
+    registry: string;
+    chain_id: string;
+    chain: string | null;
+    source: "synthetic" | "testnet" | null;
+    controller: string | null;
+    controller_generation: number | null;
+    addresses: { generation: number; address: string }[];
+    move: { id: string; state: string; evm_hash: string; updated_at: string } | null;
+  };
+  allowance: null | {
+    account: string;
+    grant: null | {
+      agent: string;
+      suppliers: string[];
+      per_payment: string;
+      per_period: string;
+      period_ms: string;
+      review_above: string;
+      generation: number;
+      granted_by?: string;
+    };
+    balance: string;
+    reserved: string;
+    available: string;
+    spent_in_period: string;
+    claims_total: string;
+    period_start_ms: string;
+    active: boolean;
+    awaiting: CompanionPayment[];
+    recent: CompanionPayment[];
+  };
+}
+
+export type CompanionKind = "feed_move" | "allowance_grant" | "allowance_approve";
+
+export interface CompanionPrepared {
+  id: string;
+  kind: CompanionKind;
+  call: WalletFunctionCall;
+  review: Record<string, unknown>;
+}
+
+export interface CompanionAction {
+  id: string;
+  kind: CompanionKind;
+  state:
+    | "prepared"
+    | "refused"
+    | "confirmed"
+    | "external_pending"
+    | "external_final"
+    | "external_failed"
+    | "unknown";
+  tx_hash: string | null;
+  evm_hash: string | null;
+  result: { code?: string; value?: unknown; from?: string; to?: string } | null;
+}
+
+export const companionHttp = {
+  view: (b: string) => call<CompanionView>(`/api/companions/${enc(b)}`),
+  prepare: (b: string, kind: CompanionKind, input: Record<string, unknown> = {}) =>
+    call<CompanionPrepared>(`/api/companions/${enc(b)}/prepare`, "POST", { kind, input }),
+  sent: (id: string, tx_hash: string) =>
+    call<CompanionAction>(`/api/companions/actions/${enc(id)}/sent`, "POST", { tx_hash }),
+};

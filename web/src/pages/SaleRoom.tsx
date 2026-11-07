@@ -9,6 +9,8 @@ import { type ReactNode, useEffect, useId, useRef, useState, useSyncExternalStor
 import { sellerMark } from "../handoverApi.ts";
 import { Link, useRouter } from "../router.tsx";
 import {
+  type CompanionView,
+  companionHttp,
   type SaleAction,
   type SaleHandover,
   type SaleKind,
@@ -39,6 +41,7 @@ import { useSession } from "../session.tsx";
 import { chainWords } from "../wallet.ts";
 import { when } from "../when.ts";
 import { ClosingLedger } from "./ClosingLedger.tsx";
+import { CompanionRequest } from "./CompanionRequest.tsx";
 
 const EMPTY: SaleFlowState = {
   status: "loading",
@@ -1014,8 +1017,22 @@ function ShiftItem({
 }
 
 /** The judge rehearsal: the new owner's first shift after a close, each item read now. */
-function FirstShift({ s, chain }: { s: SaleSetup; chain: string }) {
+function FirstShift({
+  s,
+  chain,
+  companions,
+  reload,
+}: {
+  s: SaleSetup;
+  chain: string;
+  companions: CompanionView | null;
+  reload: () => void;
+}) {
   if (!s.roles.new_owner || s.control.live_deal) return null;
+  const asset = companions?.asset ?? null;
+  const allowance = companions?.allowance ?? null;
+  const moved = asset !== null && asset.controller_generation === s.control.generation;
+  const pending = asset?.move?.state === "external_pending";
   const ops = s.control.operators.filter((o) => o.generation === s.control.generation);
   const kept = ops.filter((o) => o.account !== s.platform_operator);
   return (
@@ -1033,6 +1050,50 @@ function FirstShift({ s, chain }: { s: SaleSetup; chain: string }) {
         {s.customer_obligations && (
           <ShiftItem done label="Customers who paid before the sale keep their units">
             <Amount base={s.customer_obligations.prepaid_unused} s={s} /> unused
+          </ShiftItem>
+        )}
+        {asset && (
+          <ShiftItem
+            done={moved && !pending}
+            label={`Feed role on the ${asset.chain ?? "other chain"}`}
+          >
+            {moved && !pending ? (
+              `at your address (generation ${s.control.generation})`
+            ) : pending ? (
+              <span className="pill caution proof-pending">Pending until final</span>
+            ) : companions ? (
+              <>
+                at generation {asset.controller_generation ?? "?"}'s address{" "}
+                <CompanionRequest
+                  businessId={s.business.id}
+                  view={companions}
+                  kind="feed_move"
+                  label="Move it to your address"
+                  onDone={reload}
+                />
+              </>
+            ) : null}
+          </ShiftItem>
+        )}
+        {allowance && (
+          <ShiftItem done={allowance.active} label="Supplier allowance">
+            {allowance.active ? (
+              <>
+                granted for generation {s.control.generation} ·{" "}
+                <Link to={`/desk/${s.business.id}/allowance`}>Allowance</Link>
+              </>
+            ) : companions ? (
+              <>
+                ended at the close{" "}
+                <CompanionRequest
+                  businessId={s.business.id}
+                  view={companions}
+                  kind="allowance_grant"
+                  label="Grant it again"
+                  onDone={reload}
+                />
+              </>
+            ) : null}
           </ShiftItem>
         )}
         <ShiftItem done={kept.length === 0} label="Your team">
@@ -1189,6 +1250,23 @@ export function SaleRoom({ id }: { id: string }) {
   );
   const [showTerms, setShowTerms] = useState(false);
   const router = useRouter();
+  // The companions (external asset, supplier allowance), read with the sale and after a request.
+  const [companions, setCompanions] = useState<CompanionView | null>(null);
+  const [companionsN, setCompanionsN] = useState(0);
+  const height = st.setup?.block.height;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read with each new sale reading
+  useEffect(() => {
+    if (!height) return;
+    let live = true;
+    companionHttp
+      .view(id)
+      .then((v) => live && setCompanions(v))
+      .catch(() => live && setCompanions(null));
+    return () => {
+      live = false;
+    };
+  }, [id, height, companionsN]);
+  const reloadCompanions = () => setCompanionsN((n) => n + 1);
   // Job 003wf3 (Astra 02:23): a handover in progress is followed while this page is open
   // (bounded; read-only; the controller's retirement on a route or account change ends it).
   const following = handoverInProgress(st.setup);
@@ -1321,11 +1399,20 @@ export function SaleRoom({ id }: { id: string }) {
           </li>
         ))}
       </ol>
-      {s.control.live_deal && <ClosingLedger s={s} terms={<LedgerTerms s={s} />} />}
+      {s.control.live_deal && (
+        <ClosingLedger s={s} terms={<LedgerTerms s={s} />} companions={companions} />
+      )}
       <div className={s.control.live_deal ? "sale-grid ledger-below" : "sale-grid"}>
         <div className="sale-main">
           <Review flow={flow} st={st} s={s} />
-          {!st.review && <FirstShift s={s} chain={chainWords(wallet, s.network)} />}
+          {!st.review && (
+            <FirstShift
+              s={s}
+              chain={chainWords(wallet, s.network)}
+              companions={companions}
+              reload={reloadCompanions}
+            />
+          )}
           {s.handover && (
             <HandoverPanel
               s={s}

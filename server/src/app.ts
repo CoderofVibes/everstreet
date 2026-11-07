@@ -14,6 +14,7 @@ import type { BuildProvider } from "./build.ts";
 import { Builds, proposalBudget } from "./builds.ts";
 import type { Chain } from "./chain.ts";
 import { Community, type Constraints, interpret } from "./community.ts";
+import { type CompanionKind, type CompanionOptions, Companions } from "./companions.ts";
 import { customerAccess } from "./customerAccess.ts";
 import { CustomerPurchases } from "./customerPurchase.ts";
 import { type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
@@ -86,6 +87,8 @@ export interface AppOptions {
    * the platform's METERING account. Unset: customer use answers unavailable and does nothing.
    */
   customer?: CustomerUseOptions;
+  /** Companion contracts per business (external asset, supplier allowance) and the other chain. */
+  companions?: CompanionOptions;
   /**
    * Job 003wf3: whether a managed Gated close is possible for a business now (the coordinator's
    * capability). Unset: never, so a Gated acceptance that would start closing is refused.
@@ -197,6 +200,11 @@ export function everstreetApi(store: Store, options: AppOptions) {
     primaryName: options.customer?.proof?.primaryName,
     second: options.customer?.proof?.second ?? null,
   });
+  const companions = new Companions(
+    store.db,
+    options.customer?.reader ?? null,
+    options.companions ?? { bindings: [], evm: null },
+  );
   const sales = new SaleActions(store.db, store, v3, v3Intents, options.customer?.reader ?? null, {
     onClosed: (id, binding, seq) => proof.recordClose(id, binding, seq),
     inventory: (id) => customerUses.handoverInventory(id),
@@ -672,6 +680,64 @@ export function everstreetApi(store: Store, options: AppOptions) {
       throw new HttpError(503, "NEAR couldn't be read just now; try again.", "read_failed");
     }
   };
+  // Companions (external asset, supplier allowance): what they hold now, and the owner's exact
+  // requests to them, sent by the owner's own wallet and checked by their own transactions.
+  const companionRead = async <T>(f: () => Promise<T>) => {
+    try {
+      return await f();
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      throw new HttpError(503, "NEAR couldn't be read just now; try again.", "read_failed");
+    }
+  };
+  // Which companions a business has here (configuration only; no read): for the desk's links.
+  app.get("/api/businesses/:id/companions", (c) => {
+    me(c);
+    const b = companions.binding(c.req.param("id"));
+    return c.json({ asset: Boolean(b?.asset), allowance: Boolean(b?.allowance) });
+  });
+  app.get("/api/companions/:business", async (c) => {
+    const g = sales.proofContext(me(c), c.req.param("business"));
+    return c.json(
+      await companionRead(async () => {
+        const control = await companions.control(g.binding);
+        const v = await companions.view(g.business.id, g.binding.network, control);
+        return {
+          control,
+          ...(v ?? { asset: null, allowance: null }),
+          you_own_it: control.owner === g.account,
+        };
+      }),
+    );
+  });
+  app.post("/api/companions/:business/prepare", async (c) => {
+    const viewer = me(c);
+    const g = sales.proofContext(viewer, c.req.param("business"));
+    const b = (await body(c)) as { kind?: unknown; input?: Record<string, unknown> };
+    if (b.kind !== "feed_move" && b.kind !== "allowance_grant" && b.kind !== "allowance_approve")
+      throw new HttpError(400, "Unknown request kind.", "bad_kind");
+    return c.json(
+      await companionRead(async () =>
+        companions.prepare(
+          { person_id: viewer.id, account: g.account },
+          g.business.id,
+          g.binding.network,
+          await companions.control(g.binding),
+          b.kind as CompanionKind,
+          b.input ?? {},
+        ),
+      ),
+    );
+  });
+  app.post("/api/companions/actions/:id/sent", async (c) => {
+    const viewer = me(c);
+    const b = (await body(c)) as { tx_hash?: unknown };
+    if (typeof b.tx_hash !== "string" || !/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(b.tx_hash))
+      throw new HttpError(400, "A transaction hash is required.", "bad_tx");
+    return c.json(
+      await companionRead(() => companions.sent(viewer.id, c.req.param("id"), b.tx_hash as string)),
+    );
+  });
   app.get("/api/sales/:business/proof", async (c) =>
     c.json(await proofFor(c, c.req.param("business"))),
   );

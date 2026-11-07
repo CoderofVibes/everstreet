@@ -23,6 +23,15 @@ export class DemoChains implements CustomerViewTransport, ViewTransport, Custome
   readonly chains = new Map<string, FixtureChain>();
   private readonly readers = new Map<string, FixtureReader>();
   private readonly writers = new Map<string, FixtureWriter>();
+  /** Companion contracts by account (server/test/companion-chain.ts) and their transactions. */
+  readonly companions = new Map<
+    string,
+    {
+      view(method: string, args: Json): string | undefined;
+      walletCall?(signer: string, call: Json): Json;
+    }
+  >();
+  private readonly companionTxs = new Map<string, Json>();
 
   constructor(
     private readonly verify: (pk: string, m: string, s: string) => boolean,
@@ -97,6 +106,12 @@ export class DemoChains implements CustomerViewTransport, ViewTransport, Custome
     args: Record<string, unknown>;
     block: BlockRef;
   }) {
+    const companion = this.companions.get(input.account);
+    if (companion) {
+      const v = companion.view(input.method, input.args as Json);
+      if (v === undefined) throw new Error(`MethodNotFound: ${input.method}`);
+      return { result: v, block: input.block };
+    }
     // Token reads go to the shared token ledger (any business double answers them alike).
     const reader =
       input.account === TOKEN
@@ -111,6 +126,8 @@ export class DemoChains implements CustomerViewTransport, ViewTransport, Custome
   }
 
   async txOutcome(hash: string) {
+    const own = this.companionTxs.get(hash);
+    if (own) return own;
     for (const c of this.chains.values()) {
       const o = c.txs.get(hash);
       if (o) return o;
@@ -149,6 +166,12 @@ export class DemoChains implements CustomerViewTransport, ViewTransport, Custome
    * token contract on behalf of the business it pays (its `receiver_id`).
    */
   walletCall(signer: string, call: Json) {
+    const companion = this.companions.get(String(call.receiverId));
+    if (companion?.walletCall) {
+      const out = companion.walletCall(signer, call);
+      this.companionTxs.set(out.transaction.hash, out);
+      return out;
+    }
     const target =
       call.receiverId === TOKEN ? String(call.args?.receiver_id ?? "") : String(call.receiverId);
     // A token call that names no business (a registration) goes to the shared token ledger.

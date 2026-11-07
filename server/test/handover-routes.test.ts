@@ -139,6 +139,10 @@ const CLASS: Record<string, Class> = {
   "POST /api/sales/:business/actions": "allowed_recovery",
   "POST /api/sales/:business/prepare": "allowed_recovery",
   "POST /api/sales/actions/:id/abandon": "allowed_recovery",
+  // Companion requests: the owner's own wallet sends them; each companion asks the business
+  // contract who owns it at that moment, so Everstreet only prepares and records.
+  "POST /api/companions/:business/prepare": "allowed_recovery",
+  "POST /api/companions/actions/:id/sent": "allowed_recovery",
   "POST /api/sales/actions/:id/check": "allowed_recovery",
   "POST /api/sales/actions/:id/requested": "allowed_recovery",
   "POST /api/businesses/:id/v3/intents": "allowed_recovery",

@@ -4,7 +4,7 @@
 // stay mounted (only hidden), so drafts and loaded data survive switching. Every action the
 // earlier single-page desk had is in one of the views; the legacy desk is unchanged (Desk.tsx).
 
-import { type Dispatch, type SetStateAction, useEffect } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
 import { api, type Desk } from "../api.ts";
 import type { DigitalDeskView } from "../api4.ts";
 import {
@@ -234,6 +234,18 @@ export function DigitalWorkspace({
   const view = deskViewFromSearch(search);
   const books = useBooks(b.id);
   const next = nextAction(digital, b.id);
+  // Whether this business has a supplier allowance here (configuration only, no NEAR read).
+  const [hasAllowance, setHasAllowance] = useState(false);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/businesses/${encodeURIComponent(b.id)}/companions`, { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((x: { allowance?: boolean } | null) => live && setHasAllowance(Boolean(x?.allowance)))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [b.id]);
   // A link to a section (#desk-inquiries) shows its view first, then brings the section into view.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the view (from search) is the trigger
   useEffect(() => {
@@ -279,6 +291,7 @@ export function DigitalWorkspace({
           <Link to={`/desk/${b.id}/continuity`}>Ownership and continuity</Link>
           <Link to={`/desk/${b.id}/handover`}>Sale and handover</Link>
           {digital.rehearsable && <Link to={`/desk/${b.id}/rehearsal`}>Successor rehearsal</Link>}
+          {hasAllowance && <Link to={`/desk/${b.id}/allowance`}>Supplier allowance</Link>}
         </nav>
       </header>
 

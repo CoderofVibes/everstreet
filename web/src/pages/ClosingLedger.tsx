@@ -5,7 +5,7 @@
 // when the business contract shows it.
 
 import type { ReactNode } from "react";
-import type { SaleSetup } from "../saleApi.ts";
+import type { CompanionView, SaleSetup } from "../saleApi.ts";
 import { tokenAmount } from "../saleCalls.ts";
 import { when } from "../when.ts";
 
@@ -58,9 +58,19 @@ function Check({ ok, children }: { ok: boolean; children: ReactNode }) {
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-export function ClosingLedger({ s, terms }: { s: SaleSetup; terms: ReactNode }) {
+export function ClosingLedger({
+  s,
+  terms,
+  companions = null,
+}: {
+  s: SaleSetup;
+  terms: ReactNode;
+  companions?: CompanionView | null;
+}) {
   const d = s.control.live_deal;
   if (!d) return null;
+  const asset = companions?.asset ?? null;
+  const allowance = companions?.allowance ?? null;
   const funded = d.escrow !== "0" && BigInt(d.escrow) >= BigInt(d.price);
   const gated = s.control.close_mode === "gated";
   const inv = s.inventory ?? null;
@@ -166,6 +176,18 @@ export function ClosingLedger({ s, terms }: { s: SaleSetup; terms: ReactNode }) 
                 ? "None"
                 : kept.map((g) => `${g.account} (${capsWords(g.caps)})`).join(" · ")}
             </Row>
+            {asset && (
+              <Row label="External feed">
+                Controller role · {asset.chain ?? "other chain"} · moves to generation{" "}
+                {d.expected_generation + 1}'s address after the close
+              </Row>
+            )}
+            {allowance && (
+              <Row label="Supplier allowance">
+                <Amount base={allowance.balance} s={s} /> budget · ends at close unless{" "}
+                <span className="mono wrap">{d.buyer}</span> grants it again
+              </Row>
+            )}
             <Row label="Ends at close">Every other operator</Row>
             <Row label="Not included">Domains, provider accounts, secrets</Row>
           </Rows>
@@ -260,6 +282,32 @@ export function ClosingLedger({ s, terms }: { s: SaleSetup; terms: ReactNode }) 
                   </State>
                 )}
               </Row>
+              {asset && (
+                <Row label="Feed controller">
+                  {asset.controller_generation !== null
+                    ? `Generation ${asset.controller_generation}'s address`
+                    : "Not this business's address"}
+                </Row>
+              )}
+              {allowance && (
+                <Row label="Supplier grant">
+                  {allowance.active && allowance.grant
+                    ? `Active · generation ${allowance.grant.generation}`
+                    : "Not granted for this generation"}
+                  {allowance.awaiting.length > 0 && (
+                    <>
+                      {" "}
+                      <State done={false}>
+                        {count(
+                          allowance.awaiting.length,
+                          "invoice awaiting approval",
+                          "invoices awaiting approval",
+                        )}
+                      </State>
+                    </>
+                  )}
+                </Row>
+              )}
               {inv.unresolved > 0 && (
                 <Row label="Unresolved">
                   <span className="error-text">{inv.unresolved}</span>

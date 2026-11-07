@@ -11,6 +11,7 @@ import { AcquireListing } from "./pages/AcquireListing.tsx";
 import { AcquireRoom } from "./pages/AcquireRoom.tsx";
 import { Activity } from "./pages/Activity.tsx";
 import { AgentAccessPage } from "./pages/AgentAccess.tsx";
+import { AllowanceDeskPage } from "./pages/AllowanceDesk.tsx";
 import { AttackDocketPage } from "./pages/AttackDocket.tsx";
 import { BuildHome } from "./pages/Build.tsx";
 import { BusinessBreakdown } from "./pages/BusinessBreakdown.tsx";
@@ -251,6 +252,15 @@ function Routes() {
   const store = match("/b/:slug", path);
   if (store) return <PublicPage slug={store.slug as string} />;
   if (path === "/desk") return <DeskList />;
+  // The supplier allowance on the owner's desk (a companion contract of the business).
+  const allowanceDesk = match("/desk/:id/allowance", path);
+  if (allowanceDesk)
+    return (
+      <AllowanceDeskPage
+        key={`${person?.id ?? "anon"}:${allowanceDesk.id}`}
+        id={allowanceDesk.id as string}
+      />
+    );
   const value = match("/desk/:id/value", path);
   if (value) return <Value id={value.id as string} />;
   const continuity = match("/desk/:id/continuity", path);

@@ -13,12 +13,14 @@ import { MaintenanceSupervisor } from "../../../server/src/maintenance.ts";
 import { V3Observations } from "../../../server/src/v3observe.ts";
 import { canonicalSubmission } from "../../../server/src/workflow.ts";
 import { SIGNALWATCH_BRIEF, SIGNALWATCH_PROTOTYPE } from "../../../server/test/analyst.ts";
+import { attachCompanions } from "../../../server/test/companion-chain.ts";
 import {
   CUSTOMER,
   type Json,
   keyFromSeed,
   OPERATOR,
   SyntheticProtection,
+  TOKEN,
 } from "../../../server/test/customer-world.ts";
 import { RELAYDESK_PROTOTYPE } from "../../../server/test/relaydesk.ts";
 import { correct, runtimeWorld, ScriptedRuntime } from "../../../server/test/runtime-world.ts";
@@ -39,6 +41,11 @@ export const ACCOUNTS = {
 } as const;
 export type BusinessKey = keyof typeof ACCOUNTS;
 /** Fictional prices per use, in TUSD base units (6 decimals): 0.40, 1.50 and 4.00 TUSD. */
+/** Signalwatch's companions and the parties to its supplier allowance (fictional). */
+export const FEED_ACCOUNT = "signalwatch-feed.demo.near";
+export const BUDGET_ACCOUNT = "signalwatch-budget.demo.near";
+export const AGENT_ACCOUNT = "signalwatch-agent.demo.near";
+export const SUPPLIER_ACCOUNT = "larchmere.demo.near";
 export const PRICES: Record<BusinessKey, string> = {
   ledgerline: "400000",
   relaydesk: "1500000",
@@ -93,6 +100,39 @@ export async function demoWorld(opts: { dbPath: string }) {
     c.plan = { ...c.plan, unit_price: PRICES[key] };
     c.attachSale({ owner: FOUNDER.account });
   }
+  // Signalwatch's companions (fictional, synthetic): its alert feed's controller role on a
+  // synthetic EVM chain, and an operating budget its agent pays the model supplier from.
+  const swSale = chains.chains.get(ACCOUNTS.signalwatch)?.sale;
+  if (!swSale) throw new Error("signalwatch's sale double missing");
+  const companions = attachCompanions(
+    chains,
+    ACCOUNTS.signalwatch,
+    () => {
+      const c = swSale.controlView() as Json;
+      return {
+        owner: String(c.owner),
+        generation: Number(c.generation),
+        control_seq: String(c.control_seq),
+      };
+    },
+    { asset: FEED_ACCOUNT, allowance: BUDGET_ACCOUNT, token: TOKEN },
+  );
+  // The synthetic EVM chain makes a block every 2 seconds (finality: 3 blocks).
+  setInterval(() => companions.registry.mine(1), 2_000).unref();
+  companions.allowance.fund(60_000_000n);
+  companions.allowance.walletCall(FOUNDER.account, {
+    methodName: "grant",
+    args: {
+      agent: AGENT_ACCOUNT,
+      suppliers: [SUPPLIER_ACCOUNT],
+      per_payment: "2000000",
+      per_period: "60000000",
+      period_ms: "604800000",
+      review_above: "5000000",
+    },
+    gas: "1",
+    deposit: "0",
+  });
   const protection = new SyntheticProtection();
   protection.ceiling = 1_000_000; // a month of requests (the double's default budget is a test's)
   const v3 = {
@@ -124,6 +164,16 @@ export async function demoWorld(opts: { dbPath: string }) {
       v3,
       customer: customerOptions as never,
       runtime: rw.runtime,
+      companions: {
+        bindings: [
+          {
+            business_id: business.signalwatch.id,
+            asset: { account: FEED_ACCOUNT },
+            allowance: { account: BUDGET_ACCOUNT },
+          },
+        ],
+        evm: companions.evm,
+      },
       ...extra,
     });
   // `ops`: the app the scripted callers use once the browser's app is the verified-sign-in one
@@ -271,6 +321,7 @@ export async function demoWorld(opts: { dbPath: string }) {
     store,
     db,
     chains,
+    companions,
     secondProvider,
     protection,
     business,
