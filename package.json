@@ -10,6 +10,7 @@
     "demo": "vite build --config web/vite.config.ts && tsx scripts/demo.ts",
     "serve": "tsx server/src/main.ts",
     "attacks": "tsx scripts/attack-suite.ts",
+    "proof-site": "tsx scripts/build-proof-site.ts",
     "web:build": "vite build --config web/vite.config.ts",
     "web:dev": "vite --config web/vite.config.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",

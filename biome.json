@@ -9,6 +9,7 @@
       "!.evm-credentials",
       "!**/target",
       "!web/dist",
+      "!web/dist-proof",
       "!.claude",
       "!docs",
       "!design",

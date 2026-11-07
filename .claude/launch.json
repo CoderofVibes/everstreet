@@ -85,6 +85,17 @@
         "300"
       ],
       "port": 8820
+    },
+    {
+      "name": "proof-site",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "preview",
+        "--config",
+        "web/vite.proof.config.ts"
+      ],
+      "port": 8830
     }
   ]
 }

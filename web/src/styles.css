@@ -354,6 +354,10 @@ textarea.input { min-height: 88px; resize: vertical; line-height: 1.5; }
 .intact ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: #c6d0d9; font-size: 14.5px; }
 .intact .eyebrow { color: var(--accent-on-ink); }
 .intact a { color: var(--accent-on-ink); }
+/* The static proof site's opening (web/src/proofSite.tsx). */
+.proof-site-hero { grid-template-columns: 1fr; }
+.proof-site-hero h1 { font-size: 30px; color: #fff; letter-spacing: -0.02em; margin: 6px 0 0; }
+.proof-site-nav { flex-wrap: wrap; }
 /* earlier home pieces still used by other pages */
 .hero { padding: 32px 0 24px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 40px; align-items: center; }
 .hero h1 { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 12px; }

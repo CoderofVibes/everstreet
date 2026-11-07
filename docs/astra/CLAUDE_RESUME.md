@@ -51,8 +51,13 @@ visual direction), then Opus builds.
   `scripts/lib/testnetRun.ts`): ines-v3s4 paid for wren-v3s5's registration (sponsor_shell; the
   contract names her as payer), Wren bought 2 uses and used 1 through the app, and the owner's
   economics show Wren's 0.15 tUSD as linked (registration paid by the seller) and Cara's 22 uses
-  independent; `data/evidence/linked-revenue-testnet.json`, verify --live OK; 0.31 NEAR spent. (3) A static hosted
-  proof site: only after Tony says yes to publishing (host his call). (4) README with Astra (Tony
+  independent; `data/evidence/linked-revenue-testnet.json`, verify --live OK; 0.31 NEAR spent. (3) Static proof site:
+  BUILT LOCALLY, NOT PUBLISHED (Tony: publish with the repo, probably Nov 12). `npm run
+  proof-site` writes `web/dist-proof/` (ignored): web/src/proofSite.tsx (landing, /proof/ledgerline,
+  /attacks, /example/*; any other /api read answers 404), data files from the server's own
+  projections, `_redirects` and `vercel.json` for SPA routes, a manifest of file hashes. Preview:
+  launch config "proof-site" (port 8830). Optional private preview online behind Cloudflare Access
+  needs Tony's sign-in. (4) README with Astra (Tony
   has the prompt; competitor names stay out of the repo). THEN a cold Fable review of 1 to 3 only.
 
 - **SERIES 4 DONE (Nov 7; Tony: "Yes on the testnet deploy")**: the fixed companions on testnet.

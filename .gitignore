@@ -8,6 +8,7 @@ data/runtime/
 *.db-shm
 docs/astra/*.last-message.txt
 web/dist/
+web/dist-proof/
 
 # Local research and coordinator records
 docs/research/
