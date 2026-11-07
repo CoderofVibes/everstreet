@@ -5,6 +5,7 @@
 // when the business contract shows it.
 
 import type { ReactNode } from "react";
+import { Link } from "../router.tsx";
 import type { CompanionView, SaleSetup } from "../saleApi.ts";
 import { tokenAmount } from "../saleCalls.ts";
 import { when } from "../when.ts";
@@ -96,6 +97,9 @@ export function ClosingLedger({
           <Row label="Mode">{gated ? "Gated" : "Direct"}</Row>
           <Row label="Version">{d.version}</Row>
           <Row label="Open until">{when(Number(d.expires_at_ms))}</Row>
+          <Row label="Books">
+            <Link to={`/sales/${s.business.id}/economics`}>Per-use economics</Link>
+          </Row>
           {claims && p && (
             <Row label="Your claims">
               {[

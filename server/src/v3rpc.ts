@@ -467,6 +467,45 @@ export class TestnetCustomerRpcTransport extends TestnetRpcTransport {
         refuse("unsupported", "get_purchase_terms takes one customer account");
       return { customer: args.customer };
     }
+    // Companion contracts (asset-key, spend-allowance) and the MPC signer's derived keys.
+    if (method === "get_config" || method === "get_allowance") {
+      if (keys.length !== 0) refuse("unsupported", "this view takes no arguments");
+      return {};
+    }
+    if (method === "get_payments") {
+      if (!exactly("from", "limit") || !whole(args.from, 10_000) || !whole(args.limit, 50))
+        refuse("unsupported", "get_payments takes from and limit (at most 50)");
+      return { from: args.from, limit: args.limit };
+    }
+    if (method === "get_payment") {
+      if (
+        !exactly("invoice") ||
+        typeof args.invoice !== "string" ||
+        !FINGERPRINT.test(args.invoice)
+      )
+        refuse("unsupported", "get_payment takes one invoice digest");
+      return { invoice: args.invoice };
+    }
+    if (method === "get_claim") {
+      if (!exactly("supplier") || typeof args.supplier !== "string" || !isAccountId(args.supplier))
+        refuse("unsupported", "get_claim takes one supplier account");
+      return { supplier: args.supplier };
+    }
+    if (method === "derived_public_key") {
+      if (
+        !exactly("path", "predecessor", "domain_id") ||
+        typeof args.path !== "string" ||
+        !/^gen-[1-9][0-9]{0,9}$/.test(args.path) ||
+        typeof args.predecessor !== "string" ||
+        !isAccountId(args.predecessor) ||
+        args.domain_id !== 0
+      )
+        refuse(
+          "unsupported",
+          "derived_public_key takes a generation path, a predecessor and domain 0",
+        );
+      return { path: args.path, predecessor: args.predecessor, domain_id: 0 };
+    }
     // Job 003web (§10.2): the offer token's standard views, with exact arguments.
     if (method === "ft_metadata" || method === "storage_balance_bounds") {
       if (keys.length !== 0) refuse("unsupported", "this view takes no arguments");

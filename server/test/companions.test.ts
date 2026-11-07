@@ -4,6 +4,7 @@
 // until final on the other chain, and the allowance granted again by the buyer.
 
 import { describe, expect, it } from "vitest";
+import { supplierInvoiceFor } from "../src/useEconomics.ts";
 import { attachCompanions, testAddress } from "./companion-chain.ts";
 import type { Json } from "./customer-world.ts";
 import { BUYER, proposal, SELLER, saleWorld } from "./sale-world.ts";
@@ -166,5 +167,38 @@ describe("companions through the app", () => {
     const a = await request(s, s.ava, SELLER, "allowance_approve", { invoice: "ab".repeat(32) });
     expect(a.sent?.body.state).toBe("confirmed");
     expect(c.allowance.payments.get("ab".repeat(32))?.state).toBe("Paid");
+  });
+});
+
+describe("per-use economics (owner and buyer view)", () => {
+  it("revenue from the plan, supplier cost matched to uses, books on separate lines", async () => {
+    const { s, c } = await world();
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const u = await s.customerUse();
+      expect(u.unit).toBe("charged");
+      ids.push(u.id as string);
+    }
+    for (const id of ids)
+      c.allowance.pay(
+        "agent.synthetic.near",
+        "larchmere.synthetic.near",
+        900_000n,
+        supplierInvoiceFor(id),
+      );
+    const e = await s.ava(`/api/sales/${s.biz}/economics`);
+    expect(e.status).toBe(200);
+    const price = BigInt(e.body.per_use.revenue);
+    expect(e.body.per_use).toMatchObject({ supplier_cost: "900000", matched_uses: 2 });
+    expect(BigInt(e.body.per_use.margin)).toBe(price - 900_000n);
+    expect(e.body.books).toMatchObject({
+      earned_uses: 2,
+      supplier_cost: "1800000",
+      founder_costs_usd_cents: null,
+    });
+    expect(e.body.books.earned_revenue).toBe((price * 2n).toString());
+    // Never customer content.
+    expect(JSON.stringify(e.body)).not.toContain("Stackline");
+    expect((await s.stranger(`/api/sales/${s.biz}/economics`)).status).toBe(404);
   });
 });

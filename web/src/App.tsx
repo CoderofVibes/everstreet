@@ -49,6 +49,7 @@ import { Start } from "./pages/Start.tsx";
 import { Studio } from "./pages/Studio.tsx";
 import { SuccessorRehearsalPage } from "./pages/SuccessorRehearsal.tsx";
 import { TeamPage, TeamWorkspacePage } from "./pages/Team.tsx";
+import { UseEconomicsPage } from "./pages/UseEconomicsPage.tsx";
 import { Value } from "./pages/Value.tsx";
 import { WriterHistoryPage } from "./pages/WriterHistory.tsx";
 import { previewLabel } from "./previewLabel.ts";
@@ -283,6 +284,12 @@ function Routes() {
   if (path === "/attacks") return <AttackDocketPage />;
   // Job 003wf2: a Direct sale through each participant's own wallet; keyed by who is acting.
   // The handoff proof (Continuity Receipt) of the newest close this person took part in.
+  // Per-use economics for the owner and a buyer reviewing the sale.
+  const econPage = match("/sales/:id/economics", path);
+  if (econPage)
+    return (
+      <UseEconomicsPage key={`${person?.id ?? "anon"}:${econPage.id}`} id={econPage.id as string} />
+    );
   const proofPage = match("/sales/:id/proof", path);
   if (proofPage)
     return (

@@ -45,6 +45,7 @@ import { Releases } from "./releases.ts";
 import { SaleActions } from "./saleActions.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
 import { SuccessorRehearsals, type SuccessorRunner } from "./successorRehearsal.ts";
+import { UseEconomics } from "./useEconomics.ts";
 import { V3Intents } from "./v3intents.ts";
 import { V3Observations, type V3Options } from "./v3observe.ts";
 import { TestnetRpcTransport } from "./v3rpc.ts";
@@ -690,6 +691,12 @@ export function everstreetApi(store: Store, options: AppOptions) {
       throw new HttpError(503, "NEAR couldn't be read just now; try again.", "read_failed");
     }
   };
+  // Per-use economics a buyer can check (owner and buyer view; never customer content).
+  const useEconomics = new UseEconomics(store.db, options.customer?.reader ?? null, companions);
+  app.get("/api/sales/:business/economics", async (c) => {
+    const g = sales.proofContext(me(c), c.req.param("business"));
+    return c.json(await companionRead(() => useEconomics.build(g.business.id, g.binding)));
+  });
   // Which companions a business has here (configuration only; no read): for the desk's links.
   app.get("/api/businesses/:id/companions", (c) => {
     me(c);
