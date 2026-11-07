@@ -1,0 +1,411 @@
+//! The companion on a real local NEAR node (near-sandbox), with the real business-v3 contract and
+//! a local stand-in for the MPC signer (test-signer; deterministic test keys, never public).
+//!
+//! What it shows, end to end:
+//! - the seller, as owner at generation 1, gets a `publish` signed from generation 1's address;
+//! - anyone else asking is refused `E_NOT_OWNER` (deposit returned, nothing signed);
+//! - after the sale closes, the former seller is refused for every action, including moving the
+//!   role from their own generation's address;
+//! - the buyer moves the role from generation 1's address to generation 2's, then publishes from
+//!   generation 2's address;
+//! - on a model of the registry (only its controller may act), a `publish` the seller had signed
+//!   before the close is rejected once the role has moved.
+//!
+//! Run in WSL from `contracts/`:
+//!   CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p asset-key --test sandbox -- --nocapture
+
+#![allow(unused_must_use)]
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
+use near_api::types::transaction::result::ExecutionFinalResult;
+use near_api::{Account, AccountId, Contract, NearGas, NearToken, NetworkConfig, Signer};
+use near_sandbox::{GenesisAccount, Sandbox, SandboxConfig};
+use serde_json::{json, Value};
+use sha3::{Digest, Keccak256};
+
+const NAMES: [&str; 7] = ["biz", "tusd", "platform", "mara", "noah", "signer", "asset"];
+const D: u128 = 1_000_000;
+const CHAIN_ID: u64 = 11155111;
+const REGISTRY: &str = "0x2222222222222222222222222222222222222222";
+
+struct World {
+    _sandbox: Sandbox,
+    net: NetworkConfig,
+    signers: HashMap<&'static str, Arc<Signer>>,
+    public_keys: HashMap<&'static str, String>,
+}
+
+fn id(n: &str) -> AccountId {
+    n.parse().unwrap()
+}
+
+fn build(manifest: &str) -> Vec<u8> {
+    let path = cargo_near_build::build_with_cli(cargo_near_build::BuildOpts {
+        manifest_path: Some(format!("{}/../{manifest}", env!("CARGO_MANIFEST_DIR")).into()),
+        no_abi: true,
+        ..Default::default()
+    })
+    .expect("wasm build");
+    std::fs::read(path).expect("wasm read")
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+}
+
+impl World {
+    async fn start() -> Self {
+        let accounts: Vec<GenesisAccount> = NAMES
+            .iter()
+            .map(|n| GenesisAccount::generate_with_name(id(n)))
+            .collect();
+        let sandbox = Sandbox::start_sandbox_with_config(SandboxConfig {
+            additional_accounts: accounts.clone(),
+            ..Default::default()
+        })
+        .await
+        .expect("sandbox");
+        let net = NetworkConfig::from_rpc_url("sandbox", sandbox.rpc_addr.parse().unwrap());
+        let signers = NAMES
+            .iter()
+            .zip(&accounts)
+            .map(|(n, a)| {
+                (
+                    *n,
+                    Signer::from_secret_key(a.private_key.parse().unwrap()).unwrap(),
+                )
+            })
+            .collect();
+        let public_keys = NAMES
+            .iter()
+            .zip(&accounts)
+            .map(|(n, a)| (*n, a.public_key.clone()))
+            .collect();
+        Self {
+            _sandbox: sandbox,
+            net,
+            signers,
+            public_keys,
+        }
+    }
+
+    async fn send(
+        &self,
+        who: &'static str,
+        contract: &str,
+        method: &str,
+        args: Value,
+        deposit: NearToken,
+    ) -> ExecutionFinalResult {
+        Contract(id(contract))
+            .call_function(method, args)
+            .transaction()
+            .gas(NearGas::from_tgas(250))
+            .deposit(deposit)
+            .with_signer(id(who), self.signers[who].clone())
+            .send_to(&self.net)
+            .await
+            .expect("rpc")
+            .into_full()
+            .expect("final result")
+    }
+
+    async fn ok(
+        &self,
+        who: &'static str,
+        contract: &str,
+        method: &str,
+        args: Value,
+        deposit: NearToken,
+    ) -> ExecutionFinalResult {
+        let r = self.send(who, contract, method, args, deposit).await;
+        assert!(!r.is_failure(), "{method} as {who}: {r:?}");
+        r
+    }
+
+    async fn view(&self, contract: &str, method: &str, args: Value) -> Value {
+        Contract(id(contract))
+            .call_function(method, args)
+            .read_only::<Value>()
+            .fetch_from(&self.net)
+            .await
+            .expect("view")
+            .data
+    }
+
+    async fn deploy(&self, who: &'static str, code: Vec<u8>, init: &str, args: Value) {
+        Contract::deploy(id(who))
+            .use_code(code)
+            .with_init_call(init, args)
+            .unwrap()
+            .with_signer(self.signers[who].clone())
+            .send_to(&self.net)
+            .await
+            .unwrap()
+            .assert_success();
+    }
+
+    async fn lock(&self, who: &'static str) {
+        Account(id(who))
+            .delete_key(
+                self.public_keys[who]
+                    .parse::<near_api::PublicKey>()
+                    .unwrap(),
+            )
+            .with_signer(self.signers[who].clone())
+            .send_to(&self.net)
+            .await
+            .unwrap()
+            .assert_success();
+    }
+
+    /// One request to the companion; its return value (signed, or refused).
+    async fn request(&self, who: &'static str, action: Value, nonce: u64) -> Value {
+        let tx = json!({ "nonce": nonce.to_string(), "gas_limit": "80000", "max_fee_per_gas": "3000000000", "max_priority_fee_per_gas": "1000000000" });
+        let r = self
+            .ok(
+                who,
+                "asset",
+                "request",
+                json!({ "action": action, "tx": tx }),
+                NearToken::from_yoctonear(1),
+            )
+            .await;
+        r.json::<Value>().expect("a JSON answer")
+    }
+}
+
+/// The EVM address that produced `signature` over `payload` (what the registry would see).
+fn signer_of(answer: &Value) -> [u8; 20] {
+    let sig = &answer["signature"];
+    let r = hex::decode(&sig["big_r"]["affine_point"].as_str().unwrap()[2..]).unwrap();
+    let s = hex::decode(sig["s"]["scalar"].as_str().unwrap()).unwrap();
+    let rec = RecoveryId::from_byte(sig["recovery_id"].as_u64().unwrap() as u8).unwrap();
+    let signature = Signature::from_scalars(
+        <[u8; 32]>::try_from(r).unwrap(),
+        <[u8; 32]>::try_from(s).unwrap(),
+    )
+    .unwrap();
+    let payload = hex::decode(answer["payload"].as_str().unwrap()).unwrap();
+    // The payload is the keccak of exactly the unsigned transaction the contract returned.
+    let unsigned = hex::decode(&answer["unsigned_tx"].as_str().unwrap()[2..]).unwrap();
+    assert_eq!(&Keccak256::digest(&unsigned)[..], &payload[..]);
+    let key = VerifyingKey::recover_from_prehash(&payload, &signature, rec).expect("recover");
+    address(&key)
+}
+
+fn address(key: &VerifyingKey) -> [u8; 20] {
+    let p = key.to_encoded_point(false);
+    let h = Keccak256::digest(&p.as_bytes()[1..]);
+    h[12..].try_into().unwrap()
+}
+
+/// The address the stand-in signer derives for the companion at `path`.
+async fn derived(w: &World, path: &str) -> [u8; 20] {
+    let pk = w
+        .view(
+            "signer",
+            "derived_public_key",
+            json!({ "path": path, "predecessor": "asset" }),
+        )
+        .await;
+    let bytes = hex::decode(pk.as_str().unwrap()).unwrap();
+    address(&VerifyingKey::from_sec1_bytes(&bytes).unwrap())
+}
+
+/// A model of the registry: only its controller may act.
+struct Registry {
+    controller: [u8; 20],
+    published: Vec<String>,
+}
+impl Registry {
+    fn apply(&mut self, from: [u8; 20], action: &Value) -> Result<(), &'static str> {
+        if from != self.controller {
+            return Err("not controller");
+        }
+        match action["kind"].as_str().unwrap() {
+            "publish" => self
+                .published
+                .push(action["digest"].as_str().unwrap().to_string()),
+            "set_controller" => {
+                self.controller = hex::decode(&action["to"].as_str().unwrap()[2..])
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn control_of_the_external_asset_follows_the_business_owner() {
+    let (business, token, signer, asset) = (
+        build("business-v3/Cargo.toml"),
+        build("test-token/Cargo.toml"),
+        build("test-signer/Cargo.toml"),
+        build("asset-key/Cargo.toml"),
+    );
+    let w = World::start().await;
+    w.deploy("tusd", token, "new", json!({ "owner_id": "platform", "total_supply": (1_000_000 * D).to_string(), "symbol": "tUSD" })).await;
+    let rules = json!({ "min_reserve": "0", "max_hold_units": 4, "max_hold_ttl_ms": "600000", "max_settle_grace_ms": "600000" });
+    w.deploy(
+        "biz",
+        business,
+        "new",
+        json!({ "name": "biz", "owner": "mara", "asset": "tusd", "rules": rules, "closer": null }),
+    )
+    .await;
+    Contract::deploy(id("signer"))
+        .use_code(signer)
+        .without_init_call()
+        .with_signer(w.signers["signer"].clone())
+        .send_to(&w.net)
+        .await
+        .unwrap()
+        .assert_success();
+    w.deploy(
+        "asset",
+        asset,
+        "new",
+        json!({ "business": "biz", "signer": "signer", "chain_id": CHAIN_ID.to_string(), "registry": REGISTRY, "max_gas_limit": "200000", "max_fee_per_gas": "50000000000" }),
+    )
+    .await;
+    // Born locked, like the testnet deployments.
+    w.lock("biz").await;
+    w.lock("asset").await;
+
+    let gen1 = derived(&w, "gen-1").await;
+    let gen2 = derived(&w, "gen-2").await;
+    assert_ne!(gen1, gen2, "each generation has its own address");
+    let mut registry = Registry {
+        controller: gen1,
+        published: vec![],
+    };
+
+    // The seller, owner at generation 1, publishes from generation 1's address.
+    let publish = json!({ "kind": "publish", "digest": "11".repeat(32) });
+    let a = w.request("mara", publish.clone(), 0).await;
+    assert_eq!(a["generation"], 1);
+    assert_eq!(signer_of(&a), gen1);
+    registry.apply(signer_of(&a), &publish).unwrap();
+    // Signed before the close and not yet sent: a second publish from generation 1's address.
+    let early = json!({ "kind": "publish", "digest": "22".repeat(32) });
+    let held = w.request("mara", early.clone(), 1).await;
+    assert_eq!(signer_of(&held), gen1);
+
+    // Anyone else is refused; nothing is signed and the deposit comes back.
+    let refused = w.request("noah", publish.clone(), 0).await;
+    assert_eq!(refused["refused"], "E_NOT_OWNER");
+
+    // The sale closes: mara → noah, generation 2.
+    w.ok(
+        "platform",
+        "tusd",
+        "storage_deposit",
+        json!({ "account_id": "biz" }),
+        NearToken::from_millinear(10),
+    )
+    .await;
+    w.ok(
+        "platform",
+        "tusd",
+        "storage_deposit",
+        json!({ "account_id": "noah" }),
+        NearToken::from_millinear(10),
+    )
+    .await;
+    w.ok(
+        "platform",
+        "tusd",
+        "ft_transfer",
+        json!({ "receiver_id": "noah", "amount": (100 * D).to_string() }),
+        NearToken::from_yoctonear(1),
+    )
+    .await;
+    let terms = json!({ "terms": { "buyer": "noah", "price": (50 * D).to_string(), "expires_at_ms": (now_ms() + 3_600_000).to_string(), "close_window_ms": "0", "available_floor": "0", "grants": [], "terms_hash": "1".repeat(64) } });
+    w.ok(
+        "mara",
+        "biz",
+        "propose_sale",
+        terms,
+        NearToken::from_millinear(100),
+    )
+    .await;
+    let deal = w.view("biz", "get_control", json!({})).await["live_deal"].clone();
+    let fund = json!({ "fund_deal": { "deal_seq": deal["seq"], "version": deal["version"], "price": (50 * D).to_string() } });
+    w.ok(
+        "noah",
+        "tusd",
+        "ft_transfer_call",
+        json!({ "receiver_id": "biz", "amount": (50 * D).to_string(), "msg": fund.to_string() }),
+        NearToken::from_yoctonear(1),
+    )
+    .await;
+    let accept =
+        json!({ "deal_seq": deal["seq"], "version": deal["version"], "digest": deal["digest"] });
+    w.ok(
+        "mara",
+        "biz",
+        "accept_sale",
+        accept.clone(),
+        NearToken::from_yoctonear(1),
+    )
+    .await;
+    w.ok(
+        "noah",
+        "biz",
+        "accept_sale",
+        accept,
+        NearToken::from_yoctonear(1),
+    )
+    .await;
+    let control = w.view("biz", "get_control", json!({})).await;
+    assert_eq!(
+        (control["owner"].as_str(), control["generation"].as_u64()),
+        (Some("noah"), Some(2))
+    );
+
+    // The former seller can't ask for anything now, not even from their own generation's path.
+    assert_eq!(
+        w.request("mara", publish.clone(), 2).await["refused"],
+        "E_NOT_OWNER"
+    );
+    let grab = json!({ "kind": "set_controller", "to": format!("0x{}", "33".repeat(20)), "from_generation": 1 });
+    assert_eq!(w.request("mara", grab, 2).await["refused"], "E_NOT_OWNER");
+
+    // The buyer moves the role: signed from generation 1's address, to generation 2's.
+    let rotate = json!({ "kind": "set_controller", "to": format!("0x{}", hex::encode(gen2)), "from_generation": 1 });
+    let r = w.request("noah", rotate.clone(), 2).await;
+    assert_eq!(r["generation"], 1);
+    assert_eq!(signer_of(&r), gen1);
+    registry.apply(signer_of(&r), &rotate).unwrap();
+    assert_eq!(registry.controller, gen2);
+    // A generation that doesn't exist yet is refused.
+    let ahead = json!({ "kind": "set_controller", "to": format!("0x{}", hex::encode(gen2)), "from_generation": 3 });
+    assert_eq!(w.request("noah", ahead, 3).await["refused"], "E_GENERATION");
+
+    // The seller's earlier signature (generation 1's address) now controls nothing.
+    assert_eq!(
+        registry.apply(signer_of(&held), &early),
+        Err("not controller")
+    );
+    // The buyer publishes from generation 2's address.
+    let next = json!({ "kind": "publish", "digest": "44".repeat(32) });
+    let b = w.request("noah", next.clone(), 0).await;
+    assert_eq!((b["generation"].as_u64(), signer_of(&b)), (Some(2), gen2));
+    registry.apply(signer_of(&b), &next).unwrap();
+    assert_eq!(registry.published, vec!["11".repeat(32), "44".repeat(32)]);
+    println!(
+        "generation 1 address 0x{}\ngeneration 2 address 0x{}",
+        hex::encode(gen1),
+        hex::encode(gen2)
+    );
+}

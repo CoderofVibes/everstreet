@@ -1,0 +1,16 @@
+[package]
+name = "test-signer"
+description = "A stand-in for NEAR's MPC signer on a local node only: the same sign request and response shapes, with a deterministic test key per (predecessor, path). Never deployed to a public network."
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.29.1"
+hex = "0.4"
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "arithmetic"] }
+sha2 = { version = "0.10", default-features = false }

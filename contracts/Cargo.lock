@@ -51,6 +51,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
+name = "asset-key"
+version = "0.1.0"
+dependencies = [
+ "cargo-near-build",
+ "hex",
+ "k256",
+ "near-api",
+ "near-sandbox",
+ "near-sdk",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3 0.10.9",
+ "tokio",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1883,6 +1899,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "k256"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6e3919bbaa2945715f0bb6d3934a173d1e9a59ac23767fbaaef277265a7411b"
+dependencies = [
+ "cfg-if 1.0.5",
+ "ecdsa",
+ "elliptic-curve",
+ "once_cell",
+ "sha2 0.10.9",
+ "signature",
+]
+
+[[package]]
 name = "keccak"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3703,6 +3733,16 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "test-signer"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "k256",
+ "near-sdk",
+ "sha2 0.10.9",
 ]
 
 [[package]]
