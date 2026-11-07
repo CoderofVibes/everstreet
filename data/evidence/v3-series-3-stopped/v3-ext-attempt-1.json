@@ -1,0 +1,228 @@
+{
+  "format": "everstreet-v3-rehearsal",
+  "version": 1,
+  "header": {
+    "example": "external",
+    "network": "testnet",
+    "label": "NEAR testnet",
+    "commit": "e2c7c1c4396197672d04973888d4dfdec768e740",
+    "contract": {
+      "account": "ledgerline-v3-3b.everstreet.testnet",
+      "wasm_sha256": "ede1c2f7bed77d1832f5b16e8a873645b387693a486b42a745a06b6d510a29b4",
+      "code_hash_expected": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw"
+    },
+    "accounts": {
+      "seller_gen1": "founder-v3s3.everstreet.testnet",
+      "owner_gen2": "buyer-v3s3.everstreet.testnet",
+      "buyer_gen3": "noor-v3s3.everstreet.testnet",
+      "asset_key": "feed-key-v3s3.everstreet.testnet",
+      "allowance": "budget-v3s3.everstreet.testnet",
+      "agent": "agent-v3s3.everstreet.testnet",
+      "supplier": "supplier-v3s3.everstreet.testnet",
+      "verifier": "intents-v3s3.everstreet.testnet",
+      "solver": "solver-v3s3.everstreet.testnet",
+      "give_token": "talt-v3s3.everstreet.testnet",
+      "registry_sepolia": "0x888188bc8e06c2f05d29092c1745fa5337736cfd"
+    },
+    "model": "stand-in (no model is used in this run)"
+  },
+  "steps": [
+    {
+      "n": 1,
+      "step": "companions_seen_by_owner_gen2",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "controller_generation": 1,
+        "addresses": [
+          {
+            "generation": 1,
+            "address": "0x219b8d58164642d585e6857dc9943c59b4421f16"
+          },
+          {
+            "generation": 2,
+            "address": "0x875fc35e647a3b8ef2567035aa96fde54f2ff91b"
+          }
+        ],
+        "allowance_active": false
+      }
+    },
+    {
+      "n": 2,
+      "step": "asset_request_publish_by_buyer-v3s3",
+      "kind": "transaction",
+      "signer": {
+        "role": "owner_gen2",
+        "account": "buyer-v3s3.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "feed-key-v3s3.everstreet.testnet",
+        "method": "request",
+        "deposit": "1",
+        "gas": "250000000000000",
+        "args": {
+          "action": {
+            "kind": "publish",
+            "digest": "54650262d436e5d3559231116cc7b6983303a30f0eb2dc52e616254e1f9f868a"
+          },
+          "tx": {
+            "nonce": "0",
+            "gas_limit": "200000",
+            "max_fee_per_gas": "1000000028",
+            "max_priority_fee_per_gas": "1000000000"
+          }
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "Hzsmo16TrMvR934ZoTUqxe4Z1ymitvPaYitUUQBMEMAV",
+        "explorer": "https://testnet.nearblocks.io/txns/Hzsmo16TrMvR934ZoTUqxe4Z1ymitvPaYitUUQBMEMAV",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "feed-key-v3s3.everstreet.testnet",
+            "status": "SuccessReceiptId",
+            "logs": []
+          },
+          {
+            "executor": "ledgerline-v3-3b.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "buyer-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "feed-key-v3s3.everstreet.testnet",
+            "status": "SuccessReceiptId",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"asset-key\",\"version\":\"1.0.0\",\"event\":\"asset_sign_requested\",\"data\":[{\"caller\":\"buyer-v3s3.everstreet.testnet\",\"generation\":2,\"owner_generation\":2,\"control_seq\":\"6\",\"path\":\"gen-2\",\"payload\":\"20bbb4ad2df05bc8922bb0180f702e815594e8a7eaa6911a3c78e7ed763f1306\",\"nonce\":\"0\",\"action\":{\"kind\":\"publish\",\"digest\":\"54650262d436e5d3559231116cc7b6983303a30f0eb2dc52e616254e1f9f868a\"}}]}"
+            ]
+          },
+          {
+            "executor": "v1.signer-prod.testnet",
+            "status": "SuccessReceiptId",
+            "logs": []
+          },
+          {
+            "executor": "v1.signer-prod.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "buyer-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "buyer-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "feed-key-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "buyer-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "buyer-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "buyer-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": {
+        "source": "app_recorded",
+        "resolution": {
+          "value": "{\"generation\":2,\"path\":\"gen-2\",\"payload\":\"20bbb4ad2df05bc8922bb0180f702e815594e8a7eaa6911a3c78e7ed763f1306\",\"unsigned_tx\":\"0x02f84f83aa36a780843b9aca00843b9aca1c83030d4094888188bc8e06c2f05d29092c1745fa5337736cfd80a48b2e6dcf54650262d436e5d3559231116cc7b6983303a30f0eb2dc52e616254e1f9f868ac0\",\"signature\":{\"scheme\":\"Secp256k1\",\"big_r\":{\"affine_point\":\"0243adbfcfdebe93c7e370a3d5ca324aa7eb890366ca92358d4d32f3fa0a3d157c\"},\"s\":{\"scalar\":\"0b40fe35ba54a6bf6c6ec4f52f82397e82a80566d882aeeb41578e8bca1259e9\"},\"recovery_id\":1}}"
+        }
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "name": "start_generation_2",
+      "source": "chain_final",
+      "at": "2026-11-07T04:43:28.522Z",
+      "views": {
+        "block": {
+          "height": "276584197",
+          "hash": "8ujNihvmV1sAkedds3937PnSaeiZfWNDcnUXwcDtPjMr"
+        },
+        "control": {
+          "owner": "buyer-v3s3.everstreet.testnet",
+          "generation": 2,
+          "control_seq": "6",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              2
+            ]
+          ],
+          "live_deal": null
+        },
+        "asset_key": {
+          "business": "ledgerline-v3-3b.everstreet.testnet",
+          "signer": "v1.signer-prod.testnet",
+          "chain_id": "11155111",
+          "registry": "0x888188bc8e06c2f05d29092c1745fa5337736cfd",
+          "max_gas_limit": "1000000",
+          "max_fee_per_gas": "100000000000"
+        },
+        "allowance": {
+          "business": "ledgerline-v3-3b.everstreet.testnet",
+          "token": "tusd.everstreet.testnet",
+          "grant": null,
+          "balance": "0",
+          "reserved": "0",
+          "claims_total": "0",
+          "available": "0",
+          "period_start_ms": "0",
+          "spent_in_period": "0"
+        },
+        "registry": {
+          "source": "evm_rpc",
+          "controller_latest": "0x219b8d58164642d585e6857dc9943c59b4421f16",
+          "controller_finalized": "0x219b8d58164642d585e6857dc9943c59b4421f16"
+        },
+        "tusd": {
+          "buyer-v3s3.everstreet.testnet": "90000000",
+          "noor-v3s3.everstreet.testnet": "0",
+          "budget-v3s3.everstreet.testnet": "0",
+          "supplier-v3s3.everstreet.testnet": "0"
+        }
+      }
+    }
+  ],
+  "outcome": {
+    "completed": false,
+    "reason": "eth_sendRawTransaction: insufficient funds for gas * price + value: have 0 want 200000005600000"
+  },
+  "digests": {
+    "sections": {
+      "header": "99d304e93a8f4416d7134ac288e7d9cff238f74f49b3151e2be06406daaebc5d",
+      "steps": "50228aecfaef564c3ea3f1573bcdf0bd4064f1f9e3050a624322735fd214f239",
+      "checkpoints": "caf37c52808566839ff8f42af89237404353ec89bb5e79aa134014c45ef3e043",
+      "outcome": "2f10780c8466ae1f3edc936f4ea63312d239f2b93b170db5756e7f8e1e9b1390"
+    },
+    "record": "61314267041d506cfd5eec1be345907115a256d5b2c252fc44897d4693e40a80"
+  }
+}

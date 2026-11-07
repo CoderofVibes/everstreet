@@ -11,6 +11,9 @@
 // Series 2 (Nov 6 2026): the same examples on new accounts with the contract as fixed after the
 // attack review (reports/2026-11-06_attack-review.md). Series 1's records (Nov 5, the earlier
 // code) are kept in data/evidence/v3-series-1/.
+//
+// Series 3 (Nov 6 2026): the same contract source, now the reproducible build (docs/BUILDS.md),
+// on new accounts (*-v3s3, ledgerline-*-v3-3). Series 2's records are in data/evidence/v3-series-2/.
 
 import { type ChildProcess, execFileSync, fork } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -59,15 +62,15 @@ import {
 } from "./lib/rehearsal/journey.ts";
 
 const TOKEN = "tusd.everstreet.testnet";
-const WASM_SHA256 = "2394b224c743fb057e0c778b420976a78cd622f5d79d0ef496bb54a5549ce431";
-const CODE_HASH = "3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6";
-const CEILING_NEAR = 20;
+const WASM_SHA256 = "ede1c2f7bed77d1832f5b16e8a873645b387693a486b42a745a06b6d510a29b4";
+const CODE_HASH = "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw";
+const CEILING_NEAR = 45;
 const DIRECT = {
-  business: `ledgerline-v3-2.${ROOT}`,
-  founder: `founder-v3s2.${ROOT}`,
-  buyer: `buyer-v3s2.${ROOT}`,
-  customer: `cara-v3s2-1.${ROOT}`,
-  meter: `meter-direct-v3s2.${ROOT}`,
+  business: `ledgerline-v3-3b.${ROOT}`,
+  founder: `founder-v3s3.${ROOT}`,
+  buyer: `buyer-v3s3.${ROOT}`,
+  customer: `cara-v3s3-1.${ROOT}`,
+  meter: `meter-direct-v3s3b.${ROOT}`,
 };
 const METER_METHODS = ["open_hold", "settle_hold", "release_hold_for"];
 const RULES = {
@@ -77,7 +80,7 @@ const RULES = {
   max_settle_grace_ms: "480000",
 };
 const EVIDENCE_DIR = "data/evidence";
-const SPEND_FILE = join("data", "runtime", "rehearsal-spend.json");
+const SPEND_FILE = join("data", "runtime", "rehearsal-spend-s3.json");
 
 const commit = () => {
   try {
@@ -118,7 +121,7 @@ function readV3Wasm(): Buffer {
       "--",
       "bash",
       "-c",
-      "cat ~/everstreet-target/near/business_v3/business_v3.wasm",
+      "cat /mnt/c/Dev/Everstreet/contracts/target/near/business_v3/business_v3.wasm",
     ],
     { maxBuffer: 16 * 1024 * 1024 },
   );
@@ -380,31 +383,10 @@ function liveEnv(port: number, business: { id: string; project: string }) {
       return clients.get(who) as Call;
     },
     signIn: (who, call) => signIn(call, accounts[who]),
-    wallet: async (who, call) => {
-      await spendGuard(`before ${call.methodName}`);
-      const r = await account(accounts[who]).signAndSendTransaction({
-        receiverId: call.receiverId,
-        actions: [
-          actions.functionCall(call.methodName, call.args, BigInt(call.gas), BigInt(call.deposit)),
-        ],
-        waitUntil: "FINAL",
-        throwOnFailure: false,
-      });
-      const failure = (r.status as { Failure?: unknown }).Failure;
-      console.log(
-        `  ${who} ${call.methodName}: ${EXPLORER}${r.transaction.hash}${failure ? " (FAILED)" : ""}`,
-      );
-      return {
-        hash: r.transaction.hash,
-        ok: failure === undefined,
-        error: failure === undefined ? undefined : JSON.stringify(failure).slice(0, 400),
-        receipts: r.receipts_outcome.map((o) => ({
-          executor: o.outcome.executor_id,
-          status: Object.keys(o.outcome.status as object)[0],
-          logs: o.outcome.logs.filter((l) => l.startsWith("EVENT_JSON")).slice(0, 4),
-        })),
-      };
-    },
+    // Series 3: signed first (hash known), sent async, final status polled, same bytes re-sent
+    // (sendAs). Series 3's first Direct attempt lost a landed purchase's hash to an RPC 500 while
+    // waiting for FINAL in one call.
+    wallet: (who, call) => sendAs(accounts[who], call),
     views: async () => {
       const block = await provider.viewBlock({ finality: "final" } as never);
       return {
@@ -684,31 +666,31 @@ interface Example {
 }
 const GATED: Example = {
   name: "gated",
-  business: `ledgerline-gated-v3-2.${ROOT}`,
-  founder: `founder-v3s2.${ROOT}`,
-  buyer: `buyer-v3s2.${ROOT}`,
-  customer: `cara-v3s2-2.${ROOT}`,
-  prober: `cara-v3s2-2b.${ROOT}`,
-  meter: `meter-gated-v3s2.${ROOT}`,
-  closer: `closer-gated-v3s2.${ROOT}`,
-  register: [`ledgerline-gated-v3-2.${ROOT}`, `cara-v3s2-2.${ROOT}`, `cara-v3s2-2b.${ROOT}`],
+  business: `ledgerline-gated-v3-3.${ROOT}`,
+  founder: `founder-v3s3.${ROOT}`,
+  buyer: `buyer-v3s3.${ROOT}`,
+  customer: `cara-v3s3-2.${ROOT}`,
+  prober: `cara-v3s3-2b.${ROOT}`,
+  meter: `meter-gated-v3s3.${ROOT}`,
+  closer: `closer-gated-v3s3.${ROOT}`,
+  register: [`ledgerline-gated-v3-3.${ROOT}`, `cara-v3s3-2.${ROOT}`, `cara-v3s3-2b.${ROOT}`],
   fund: [
-    [`cara-v3s2-2.${ROOT}`, 20_000_000n],
-    [`cara-v3s2-2b.${ROOT}`, 1_000_000n],
-    [`buyer-v3s2.${ROOT}`, 100_000_000n],
+    [`cara-v3s3-2.${ROOT}`, 20_000_000n],
+    [`cara-v3s3-2b.${ROOT}`, 1_000_000n],
+    [`buyer-v3s3.${ROOT}`, 100_000_000n],
   ],
 };
 const RECOVERY: Example = {
   name: "recovery",
-  business: `ledgerline-payout-v3-2.${ROOT}`,
-  founder: `founder-p-v3s2.${ROOT}`,
-  buyer: `buyer-v3s2.${ROOT}`,
-  customer: `cara-v3s2-3.${ROOT}`,
-  meter: `meter-payout-v3s2.${ROOT}`,
-  register: [`ledgerline-payout-v3-2.${ROOT}`, `cara-v3s2-3.${ROOT}`],
+  business: `ledgerline-payout-v3-3.${ROOT}`,
+  founder: `founder-p-v3s3.${ROOT}`,
+  buyer: `buyer-v3s3.${ROOT}`,
+  customer: `cara-v3s3-3.${ROOT}`,
+  meter: `meter-payout-v3s3.${ROOT}`,
+  register: [`ledgerline-payout-v3-3.${ROOT}`, `cara-v3s3-3.${ROOT}`],
   fund: [
-    [`cara-v3s2-3.${ROOT}`, 5_000_000n],
-    [`buyer-v3s2.${ROOT}`, 100_000_000n],
+    [`cara-v3s3-3.${ROOT}`, 5_000_000n],
+    [`buyer-v3s3.${ROOT}`, 100_000_000n],
   ],
 };
 
@@ -1513,16 +1495,21 @@ async function resumeRecovery(ex: Example, port: number) {
       if (paid !== 1_500_000n) throw new StopRun(`expected one payment of 1.5 tUSD, saw ${paid}`);
     }
     // ---- Example 3, controlled: a second small purchase; the app's readback answer dropped.
+    // (Skipped when an earlier attempt already recorded it.)
+    const dropDone = (rec.build({ completed: false }).record.steps as Json[]).some(
+      (x) => x.step === "purchase_5_customer",
+    );
     const pem = join(dir, "device-key-customer-2.pem");
     const key2 = existsSync(pem) ? loadDeviceKey(readFileSync(pem, "utf8")) : newDeviceKey();
     if (!existsSync(pem)) writeFileSync(pem, key2.pem, { mode: 0o600 });
-    await controlledDrop(env, rec, s, {
-      offer: offer.id as string,
-      units: 5,
-      key: key2,
-      slot: 1,
-      tag: "recovery-2",
-    });
+    if (!dropDone)
+      await controlledDrop(env, rec, s, {
+        offer: offer.id as string,
+        units: 5,
+        key: key2,
+        slot: 1,
+        tag: "recovery-2",
+      });
     // ---- Example 4.
     const r = await payoutRecovery(env, rec, s);
     console.log(`✓ examples 3 and 4 complete: ${JSON.stringify(r)}`);

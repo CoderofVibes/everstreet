@@ -409,7 +409,10 @@ export async function payoutRecovery(env: RecoveryEnv, rec: Recorder, s: ReturnT
     exclusions: ["The ledgerline.example domain and its DNS account"],
     note: "Fictional terms for the business-v3 payout-recovery rehearsal.",
   };
-  await s.act("founder", ava, "propose", terms, "recovery-propose-01");
+  // On a resume, a live deal is this run's own proposal (its transaction is earlier in the record).
+  await s.act("founder", ava, "propose", terms, "recovery-propose-01", {
+    satisfiedBy: "deal_live",
+  });
   await s.act("buyer", noah, "register", {}, "recovery-register-0001", {
     satisfiedBy: "registered",
   });

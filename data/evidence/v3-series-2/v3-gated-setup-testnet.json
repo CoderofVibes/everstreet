@@ -1,0 +1,122 @@
+{
+  "format": "everstreet-v3-rehearsal-setup",
+  "network": "testnet",
+  "commit": "c2660e18c0c955c2cde8bd4263cfcb17f2344dbd",
+  "contract": {
+    "account": "ledgerline-gated-v3-2.everstreet.testnet",
+    "wasm_sha256": "2394b224c743fb057e0c778b420976a78cd622f5d79d0ef496bb54a5549ce431",
+    "code_hash": "3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6",
+    "access_keys": 0,
+    "close_mode": "gated"
+  },
+  "accounts": {
+    "name": "gated",
+    "business": "ledgerline-gated-v3-2.everstreet.testnet",
+    "founder": "founder-v3s2.everstreet.testnet",
+    "buyer": "buyer-v3s2.everstreet.testnet",
+    "customer": "cara-v3s2-2.everstreet.testnet",
+    "prober": "cara-v3s2-2b.everstreet.testnet",
+    "meter": "meter-gated-v3s2.everstreet.testnet",
+    "closer": "closer-gated-v3s2.everstreet.testnet",
+    "register": [
+      "ledgerline-gated-v3-2.everstreet.testnet",
+      "cara-v3s2-2.everstreet.testnet",
+      "cara-v3s2-2b.everstreet.testnet"
+    ],
+    "fund": [
+      [
+        "cara-v3s2-2.everstreet.testnet",
+        "20000000"
+      ],
+      [
+        "cara-v3s2-2b.everstreet.testnet",
+        "1000000"
+      ],
+      [
+        "buyer-v3s2.everstreet.testnet",
+        "100000000"
+      ]
+    ]
+  },
+  "metering_key": {
+    "receiver": "ledgerline-gated-v3-2.everstreet.testnet",
+    "methods": [
+      "open_hold",
+      "settle_hold",
+      "release_hold_for"
+    ],
+    "allowance_near": "0.25",
+    "full_access_keys": 0
+  },
+  "closer_key": {
+    "receiver": "ledgerline-gated-v3-2.everstreet.testnet",
+    "methods": [
+      "close_sale"
+    ],
+    "allowance_near": "0.25",
+    "full_access_keys": 0
+  },
+  "rules": {
+    "min_reserve": "750000",
+    "max_hold_units": 1,
+    "max_hold_ttl_ms": "600000",
+    "max_settle_grace_ms": "480000"
+  },
+  "transactions": [
+    {
+      "what": "create cara-v3s2-2.everstreet.testnet",
+      "hash": "G6HzK1FNVhEMb4B17cvVY2Z1qrP9uWBukoijABUdR9wz",
+      "explorer": "https://testnet.nearblocks.io/txns/G6HzK1FNVhEMb4B17cvVY2Z1qrP9uWBukoijABUdR9wz"
+    },
+    {
+      "what": "create cara-v3s2-2b.everstreet.testnet",
+      "hash": "A39K4QntvJobcFhN9CC9YCG9oMTbQZCDQ8vd9BqkHfER",
+      "explorer": "https://testnet.nearblocks.io/txns/A39K4QntvJobcFhN9CC9YCG9oMTbQZCDQ8vd9BqkHfER"
+    },
+    {
+      "what": "create meter-gated-v3s2.everstreet.testnet (function-call key only: open_hold, settle_hold, release_hold_for)",
+      "hash": "2WoNV5Yr9aHCDDWyXMXRW6za7Atyf7ZTAxz4vx3eqNwv",
+      "explorer": "https://testnet.nearblocks.io/txns/2WoNV5Yr9aHCDDWyXMXRW6za7Atyf7ZTAxz4vx3eqNwv"
+    },
+    {
+      "what": "create closer-gated-v3s2.everstreet.testnet (function-call key only: close_sale)",
+      "hash": "8AZhU8GsUCeUxSUhZ8tfmC3KGeakmqU7cKpP4MJU49Ct",
+      "explorer": "https://testnet.nearblocks.io/txns/8AZhU8GsUCeUxSUhZ8tfmC3KGeakmqU7cKpP4MJU49Ct"
+    },
+    {
+      "what": "deploy and init ledgerline-gated-v3-2.everstreet.testnet (born locked; closer closer-gated-v3s2.everstreet.testnet)",
+      "hash": "4G8rp4jeWYiDjVs7Pt82GQr9CtMoHTtXe6EdEeQGjVWx",
+      "explorer": "https://testnet.nearblocks.io/txns/4G8rp4jeWYiDjVs7Pt82GQr9CtMoHTtXe6EdEeQGjVWx"
+    },
+    {
+      "what": "register ledgerline-gated-v3-2.everstreet.testnet with tUSD",
+      "hash": "HqZwV9xrmQ4zWnRoYovYfruuDfycpWc83aH2ifWXHR9b",
+      "explorer": "https://testnet.nearblocks.io/txns/HqZwV9xrmQ4zWnRoYovYfruuDfycpWc83aH2ifWXHR9b"
+    },
+    {
+      "what": "register cara-v3s2-2.everstreet.testnet with tUSD",
+      "hash": "B7eGr1Q1i9koGFT2cXdHUv2Gph9GwoR9jkTCgixLtd8c",
+      "explorer": "https://testnet.nearblocks.io/txns/B7eGr1Q1i9koGFT2cXdHUv2Gph9GwoR9jkTCgixLtd8c"
+    },
+    {
+      "what": "register cara-v3s2-2b.everstreet.testnet with tUSD",
+      "hash": "4XK6w6ujzMBKGWAc7fnPe7EAhfvJ4CidFDevvo8CqrVr",
+      "explorer": "https://testnet.nearblocks.io/txns/4XK6w6ujzMBKGWAc7fnPe7EAhfvJ4CidFDevvo8CqrVr"
+    },
+    {
+      "what": "fund cara-v3s2-2.everstreet.testnet with 20 tUSD",
+      "hash": "4bD2xHrG4SM7o8RLzp5AViigV1ybqjmbh6L7YAveR5hu",
+      "explorer": "https://testnet.nearblocks.io/txns/4bD2xHrG4SM7o8RLzp5AViigV1ybqjmbh6L7YAveR5hu"
+    },
+    {
+      "what": "fund cara-v3s2-2b.everstreet.testnet with 1 tUSD",
+      "hash": "Crndz67PzeWGqJ32Jw8nVGMVn6xJ6AuBurvmzDbAgWRE",
+      "explorer": "https://testnet.nearblocks.io/txns/Crndz67PzeWGqJ32Jw8nVGMVn6xJ6AuBurvmzDbAgWRE"
+    },
+    {
+      "what": "fund buyer-v3s2.everstreet.testnet with 50 tUSD",
+      "hash": "Dy4kGkBJ1LfmyDeZDxpjZoFdqkSyrjqKXafiped5tfMJ",
+      "explorer": "https://testnet.nearblocks.io/txns/Dy4kGkBJ1LfmyDeZDxpjZoFdqkSyrjqKXafiped5tfMJ"
+    }
+  ]
+}

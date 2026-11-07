@@ -541,6 +541,130 @@ describe("003w-d the writer through configuration", () => {
   });
 });
 
+describe("series 3: companions and intents through configuration", () => {
+  const BIZ = { business_id: "biz-1", account: "ledgerline-synthetic.testnet" };
+  const solverKey = (dir: string, account: string) => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const seed = privateKey.export({ format: "der", type: "pkcs8" }).subarray(-32);
+    const pub = publicKey.export({ format: "der", type: "spki" }).subarray(-32);
+    const file = join(dir, "solver-key.json");
+    const secret = `ed25519:${base58(Buffer.concat([seed, pub]))}`;
+    writeFileSync(
+      file,
+      JSON.stringify({
+        account_id: account,
+        public_key: `ed25519:${base58(Buffer.from(pub))}`,
+        private_key: secret,
+      }),
+    );
+    return { file, secret };
+  };
+  const ext = (keyFile: string) => ({
+    v3: { bindings: [BIZ] },
+    companions: {
+      evm: { name: "Sepolia", chain_id: 11155111, rpc: "https://sepolia.synthetic.example" },
+      bindings: [
+        {
+          business_id: "biz-1",
+          asset: "feed-key.synthetic.testnet",
+          allowance: "budget.synthetic.testnet",
+        },
+      ],
+    },
+    intents: {
+      verifier: "verifier.synthetic.testnet",
+      solver: { account: "solver.synthetic.testnet", key_file: keyFile },
+      bindings: [
+        {
+          business_id: "biz-1",
+          asset: "tusd.synthetic.testnet",
+          offers: [
+            {
+              token: "talt.synthetic.testnet",
+              symbol: "tALT",
+              decimals: 6,
+              rate_num: "5",
+              rate_den: "4",
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  it("turns both on, names the EVM testnet and the solver, never the key", async () => {
+    const dir = tempDir();
+    const k = solverKey(dir, "solver.synthetic.testnet");
+    const cfg = configuredFiles(dir, ext(k.file) as never);
+    const c = compose(cfg, syntheticRpc(new Map()));
+    const l = await listen(c);
+    const caps = (await l.call("/api/system/capabilities")).body.capabilities as {
+      key: string;
+      state: string;
+      detail: string;
+    }[];
+    expect(caps.find((x) => x.key === "companions")).toMatchObject({ state: "on" });
+    expect(caps.find((x) => x.key === "companions")?.detail).toContain("Sepolia");
+    expect(caps.find((x) => x.key === "intents_funding")).toMatchObject({ state: "on" });
+    const text = JSON.stringify(caps);
+    expect(text).toContain("solver.synthetic.testnet");
+    expect(text).not.toContain(k.secret.slice(8, 40));
+    expect(text).not.toContain(k.file);
+  });
+
+  it("refuses a mainnet chain, plain http, unbound businesses and a solver key for another account", () => {
+    const dir = tempDir();
+    const k = solverKey(dir, "someone-else.testnet");
+    const good = ext(k.file);
+    const cfg = (over: Record<string, unknown>) =>
+      configuredFiles(tempDir(), { ...good, ...over } as never);
+    expect(() =>
+      cfg({
+        companions: {
+          ...good.companions,
+          evm: { name: "Ethereum", chain_id: 1, rpc: "https://x.example" },
+        },
+      }),
+    ).toThrow(/EVM testnet/);
+    expect(() =>
+      cfg({
+        companions: {
+          ...good.companions,
+          evm: { ...good.companions.evm, rpc: "http://x.example" },
+        },
+      }),
+    ).toThrow(/https/);
+    expect(() =>
+      cfg({
+        companions: {
+          ...good.companions,
+          bindings: [{ business_id: "other", asset: "a.testnet" }],
+        },
+      }),
+    ).toThrow(/isn't a v3 binding/);
+    expect(() => cfg({ intents: { ...good.intents, verifier: "intents.near" } })).toThrow(
+      /testnet account/,
+    );
+    expect(() =>
+      cfg({
+        intents: {
+          ...good.intents,
+          bindings: [
+            {
+              ...good.intents.bindings[0],
+              offers: [
+                { token: "t.testnet", symbol: "X", decimals: 6, rate_num: "0", rate_den: "1" },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow(/positive whole-number rate/);
+    const wrongKey = configuredFiles(tempDir(), good as never);
+    expect(() => compose(wrongKey, syntheticRpc(new Map()))).toThrow(/another account/);
+  });
+});
+
 describe("003w-b NEP-413 and the access-key reader", () => {
   it("a signature over the raw message (a generic signer's bytes) is not a NEP-413 signature", () => {
     const k = accountKey();

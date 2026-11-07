@@ -25,6 +25,13 @@ interface Case {
   protected: { before: Protected; after: Protected };
   unchanged: boolean;
   passed: boolean;
+  /** The same attack refused on NEAR testnet (series 3), when it also ran there. */
+  testnet?: {
+    refusal: string;
+    what: string;
+    explorer: string | null;
+    clean_explorer: string | null;
+  };
 }
 export interface Suite {
   format: "everstreet.attack-suite";
@@ -103,6 +110,22 @@ function CaseView({ c, source }: { c: Case; source: Suite["source"] }) {
         </span>
         <SourceTag source={source} />
         <span className="pill">Fixture</span>
+        {c.testnet &&
+          (c.testnet.explorer ? (
+            <a
+              className="pill success"
+              href={c.testnet.explorer}
+              target="_blank"
+              rel="noreferrer"
+              title={c.testnet.what}
+            >
+              NEAR testnet · {c.testnet.refusal} ↗
+            </a>
+          ) : (
+            <span className="pill success" title={c.testnet.what}>
+              NEAR testnet · {c.testnet.refusal}
+            </span>
+          ))}
       </div>
       <details className="docket-values">
         <summary>Protected values · {valuesWord(c)}</summary>

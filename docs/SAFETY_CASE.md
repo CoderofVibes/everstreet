@@ -77,10 +77,12 @@ CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbo
   settlement continue.
 - **Not covered:** the real token's behaviour, on-chain storage costs, and off-chain services
   (Everstreet's own records follow the contract and are tested separately).
-- **Which code ran on testnet.** The fixed contract (code hash
-  `3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6`) ran the Direct sale, the Gated sale and the
-  recovery examples on testnet on 2026-11-06 (`data/evidence/v3-*-testnet.json`). Recordings
-  from 2026-11-05 ran the earlier code and are kept in `data/evidence/v3-series-1/`.
+- **Which code ran on testnet.** Series 3 (2026-11-06) ran the Direct sale, the Gated sale and
+  the recovery examples on the reproducible build of the fixed contract (code hash
+  `H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw`, `docs/BUILDS.md`), with the companions and
+  NEAR's intents verifier beside it (`data/evidence/v3-*-testnet.json`). Series 2 ran the same
+  source as a plain build (`3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6`,
+  `data/evidence/v3-series-2/`); series 1 ran the earlier code (`data/evidence/v3-series-1/`).
 - **Everstreet's own server** follows the contract rather than enforcing it. A separate cold review
   covered its permissions (`reports/2026-11-06_permissions-review.md`). Its one real gap, a sale
   closed on the contract while Everstreet still showed the seller as owner, now closes within 15

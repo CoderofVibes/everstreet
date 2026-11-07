@@ -26,6 +26,16 @@ describe("attack suite", () => {
     expect(r.cases.every((c: { passed: boolean }) => c.passed)).toBe(true);
     expect(r.planted.every((p: { caught: boolean }) => p.caught)).toBe(true);
     expect(new Set(r.cases.map((c: { group: number }) => c.group)).size).toBe(8);
-    expect(attackSuite()).toEqual(r);
+    // Served as committed, plus the cases that also ran on NEAR testnet (attack-pairs-testnet.json).
+    const served = attackSuite() as unknown as typeof r;
+    const plain = served.cases.map(({ testnet, ...c }: { testnet?: unknown }) => c);
+    expect({ ...served, cases: plain }).toEqual(r);
+    const paired = served.cases.filter((c: { testnet?: unknown }) => c.testnet);
+    expect(paired.length).toBeGreaterThanOrEqual(5);
+    for (const c of paired as { testnet: { explorer: string | null; refusal: string } }[]) {
+      expect(c.testnet.refusal).toBeTruthy();
+      if (c.testnet.explorer)
+        expect(c.testnet.explorer).toMatch(/^https:\/\/testnet\.nearblocks\.io\/txns\//);
+    }
   });
 });

@@ -65,6 +65,28 @@ VERIFIER_WASM=$HOME/vendor/near-intents/target/near/defuse/defuse.wasm \
 CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p intents-funding --test sandbox -- --nocapture
 ```
 
+## On NEAR testnet (series 3)
+
+The same reproducible build is deployed at `intents-v3s3.everstreet.testnet`, born with no
+access key, configured with no fee and no admin roles (code hash
+`3XKA3xB2Dz92QhELLkWhZ2j66fR7JYYKPRi3A3J4LFzX`). The give token is `talt-v3s3.everstreet.testnet`
+(test token, no keys); Everstreet's solver is `solver-v3s3.everstreet.testnet`, which holds its
+tUSD float inside the verifier and registered its signing key there. In the configured app the
+solver's key is a file the configuration names (`intents.solver.key_file`), never echoed.
+
+The run (`npx tsx scripts/series3.ts run-ext`, record `data/evidence/v3-ext-testnet.json`) sells
+the Direct example's business again, from `buyer-v3s3` to `noor-v3s3`, with the escrow funded
+from tALT through the app's routes: quote, deposit, the buyer's NEP-413 signature, the solver's
+fill, the buyer's withdrawal, then the business contract's own fund call.
+
+What happened (Nov 6 2026): the buyer's first signature was refused until they registered their
+key with the verifier (`key_not_registered`, then `add_public_key`). The solver's fill landed,
+but its answer reached the app late, so the app showed the funding as `unknown`, not swapped.
+On the next read the app checked the verifier's spent-nonce record and the buyer's balance inside
+the verifier, and showed `swapped`. The buyer then withdrew 250 tUSD, funded the escrow, and the
+sale closed to `noor-v3s3` (generation 3). The solver now re-checks its own transaction for up to
+a minute before calling an outcome unknown.
+
 In the demo, the buyer (Noah Brandt) holds tALT and sees "Fund from another token · NEAR
 Intents" in the sale's escrow card while the escrow is unfunded. The verifier, tALT and the
 solver there are synthetic and labelled so.

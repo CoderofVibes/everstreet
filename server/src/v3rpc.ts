@@ -520,6 +520,63 @@ export class TestnetCustomerRpcTransport extends TestnetRpcTransport {
         refuse("unsupported", `${method} takes one account_id`);
       return { account_id: args.account_id };
     }
+    // Escrow funding through NEAR's intents verifier (its own views, exact arguments).
+    if (method === "current_salt") {
+      if (keys.length !== 0) refuse("unsupported", "this view takes no arguments");
+      return {};
+    }
+    if (method === "has_public_key") {
+      if (
+        !exactly("account_id", "public_key") ||
+        typeof args.account_id !== "string" ||
+        !isAccountId(args.account_id) ||
+        typeof args.public_key !== "string" ||
+        !/^ed25519:[1-9A-HJ-NP-Za-km-z]{32,50}$/.test(args.public_key)
+      )
+        refuse("unsupported", "has_public_key takes an account_id and an ed25519 public_key");
+      return { account_id: args.account_id, public_key: args.public_key };
+    }
+    if (method === "mt_balance_of") {
+      if (
+        !exactly("account_id", "token_id") ||
+        typeof args.account_id !== "string" ||
+        !isAccountId(args.account_id) ||
+        typeof args.token_id !== "string" ||
+        !args.token_id.startsWith("nep141:") ||
+        !isAccountId(args.token_id.slice("nep141:".length))
+      )
+        refuse("unsupported", "mt_balance_of takes an account_id and a nep141 token_id");
+      return { account_id: args.account_id, token_id: args.token_id };
+    }
+    if (method === "is_nonce_used") {
+      if (
+        !exactly("account_id", "nonce") ||
+        typeof args.account_id !== "string" ||
+        !isAccountId(args.account_id) ||
+        typeof args.nonce !== "string" ||
+        !/^[A-Za-z0-9+/]{43}=$/.test(args.nonce)
+      )
+        refuse("unsupported", "is_nonce_used takes an account_id and a 32-byte base64 nonce");
+      return { account_id: args.account_id, nonce: args.nonce };
+    }
+    if (method === "simulate_intents") {
+      const signed = args.signed;
+      if (
+        !exactly("signed") ||
+        !Array.isArray(signed) ||
+        signed.length < 1 ||
+        signed.length > 4 ||
+        !signed.every(
+          (s) =>
+            s &&
+            typeof s === "object" &&
+            (s as { standard?: unknown }).standard === "nep413" &&
+            JSON.stringify(s).length <= 4096,
+        )
+      )
+        refuse("unsupported", "simulate_intents takes 1 to 4 signed NEP-413 payloads");
+      return { signed };
+    }
     return refuse("unsupported", "not a supported customer view");
   }
 

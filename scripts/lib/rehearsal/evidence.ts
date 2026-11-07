@@ -80,6 +80,14 @@ export class Recorder {
     });
   }
 
+  /**
+   * The other chain's own answer (an EVM testnet's JSON-RPC): a transaction hash and its status
+   * there. "final" only at or below that chain's finalized block.
+   */
+  external(step: string, facts: Json & { chain: string; status: string }) {
+    this.steps.push({ n: ++this.n, step, kind: "external", source: "evm_rpc", facts });
+  }
+
   /** What the app's own routes reported (never chain evidence). */
   app(step: string, facts: Json) {
     this.steps.push({ n: ++this.n, step, kind: "app", source: "app_recorded", facts });

@@ -5,94 +5,90 @@
   "rpc": "https://test.rpc.fastnear.com",
   "fetched_on": "2026-11-07",
   "record": "data/evidence/v3-direct-testnet.json",
-  "contract": "ledgerline-v3-2.everstreet.testnet",
+  "contract": "ledgerline-v3-3b.everstreet.testnet",
   "transaction": {
-    "hash": "HSio6C7LUmEeaYukjBdCEcrKQa7xXYDkVWPDNWtzfeGz",
-    "sender": "founder-v3s2.everstreet.testnet",
+    "hash": "24RLpPg2CdVbPRUtLSKUL1fhFqP4TP2FhkarZWEoreGi",
+    "sender": "founder-v3s3.everstreet.testnet",
     "proof": {
       "block_header_lite": {
         "inner_lite": {
-          "block_merkle_root": "25nVoFURHXXxNAGJJnG5irScREgHVU8FQnERzb9bXhop",
-          "epoch_id": "GLGMpHkJP42at8N69dGasdhgLvb2xBH3tn9PukWjSsyr",
-          "height": 276523317,
-          "next_bp_hash": "4jFDTWvJ5kEtXSEMee4RBrWXiab6vqRP2Pu2Mx5q7kJw",
-          "next_epoch_id": "Gd2gBECSGFmNDWb635oPsE9Eku42HtZcGfSamKQnp3oC",
-          "outcome_root": "HcxVuuLwhBesVNAp3KiRajNEf4LMTESfdiVVu3s35vtd",
-          "prev_state_root": "5hEAmu6VHvw9YeK92EPWjeX8NsjTcc8hqDd32XLVikzh",
-          "timestamp": 1793990645887287800,
-          "timestamp_nanosec": "1793990645887287768"
+          "block_merkle_root": "8PVxCwr7esoSNubSH49BR8S3jJXE4HZGzT7mrLVieTQ2",
+          "epoch_id": "Gd2gBECSGFmNDWb635oPsE9Eku42HtZcGfSamKQnp3oC",
+          "height": 276581442,
+          "next_bp_hash": "DsYAaJv9mSGE46Rtj2MwFVooLr5UWBmsKe1q5Ns9WZRM",
+          "next_epoch_id": "HaT2Mk95W9US9iJLWUuC3MGpecMszGec9T95KM2he6pp",
+          "outcome_root": "5TdpBDi9AGSDrjNDPRRZPRE38dQp928jkeVwSZYxCvaN",
+          "prev_state_root": "F9c2rASQhH4GMjzbemxnTLeYxyp517XiD8i8RkhgXAiN",
+          "timestamp": 1794024942169086200,
+          "timestamp_nanosec": "1794024942169086093"
         },
-        "inner_rest_hash": "DBHQaTgkzC4zZM53HyZWLzpgTeBZxuihpw1NfnKCL4ra",
-        "prev_block_hash": "AgD31s9ch4SxVgEMPFDfx9KbthBcnN13tAowWbjD9X3f"
+        "inner_rest_hash": "zSFikXkEDMDpBS6TCBcbC6JFpGmuAgk6Eb1H9KLNwMy",
+        "prev_block_hash": "98HH8adeFGTVSHaEaTJukh7WYgMJUETHpVbvYoi5Pp4y"
       },
       "block_proof": [
         {
           "direction": "Right",
-          "hash": "CWbsfn93g6KLu6BHGycHNQPb52xgFada1mNEKn3SntXg"
-        },
-        {
-          "direction": "Right",
-          "hash": "9WXnMSFPFrizoc8wBjsvS3VvL2dxm5hEMZHfbAwjCWqy"
-        },
-        {
-          "direction": "Right",
-          "hash": "8pkU3oAwxC5SJFrmfZjdroFupdJAAv8NFWhasuRFoCQE"
-        },
-        {
-          "direction": "Right",
-          "hash": "3Gk1TVNZtCwA4kp2ofrfDCvz4Ub1D2JvFggMEdJsDZ85"
+          "hash": "Ejb7MRuG9u9ETD3Asb84EQZaMJhxGfYQjbaqrJBnpUn6"
         },
         {
           "direction": "Left",
-          "hash": "588BE96yiBXpXBW4qXZhePJWmaWyzX1PusCTHdTG4cbG"
-        },
-        {
-          "direction": "Right",
-          "hash": "EtXoUFHnBDoZCNFgGqGtMVYMKFhZzEZtgeMYeHSC9CDy"
+          "hash": "3v1pCFNegixoPDz4ByP7MpCqp1ag3RUucWsAgpsfuAej"
         },
         {
           "direction": "Left",
-          "hash": "CPxKZ4eJJtpBJgxCrFRY3eZrfagTvwtPGZ75BJtmnSfG"
-        },
-        {
-          "direction": "Left",
-          "hash": "4Z84RYBrayryXRQCgsPyw7kJN1a4E7ht9xVp436C99ge"
+          "hash": "97g9PyX7A66hsvwT1dJ7naAu8D2Gi8gfShwqiriqFVpZ"
         },
         {
           "direction": "Right",
-          "hash": "Dc5ViEWCQyeZNkC7jzUo2fkryU6GGq41AobdZocVFnJy"
-        },
-        {
-          "direction": "Left",
-          "hash": "6vGEm95FCirRQE5Fa4dEkRzho2hhzKMvX64zn8nyGiqr"
+          "hash": "EEZjcyumJLCfchNerMDk8iBi1MpMHNQf8t9SQtWvdoyc"
         },
         {
           "direction": "Right",
-          "hash": "FHiRQ7zeNJLJHdyJ5RNRB5bBb9Dd6DZLXWKLqpFgxVko"
+          "hash": "C6VdtcfY9Mwr17XajDE28XKu3D5UkPBfud26T48np1go"
         },
         {
           "direction": "Right",
-          "hash": "A9atK184Rb6yeEXT9qTrirk3aMwMMC5BkUAJpf7cQGfz"
+          "hash": "3pTtbyeS46SgyEgwAVaeH19qjCxSm5doS2ST29RxV7ck"
         },
         {
           "direction": "Right",
-          "hash": "AfjWQ1NgzxWYJmNT2xVg5s5XoYoJGwggVqLiBxJ9B68G"
+          "hash": "6CAgF9Mi2HrPM64fvt9SLr1wyUz5mty82MqQhBVS6fx4"
         },
         {
           "direction": "Left",
-          "hash": "J8nKe61PghNgUuwX7VNFHGT9z9kPpbem1VMgZT8ukhtW"
+          "hash": "BvPFeuCcXqg3cP91N71QkajjXc2SeXjLA9WJ5May46MY"
         },
         {
           "direction": "Left",
-          "hash": "8Ec5bvSE2nVjFrwHX7KbU8uSYA9Ev9zkcx2Ra4PjBHEn"
-        },
-        {
-          "direction": "Left",
-          "hash": "F9TJ1nGhuLXgQAoc8s6fjXJmX4QJVX5ny8jPLmPQkgVx"
+          "hash": "CYKGzCxWycbEQxUrkh39jGn1UQfmYBaRrzgPSXSQCZub"
         },
         {
           "direction": "Right",
-          "hash": "75yDu4ssNtroFXG39SPQ2NPkoCSJcK4SDQmASqRdLiVs"
+          "hash": "8TNn29GAXqyBBD2yivQ4UxFVZaDFF7s6ksxWHhTZQCR1"
+        },
+        {
+          "direction": "Left",
+          "hash": "6V58xtJsTfnDumrWpVteAX6H7KJgjz74yCyzVKgoniNZ"
+        },
+        {
+          "direction": "Right",
+          "hash": "8sZxnji3sr5zWn4ngMbiJKrhcEz38zXews3Q8NmJR5CL"
+        },
+        {
+          "direction": "Right",
+          "hash": "6V6o3FskEUjRUtikMF2GLwKde3g53MccejDuDSNyNJxF"
+        },
+        {
+          "direction": "Left",
+          "hash": "7fGNxdWFtuD8s3nAa5mq28cNjJRYBGvnTjVF8JChaBdk"
+        },
+        {
+          "direction": "Left",
+          "hash": "Guy4BJqUnLWyX3D7wVRRsczoMVG3jNC6UNuApp9NVeii"
+        },
+        {
+          "direction": "Left",
+          "hash": "A6LrgprE8R2taDX9sF6BWEkdihcsTpD6jpV3BvLjvkW2"
         },
         {
           "direction": "Left",
@@ -128,10 +124,10 @@
         }
       ],
       "outcome_proof": {
-        "block_hash": "Baq9msbifahJquSN3XzhsvPeoGuXGakWhJxdKN9DbwFb",
-        "id": "HSio6C7LUmEeaYukjBdCEcrKQa7xXYDkVWPDNWtzfeGz",
+        "block_hash": "4F9caq48bCvedyZdDAEYuNuDVGLqx4bq3F1T9VPxrJM7",
+        "id": "24RLpPg2CdVbPRUtLSKUL1fhFqP4TP2FhkarZWEoreGi",
         "outcome": {
-          "executor_id": "founder-v3s2.everstreet.testnet",
+          "executor_id": "founder-v3s3.everstreet.testnet",
           "gas_burnt": 313543127225,
           "logs": [],
           "metadata": {
@@ -139,17 +135,21 @@
             "version": 1
           },
           "receipt_ids": [
-            "EUVZ4TmXCZP44AyAgBh3bCytNTu77knYXXXfjxxVirWC"
+            "H4vVZJktw17Wa3gXNep37uxAzdxR5XY67DdGDq1ETpiH"
           ],
           "status": {
-            "SuccessReceiptId": "EUVZ4TmXCZP44AyAgBh3bCytNTu77knYXXXfjxxVirWC"
+            "SuccessReceiptId": "H4vVZJktw17Wa3gXNep37uxAzdxR5XY67DdGDq1ETpiH"
           },
           "tokens_burnt": "31354312722500000000"
         },
         "proof": [
           {
             "direction": "Right",
-            "hash": "CV9S9JdeffiMfhmeSNsQGZoZKZfHWDt7E623r9TTADiW"
+            "hash": "7inSThHitxGXRqgFmwqSdGHMDq1bKpnBchp8oWEu6uL1"
+          },
+          {
+            "direction": "Right",
+            "hash": "Bmd3jU2oAwXgSW9C6s8FLcdnqej28rkMt3tJbiPbUa5N"
           }
         ]
       },
@@ -168,98 +168,94 @@
         },
         {
           "direction": "Right",
-          "hash": "FxeYysKEFCt6c22BFyXoJJ2gndSujkkXF1JJSpDS7yLZ"
+          "hash": "GjNe2aPbsruXLimXc5TYvNTT2DCeus2inRBspmzxqv2B"
         }
       ]
     }
   },
   "receipt": {
-    "id": "EUVZ4TmXCZP44AyAgBh3bCytNTu77knYXXXfjxxVirWC",
-    "receiver": "ledgerline-v3-2.everstreet.testnet",
+    "id": "H4vVZJktw17Wa3gXNep37uxAzdxR5XY67DdGDq1ETpiH",
+    "receiver": "ledgerline-v3-3b.everstreet.testnet",
     "proof": {
       "block_header_lite": {
         "inner_lite": {
-          "block_merkle_root": "69sJfWphEKs5eqEFR3chWj5nkwai58cKeKHY2mr1dHZi",
-          "epoch_id": "GLGMpHkJP42at8N69dGasdhgLvb2xBH3tn9PukWjSsyr",
-          "height": 276523318,
-          "next_bp_hash": "4jFDTWvJ5kEtXSEMee4RBrWXiab6vqRP2Pu2Mx5q7kJw",
-          "next_epoch_id": "Gd2gBECSGFmNDWb635oPsE9Eku42HtZcGfSamKQnp3oC",
-          "outcome_root": "44wzceaPnXBB9Qadeh4HxkBvAmWyS3i1gvPieBzMzmEV",
-          "prev_state_root": "CLq1CdX9nMU2uQAueWsQ8MV3oEHvyAEb9BjArp2pbBs",
-          "timestamp": 1793990646497106000,
-          "timestamp_nanosec": "1793990646497105908"
+          "block_merkle_root": "5kxcBFoTaMFyRk8EaxtNT7LoGysYQUQcegfLzTWZ8A7j",
+          "epoch_id": "Gd2gBECSGFmNDWb635oPsE9Eku42HtZcGfSamKQnp3oC",
+          "height": 276581443,
+          "next_bp_hash": "DsYAaJv9mSGE46Rtj2MwFVooLr5UWBmsKe1q5Ns9WZRM",
+          "next_epoch_id": "HaT2Mk95W9US9iJLWUuC3MGpecMszGec9T95KM2he6pp",
+          "outcome_root": "Ag69of5QF6YCNvgRihWtNk5yZSsjwEc4WGXLwi539i6r",
+          "prev_state_root": "DKLKEQBWoBi8u49jwvy618X2fTfQ3AVK5hUQJSpovrDU",
+          "timestamp": 1794024942558670600,
+          "timestamp_nanosec": "1794024942558670488"
         },
-        "inner_rest_hash": "EqWJHZ2xigiZdiMS58hFN7eLTSwd7UNvwsZUMX59A3tq",
-        "prev_block_hash": "Baq9msbifahJquSN3XzhsvPeoGuXGakWhJxdKN9DbwFb"
+        "inner_rest_hash": "4STSdeGcE4HE6mHULKUVRX7XzfC8UgzcUK4VoZejfWsU",
+        "prev_block_hash": "4F9caq48bCvedyZdDAEYuNuDVGLqx4bq3F1T9VPxrJM7"
       },
       "block_proof": [
         {
           "direction": "Left",
-          "hash": "Baq9msbifahJquSN3XzhsvPeoGuXGakWhJxdKN9DbwFb"
-        },
-        {
-          "direction": "Right",
-          "hash": "9WXnMSFPFrizoc8wBjsvS3VvL2dxm5hEMZHfbAwjCWqy"
-        },
-        {
-          "direction": "Right",
-          "hash": "8pkU3oAwxC5SJFrmfZjdroFupdJAAv8NFWhasuRFoCQE"
-        },
-        {
-          "direction": "Right",
-          "hash": "3Gk1TVNZtCwA4kp2ofrfDCvz4Ub1D2JvFggMEdJsDZ85"
+          "hash": "4F9caq48bCvedyZdDAEYuNuDVGLqx4bq3F1T9VPxrJM7"
         },
         {
           "direction": "Left",
-          "hash": "588BE96yiBXpXBW4qXZhePJWmaWyzX1PusCTHdTG4cbG"
-        },
-        {
-          "direction": "Right",
-          "hash": "EtXoUFHnBDoZCNFgGqGtMVYMKFhZzEZtgeMYeHSC9CDy"
+          "hash": "3v1pCFNegixoPDz4ByP7MpCqp1ag3RUucWsAgpsfuAej"
         },
         {
           "direction": "Left",
-          "hash": "CPxKZ4eJJtpBJgxCrFRY3eZrfagTvwtPGZ75BJtmnSfG"
-        },
-        {
-          "direction": "Left",
-          "hash": "4Z84RYBrayryXRQCgsPyw7kJN1a4E7ht9xVp436C99ge"
+          "hash": "97g9PyX7A66hsvwT1dJ7naAu8D2Gi8gfShwqiriqFVpZ"
         },
         {
           "direction": "Right",
-          "hash": "Dc5ViEWCQyeZNkC7jzUo2fkryU6GGq41AobdZocVFnJy"
-        },
-        {
-          "direction": "Left",
-          "hash": "6vGEm95FCirRQE5Fa4dEkRzho2hhzKMvX64zn8nyGiqr"
+          "hash": "EEZjcyumJLCfchNerMDk8iBi1MpMHNQf8t9SQtWvdoyc"
         },
         {
           "direction": "Right",
-          "hash": "FHiRQ7zeNJLJHdyJ5RNRB5bBb9Dd6DZLXWKLqpFgxVko"
+          "hash": "C6VdtcfY9Mwr17XajDE28XKu3D5UkPBfud26T48np1go"
         },
         {
           "direction": "Right",
-          "hash": "A9atK184Rb6yeEXT9qTrirk3aMwMMC5BkUAJpf7cQGfz"
+          "hash": "3pTtbyeS46SgyEgwAVaeH19qjCxSm5doS2ST29RxV7ck"
         },
         {
           "direction": "Right",
-          "hash": "AfjWQ1NgzxWYJmNT2xVg5s5XoYoJGwggVqLiBxJ9B68G"
+          "hash": "6CAgF9Mi2HrPM64fvt9SLr1wyUz5mty82MqQhBVS6fx4"
         },
         {
           "direction": "Left",
-          "hash": "J8nKe61PghNgUuwX7VNFHGT9z9kPpbem1VMgZT8ukhtW"
+          "hash": "BvPFeuCcXqg3cP91N71QkajjXc2SeXjLA9WJ5May46MY"
         },
         {
           "direction": "Left",
-          "hash": "8Ec5bvSE2nVjFrwHX7KbU8uSYA9Ev9zkcx2Ra4PjBHEn"
-        },
-        {
-          "direction": "Left",
-          "hash": "F9TJ1nGhuLXgQAoc8s6fjXJmX4QJVX5ny8jPLmPQkgVx"
+          "hash": "CYKGzCxWycbEQxUrkh39jGn1UQfmYBaRrzgPSXSQCZub"
         },
         {
           "direction": "Right",
-          "hash": "75yDu4ssNtroFXG39SPQ2NPkoCSJcK4SDQmASqRdLiVs"
+          "hash": "8TNn29GAXqyBBD2yivQ4UxFVZaDFF7s6ksxWHhTZQCR1"
+        },
+        {
+          "direction": "Left",
+          "hash": "6V58xtJsTfnDumrWpVteAX6H7KJgjz74yCyzVKgoniNZ"
+        },
+        {
+          "direction": "Right",
+          "hash": "8sZxnji3sr5zWn4ngMbiJKrhcEz38zXews3Q8NmJR5CL"
+        },
+        {
+          "direction": "Right",
+          "hash": "6V6o3FskEUjRUtikMF2GLwKde3g53MccejDuDSNyNJxF"
+        },
+        {
+          "direction": "Left",
+          "hash": "7fGNxdWFtuD8s3nAa5mq28cNjJRYBGvnTjVF8JChaBdk"
+        },
+        {
+          "direction": "Left",
+          "hash": "Guy4BJqUnLWyX3D7wVRRsczoMVG3jNC6UNuApp9NVeii"
+        },
+        {
+          "direction": "Left",
+          "hash": "A6LrgprE8R2taDX9sF6BWEkdihcsTpD6jpV3BvLjvkW2"
         },
         {
           "direction": "Left",
@@ -295,18 +291,18 @@
         }
       ],
       "outcome_proof": {
-        "block_hash": "CWbsfn93g6KLu6BHGycHNQPb52xgFada1mNEKn3SntXg",
-        "id": "EUVZ4TmXCZP44AyAgBh3bCytNTu77knYXXXfjxxVirWC",
+        "block_hash": "Ejb7MRuG9u9ETD3Asb84EQZaMJhxGfYQjbaqrJBnpUn6",
+        "id": "H4vVZJktw17Wa3gXNep37uxAzdxR5XY67DdGDq1ETpiH",
         "outcome": {
-          "executor_id": "ledgerline-v3-2.everstreet.testnet",
-          "gas_burnt": 2795988477584,
+          "executor_id": "ledgerline-v3-3b.everstreet.testnet",
+          "gas_burnt": 2810428419891,
           "logs": [
-            "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_finalized\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3s2.everstreet.testnet\",\"price\":\"250000000\",\"generation\":2}]}"
+            "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_finalized\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3s3.everstreet.testnet\",\"price\":\"250000000\",\"generation\":2}]}"
           ],
           "metadata": {
             "contracts": [
               {
-                "local": "3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6"
+                "local": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw"
               }
             ],
             "gas_profile": [
@@ -323,7 +319,7 @@
               {
                 "cost": "CONTRACT_LOADING_BYTES",
                 "cost_category": "WASM_HOST_COST",
-                "gas_used": "445475904610"
+                "gas_used": "449091274715"
               },
               {
                 "cost": "LOG_BASE",
@@ -338,7 +334,7 @@
               {
                 "cost": "READ_CACHED_TRIE_NODE",
                 "cost_category": "WASM_HOST_COST",
-                "gas_used": "171000000000"
+                "gas_used": "186960000000"
               },
               {
                 "cost": "READ_MEMORY_BASE",
@@ -348,7 +344,7 @@
               {
                 "cost": "READ_MEMORY_BYTE",
                 "cost_category": "WASM_HOST_COST",
-                "gas_used": "11624476314"
+                "gas_used": "11639681646"
               },
               {
                 "cost": "READ_REGISTER_BASE",
@@ -358,7 +354,7 @@
               {
                 "cost": "READ_REGISTER_BYTE",
                 "cost_category": "WASM_HOST_COST",
-                "gas_used": "235464618"
+                "gas_used": "235563180"
               },
               {
                 "cost": "SHA256_BASE",
@@ -368,7 +364,7 @@
               {
                 "cost": "SHA256_BYTE",
                 "cost_category": "WASM_HOST_COST",
-                "gas_used": "17316258018"
+                "gas_used": "17412727422"
               },
               {
                 "cost": "STORAGE_READ_BASE",
@@ -408,7 +404,7 @@
               {
                 "cost": "TOUCHING_TRIE_NODE",
                 "cost_category": "WASM_HOST_COST",
-                "gas_used": "72960000000"
+                "gas_used": "66120000000"
               },
               {
                 "cost": "UTF8_DECODING_BASE",
@@ -423,7 +419,7 @@
               {
                 "cost": "WASM_INSTRUCTION",
                 "cost_category": "WASM_HOST_COST",
-                "gas_used": "260941179180"
+                "gas_used": "262527452748"
               },
               {
                 "cost": "WRITE_MEMORY_BASE",
@@ -433,7 +429,7 @@
               {
                 "cost": "WRITE_MEMORY_BYTE",
                 "cost_category": "WASM_HOST_COST",
-                "gas_used": "6550671660"
+                "gas_used": "6553395432"
               },
               {
                 "cost": "WRITE_REGISTER_BASE",
@@ -443,45 +439,45 @@
               {
                 "cost": "WRITE_REGISTER_BYTE",
                 "cost_category": "WASM_HOST_COST",
-                "gas_used": "16384740840"
+                "gas_used": "16388542404"
               }
             ],
             "version": 4
           },
           "receipt_ids": [
-            "DXxrMS6RVWYPJ4RfnjXecZAshAdbzAVPRqgpsmFqZm3p"
+            "DJTxpm2sfjayP6HkiKpgJgoAUCZ1iKpSYzkAkesZQTSF"
           ],
           "status": {
             "SuccessValue": "ImNsb3NlZCI="
           },
-          "tokens_burnt": "279598847758400000000"
+          "tokens_burnt": "281042841989100000000"
         },
         "proof": [
           {
             "direction": "Left",
-            "hash": "CvG3nwqiJrYEn6g5bjkJB199MBQwHFUr6i9G1e5mUKVt"
+            "hash": "668V96MLAZNeobQj2BP8a7EnykHB25GhpEZnoW1TtipS"
           },
           {
-            "direction": "Right",
-            "hash": "GsJy66tvossj5DK9cVQeffs8vsygtWJQWDy3M3pNoUC5"
+            "direction": "Left",
+            "hash": "419QiWMqBt8GnA4QrMAKs2erx71F1dQEJ4fj9AwrqH8g"
           }
         ]
       },
       "outcome_root_proof": [
         {
           "direction": "Right",
-          "hash": "4e4RWJJfYbRM92JSisx84R4PZFmHWqfLkp83TyeiQNtx"
+          "hash": "7WLEAp9ca3REWMU2pYechf6YxEYEZ7KZXsXV57reoe5X"
         },
         {
           "direction": "Left",
-          "hash": "4aVyDxSD1AqmYH9rMDjPR7qQRu4zMiS1ZgQsYxwG5iEd"
+          "hash": "A8bywn5Az5ZseKWBEJNYTc1dhkC94W2TK6iFBPVbBYaN"
         }
       ]
     }
   },
   "head": {
-    "hash": "CjActY51GPhKEmjbBbLDnxy7KSSWdpjzgLXLX1QDjNX8",
-    "height": 276569158,
-    "block_merkle_root": "CmL6sjACFU3Euy5GNZqDeo2C6U4h9p2zCom7gXAuLbSr"
+    "hash": "CBzboDVhyS9VhzCJdoDK2rKWrLQgXAAAE5vw4xdDH8Af",
+    "height": 276584431,
+    "block_merkle_root": "BFJQxZURqKA5ekiXGPb3NJ1BY2TtMY95pfUeU3GRuucR"
   }
 }

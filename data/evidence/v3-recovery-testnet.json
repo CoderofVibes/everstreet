@@ -5,19 +5,19 @@
     "example": "recovery",
     "network": "testnet",
     "label": "NEAR testnet",
-    "commit": "c2660e18c0c955c2cde8bd4263cfcb17f2344dbd",
+    "commit": "e2c7c1c4396197672d04973888d4dfdec768e740",
     "contract": {
-      "account": "ledgerline-payout-v3-2.everstreet.testnet",
-      "wasm_sha256": "2394b224c743fb057e0c778b420976a78cd622f5d79d0ef496bb54a5549ce431",
-      "code_hash_expected": "3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6"
+      "account": "ledgerline-payout-v3-3.everstreet.testnet",
+      "wasm_sha256": "ede1c2f7bed77d1832f5b16e8a873645b387693a486b42a745a06b6d510a29b4",
+      "code_hash_expected": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw"
     },
     "accounts": {
       "name": "recovery",
-      "business": "ledgerline-payout-v3-2.everstreet.testnet",
-      "founder": "founder-p-v3s2.everstreet.testnet",
-      "buyer": "buyer-v3s2.everstreet.testnet",
-      "customer": "cara-v3s2-3.everstreet.testnet",
-      "meter": "meter-payout-v3s2.everstreet.testnet"
+      "business": "ledgerline-payout-v3-3.everstreet.testnet",
+      "founder": "founder-p-v3s3.everstreet.testnet",
+      "buyer": "buyer-v3s3.everstreet.testnet",
+      "customer": "cara-v3s3-3.everstreet.testnet",
+      "meter": "meter-payout-v3s3.everstreet.testnet"
     },
     "model": "stand-in (scripted answers; no AI provider called)"
   },
@@ -28,8 +28,8 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "release": "fc637ea2-a92b-418d-b1a0-a72553831c90",
-        "artifact_job": "b2007b28-4d34-43fd-8838-3c5af9641511",
+        "release": "d5ce6bb5-31e1-49da-ae46-3e6c62b7e3da",
+        "artifact_job": "2557c0ad-9304-426f-926c-b0a12e82b274",
         "evaluation": {
           "total": 10,
           "release_ready": true
@@ -43,10 +43,10 @@
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-payout-v3-2.everstreet.testnet",
+        "receiver": "ledgerline-payout-v3-3.everstreet.testnet",
         "method": "create_plan_guarded",
         "deposit": "900000000000000000000",
         "gas": "30000000000000",
@@ -65,20 +65,20 @@
       },
       "chain": {
         "source": "chain_final",
-        "hash": "FrQAbF9WTmGnFPST8btszLCUL7c9gZqapHufZGHb2S5E",
-        "explorer": "https://testnet.nearblocks.io/txns/FrQAbF9WTmGnFPST8btszLCUL7c9gZqapHufZGHb2S5E",
+        "hash": "6H25YSSHdR74pAqitf9mUFsBv9jqZu3ibuJGF5s3RrvS",
+        "explorer": "https://testnet.nearblocks.io/txns/6H25YSSHdR74pAqitf9mUFsBv9jqZu3ibuJGF5s3RrvS",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
               "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"plan_created\",\"data\":[{\"plan_id\":1,\"unit_price\":\"150000\"}]}"
             ]
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -102,8 +102,8 @@
               "created_generation": 1
             },
             "block": {
-              "height": "276525697",
-              "hash": "ErZsdofGS88xrXCWZJt6j9oGhxCT1id6rMeNGerQgJKg"
+              "height": "276581850",
+              "hash": "9ucDtCPqLreaYWpEMV1nViTKtN9u3xtSHCmQLsFzxEdY"
             }
           }
         }
@@ -115,35 +115,35 @@
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-payout-v3-2.everstreet.testnet",
+        "receiver": "ledgerline-payout-v3-3.everstreet.testnet",
         "method": "appoint_operator_guarded",
         "deposit": "1",
         "gas": "30000000000000",
         "args": {
-          "account": "meter-payout-v3s2.everstreet.testnet",
+          "account": "meter-payout-v3s3.everstreet.testnet",
           "caps": 1,
           "expected_control_seq": "1"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "4eDTBAJHKMA74HeKAsJybAs8QWRT5BesSRnx4KKViQBw",
-        "explorer": "https://testnet.nearblocks.io/txns/4eDTBAJHKMA74HeKAsJybAs8QWRT5BesSRnx4KKViQBw",
+        "hash": "EQ1FxmnaeRdDsqvjb13LXbtHiyWxQidPnbCKt9w67EEP",
+        "explorer": "https://testnet.nearblocks.io/txns/EQ1FxmnaeRdDsqvjb13LXbtHiyWxQidPnbCKt9w67EEP",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"operator_appointed\",\"data\":[{\"account\":\"meter-payout-v3s2.everstreet.testnet\",\"caps\":1,\"generation\":1}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"operator_appointed\",\"data\":[{\"account\":\"meter-payout-v3s3.everstreet.testnet\",\"caps\":1,\"generation\":1}]}"
             ]
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -164,7 +164,7 @@
       "kind": "app",
       "source": "app_recorded",
       "facts": {
-        "offer": "75b2c699-8be9-4ecf-a833-235e4600ddfb",
+        "offer": "dd4f4bb8-e2b7-473a-a9be-7ff9091a3bce",
         "plan": 1,
         "unit_price": "150000"
       }
@@ -175,34 +175,34 @@
       "kind": "transaction",
       "signer": {
         "role": "customer",
-        "account": "cara-v3s2-3.everstreet.testnet"
+        "account": "cara-v3s3-3.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-payout-v3-2.everstreet.testnet",
+        "receiver": "ledgerline-payout-v3-3.everstreet.testnet",
         "method": "sponsor_shell",
         "deposit": "8410000000000000000000",
         "gas": "30000000000000",
         "args": {
-          "customer": "cara-v3s2-3.everstreet.testnet",
+          "customer": "cara-v3s3-3.everstreet.testnet",
           "plan_id": 1
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "362Vt3NqvBrsGfWrW1MgGcV2igPp5t6uhoHGwRE6TKZE",
-        "explorer": "https://testnet.nearblocks.io/txns/362Vt3NqvBrsGfWrW1MgGcV2igPp5t6uhoHGwRE6TKZE",
+        "hash": "HvbZMpq7j22aYUjxwhcsWUgFPoLZkWmV9MULpeqDJ6A5",
+        "explorer": "https://testnet.nearblocks.io/txns/HvbZMpq7j22aYUjxwhcsWUgFPoLZkWmV9MULpeqDJ6A5",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"shell_sponsored\",\"data\":[{\"customer\":\"cara-v3s2-3.everstreet.testnet\",\"plan_id\":1,\"reg_id\":\"1\",\"payer\":\"cara-v3s2-3.everstreet.testnet\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"shell_sponsored\",\"data\":[{\"customer\":\"cara-v3s3-3.everstreet.testnet\",\"plan_id\":1,\"reg_id\":\"1\",\"payer\":\"cara-v3s3-3.everstreet.testnet\"}]}"
             ]
           },
           {
-            "executor": "cara-v3s2-3.everstreet.testnet",
+            "executor": "cara-v3s3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -226,7 +226,7 @@
           "free_now": "10",
           "message": "The contract shows a purchase with this one's number, but without its transaction it can't be shown to be this one. If your wallet's activity lists the transaction, enter its ID to check it. The uses shown are what the contract holds for you now."
         },
-        "original_hash": "GoDtLE18BNMWSc5DS5xzcd6n7Byww3REoWcvu2Y5FaSc"
+        "original_hash": "HBzH3xmFsvafQRdiCEjL8rR1DhEk4Tb5sUmYJSCYAgNa"
       }
     },
     {
@@ -249,7 +249,7 @@
       "kind": "transaction",
       "signer": {
         "role": "customer",
-        "account": "cara-v3s2-3.everstreet.testnet"
+        "account": "cara-v3s3-3.everstreet.testnet"
       },
       "call": {
         "receiver": "tusd.everstreet.testnet",
@@ -257,15 +257,15 @@
         "deposit": "1",
         "gas": "100000000000000",
         "args": {
-          "receiver_id": "ledgerline-payout-v3-2.everstreet.testnet",
+          "receiver_id": "ledgerline-payout-v3-3.everstreet.testnet",
           "amount": "1500000",
-          "msg": "{\"buy\":{\"plan_id\":1,\"units\":10,\"purchase_seq\":1,\"install\":{\"slot\":0,\"pk\":\"1f099fa42b5add791f908f7f90bead11033133a78605852dda37f1bed19aac6d\",\"max_hold_units\":1,\"max_units_per_day\":100},\"reg_id\":\"1\"}}"
+          "msg": "{\"buy\":{\"plan_id\":1,\"units\":10,\"purchase_seq\":1,\"install\":{\"slot\":0,\"pk\":\"138abace4338efbda08cfa99d7d5e2b79786ca505591670091139ec5bf008c35\",\"max_hold_units\":1,\"max_units_per_day\":100},\"reg_id\":\"1\"}}"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "GoDtLE18BNMWSc5DS5xzcd6n7Byww3REoWcvu2Y5FaSc",
-        "explorer": "https://testnet.nearblocks.io/txns/GoDtLE18BNMWSc5DS5xzcd6n7Byww3REoWcvu2Y5FaSc",
+        "hash": "HBzH3xmFsvafQRdiCEjL8rR1DhEk4Tb5sUmYJSCYAgNa",
+        "explorer": "https://testnet.nearblocks.io/txns/HBzH3xmFsvafQRdiCEjL8rR1DhEk4Tb5sUmYJSCYAgNa",
         "succeeded": true,
         "error": null,
         "receipts": [
@@ -273,18 +273,18 @@
             "executor": "tusd.everstreet.testnet",
             "status": "SuccessReceiptId",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"cara-v3s2-3.everstreet.testnet\",\"new_owner_id\":\"ledgerline-payout-v3-2.everstreet.testnet\",\"amount\":\"1500000\"}]}"
+              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"cara-v3s3-3.everstreet.testnet\",\"new_owner_id\":\"ledgerline-payout-v3-3.everstreet.testnet\",\"amount\":\"1500000\"}]}"
             ]
           },
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"cara-v3s2-3.everstreet.testnet\",\"plan_id\":1,\"units\":10,\"amount\":\"1500000\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"cara-v3s3-3.everstreet.testnet\",\"plan_id\":1,\"units\":10,\"amount\":\"1500000\"}]}"
             ]
           },
           {
-            "executor": "cara-v3s2-3.everstreet.testnet",
+            "executor": "cara-v3s3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
@@ -294,12 +294,12 @@
             "logs": []
           },
           {
-            "executor": "cara-v3s2-3.everstreet.testnet",
+            "executor": "cara-v3s3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "cara-v3s2-3.everstreet.testnet",
+            "executor": "cara-v3s3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -332,48 +332,48 @@
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-payout-v3-2.everstreet.testnet",
+        "receiver": "ledgerline-payout-v3-3.everstreet.testnet",
         "method": "propose_sale_guarded",
         "deposit": "2050000000000000000000",
         "gas": "50000000000000",
         "args": {
           "terms": {
-            "buyer": "buyer-v3s2.everstreet.testnet",
+            "buyer": "buyer-v3s3.everstreet.testnet",
             "price": "10000000",
-            "expires_at_ms": "1794596842418",
+            "expires_at_ms": "1794630005191",
             "close_window_ms": "0",
             "available_floor": "0",
             "grants": [
               [
-                "meter-payout-v3s2.everstreet.testnet",
+                "meter-payout-v3s3.everstreet.testnet",
                 1
               ]
             ],
-            "terms_hash": "8e9157161d7bd2c3700dcfc0258509ac843603b68cbb5c7fb375551ace017223"
+            "terms_hash": "03a3fcf80ef6544582f27d9e7faaaff9424d53a55d21d723df50960336da0008"
           },
           "expected_control_seq": "2",
-          "digest": "62d012592d7295fb3fcb52fae2cf525947f297349e03507cd0e0242eafc0001b"
+          "digest": "4a8e44f15cf40f609728ee89daf3d213531d7c1b005a137c5aaeed32423b5ed0"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "F683gM1zzHtf1v6TNvphNKLLMDNvtVpAD6yMzp6rxkcT",
-        "explorer": "https://testnet.nearblocks.io/txns/F683gM1zzHtf1v6TNvphNKLLMDNvtVpAD6yMzp6rxkcT",
+        "hash": "BsV4DVywpkeB7JjeJPctGKqo2aJqtV66e4a1fhJZT75E",
+        "explorer": "https://testnet.nearblocks.io/txns/BsV4DVywpkeB7JjeJPctGKqo2aJqtV66e4a1fhJZT75E",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_proposed\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3s2.everstreet.testnet\",\"price\":\"10000000\",\"control_seq\":\"3\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_proposed\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3s3.everstreet.testnet\",\"price\":\"10000000\",\"control_seq\":\"3\"}]}"
             ]
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -400,11 +400,59 @@
     },
     {
       "n": 12,
-      "step": "fund",
+      "step": "resumed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "previous_outcome": {
+          "completed": false,
+          "reason": "prepare fund: 409 {\"error\":\"Your account doesn't hold enough of the token for the price.\",\"code\":\"funds\"}"
+        },
+        "at": "2026-11-07T04:22:09.453Z",
+        "commit": "e2c7c1c4396197672d04973888d4dfdec768e740",
+        "rpc": "https://near-testnet.drpc.org"
+      }
+    },
+    {
+      "n": 13,
+      "step": "readback_answer_dropped",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "fault": "test-only: one transaction-status answer to the app dropped",
+        "relay_fired": true,
+        "app_status": 200,
+        "app_code": null,
+        "app_resolution": {
+          "kind": "unknown",
+          "purchase_seq_now": 2,
+          "free_now": "15",
+          "message": "The contract shows a purchase with this one's number, but without its transaction it can't be shown to be this one. If your wallet's activity lists the transaction, enter its ID to check it. The uses shown are what the contract holds for you now."
+        },
+        "original_hash": "5rAiZMFUBQ7FswcaVAXcSFRdkUvymuJcTt3AqkUfPMeK"
+      }
+    },
+    {
+      "n": 14,
+      "step": "recovered_with_original_hash",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "second": {
+          "kind": "confirmed",
+          "units": 5,
+          "amount": "750000"
+        },
+        "third": null
+      }
+    },
+    {
+      "n": 15,
+      "step": "purchase_5_customer",
       "kind": "transaction",
       "signer": {
-        "role": "buyer",
-        "account": "buyer-v3s2.everstreet.testnet"
+        "role": "customer",
+        "account": "cara-v3s3-3.everstreet.testnet"
       },
       "call": {
         "receiver": "tusd.everstreet.testnet",
@@ -412,15 +460,15 @@
         "deposit": "1",
         "gas": "100000000000000",
         "args": {
-          "receiver_id": "ledgerline-payout-v3-2.everstreet.testnet",
-          "amount": "10000000",
-          "msg": "{\"fund_deal\":{\"deal_seq\":\"1\",\"version\":1,\"price\":\"10000000\",\"expected_control_seq\":\"3\"}}"
+          "receiver_id": "ledgerline-payout-v3-3.everstreet.testnet",
+          "amount": "750000",
+          "msg": "{\"buy\":{\"plan_id\":1,\"units\":5,\"purchase_seq\":2,\"install\":{\"slot\":1,\"pk\":\"c295d37d2447054cc7cda2622267c525fa4879cb374bbc670fe265e2592eb32f\",\"max_hold_units\":1,\"max_units_per_day\":100},\"reg_id\":\"1\"}}"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "4M6uckmGDrhKa5iy9Egq9hcrn4B3LkkZxY9VPJr2yfpL",
-        "explorer": "https://testnet.nearblocks.io/txns/4M6uckmGDrhKa5iy9Egq9hcrn4B3LkkZxY9VPJr2yfpL",
+        "hash": "5rAiZMFUBQ7FswcaVAXcSFRdkUvymuJcTt3AqkUfPMeK",
+        "explorer": "https://testnet.nearblocks.io/txns/5rAiZMFUBQ7FswcaVAXcSFRdkUvymuJcTt3AqkUfPMeK",
         "succeeded": true,
         "error": null,
         "receipts": [
@@ -428,18 +476,18 @@
             "executor": "tusd.everstreet.testnet",
             "status": "SuccessReceiptId",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"buyer-v3s2.everstreet.testnet\",\"new_owner_id\":\"ledgerline-payout-v3-2.everstreet.testnet\",\"amount\":\"10000000\"}]}"
+              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"cara-v3s3-3.everstreet.testnet\",\"new_owner_id\":\"ledgerline-payout-v3-3.everstreet.testnet\",\"amount\":\"750000\"}]}"
             ]
           },
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_funded\",\"data\":[{\"deal_seq\":\"1\",\"amount\":\"10000000\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"cara-v3s3-3.everstreet.testnet\",\"plan_id\":1,\"units\":5,\"amount\":\"750000\"}]}"
             ]
           },
           {
-            "executor": "buyer-v3s2.everstreet.testnet",
+            "executor": "cara-v3s3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
@@ -449,12 +497,131 @@
             "logs": []
           },
           {
-            "executor": "buyer-v3s2.everstreet.testnet",
+            "executor": "cara-v3s3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "buyer-v3s2.everstreet.testnet",
+            "executor": "cara-v3s3-3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": {
+        "source": "app_recorded",
+        "resolution": {
+          "kind": "confirmed",
+          "units": 5,
+          "amount": "750000"
+        }
+      }
+    },
+    {
+      "n": 16,
+      "step": "purchases_listed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "count": 2,
+        "states": [
+          "confirmed",
+          "confirmed"
+        ]
+      }
+    },
+    {
+      "n": 17,
+      "step": "resumed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "previous_outcome": {
+          "completed": false,
+          "reason": "prepare propose: 409 {\"error\":\"A sale is already in progress; revise or cancel it instead.\",\"code\":\"deal_live\"}"
+        },
+        "at": "2026-11-07T04:23:13.998Z",
+        "commit": "e2c7c1c4396197672d04973888d4dfdec768e740",
+        "rpc": "https://near-testnet.drpc.org"
+      }
+    },
+    {
+      "n": 18,
+      "step": "propose_already_satisfied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "code": "deal_live",
+        "detail": "A sale is already in progress; revise or cancel it instead."
+      }
+    },
+    {
+      "n": 19,
+      "step": "register_already_satisfied",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "code": "registered",
+        "detail": "Your account is already registered with this token."
+      }
+    },
+    {
+      "n": 20,
+      "step": "fund",
+      "kind": "transaction",
+      "signer": {
+        "role": "buyer",
+        "account": "buyer-v3s3.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "tusd.everstreet.testnet",
+        "method": "ft_transfer_call",
+        "deposit": "1",
+        "gas": "100000000000000",
+        "args": {
+          "receiver_id": "ledgerline-payout-v3-3.everstreet.testnet",
+          "amount": "10000000",
+          "msg": "{\"fund_deal\":{\"deal_seq\":\"1\",\"version\":1,\"price\":\"10000000\",\"expected_control_seq\":\"3\"}}"
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "CCu8NAvofqUcvN3EnrUaYb9Eae4DU98TUff6URsgt3rL",
+        "explorer": "https://testnet.nearblocks.io/txns/CCu8NAvofqUcvN3EnrUaYb9Eae4DU98TUff6URsgt3rL",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "tusd.everstreet.testnet",
+            "status": "SuccessReceiptId",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"buyer-v3s3.everstreet.testnet\",\"new_owner_id\":\"ledgerline-payout-v3-3.everstreet.testnet\",\"amount\":\"10000000\"}]}"
+            ]
+          },
+          {
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_funded\",\"data\":[{\"deal_seq\":\"1\",\"amount\":\"10000000\"}]}"
+            ]
+          },
+          {
+            "executor": "buyer-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "tusd.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "buyer-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "buyer-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -470,40 +637,40 @@
       }
     },
     {
-      "n": 13,
+      "n": 21,
       "step": "accept",
       "kind": "transaction",
       "signer": {
         "role": "buyer",
-        "account": "buyer-v3s2.everstreet.testnet"
+        "account": "buyer-v3s3.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-payout-v3-2.everstreet.testnet",
+        "receiver": "ledgerline-payout-v3-3.everstreet.testnet",
         "method": "accept_sale",
         "deposit": "1",
         "gas": "30000000000000",
         "args": {
           "deal_seq": "1",
           "version": 1,
-          "digest": "62d012592d7295fb3fcb52fae2cf525947f297349e03507cd0e0242eafc0001b"
+          "digest": "4a8e44f15cf40f609728ee89daf3d213531d7c1b005a137c5aaeed32423b5ed0"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "ujeybkgF3HSJJR741VsD1BVtrbRtwDrJHr248o2GkQ4",
-        "explorer": "https://testnet.nearblocks.io/txns/ujeybkgF3HSJJR741VsD1BVtrbRtwDrJHr248o2GkQ4",
+        "hash": "3eo17RHUyvFxPnWzLqpra7qde6W8m4quK2kw2YNqmjyt",
+        "explorer": "https://testnet.nearblocks.io/txns/3eo17RHUyvFxPnWzLqpra7qde6W8m4quK2kw2YNqmjyt",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_accepted\",\"data\":[{\"deal_seq\":\"1\",\"by\":\"buyer-v3s2.everstreet.testnet\",\"closing\":false,\"control_seq\":\"5\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_accepted\",\"data\":[{\"deal_seq\":\"1\",\"by\":\"buyer-v3s3.everstreet.testnet\",\"closing\":false,\"control_seq\":\"5\"}]}"
             ]
           },
           {
-            "executor": "buyer-v3s2.everstreet.testnet",
+            "executor": "buyer-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -519,40 +686,40 @@
       }
     },
     {
-      "n": 14,
+      "n": 22,
       "step": "accept",
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-payout-v3-2.everstreet.testnet",
+        "receiver": "ledgerline-payout-v3-3.everstreet.testnet",
         "method": "accept_sale",
         "deposit": "1",
         "gas": "30000000000000",
         "args": {
           "deal_seq": "1",
           "version": 1,
-          "digest": "62d012592d7295fb3fcb52fae2cf525947f297349e03507cd0e0242eafc0001b"
+          "digest": "4a8e44f15cf40f609728ee89daf3d213531d7c1b005a137c5aaeed32423b5ed0"
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "3faZwVH1icQD4hy6wbU9BFCeRGWGpD2oScz1LLG3Cjux",
-        "explorer": "https://testnet.nearblocks.io/txns/3faZwVH1icQD4hy6wbU9BFCeRGWGpD2oScz1LLG3Cjux",
+        "hash": "7Ss6XTDKbaaFLrNKnDz4MAQ31U3YJfkcvE7zUdWMKoTb",
+        "explorer": "https://testnet.nearblocks.io/txns/7Ss6XTDKbaaFLrNKnDz4MAQ31U3YJfkcvE7zUdWMKoTb",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_finalized\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3s2.everstreet.testnet\",\"price\":\"10000000\",\"generation\":2}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"sale_finalized\",\"data\":[{\"deal_seq\":\"1\",\"buyer\":\"buyer-v3s3.everstreet.testnet\",\"price\":\"10000000\",\"generation\":2}]}"
             ]
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -568,7 +735,7 @@
       }
     },
     {
-      "n": 15,
+      "n": 23,
       "step": "seller_owed",
       "kind": "app",
       "source": "app_recorded",
@@ -579,12 +746,12 @@
       }
     },
     {
-      "n": 16,
+      "n": 24,
       "step": "register",
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
         "receiver": "tusd.everstreet.testnet",
@@ -592,14 +759,14 @@
         "deposit": "1250000000000000000000",
         "gas": "30000000000000",
         "args": {
-          "account_id": "founder-p-v3s2.everstreet.testnet",
+          "account_id": "founder-p-v3s3.everstreet.testnet",
           "registration_only": true
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "2nsPn8zjfizN5PZgWVwDLQo6sKnRPm4xmMagbK41fu2G",
-        "explorer": "https://testnet.nearblocks.io/txns/2nsPn8zjfizN5PZgWVwDLQo6sKnRPm4xmMagbK41fu2G",
+        "hash": "ANgEytkcwFiAnEmTNujZXxfGehqxmfyQs5buHPwxCxQx",
+        "explorer": "https://testnet.nearblocks.io/txns/ANgEytkcwFiAnEmTNujZXxfGehqxmfyQs5buHPwxCxQx",
         "succeeded": true,
         "error": null,
         "receipts": [
@@ -609,7 +776,7 @@
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -625,12 +792,12 @@
       }
     },
     {
-      "n": 17,
+      "n": 25,
       "step": "fault_seller_unregisters",
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
         "receiver": "token",
@@ -641,8 +808,8 @@
       },
       "chain": {
         "source": "chain_final",
-        "hash": "9XgzZ8enz1qNf53xUbHMzDTpFXTjFEnVqnzTW6Vf5oVS",
-        "explorer": "https://testnet.nearblocks.io/txns/9XgzZ8enz1qNf53xUbHMzDTpFXTjFEnVqnzTW6Vf5oVS",
+        "hash": "8LRWwBbsoxXkSdrDapLRS7PBGD5KaeVXX73tRrfHgJGR",
+        "explorer": "https://testnet.nearblocks.io/txns/8LRWwBbsoxXkSdrDapLRS7PBGD5KaeVXX73tRrfHgJGR",
         "succeeded": true,
         "error": null,
         "receipts": [
@@ -652,17 +819,17 @@
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -671,15 +838,15 @@
       "app": null
     },
     {
-      "n": 18,
+      "n": 26,
       "step": "claim_transfer_fails",
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-payout-v3-2.everstreet.testnet",
+        "receiver": "ledgerline-payout-v3-3.everstreet.testnet",
         "method": "claim_party_guarded",
         "deposit": "1",
         "gas": "60000000000000",
@@ -691,16 +858,16 @@
       },
       "chain": {
         "source": "chain_final",
-        "hash": "6YtjjAeEHin7rqhmQeyQJcQAwPGbEmWsSAbatAn1ox67",
-        "explorer": "https://testnet.nearblocks.io/txns/6YtjjAeEHin7rqhmQeyQJcQAwPGbEmWsSAbatAn1ox67",
+        "hash": "BeTTPWocGTCCjm84iPyWcAc5mm9cRKsQPgCCmQWosrFB",
+        "explorer": "https://testnet.nearblocks.io/txns/BeTTPWocGTCCjm84iPyWcAc5mm9cRKsQPgCCmQWosrFB",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessReceiptId",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_started\",\"data\":[{\"slot\":0,\"payout_id\":\"1\",\"to\":\"founder-p-v3s2.everstreet.testnet\",\"amount\":\"10000000\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_started\",\"data\":[{\"slot\":0,\"payout_id\":\"1\",\"to\":\"founder-p-v3s3.everstreet.testnet\",\"amount\":\"10000000\"}]}"
             ]
           },
           {
@@ -709,29 +876,29 @@
             "logs": []
           },
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
               "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_settled\",\"data\":[{\"slot\":0,\"payout_id\":\"1\",\"ok\":false,\"amount\":\"10000000\"}]}"
             ]
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -747,7 +914,7 @@
       }
     },
     {
-      "n": 19,
+      "n": 27,
       "step": "buyer_cannot_take_seller_claim",
       "kind": "app",
       "source": "app_recorded",
@@ -757,12 +924,12 @@
       }
     },
     {
-      "n": 20,
+      "n": 28,
       "step": "register",
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
         "receiver": "tusd.everstreet.testnet",
@@ -770,14 +937,14 @@
         "deposit": "1250000000000000000000",
         "gas": "30000000000000",
         "args": {
-          "account_id": "founder-p-v3s2.everstreet.testnet",
+          "account_id": "founder-p-v3s3.everstreet.testnet",
           "registration_only": true
         }
       },
       "chain": {
         "source": "chain_final",
-        "hash": "5P7LsoMUvM7iWf5F7AeWQwXoGhoMeQ5j1J2Z5f6KL2D7",
-        "explorer": "https://testnet.nearblocks.io/txns/5P7LsoMUvM7iWf5F7AeWQwXoGhoMeQ5j1J2Z5f6KL2D7",
+        "hash": "JA8pQNeBZYZFwVbVQfWDGx7r4aSNtkeYqD5jaxqPLRhj",
+        "explorer": "https://testnet.nearblocks.io/txns/JA8pQNeBZYZFwVbVQfWDGx7r4aSNtkeYqD5jaxqPLRhj",
         "succeeded": true,
         "error": null,
         "receipts": [
@@ -787,7 +954,7 @@
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -803,15 +970,15 @@
       }
     },
     {
-      "n": 21,
+      "n": 29,
       "step": "claim_collected",
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-payout-v3-2.everstreet.testnet",
+        "receiver": "ledgerline-payout-v3-3.everstreet.testnet",
         "method": "claim_party_guarded",
         "deposit": "1",
         "gas": "60000000000000",
@@ -823,44 +990,44 @@
       },
       "chain": {
         "source": "chain_final",
-        "hash": "CstoxLYtTLCRM79Tbw5Dfe8TgutL9idaaHsfDoxYD1cs",
-        "explorer": "https://testnet.nearblocks.io/txns/CstoxLYtTLCRM79Tbw5Dfe8TgutL9idaaHsfDoxYD1cs",
+        "hash": "GAKRgxD9BZ19f2hBi538zfHsjELHeq5Kxz7J2UNELZLm",
+        "explorer": "https://testnet.nearblocks.io/txns/GAKRgxD9BZ19f2hBi538zfHsjELHeq5Kxz7J2UNELZLm",
         "succeeded": true,
         "error": null,
         "receipts": [
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessReceiptId",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_started\",\"data\":[{\"slot\":0,\"payout_id\":\"2\",\"to\":\"founder-p-v3s2.everstreet.testnet\",\"amount\":\"10000000\"}]}"
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_started\",\"data\":[{\"slot\":0,\"payout_id\":\"2\",\"to\":\"founder-p-v3s3.everstreet.testnet\",\"amount\":\"10000000\"}]}"
             ]
           },
           {
             "executor": "tusd.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
-              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"ledgerline-payout-v3-2.everstreet.testnet\",\"new_owner_id\":\"founder-p-v3s2.everstreet.testnet\",\"amount\":\"10000000\"}]}"
+              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"ledgerline-payout-v3-3.everstreet.testnet\",\"new_owner_id\":\"founder-p-v3s3.everstreet.testnet\",\"amount\":\"10000000\"}]}"
             ]
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": [
               "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"payout_settled\",\"data\":[{\"slot\":0,\"payout_id\":\"2\",\"ok\":true,\"amount\":\"10000000\"}]}"
             ]
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -876,7 +1043,7 @@
       }
     },
     {
-      "n": 22,
+      "n": 30,
       "step": "replay_refused_by_app",
       "kind": "app",
       "source": "app_recorded",
@@ -886,15 +1053,15 @@
       }
     },
     {
-      "n": 23,
+      "n": 31,
       "step": "replay_raw_call",
       "kind": "transaction",
       "signer": {
         "role": "founder",
-        "account": "founder-p-v3s2.everstreet.testnet"
+        "account": "founder-p-v3s3.everstreet.testnet"
       },
       "call": {
-        "receiver": "ledgerline-payout-v3-2.everstreet.testnet",
+        "receiver": "ledgerline-payout-v3-3.everstreet.testnet",
         "method": "claim_party_guarded",
         "deposit": "1",
         "gas": "60000000000000",
@@ -906,23 +1073,23 @@
       },
       "chain": {
         "source": "chain_final",
-        "hash": "EM1tZeu8BxEQgea88n9vb34jsqDqrQ2jdtkrJZ319eZc",
-        "explorer": "https://testnet.nearblocks.io/txns/EM1tZeu8BxEQgea88n9vb34jsqDqrQ2jdtkrJZ319eZc",
+        "hash": "7WpoVtQVsPaWjsgCk1LccGpFRGaP8bJyJja4QXLeoayg",
+        "explorer": "https://testnet.nearblocks.io/txns/7WpoVtQVsPaWjsgCk1LccGpFRGaP8bJyJja4QXLeoayg",
         "succeeded": false,
         "error": "{\"ActionError\":{\"index\":0,\"kind\":{\"FunctionCallError\":{\"ExecutionError\":\"Smart contract panicked: E_REVIEWED: what you are owed changed since you reviewed it; review it again\"}}}}",
         "receipts": [
           {
-            "executor": "ledgerline-payout-v3-2.everstreet.testnet",
+            "executor": "ledgerline-payout-v3-3.everstreet.testnet",
             "status": "Failure",
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           },
           {
-            "executor": "founder-p-v3s2.everstreet.testnet",
+            "executor": "founder-p-v3s3.everstreet.testnet",
             "status": "SuccessValue",
             "logs": []
           }
@@ -935,14 +1102,14 @@
     {
       "name": "start",
       "source": "chain_final",
-      "at": "2026-11-06T19:06:55.394Z",
+      "at": "2026-11-07T04:19:43.544Z",
       "views": {
         "block": {
-          "height": "276525683",
-          "hash": "GXwbVkTVyYBwBEyRakBU9tnU21oc14naSgQS4R1oy8vA"
+          "height": "276581838",
+          "hash": "81Pw8dCxLqZUvXdPdd59BxHfiF1tkYkQdEHFiC1nSn8r"
         },
         "control": {
-          "owner": "founder-p-v3s2.everstreet.testnet",
+          "owner": "founder-p-v3s3.everstreet.testnet",
           "generation": 1,
           "control_seq": "0",
           "close_mode": "direct",
@@ -969,29 +1136,29 @@
           "escrow_return_claim": "0",
           "sale_proceeds_claim": "0",
           "pending_refs": 0,
-          "payer": "founder-p-v3s2.everstreet.testnet",
+          "payer": "founder-p-v3s3.everstreet.testnet",
           "deposit": "0",
           "pinned": false
         },
         "tusd": {
-          "cara-v3s2-3.everstreet.testnet": "5000000",
-          "ledgerline-payout-v3-2.everstreet.testnet": "0",
-          "founder-p-v3s2.everstreet.testnet": "0",
-          "buyer-v3s2.everstreet.testnet": "100000000"
+          "cara-v3s3-3.everstreet.testnet": "5000000",
+          "ledgerline-payout-v3-3.everstreet.testnet": "0",
+          "founder-p-v3s3.everstreet.testnet": "0",
+          "buyer-v3s3.everstreet.testnet": "0"
         }
       }
     },
     {
       "name": "recovered_purchase_recovery",
       "source": "chain_final",
-      "at": "2026-11-06T19:07:25.071Z",
+      "at": "2026-11-07T04:20:07.274Z",
       "views": {
         "block": {
-          "height": "276525733",
-          "hash": "9azo7JvMsudhrqeqZPLknQFmUec2w9teTWrbbuFtWwoD"
+          "height": "276581879",
+          "hash": "2NgQgKf4YbCG7GGYdJhsQyMHHpK8G1c493WnHpLcbMxm"
         },
         "control": {
-          "owner": "founder-p-v3s2.everstreet.testnet",
+          "owner": "founder-p-v3s3.everstreet.testnet",
           "generation": 1,
           "control_seq": "2",
           "close_mode": "direct",
@@ -1000,7 +1167,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-payout-v3s2.everstreet.testnet",
+              "meter-payout-v3s3.everstreet.testnet",
               1,
               1
             ]
@@ -1058,7 +1225,7 @@
               "slot": 0,
               "state": "active",
               "epoch": 1,
-              "public_key": "1f099fa42b5add791f908f7f90bead11033133a78605852dda37f1bed19aac6d",
+              "public_key": "138abace4338efbda08cfa99d7d5e2b79786ca505591670091139ec5bf008c35",
               "max_hold_units": 1,
               "max_units_per_day": 100,
               "day": 0,
@@ -1098,7 +1265,7 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3s2-3.everstreet.testnet",
+          "storage_payer": "cara-v3s3-3.everstreet.testnet",
           "storage_paid": "8410000000000000000000"
         },
         "seller_party": {
@@ -1106,29 +1273,191 @@
           "escrow_return_claim": "0",
           "sale_proceeds_claim": "0",
           "pending_refs": 0,
-          "payer": "founder-p-v3s2.everstreet.testnet",
+          "payer": "founder-p-v3s3.everstreet.testnet",
           "deposit": "0",
           "pinned": false
         },
         "tusd": {
-          "cara-v3s2-3.everstreet.testnet": "3500000",
-          "ledgerline-payout-v3-2.everstreet.testnet": "1500000",
-          "founder-p-v3s2.everstreet.testnet": "0",
-          "buyer-v3s2.everstreet.testnet": "100000000"
+          "cara-v3s3-3.everstreet.testnet": "3500000",
+          "ledgerline-payout-v3-3.everstreet.testnet": "1500000",
+          "founder-p-v3s3.everstreet.testnet": "0",
+          "buyer-v3s3.everstreet.testnet": "0"
+        }
+      }
+    },
+    {
+      "name": "recovered_purchase_recovery-2",
+      "source": "chain_final",
+      "at": "2026-11-07T04:22:17.685Z",
+      "views": {
+        "block": {
+          "height": "276582099",
+          "hash": "G3f35Y8dPfAPjh6kmbrbvby7eBnUQW4P2wWSK1jkybMy"
+        },
+        "control": {
+          "owner": "founder-p-v3s3.everstreet.testnet",
+          "generation": 1,
+          "control_seq": "3",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-payout-v3s3.everstreet.testnet",
+              1,
+              1
+            ]
+          ],
+          "live_deal": {
+            "seq": "1",
+            "version": 1,
+            "state": "proposed",
+            "digest": "4a8e44f15cf40f609728ee89daf3d213531d7c1b005a137c5aaeed32423b5ed0",
+            "seller": "founder-p-v3s3.everstreet.testnet",
+            "buyer": "buyer-v3s3.everstreet.testnet",
+            "price": "10000000",
+            "available_floor": "0",
+            "expires_at_ms": "1794630005191",
+            "close_window_ms": "0",
+            "grants": [
+              {
+                "account": "meter-payout-v3s3.everstreet.testnet",
+                "caps": 1
+              }
+            ],
+            "terms_hash": "03a3fcf80ef6544582f27d9e7faaaff9424d53a55d21d723df50960336da0008",
+            "expected_generation": 1,
+            "seller_accepted": false,
+            "buyer_accepted": false,
+            "escrow": "0",
+            "deadline_ms": "0",
+            "closing_started_ms": "0",
+            "closing_control_seq": "0"
+          }
+        },
+        "treasury": {
+          "asset": "tusd.everstreet.testnet",
+          "held": "2250000",
+          "ent_free_value": "2250000",
+          "ent_held_value": "0",
+          "available": "0",
+          "withdrawable": "0",
+          "pending_total": "0",
+          "claims_total": "0",
+          "escrow_total": "0"
+        },
+        "entitlement": {
+          "reg_id": "1",
+          "active": true,
+          "free": "15",
+          "consumed": "0",
+          "units_retired_to_refund": "0",
+          "purchased": "15",
+          "purchase_seq": 2,
+          "hold_seq": 0,
+          "hold_active": false,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 0,
+          "hold_units": 0,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [],
+          "hold_opened_at_ms": "0",
+          "serve_until_ms": "0",
+          "settle_until_ms": "0",
+          "last_hold_seq": 0,
+          "last_hold_used": 0,
+          "last_hold_charged": 0,
+          "last_hold_root": "0000000000000000000000000000000000000000000000000000000000000000",
+          "key_states": [
+            1,
+            1,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            1,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "138abace4338efbda08cfa99d7d5e2b79786ca505591670091139ec5bf008c35",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 1,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "c295d37d2447054cc7cda2622267c525fa4879cb374bbc670fe265e2592eb32f",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "cara-v3s3-3.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
+        },
+        "seller_party": {
+          "profit_claim": "0",
+          "escrow_return_claim": "0",
+          "sale_proceeds_claim": "0",
+          "pending_refs": 0,
+          "payer": "founder-p-v3s3.everstreet.testnet",
+          "deposit": "0",
+          "pinned": true
+        },
+        "tusd": {
+          "cara-v3s3-3.everstreet.testnet": "2750000",
+          "ledgerline-payout-v3-3.everstreet.testnet": "2250000",
+          "founder-p-v3s3.everstreet.testnet": "0",
+          "buyer-v3s3.everstreet.testnet": "100000000"
         }
       }
     },
     {
       "name": "small_sale_closed",
       "source": "chain_final",
-      "at": "2026-11-06T19:07:51.999Z",
+      "at": "2026-11-07T04:23:32.027Z",
       "views": {
         "block": {
-          "height": "276525780",
-          "hash": "8mdPZzLwmMUM6xyPNvWJEzx5n2jp3AH2ZLeTvUbGMXXE"
+          "height": "276582221",
+          "hash": "3Ngun3Rkmtza1oxdWTC2A49BjrA9H84iFd3enTMyrby4"
         },
         "control": {
-          "owner": "buyer-v3s2.everstreet.testnet",
+          "owner": "buyer-v3s3.everstreet.testnet",
           "generation": 2,
           "control_seq": "6",
           "close_mode": "direct",
@@ -1137,7 +1466,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-payout-v3s2.everstreet.testnet",
+              "meter-payout-v3s3.everstreet.testnet",
               1,
               2
             ]
@@ -1146,8 +1475,8 @@
         },
         "treasury": {
           "asset": "tusd.everstreet.testnet",
-          "held": "11500000",
-          "ent_free_value": "1500000",
+          "held": "12250000",
+          "ent_free_value": "2250000",
           "ent_held_value": "0",
           "available": "0",
           "withdrawable": "0",
@@ -1158,11 +1487,11 @@
         "entitlement": {
           "reg_id": "1",
           "active": true,
-          "free": "10",
+          "free": "15",
           "consumed": "0",
           "units_retired_to_refund": "0",
-          "purchased": "10",
-          "purchase_seq": 1,
+          "purchased": "15",
+          "purchase_seq": 2,
           "hold_seq": 0,
           "hold_active": false,
           "hold_key_slot": 0,
@@ -1180,13 +1509,13 @@
           "last_hold_root": "0000000000000000000000000000000000000000000000000000000000000000",
           "key_states": [
             1,
-            0,
+            1,
             0,
             0
           ],
           "key_epochs": [
             1,
-            0,
+            1,
             0,
             0
           ],
@@ -1195,7 +1524,7 @@
               "slot": 0,
               "state": "active",
               "epoch": 1,
-              "public_key": "1f099fa42b5add791f908f7f90bead11033133a78605852dda37f1bed19aac6d",
+              "public_key": "138abace4338efbda08cfa99d7d5e2b79786ca505591670091139ec5bf008c35",
               "max_hold_units": 1,
               "max_units_per_day": 100,
               "day": 0,
@@ -1203,11 +1532,11 @@
             },
             {
               "slot": 1,
-              "state": "empty",
-              "epoch": 0,
-              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
-              "max_hold_units": 0,
-              "max_units_per_day": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "c295d37d2447054cc7cda2622267c525fa4879cb374bbc670fe265e2592eb32f",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
               "day": 0,
               "held_today": 0
             },
@@ -1235,7 +1564,7 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3s2-3.everstreet.testnet",
+          "storage_payer": "cara-v3s3-3.everstreet.testnet",
           "storage_paid": "8410000000000000000000"
         },
         "seller_party": {
@@ -1243,29 +1572,29 @@
           "escrow_return_claim": "0",
           "sale_proceeds_claim": "10000000",
           "pending_refs": 0,
-          "payer": "founder-p-v3s2.everstreet.testnet",
+          "payer": "founder-p-v3s3.everstreet.testnet",
           "deposit": "0",
           "pinned": false
         },
         "tusd": {
-          "cara-v3s2-3.everstreet.testnet": "3500000",
-          "ledgerline-payout-v3-2.everstreet.testnet": "11500000",
-          "founder-p-v3s2.everstreet.testnet": "0",
-          "buyer-v3s2.everstreet.testnet": "90000000"
+          "cara-v3s3-3.everstreet.testnet": "2750000",
+          "ledgerline-payout-v3-3.everstreet.testnet": "12250000",
+          "founder-p-v3s3.everstreet.testnet": "0",
+          "buyer-v3s3.everstreet.testnet": "90000000"
         }
       }
     },
     {
       "name": "payout_failed_restored",
       "source": "chain_final",
-      "at": "2026-11-06T19:08:08.639Z",
+      "at": "2026-11-07T04:23:48.422Z",
       "views": {
         "block": {
-          "height": "276525812",
-          "hash": "s3zkxZwkeaecB3h3gArkd7fNYGs4orpii4a2idWxXW5"
+          "height": "276582248",
+          "hash": "wtEFksrFjSgUttpr7bDC1SGBKVUpEdnz3B8LEQaDqbP"
         },
         "control": {
-          "owner": "buyer-v3s2.everstreet.testnet",
+          "owner": "buyer-v3s3.everstreet.testnet",
           "generation": 2,
           "control_seq": "6",
           "close_mode": "direct",
@@ -1274,7 +1603,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-payout-v3s2.everstreet.testnet",
+              "meter-payout-v3s3.everstreet.testnet",
               1,
               2
             ]
@@ -1283,8 +1612,8 @@
         },
         "treasury": {
           "asset": "tusd.everstreet.testnet",
-          "held": "11500000",
-          "ent_free_value": "1500000",
+          "held": "12250000",
+          "ent_free_value": "2250000",
           "ent_held_value": "0",
           "available": "0",
           "withdrawable": "0",
@@ -1295,11 +1624,11 @@
         "entitlement": {
           "reg_id": "1",
           "active": true,
-          "free": "10",
+          "free": "15",
           "consumed": "0",
           "units_retired_to_refund": "0",
-          "purchased": "10",
-          "purchase_seq": 1,
+          "purchased": "15",
+          "purchase_seq": 2,
           "hold_seq": 0,
           "hold_active": false,
           "hold_key_slot": 0,
@@ -1317,13 +1646,13 @@
           "last_hold_root": "0000000000000000000000000000000000000000000000000000000000000000",
           "key_states": [
             1,
-            0,
+            1,
             0,
             0
           ],
           "key_epochs": [
             1,
-            0,
+            1,
             0,
             0
           ],
@@ -1332,7 +1661,7 @@
               "slot": 0,
               "state": "active",
               "epoch": 1,
-              "public_key": "1f099fa42b5add791f908f7f90bead11033133a78605852dda37f1bed19aac6d",
+              "public_key": "138abace4338efbda08cfa99d7d5e2b79786ca505591670091139ec5bf008c35",
               "max_hold_units": 1,
               "max_units_per_day": 100,
               "day": 0,
@@ -1340,11 +1669,11 @@
             },
             {
               "slot": 1,
-              "state": "empty",
-              "epoch": 0,
-              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
-              "max_hold_units": 0,
-              "max_units_per_day": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "c295d37d2447054cc7cda2622267c525fa4879cb374bbc670fe265e2592eb32f",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
               "day": 0,
               "held_today": 0
             },
@@ -1372,7 +1701,7 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3s2-3.everstreet.testnet",
+          "storage_payer": "cara-v3s3-3.everstreet.testnet",
           "storage_paid": "8410000000000000000000"
         },
         "seller_party": {
@@ -1380,29 +1709,29 @@
           "escrow_return_claim": "0",
           "sale_proceeds_claim": "10000000",
           "pending_refs": 0,
-          "payer": "founder-p-v3s2.everstreet.testnet",
+          "payer": "founder-p-v3s3.everstreet.testnet",
           "deposit": "0",
           "pinned": false
         },
         "tusd": {
-          "cara-v3s2-3.everstreet.testnet": "3500000",
-          "ledgerline-payout-v3-2.everstreet.testnet": "11500000",
-          "founder-p-v3s2.everstreet.testnet": "0",
-          "buyer-v3s2.everstreet.testnet": "90000000"
+          "cara-v3s3-3.everstreet.testnet": "2750000",
+          "ledgerline-payout-v3-3.everstreet.testnet": "12250000",
+          "founder-p-v3s3.everstreet.testnet": "0",
+          "buyer-v3s3.everstreet.testnet": "90000000"
         }
       }
     },
     {
       "name": "payout_collected",
       "source": "chain_final",
-      "at": "2026-11-06T19:08:23.004Z",
+      "at": "2026-11-07T04:24:01.171Z",
       "views": {
         "block": {
-          "height": "276525839",
-          "hash": "AwDj1tG78ovVxX726Z7ygggYyBz4g5XQtghwvLZmZADb"
+          "height": "276582270",
+          "hash": "5TNJKKnFv8ZGspj8z4QNGLgdonQZArfVLEFg9jT3SeHt"
         },
         "control": {
-          "owner": "buyer-v3s2.everstreet.testnet",
+          "owner": "buyer-v3s3.everstreet.testnet",
           "generation": 2,
           "control_seq": "6",
           "close_mode": "direct",
@@ -1411,7 +1740,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-payout-v3s2.everstreet.testnet",
+              "meter-payout-v3s3.everstreet.testnet",
               1,
               2
             ]
@@ -1420,8 +1749,8 @@
         },
         "treasury": {
           "asset": "tusd.everstreet.testnet",
-          "held": "1500000",
-          "ent_free_value": "1500000",
+          "held": "2250000",
+          "ent_free_value": "2250000",
           "ent_held_value": "0",
           "available": "0",
           "withdrawable": "0",
@@ -1432,11 +1761,11 @@
         "entitlement": {
           "reg_id": "1",
           "active": true,
-          "free": "10",
+          "free": "15",
           "consumed": "0",
           "units_retired_to_refund": "0",
-          "purchased": "10",
-          "purchase_seq": 1,
+          "purchased": "15",
+          "purchase_seq": 2,
           "hold_seq": 0,
           "hold_active": false,
           "hold_key_slot": 0,
@@ -1454,13 +1783,13 @@
           "last_hold_root": "0000000000000000000000000000000000000000000000000000000000000000",
           "key_states": [
             1,
-            0,
+            1,
             0,
             0
           ],
           "key_epochs": [
             1,
-            0,
+            1,
             0,
             0
           ],
@@ -1469,7 +1798,7 @@
               "slot": 0,
               "state": "active",
               "epoch": 1,
-              "public_key": "1f099fa42b5add791f908f7f90bead11033133a78605852dda37f1bed19aac6d",
+              "public_key": "138abace4338efbda08cfa99d7d5e2b79786ca505591670091139ec5bf008c35",
               "max_hold_units": 1,
               "max_units_per_day": 100,
               "day": 0,
@@ -1477,11 +1806,11 @@
             },
             {
               "slot": 1,
-              "state": "empty",
-              "epoch": 0,
-              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
-              "max_hold_units": 0,
-              "max_units_per_day": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "c295d37d2447054cc7cda2622267c525fa4879cb374bbc670fe265e2592eb32f",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
               "day": 0,
               "held_today": 0
             },
@@ -1509,7 +1838,7 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3s2-3.everstreet.testnet",
+          "storage_payer": "cara-v3s3-3.everstreet.testnet",
           "storage_paid": "8410000000000000000000"
         },
         "seller_party": {
@@ -1517,29 +1846,29 @@
           "escrow_return_claim": "0",
           "sale_proceeds_claim": "0",
           "pending_refs": 0,
-          "payer": "founder-p-v3s2.everstreet.testnet",
+          "payer": "founder-p-v3s3.everstreet.testnet",
           "deposit": "0",
           "pinned": false
         },
         "tusd": {
-          "cara-v3s2-3.everstreet.testnet": "3500000",
-          "ledgerline-payout-v3-2.everstreet.testnet": "1500000",
-          "founder-p-v3s2.everstreet.testnet": "10000000",
-          "buyer-v3s2.everstreet.testnet": "90000000"
+          "cara-v3s3-3.everstreet.testnet": "2750000",
+          "ledgerline-payout-v3-3.everstreet.testnet": "2250000",
+          "founder-p-v3s3.everstreet.testnet": "10000000",
+          "buyer-v3s3.everstreet.testnet": "90000000"
         }
       }
     },
     {
       "name": "after_replay",
       "source": "chain_final",
-      "at": "2026-11-06T19:08:28.850Z",
+      "at": "2026-11-07T04:24:06.185Z",
       "views": {
         "block": {
-          "height": "276525848",
-          "hash": "89d3RYmY92QnE4gnRDAjF2GtoqdLPfDEDNYKrtgvhZFR"
+          "height": "276582278",
+          "hash": "4sJJfRvXsGXTsvCYVjDhgHkButNzYKkkj7vuikB9T68d"
         },
         "control": {
-          "owner": "buyer-v3s2.everstreet.testnet",
+          "owner": "buyer-v3s3.everstreet.testnet",
           "generation": 2,
           "control_seq": "6",
           "close_mode": "direct",
@@ -1548,7 +1877,7 @@
           "manifest_seq": "0",
           "operators": [
             [
-              "meter-payout-v3s2.everstreet.testnet",
+              "meter-payout-v3s3.everstreet.testnet",
               1,
               2
             ]
@@ -1557,8 +1886,8 @@
         },
         "treasury": {
           "asset": "tusd.everstreet.testnet",
-          "held": "1500000",
-          "ent_free_value": "1500000",
+          "held": "2250000",
+          "ent_free_value": "2250000",
           "ent_held_value": "0",
           "available": "0",
           "withdrawable": "0",
@@ -1569,11 +1898,11 @@
         "entitlement": {
           "reg_id": "1",
           "active": true,
-          "free": "10",
+          "free": "15",
           "consumed": "0",
           "units_retired_to_refund": "0",
-          "purchased": "10",
-          "purchase_seq": 1,
+          "purchased": "15",
+          "purchase_seq": 2,
           "hold_seq": 0,
           "hold_active": false,
           "hold_key_slot": 0,
@@ -1591,13 +1920,13 @@
           "last_hold_root": "0000000000000000000000000000000000000000000000000000000000000000",
           "key_states": [
             1,
-            0,
+            1,
             0,
             0
           ],
           "key_epochs": [
             1,
-            0,
+            1,
             0,
             0
           ],
@@ -1606,7 +1935,7 @@
               "slot": 0,
               "state": "active",
               "epoch": 1,
-              "public_key": "1f099fa42b5add791f908f7f90bead11033133a78605852dda37f1bed19aac6d",
+              "public_key": "138abace4338efbda08cfa99d7d5e2b79786ca505591670091139ec5bf008c35",
               "max_hold_units": 1,
               "max_units_per_day": 100,
               "day": 0,
@@ -1614,11 +1943,11 @@
             },
             {
               "slot": 1,
-              "state": "empty",
-              "epoch": 0,
-              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
-              "max_hold_units": 0,
-              "max_units_per_day": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "c295d37d2447054cc7cda2622267c525fa4879cb374bbc670fe265e2592eb32f",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
               "day": 0,
               "held_today": 0
             },
@@ -1646,7 +1975,7 @@
           "claim": "0",
           "pending_refs": 0,
           "paused": false,
-          "storage_payer": "cara-v3s2-3.everstreet.testnet",
+          "storage_payer": "cara-v3s3-3.everstreet.testnet",
           "storage_paid": "8410000000000000000000"
         },
         "seller_party": {
@@ -1654,15 +1983,15 @@
           "escrow_return_claim": "0",
           "sale_proceeds_claim": "0",
           "pending_refs": 0,
-          "payer": "founder-p-v3s2.everstreet.testnet",
+          "payer": "founder-p-v3s3.everstreet.testnet",
           "deposit": "0",
           "pinned": false
         },
         "tusd": {
-          "cara-v3s2-3.everstreet.testnet": "3500000",
-          "ledgerline-payout-v3-2.everstreet.testnet": "1500000",
-          "founder-p-v3s2.everstreet.testnet": "10000000",
-          "buyer-v3s2.everstreet.testnet": "90000000"
+          "cara-v3s3-3.everstreet.testnet": "2750000",
+          "ledgerline-payout-v3-3.everstreet.testnet": "2250000",
+          "founder-p-v3s3.everstreet.testnet": "10000000",
+          "buyer-v3s3.everstreet.testnet": "90000000"
         }
       }
     }
@@ -1672,11 +2001,11 @@
   },
   "digests": {
     "sections": {
-      "header": "faea9c0e7d8c64050d5632d7ba18162a7afc48f396392f1873fef848bb1cf401",
-      "steps": "9000b4ebe6598ae541d4faf54894acf2672f696497c5960d93de5f07216a5bbb",
-      "checkpoints": "116f4efb845c7f200e27e637695e1a8e183e54131e8c7fbdd776f010c1b719d6",
+      "header": "ad396b9b81686b8f7a59ebb83115d4a128004a06feba249cc6bfa61e57149e23",
+      "steps": "3ccf79932c61efc1d5c3389a9ff6775ce18b5afcb2f608a22cf4024d60bffa58",
+      "checkpoints": "9cffd001705bad4cf8d2a846c3b3951024d80348cf030022a768ed0a233eee63",
       "outcome": "b0ce5e6a8fd8db36ff1175157b0ab566e3088b8d85ab627e49a75ce531efeb10"
     },
-    "record": "107daafb9ae7d41e9fbdaf66ce6ca3de49569781018a1455ab874830a92ae80e"
+    "record": "a37c0d1c75cf2377ab21175cf319a1ea7f56f19a51097c7685799dcd4f862ea8"
   }
 }

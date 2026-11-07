@@ -63,7 +63,36 @@ export interface AppConfig {
       }[];
     };
   };
+  /**
+   * A bound business's companions (contracts/asset-key, contracts/spend-allowance) and the EVM
+   * TESTNET its external asset lives on (Sepolia only; nothing here can name a mainnet chain).
+   * Reads and checks only: owners sign their own requests.
+   */
+  companions?: {
+    evm?: { name: string; chain_id: number; rpc: string };
+    bindings: { business_id: string; asset?: string; allowance?: string }[];
+  };
+  /**
+   * Escrow funding from another token through NEAR's intents verifier, with Everstreet as the
+   * labelled solver. The solver's key is a FILE the config names (NEAR form), never echoed.
+   */
+  intents?: {
+    verifier: string;
+    solver: { account: string; key_file: string };
+    bindings: { business_id: string; asset: string; offers: IntentsOfferConfig[] }[];
+  };
 }
+
+export interface IntentsOfferConfig {
+  token: string;
+  symbol: string;
+  decimals: number;
+  rate_num: string;
+  rate_den: string;
+}
+
+/** EVM testnets a companion may name (chain id → name). Mainnets are refused. */
+export const EVM_TESTNETS = new Map([[11155111, "Sepolia"]]);
 
 export interface HandoverConfig {
   /** The closer account the Gated contracts name, and one function-call key per binding (Q3). */
@@ -140,6 +169,8 @@ export function validateConfig(raw: unknown): AppConfig {
     "handover",
     "operators",
     "source",
+    "companions",
+    "intents",
   ]);
   for (const k of Object.keys(c)) if (!known.has(k)) bad(`unknown field ${k}`);
 
@@ -447,6 +478,100 @@ export function validateConfig(raw: unknown): AppConfig {
     source = { github: { origin: "https://api.github.com", connections } };
   }
 
+  const boundIds = new Set((v3?.bindings ?? []).map((b) => b.business_id));
+  let companions: AppConfig["companions"];
+  if (c.companions !== undefined) {
+    const m = c.companions as { evm?: unknown; bindings?: unknown };
+    if (!v3) bad("companions need v3 bindings");
+    for (const k of Object.keys(m ?? {}))
+      if (k !== "evm" && k !== "bindings") bad(`unknown field companions.${k}`);
+    let evm: NonNullable<AppConfig["companions"]>["evm"];
+    if (m.evm !== undefined) {
+      const e = m.evm as { name?: unknown; chain_id?: unknown; rpc?: unknown };
+      const name = EVM_TESTNETS.get(e?.chain_id as number);
+      if (!name || e.name !== name)
+        bad(`companions.evm must be an EVM testnet (${[...EVM_TESTNETS.values()].join(", ")})`);
+      let u: URL | null = null;
+      try {
+        u = new URL(String(e.rpc));
+      } catch {}
+      if (u?.protocol !== "https:") bad("companions.evm.rpc must be an https URL");
+      evm = { name: name as string, chain_id: e.chain_id as number, rpc: String(e.rpc) };
+    }
+    if (!Array.isArray(m.bindings) || m.bindings.length === 0 || m.bindings.length > 32)
+      bad("companions.bindings lists 1 to 32 businesses");
+    companions = {
+      ...(evm ? { evm } : {}),
+      bindings: (m.bindings as Record<string, unknown>[]).map((x, i) => {
+        const id = x?.business_id;
+        if (typeof id !== "string" || !boundIds.has(id))
+          bad(`companions.bindings[${i}] names a business that isn't a v3 binding`);
+        if (x.asset === undefined && x.allowance === undefined)
+          bad(`companions.bindings[${i}] names no companion`);
+        if (x.asset !== undefined && !evm) bad("an external asset needs companions.evm");
+        return {
+          business_id: id as string,
+          ...(x.asset !== undefined
+            ? { asset: testnetAccount(x.asset, `companions.bindings[${i}].asset`) }
+            : {}),
+          ...(x.allowance !== undefined
+            ? { allowance: testnetAccount(x.allowance, `companions.bindings[${i}].allowance`) }
+            : {}),
+        };
+      }),
+    };
+  }
+
+  let intents: AppConfig["intents"];
+  if (c.intents !== undefined) {
+    const n = c.intents as { verifier?: unknown; solver?: unknown; bindings?: unknown };
+    if (!v3) bad("intents need v3 bindings");
+    const s = n.solver as { account?: unknown; key_file?: unknown } | undefined;
+    if (typeof s?.key_file !== "string" || !s.key_file) bad("intents.solver.key_file is required");
+    if (!Array.isArray(n.bindings) || n.bindings.length === 0 || n.bindings.length > 32)
+      bad("intents.bindings lists 1 to 32 businesses");
+    intents = {
+      verifier: testnetAccount(n.verifier, "intents.verifier"),
+      solver: {
+        account: testnetAccount(s?.account, "intents.solver.account"),
+        key_file: s?.key_file as string,
+      },
+      bindings: (n.bindings as Record<string, unknown>[]).map((x, i) => {
+        if (typeof x?.business_id !== "string" || !boundIds.has(x.business_id))
+          bad(`intents.bindings[${i}] names a business that isn't a v3 binding`);
+        const offers = x.offers as Record<string, unknown>[];
+        if (!Array.isArray(offers) || offers.length === 0 || offers.length > 8)
+          bad(`intents.bindings[${i}].offers lists 1 to 8 tokens`);
+        return {
+          business_id: x.business_id as string,
+          asset: testnetAccount(x.asset, `intents.bindings[${i}].asset`),
+          offers: offers.map((o, j) => {
+            const at = `intents.bindings[${i}].offers[${j}]`;
+            if (
+              typeof o?.symbol !== "string" ||
+              !/^[A-Za-z0-9]{1,12}$/.test(o.symbol) ||
+              !Number.isSafeInteger(o.decimals) ||
+              (o.decimals as number) < 0 ||
+              (o.decimals as number) > 24 ||
+              typeof o.rate_num !== "string" ||
+              !/^[1-9][0-9]{0,30}$/.test(o.rate_num) ||
+              typeof o.rate_den !== "string" ||
+              !/^[1-9][0-9]{0,30}$/.test(o.rate_den)
+            )
+              bad(`${at} needs a symbol, decimals and a positive whole-number rate`);
+            return {
+              token: testnetAccount(o.token, `${at}.token`),
+              symbol: o.symbol as string,
+              decimals: o.decimals as number,
+              rate_num: o.rate_num as string,
+              rate_den: o.rate_den as string,
+            };
+          }),
+        };
+      }),
+    };
+  }
+
   return {
     config_version: 1,
     mode,
@@ -465,5 +590,7 @@ export function validateConfig(raw: unknown): AppConfig {
     ...(handover ? { handover } : {}),
     ...(operators ? { operators } : {}),
     ...(source ? { source } : {}),
+    ...(companions ? { companions } : {}),
+    ...(intents ? { intents } : {}),
   };
 }

@@ -121,8 +121,8 @@ describe("the public example (verified testnet record -> allowlisted projection)
     // The close, proved with NEAR's light-client proof against a stated header (checked now).
     expect(x.light_client).toMatchObject({
       source: "light_client_proof",
-      block: { height: 276523318 },
-      head: { height: 276569158 },
+      block: { height: 276581443 },
+      head: { height: 276584431 },
     });
   });
 

@@ -17,8 +17,8 @@ describe("light-client proof of the close", () => {
     const a = verifyLightClientProof(ev.transaction.proof, ev.head);
     const b = verifyLightClientProof(ev.receipt.proof, ev.head);
     expect(a).toMatchObject({ ok: true, problems: [] });
-    expect(a.block.height).toBe(276523317);
-    expect(b).toMatchObject({ ok: true, block: { height: 276523318 } });
+    expect(a.block.height).toBe(276581442);
+    expect(b).toMatchObject({ ok: true, block: { height: 276581443 } });
     expect(b.status).toEqual({ SuccessValue: Buffer.from('"closed"').toString("base64") });
   });
 

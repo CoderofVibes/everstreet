@@ -6,6 +6,7 @@
       "**/*.json",
       "!**/node_modules",
       "!.near-credentials",
+      "!.evm-credentials",
       "!**/target",
       "!web/dist",
       "!.claude",

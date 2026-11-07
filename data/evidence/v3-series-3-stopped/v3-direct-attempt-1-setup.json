@@ -1,0 +1,91 @@
+{
+  "format": "everstreet-v3-rehearsal-setup",
+  "network": "testnet",
+  "commit": "e2c7c1c4396197672d04973888d4dfdec768e740",
+  "contract": {
+    "account": "ledgerline-v3-3.everstreet.testnet",
+    "wasm_sha256": "ede1c2f7bed77d1832f5b16e8a873645b387693a486b42a745a06b6d510a29b4",
+    "code_hash": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw",
+    "access_keys": 0
+  },
+  "accounts": {
+    "business": "ledgerline-v3-3.everstreet.testnet",
+    "founder": "founder-v3s3.everstreet.testnet",
+    "buyer": "buyer-v3s3.everstreet.testnet",
+    "customer": "cara-v3s3-1.everstreet.testnet",
+    "meter": "meter-direct-v3s3.everstreet.testnet"
+  },
+  "metering_key": {
+    "receiver": "ledgerline-v3-3.everstreet.testnet",
+    "methods": [
+      "open_hold",
+      "settle_hold",
+      "release_hold_for"
+    ],
+    "allowance_near": "0.4",
+    "full_access_keys": 0
+  },
+  "rules": {
+    "min_reserve": "750000",
+    "max_hold_units": 1,
+    "max_hold_ttl_ms": "600000",
+    "max_settle_grace_ms": "480000"
+  },
+  "transactions": [
+    {
+      "what": "create founder-v3s3.everstreet.testnet",
+      "hash": "Dw8NFU1oe7U5fM5mispGX3JUGHDAqqLAVScvkCnYycEt",
+      "explorer": "https://testnet.nearblocks.io/txns/Dw8NFU1oe7U5fM5mispGX3JUGHDAqqLAVScvkCnYycEt"
+    },
+    {
+      "what": "create buyer-v3s3.everstreet.testnet",
+      "hash": "2BSBd1on5kxQXtvov1n5fEYJHgfhTUD8bJod65oJao9K",
+      "explorer": "https://testnet.nearblocks.io/txns/2BSBd1on5kxQXtvov1n5fEYJHgfhTUD8bJod65oJao9K"
+    },
+    {
+      "what": "create cara-v3s3-1.everstreet.testnet",
+      "hash": "TnJ3HMQ35sjkcchvE5qLBLJQt11S5K3uuma76aE1xYL",
+      "explorer": "https://testnet.nearblocks.io/txns/TnJ3HMQ35sjkcchvE5qLBLJQt11S5K3uuma76aE1xYL"
+    },
+    {
+      "what": "create meter-direct-v3s3.everstreet.testnet (function-call key only)",
+      "hash": "3T4Ya36n9XaqBKowRj8WKWboBmHyhcSuBfb5yZJHyaNk",
+      "explorer": "https://testnet.nearblocks.io/txns/3T4Ya36n9XaqBKowRj8WKWboBmHyhcSuBfb5yZJHyaNk"
+    },
+    {
+      "what": "deploy and init ledgerline-v3-3.everstreet.testnet (born locked: no key)",
+      "hash": "8xVZUHb6rghFd19X5dkJYxa8nuJ1gSngotbaPYjvN1xN",
+      "explorer": "https://testnet.nearblocks.io/txns/8xVZUHb6rghFd19X5dkJYxa8nuJ1gSngotbaPYjvN1xN"
+    },
+    {
+      "what": "register ledgerline-v3-3.everstreet.testnet with tUSD",
+      "hash": "2HPkrsj5Y6kjv4JdTfVWbxEdatYsUAHnJwiStj9kegEQ",
+      "explorer": "https://testnet.nearblocks.io/txns/2HPkrsj5Y6kjv4JdTfVWbxEdatYsUAHnJwiStj9kegEQ"
+    },
+    {
+      "what": "register founder-v3s3.everstreet.testnet with tUSD",
+      "hash": "2Nq5TpWkHRj1ykMAwxTpUtTXdZ2nBY6xN7Tk5w8QDxxA",
+      "explorer": "https://testnet.nearblocks.io/txns/2Nq5TpWkHRj1ykMAwxTpUtTXdZ2nBY6xN7Tk5w8QDxxA"
+    },
+    {
+      "what": "register buyer-v3s3.everstreet.testnet with tUSD",
+      "hash": "9WmaeFqjwYQV55Jdbmq3DzP2tb2jyQ5FjqbHmQ1BtHQQ",
+      "explorer": "https://testnet.nearblocks.io/txns/9WmaeFqjwYQV55Jdbmq3DzP2tb2jyQ5FjqbHmQ1BtHQQ"
+    },
+    {
+      "what": "register cara-v3s3-1.everstreet.testnet with tUSD",
+      "hash": "5YxsEoNTjUmLBoepDdkfsneTYRxvAAVSfcc6nKxBbp2u",
+      "explorer": "https://testnet.nearblocks.io/txns/5YxsEoNTjUmLBoepDdkfsneTYRxvAAVSfcc6nKxBbp2u"
+    },
+    {
+      "what": "fund cara-v3s3-1.everstreet.testnet with 20 tUSD",
+      "hash": "5w27xufxHtstTAUZLLaiAfJJ9YMEi8hF8ZU6sZE4RbH",
+      "explorer": "https://testnet.nearblocks.io/txns/5w27xufxHtstTAUZLLaiAfJJ9YMEi8hF8ZU6sZE4RbH"
+    },
+    {
+      "what": "fund buyer-v3s3.everstreet.testnet with 300 tUSD",
+      "hash": "AaWB7nz3QsDsT1VcV8BDw2VX2wACwzchj6AzFAZU1Jou",
+      "explorer": "https://testnet.nearblocks.io/txns/AaWB7nz3QsDsT1VcV8BDw2VX2wACwzchj6AzFAZU1Jou"
+    }
+  ]
+}

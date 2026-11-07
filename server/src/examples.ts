@@ -223,7 +223,9 @@ export function lightClientOfClose(contract: string | null, path = DEFAULT_LIGHT
 
 /** The Case Docket: the committed attack-suite results (scripts/attack-suite.ts), public. */
 export const DEFAULT_ATTACK_SUITE = "data/evidence/attack-suite.json";
-export function attackSuite(path = DEFAULT_ATTACK_SUITE) {
+/** The cases that also ran on NEAR testnet (scripts/attack-pairs.ts), when that file is here. */
+export const DEFAULT_ATTACK_PAIRS = "data/evidence/attack-pairs-testnet.json";
+export function attackSuite(path = DEFAULT_ATTACK_SUITE, pairsPath = DEFAULT_ATTACK_PAIRS) {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
@@ -233,5 +235,31 @@ export function attackSuite(path = DEFAULT_ATTACK_SUITE) {
   const r = JSON.parse(raw) as { format?: string; version?: number };
   if (r.format !== "everstreet.attack-suite" || r.version !== 1)
     throw new HttpError(503, "The attack suite's results aren't in a known format", "suite_format");
-  return r;
+  let pairs: Json[] = [];
+  try {
+    const t = JSON.parse(readFileSync(pairsPath, "utf8")) as Json;
+    if (t.format === "everstreet.attack-pairs-testnet" && Array.isArray(t.pairs)) pairs = t.pairs;
+  } catch {}
+  const cases = ((r as Json).cases as Json[]).map((c) => {
+    const p = pairs.find((x) => x.case === c.name);
+    if (!p) return c;
+    const link = p.attack.tx?.explorer;
+    return {
+      ...c,
+      testnet: {
+        refusal: String(p.attack.refusal),
+        what: String(p.attack.what),
+        explorer:
+          typeof link === "string" && link.startsWith("https://testnet.nearblocks.io/txns/")
+            ? link
+            : null,
+        clean_explorer:
+          typeof p.clean.tx?.explorer === "string" &&
+          p.clean.tx.explorer.startsWith("https://testnet.nearblocks.io/txns/")
+            ? p.clean.tx.explorer
+            : null,
+      },
+    };
+  });
+  return { ...r, cases };
 }

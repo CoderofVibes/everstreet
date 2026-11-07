@@ -16,6 +16,7 @@ import { AppChecks } from "./appChecks.ts";
 import type { AppConfig } from "./appConfig.ts";
 import type { BuildProvider } from "./build.ts";
 import { Builds, startBuildWorker } from "./builds.ts";
+import type { CompanionOptions } from "./companions.ts";
 import type { CustomerViewTransport } from "./customerRead.ts";
 import { type CustomerChainWriter, type CustomerUseOptions, CustomerUses } from "./customerUse.ts";
 import {
@@ -26,13 +27,16 @@ import {
 } from "./customerWriter.ts";
 import { openDb } from "./db.ts";
 import { Evaluations } from "./evaluations.ts";
+import { EvmRpcPort } from "./evmRpc.ts";
 import { Fence, gateDb } from "./fence.ts";
 import { type CloserKey, HandoverCoordinator } from "./handoverCoordinator.ts";
 import { AccountSignIn } from "./identity.ts";
+import type { IntentsOptions } from "./intentsFunding.ts";
 import { ManagedRuntime } from "./invocations.ts";
 import { guardAdapters, MaintenanceSupervisor, maintenanceWorker } from "./maintenance.ts";
 import { type ProtectedStore, protectedStoreFromConfig } from "./protectedStore.ts";
 import { AnthropicRuntime, type RuntimeProvider } from "./runtime.ts";
+import { solverKeyFrom, TestnetSolver } from "./solverRpc.ts";
 import { configuredSourceOptions, fictionalSourceOptions } from "./sourceConnect.ts";
 import { Store } from "./store.ts";
 import { forkSuccessorRunner } from "./successorRunner.ts";
@@ -93,6 +97,8 @@ export interface ComposeDeps {
   appStandIn?: boolean;
   /** Job 004b: the source connections' transport (default: global fetch; configured only). */
   sourceFetch?: typeof fetch;
+  /** The external asset's EVM testnet transport (default: global fetch; configured only). */
+  evmFetch?: typeof fetch;
   /** Preview only: labelled synthetic adapters. */
   preview?: {
     label: string;
@@ -615,6 +621,79 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
           provenance: null,
         },
   );
+  // A bound business's companions, and its external asset's EVM testnet (reads and relays only).
+  let companions: CompanionOptions | undefined;
+  if (config.companions && customer) {
+    const e = config.companions.evm;
+    companions = {
+      bindings: config.companions.bindings.map((b) => ({
+        business_id: b.business_id,
+        ...(b.asset ? { asset: { account: b.asset } } : {}),
+        ...(b.allowance ? { allowance: { account: b.allowance } } : {}),
+      })),
+      evm: e
+        ? new EvmRpcPort(
+            { name: e.name, chain_id: e.chain_id, rpc: e.rpc },
+            (deps.evmFetch ?? globalThis.fetch) as never,
+          )
+        : null,
+    };
+  }
+  cap(
+    companions
+      ? {
+          key: "companions",
+          label: "Business companions",
+          state: "on",
+          detail: `Reads the bound businesses' companion contracts; owners sign their own requests.${config.companions?.evm ? ` External asset: ${config.companions.evm.name}, a signed move is relayed and stays pending until finalized there.` : ""}`,
+          provenance: rpcLabel,
+        }
+      : {
+          key: "companions",
+          label: "Business companions",
+          state: "unavailable",
+          detail: "No companion contracts are configured.",
+          provenance: null,
+        },
+  );
+  // Escrow funding from another token through NEAR's intents verifier; Everstreet is the solver.
+  let intents: IntentsOptions | undefined;
+  if (config.intents && customer && fetchImpl && config.rpc) {
+    const accountOf = new Map((config.v3?.bindings ?? []).map((b) => [b.business_id, b.account]));
+    const solverCfg = config.intents.solver;
+    intents = {
+      bindings: config.intents.bindings.map((b) => ({
+        business_id: b.business_id,
+        network: "testnet",
+        account: accountOf.get(b.business_id) as string,
+        asset: b.asset,
+        verifier: config.intents?.verifier as string,
+        offers: b.offers,
+      })),
+      solver: new TestnetSolver(
+        solverCfg.account,
+        solverKeyFrom(solverCfg.key_file, solverCfg.account),
+        new TestnetTxTransport({ network: "testnet", endpoint: config.rpc.endpoint }, fetchImpl),
+      ),
+    };
+  }
+  cap(
+    intents
+      ? {
+          key: "intents_funding",
+          label: "Escrow from another token",
+          state: "on",
+          detail: `NEAR intents verifier ${config.intents?.verifier}; Everstreet signs and submits as the solver (${config.intents?.solver.account}). The buyer deposits and signs their own side.`,
+          provenance: rpcLabel,
+        }
+      : {
+          key: "intents_funding",
+          label: "Escrow from another token",
+          state: "unavailable",
+          detail: "No intents verifier or solver is configured.",
+          provenance: null,
+        },
+  );
   cap({
     key: "legacy_payments",
     label: "Bookings and v2 payments",
@@ -643,6 +722,8 @@ function composeInner(config: AppConfig, deps: ComposeDeps, opened: { close(): v
     appChecks,
     v3,
     customer,
+    ...(companions ? { companions } : {}),
+    ...(intents ? { intents } : {}),
     handover: coordinator
       ? (businessId: string) => (coordinator as HandoverCoordinator).capability(businessId)
       : undefined,

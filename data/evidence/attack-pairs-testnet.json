@@ -1,0 +1,134 @@
+{
+  "format": "everstreet.attack-pairs-testnet",
+  "version": 1,
+  "network": "testnet",
+  "series": 3,
+  "records": [
+    "data/evidence/v3-ext-testnet.json",
+    "data/evidence/v3-gated-testnet.json",
+    "data/evidence/v3-recovery-testnet.json",
+    "data/evidence/attack-pairs-extra-testnet.json"
+  ],
+  "pairs": [
+    {
+      "case": "Former seller asks for the feed role",
+      "clean": {
+        "what": "The owner moves the feed role through Everstreet; final on Sepolia",
+        "tx": {
+          "hash": "pTG3TdqJqJfjJyePNWFg59qVNmLRPE2NVpKfGJajTcn",
+          "explorer": "https://testnet.nearblocks.io/txns/pTG3TdqJqJfjJyePNWFg59qVNmLRPE2NVpKfGJajTcn"
+        }
+      },
+      "attack": {
+        "what": "The former owner asks the feed companion to move the role",
+        "refusal": "E_NOT_OWNER",
+        "tx": {
+          "hash": "75gAQJnFot5vh5txxRqNgynNsHFHqWDDinnyAbuxSu4i",
+          "explorer": "https://testnet.nearblocks.io/txns/75gAQJnFot5vh5txxRqNgynNsHFHqWDDinnyAbuxSu4i"
+        }
+      }
+    },
+    {
+      "case": "Former seller acts as owner",
+      "clean": {
+        "what": "The owner grants the supplier allowance",
+        "tx": {
+          "hash": "34onxnuHJEbJEkes1dyrM4ZDcYZUKUuLNaXWS8qwJ5PS",
+          "explorer": "https://testnet.nearblocks.io/txns/34onxnuHJEbJEkes1dyrM4ZDcYZUKUuLNaXWS8qwJ5PS"
+        }
+      },
+      "attack": {
+        "what": "The former owner grants it instead",
+        "refusal": "E_NOT_OWNER",
+        "tx": {
+          "hash": "FenrFG4PgSYx3wX6GcUQYxG8jPX6yibxx7QXQyr2i5UR",
+          "explorer": "https://testnet.nearblocks.io/txns/FenrFG4PgSYx3wX6GcUQYxG8jPX6yibxx7QXQyr2i5UR"
+        }
+      }
+    },
+    {
+      "case": "Supplier payment after the close",
+      "clean": {
+        "what": "The agent pays under the new owner's grant",
+        "tx": {
+          "hash": "BxEa7RwiwWDP3zZRzLrHiZcmZTDqXN9g1vAcxqiLuLMK",
+          "explorer": "https://testnet.nearblocks.io/txns/BxEa7RwiwWDP3zZRzLrHiZcmZTDqXN9g1vAcxqiLuLMK"
+        }
+      },
+      "attack": {
+        "what": "The agent pays under the previous owner's grant after the close",
+        "refusal": "E_GRANT_ENDED",
+        "tx": {
+          "hash": "DE38QvimJHu5VfrqQUQm7oSEvR8xBB7N94Nbs29hhKx5",
+          "explorer": "https://testnet.nearblocks.io/txns/DE38QvimJHu5VfrqQUQm7oSEvR8xBB7N94Nbs29hhKx5"
+        }
+      }
+    },
+    {
+      "case": "Invoice paid twice",
+      "clean": {
+        "what": "The agent pays a new invoice",
+        "tx": {
+          "hash": "BzzmypPPZcqgsLx7dGdCob8T7sWXCAGWUqEvwrjhksRn",
+          "explorer": "https://testnet.nearblocks.io/txns/BzzmypPPZcqgsLx7dGdCob8T7sWXCAGWUqEvwrjhksRn"
+        }
+      },
+      "attack": {
+        "what": "The same invoice again",
+        "refusal": "E_REPLAY",
+        "tx": {
+          "hash": "FUKoYL2jPN1xQM6vPY4EyzjdCcYWcK77xMCk6Nd1JjTN",
+          "explorer": "https://testnet.nearblocks.io/txns/FUKoYL2jPN1xQM6vPY4EyzjdCcYWcK77xMCk6Nd1JjTN"
+        }
+      }
+    },
+    {
+      "case": "Invoice from a supplier not allowed",
+      "clean": {
+        "what": "The agent pays an allowed supplier",
+        "tx": {
+          "hash": "BzzmypPPZcqgsLx7dGdCob8T7sWXCAGWUqEvwrjhksRn",
+          "explorer": "https://testnet.nearblocks.io/txns/BzzmypPPZcqgsLx7dGdCob8T7sWXCAGWUqEvwrjhksRn"
+        }
+      },
+      "attack": {
+        "what": "The agent pays an account the owner never allowed",
+        "refusal": "E_SUPPLIER",
+        "tx": {
+          "hash": "J24QSpTFKe24guhT5T3N2uaAczJn5nFqxsfWwEfuCEo3",
+          "explorer": "https://testnet.nearblocks.io/txns/J24QSpTFKe24guhT5T3N2uaAczJn5nFqxsfWwEfuCEo3"
+        }
+      }
+    },
+    {
+      "case": "New customer hold while closing",
+      "clean": {
+        "what": "A customer's use before the gated close",
+        "tx": null
+      },
+      "attack": {
+        "what": "A new customer's request while the gated sale is closing",
+        "refusal": "handover_pause (409)",
+        "app": {
+          "step": "request_during_gate",
+          "source": "app_recorded"
+        }
+      }
+    },
+    {
+      "case": "Wallet answer lost",
+      "clean": {
+        "what": "The purchase confirmed once, by its own transaction ID",
+        "tx": null
+      },
+      "attack": {
+        "what": "The app's answer for a landed purchase is dropped on the way back",
+        "refusal": "unknown, then confirmed once",
+        "app": {
+          "step": "recovered_with_original_hash",
+          "source": "app_recorded"
+        }
+      }
+    }
+  ]
+}

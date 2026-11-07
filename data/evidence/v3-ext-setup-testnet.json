@@ -1,0 +1,237 @@
+{
+  "format": "everstreet-v3-ext-setup",
+  "network": "testnet",
+  "other_chain": {
+    "name": "Sepolia",
+    "chain_id": 11155111
+  },
+  "commit": "e2c7c1c4396197672d04973888d4dfdec768e740",
+  "transactions": [
+    {
+      "what": "deploy the feed registry: FAILED (out of gas at a 300,000 limit; Sepolia now needs about 690,000 for it)",
+      "chain": "sepolia",
+      "hash": "0x0380998970e9d0ddc20d318d769b1e8dc333ba6e888718b35919df8d0847d065",
+      "explorer": "https://sepolia.etherscan.io/tx/0x0380998970e9d0ddc20d318d769b1e8dc333ba6e888718b35919df8d0847d065",
+      "succeeded": false
+    },
+    {
+      "what": "deploy the feed registry (controller: generation 1's address)",
+      "chain": "sepolia",
+      "hash": "0xbcfc4aa7c06a36374961be03cb05bb8fa74b795d09eaa6d59ab3376ea2775bf9",
+      "explorer": "https://sepolia.etherscan.io/tx/0xbcfc4aa7c06a36374961be03cb05bb8fa74b795d09eaa6d59ab3376ea2775bf9"
+    },
+    {
+      "what": "0.003 test ETH to gen-1's address 0x219b8d58164642d585e6857dc9943c59b4421f16 FAILED (a 21,000 gas limit; creating the account now costs more)",
+      "chain": "sepolia",
+      "hash": "0xb246613062916d69c744cb43ed96c4fd01e00510b2bf32a51b53b1496725dd28",
+      "explorer": "https://sepolia.etherscan.io/tx/0xb246613062916d69c744cb43ed96c4fd01e00510b2bf32a51b53b1496725dd28",
+      "succeeded": false
+    },
+    {
+      "what": "0.003 test ETH to gen-2's address 0x875fc35e647a3b8ef2567035aa96fde54f2ff91b FAILED (a 21,000 gas limit; creating the account now costs more)",
+      "chain": "sepolia",
+      "hash": "0xe2505085944e4dfa4d79c33f6bdef9a7ddca066cd9890918b3727996f8a16a74",
+      "explorer": "https://sepolia.etherscan.io/tx/0xe2505085944e4dfa4d79c33f6bdef9a7ddca066cd9890918b3727996f8a16a74",
+      "succeeded": false
+    },
+    {
+      "what": "0.003 test ETH to gen-3's address 0xc78476b0de1c99067fa08cb4f38b82cc23932020 FAILED (a 21,000 gas limit; creating the account now costs more)",
+      "chain": "sepolia",
+      "hash": "0xbb23436b870aec8d5ee6223833732fafe623185c0f8538676937bd827bc44846",
+      "explorer": "https://sepolia.etherscan.io/tx/0xbb23436b870aec8d5ee6223833732fafe623185c0f8538676937bd827bc44846",
+      "succeeded": false
+    },
+    {
+      "what": "deploy and init feed-key-v3s3.everstreet.testnet (external asset key; born locked: no key)",
+      "chain": "near",
+      "hash": "2Tvq15WEpUz7AVZaknZdpx3BMAT3oPg4A6WJpgcCnTEF",
+      "explorer": "https://testnet.nearblocks.io/txns/2Tvq15WEpUz7AVZaknZdpx3BMAT3oPg4A6WJpgcCnTEF"
+    },
+    {
+      "what": "deploy and init budget-v3s3.everstreet.testnet (supplier allowance; born locked: no key)",
+      "chain": "near",
+      "hash": "HFJ5BJXqpkVokqWHpszeLHMbA3udxgLfUBgWkiJEz12F",
+      "explorer": "https://testnet.nearblocks.io/txns/HFJ5BJXqpkVokqWHpszeLHMbA3udxgLfUBgWkiJEz12F"
+    },
+    {
+      "what": "create agent-v3s3.everstreet.testnet",
+      "chain": "near",
+      "hash": "HsoctxCb5oEGHQ1msaw2SLdSTnk4Nawty7krgHTtEprV",
+      "explorer": "https://testnet.nearblocks.io/txns/HsoctxCb5oEGHQ1msaw2SLdSTnk4Nawty7krgHTtEprV"
+    },
+    {
+      "what": "create supplier-v3s3.everstreet.testnet",
+      "chain": "near",
+      "hash": "41CN2cys1yyT25JBUGgWyV679WiwzUe5mBvFfS9ATxPD",
+      "explorer": "https://testnet.nearblocks.io/txns/41CN2cys1yyT25JBUGgWyV679WiwzUe5mBvFfS9ATxPD"
+    },
+    {
+      "what": "register budget-v3s3.everstreet.testnet with tusd",
+      "chain": "near",
+      "hash": "BsP2hdBWty3x2a5HGeRCbAY176fLmm8V7NHj1QkN51UE",
+      "explorer": "https://testnet.nearblocks.io/txns/BsP2hdBWty3x2a5HGeRCbAY176fLmm8V7NHj1QkN51UE"
+    },
+    {
+      "what": "register agent-v3s3.everstreet.testnet with tusd",
+      "chain": "near",
+      "hash": "EvoJxE3JTpDkR4B3RNDAQzhjhKgABth3yZzRasRajVTV",
+      "explorer": "https://testnet.nearblocks.io/txns/EvoJxE3JTpDkR4B3RNDAQzhjhKgABth3yZzRasRajVTV"
+    },
+    {
+      "what": "register supplier-v3s3.everstreet.testnet with tusd",
+      "chain": "near",
+      "hash": "AxQFk2PapFGe6vrsbSqaN5jJQjaYFct6VAxHbpvWmc87",
+      "explorer": "https://testnet.nearblocks.io/txns/AxQFk2PapFGe6vrsbSqaN5jJQjaYFct6VAxHbpvWmc87"
+    },
+    {
+      "what": "deploy and init intents-v3s3.everstreet.testnet (NEAR's intents verifier, reproducible build; born locked: no key)",
+      "chain": "near",
+      "hash": "HAk2u2GaLMkppVt3c64erZL7GsCJ2CyrDsFRoGvkU9Nh",
+      "explorer": "https://testnet.nearblocks.io/txns/HAk2u2GaLMkppVt3c64erZL7GsCJ2CyrDsFRoGvkU9Nh"
+    },
+    {
+      "what": "create talt-v3s3.everstreet.testnet (test token, no keys)",
+      "chain": "near",
+      "hash": "GJUwXw5RVzB5dUrGQnBbuG5YJ3J9wwuMgZGNrUW5dySb",
+      "explorer": "https://testnet.nearblocks.io/txns/GJUwXw5RVzB5dUrGQnBbuG5YJ3J9wwuMgZGNrUW5dySb"
+    },
+    {
+      "what": "create solver-v3s3.everstreet.testnet",
+      "chain": "near",
+      "hash": "8u2MzhhVo63roWsezQ9V7njivQKTCSmhL5uq2HdvgYPd",
+      "explorer": "https://testnet.nearblocks.io/txns/8u2MzhhVo63roWsezQ9V7njivQKTCSmhL5uq2HdvgYPd"
+    },
+    {
+      "what": "create noor-v3s3.everstreet.testnet",
+      "chain": "near",
+      "hash": "AEeRsspADpzuR8nbBRDa3MVt1JBmyeoDntdZZ9L2f95L",
+      "explorer": "https://testnet.nearblocks.io/txns/AEeRsspADpzuR8nbBRDa3MVt1JBmyeoDntdZZ9L2f95L"
+    },
+    {
+      "what": "register intents-v3s3.everstreet.testnet with tusd",
+      "chain": "near",
+      "hash": "9FDuQvekjfBSaf2t7NqWKvDLYMc3MVwwUFkz3Qehp2J",
+      "explorer": "https://testnet.nearblocks.io/txns/9FDuQvekjfBSaf2t7NqWKvDLYMc3MVwwUFkz3Qehp2J"
+    },
+    {
+      "what": "register intents-v3s3.everstreet.testnet with talt-v3s3",
+      "chain": "near",
+      "hash": "EQUpnVBYA7LDrtZRXnfKigZi9FpBuktBaA9SPL2kNQLY",
+      "explorer": "https://testnet.nearblocks.io/txns/EQUpnVBYA7LDrtZRXnfKigZi9FpBuktBaA9SPL2kNQLY"
+    },
+    {
+      "what": "register solver-v3s3.everstreet.testnet with tusd",
+      "chain": "near",
+      "hash": "uqBsWDfhxJ3HHr9B4ChbpY3TukyS72AbnyQBR8wW6au",
+      "explorer": "https://testnet.nearblocks.io/txns/uqBsWDfhxJ3HHr9B4ChbpY3TukyS72AbnyQBR8wW6au"
+    },
+    {
+      "what": "register noor-v3s3.everstreet.testnet with tusd",
+      "chain": "near",
+      "hash": "AwsLptpuGA9tupPkh381PiCBkUTHvQycpYyg79hqLEfg",
+      "explorer": "https://testnet.nearblocks.io/txns/AwsLptpuGA9tupPkh381PiCBkUTHvQycpYyg79hqLEfg"
+    },
+    {
+      "what": "register noor-v3s3.everstreet.testnet with talt-v3s3",
+      "chain": "near",
+      "hash": "rdC16S7YgfYDxyQkSuQfjzKTnD1QXjrnYimNsAnqS1K",
+      "explorer": "https://testnet.nearblocks.io/txns/rdC16S7YgfYDxyQkSuQfjzKTnD1QXjrnYimNsAnqS1K"
+    },
+    {
+      "what": "fund noor-v3s3.everstreet.testnet with 400 talt-v3s3",
+      "chain": "near",
+      "hash": "5WWSoagVPhxN28byd3MhycUcG34Lnk9a6KYFAjJ8d5wa",
+      "explorer": "https://testnet.nearblocks.io/txns/5WWSoagVPhxN28byd3MhycUcG34Lnk9a6KYFAjJ8d5wa"
+    },
+    {
+      "what": "fund solver-v3s3.everstreet.testnet with 300 tusd",
+      "chain": "near",
+      "hash": "HW6j36KabLHvHbQLLFTeCEenbxb6JMiHeMuBTAt7MSEh",
+      "explorer": "https://testnet.nearblocks.io/txns/HW6j36KabLHvHbQLLFTeCEenbxb6JMiHeMuBTAt7MSEh"
+    },
+    {
+      "what": "the solver deposits its tUSD float into the verifier",
+      "chain": "near",
+      "hash": "4DzxQYkt1RGb68KQ9p8xLRAbzyAS6G7rMJW6Y2axSyZb",
+      "explorer": "https://testnet.nearblocks.io/txns/4DzxQYkt1RGb68KQ9p8xLRAbzyAS6G7rMJW6Y2axSyZb"
+    },
+    {
+      "what": "the solver registers its signing key with the verifier",
+      "chain": "near",
+      "hash": "AehC2TKBNav57sTjyESVh1ynoKy17h21yKtGP5KzRRRG",
+      "explorer": "https://testnet.nearblocks.io/txns/AehC2TKBNav57sTjyESVh1ynoKy17h21yKtGP5KzRRRG"
+    },
+    {
+      "what": "0.003 test ETH to gen-1's address 0x219b8d58164642d585e6857dc9943c59b4421f16 (gas for its registry calls)",
+      "chain": "sepolia",
+      "hash": "0x682552820c928fb8772b38298cf9b5e660c67a3a12e5613896cb84706d0a9cfd",
+      "explorer": "https://sepolia.etherscan.io/tx/0x682552820c928fb8772b38298cf9b5e660c67a3a12e5613896cb84706d0a9cfd"
+    },
+    {
+      "what": "0.003 test ETH to gen-2's address 0x875fc35e647a3b8ef2567035aa96fde54f2ff91b (gas for its registry calls)",
+      "chain": "sepolia",
+      "hash": "0x6d2dd65709291b21b51d7e6fe10b79f07ddbfd345dfaf91f9954fb3fae3be2a4",
+      "explorer": "https://sepolia.etherscan.io/tx/0x6d2dd65709291b21b51d7e6fe10b79f07ddbfd345dfaf91f9954fb3fae3be2a4"
+    },
+    {
+      "what": "0.003 test ETH to gen-3's address 0xc78476b0de1c99067fa08cb4f38b82cc23932020 (gas for its registry calls)",
+      "chain": "sepolia",
+      "hash": "0x8cd0633a1cd7d7e3289df4163809432a8e9f3cde00cd9b5da18f57a5b89c67f3",
+      "explorer": "https://sepolia.etherscan.io/tx/0x8cd0633a1cd7d7e3289df4163809432a8e9f3cde00cd9b5da18f57a5b89c67f3"
+    }
+  ],
+  "registry": {
+    "address": "0x888188bc8e06c2f05d29092c1745fa5337736cfd",
+    "deploy_tx": "0xbcfc4aa7c06a36374961be03cb05bb8fa74b795d09eaa6d59ab3376ea2775bf9",
+    "deployer": "0xC3b8195b6B7913f11A196C0A4017ED95Ee90dEa8"
+  },
+  "business": "ledgerline-v3-3b.everstreet.testnet",
+  "addresses": {
+    "gen-1": "0x219b8d58164642d585e6857dc9943c59b4421f16",
+    "gen-2": "0x875fc35e647a3b8ef2567035aa96fde54f2ff91b",
+    "gen-3": "0xc78476b0de1c99067fa08cb4f38b82cc23932020"
+  },
+  "companions": {
+    "asset_key": {
+      "account": "feed-key-v3s3.everstreet.testnet",
+      "wasm_sha256": "0593b0f92d8280e04c97e543d7784ad3c6623964d28c3ef9c071eb9d71a4d693",
+      "code_hash": "Nmf8aXspQNzPuYLuBEHLHBexxtmhWi34rocsAQCGAWN",
+      "signer": "v1.signer-prod.testnet",
+      "max_gas_limit": "1000000",
+      "max_fee_per_gas": "100000000000"
+    },
+    "spend_allowance": {
+      "account": "budget-v3s3.everstreet.testnet",
+      "wasm_sha256": "4b0a422fe93c9dabc55d47b7e119f59e1bb16b1bf7532bd833b063626a72bda2",
+      "code_hash": "63vehjcNDHvTyYtzKkYdmeqHr9ZMFkCsf6Ndt1uvpCQy",
+      "token": "tusd.everstreet.testnet"
+    },
+    "agent": "agent-v3s3.everstreet.testnet",
+    "supplier": "supplier-v3s3.everstreet.testnet"
+  },
+  "intents": {
+    "verifier": {
+      "account": "intents-v3s3.everstreet.testnet",
+      "source": "github.com/near/intents @ 32cd1f9788a347908164fbcc56525dc6542f158f, contracts/defuse 0.4.5",
+      "wasm_sha256": "257b53c5ba0deff95ca870c7de944d92d6617eeae65f008782b6d95a513193c8",
+      "code_hash": "3XKA3xB2Dz92QhELLkWhZ2j66fR7JYYKPRi3A3J4LFzX",
+      "config": {
+        "wnear_id": "wrap.testnet",
+        "fee": 0,
+        "roles": "none"
+      }
+    },
+    "give_token": {
+      "account": "talt-v3s3.everstreet.testnet",
+      "symbol": "tALT",
+      "decimals": 6
+    },
+    "rate": {
+      "num": "5",
+      "den": "4",
+      "meaning": "5 tALT for 4 tUSD"
+    },
+    "solver": "solver-v3s3.everstreet.testnet",
+    "next_buyer": "noor-v3s3.everstreet.testnet"
+  }
+}

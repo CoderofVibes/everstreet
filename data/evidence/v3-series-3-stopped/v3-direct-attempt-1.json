@@ -1,0 +1,314 @@
+{
+  "format": "everstreet-v3-rehearsal",
+  "version": 1,
+  "header": {
+    "example": "direct",
+    "network": "testnet",
+    "label": "NEAR testnet",
+    "commit": "e2c7c1c4396197672d04973888d4dfdec768e740",
+    "contract": {
+      "account": "ledgerline-v3-3.everstreet.testnet",
+      "wasm_sha256": "ede1c2f7bed77d1832f5b16e8a873645b387693a486b42a745a06b6d510a29b4",
+      "code_hash_expected": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw"
+    },
+    "accounts": {
+      "founder": "founder-v3s3.everstreet.testnet",
+      "buyer": "buyer-v3s3.everstreet.testnet",
+      "customer": "cara-v3s3-1.everstreet.testnet",
+      "prober": "cara-v3s3-1.everstreet.testnet",
+      "operator": "meter-direct-v3s3.everstreet.testnet"
+    },
+    "model": "stand-in (scripted answers; no AI provider called)"
+  },
+  "steps": [
+    {
+      "n": 1,
+      "step": "release_1",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "release": "19692b39-8478-4f8f-8e63-ff1a7a5d5eca",
+        "artifact_job": "9d943d9d-7568-40f8-9c11-4997cab96f9e",
+        "evaluation": {
+          "total": 10,
+          "release_ready": true
+        },
+        "model": "stand-in (scripted; no AI provider)"
+      }
+    },
+    {
+      "n": 2,
+      "step": "create_plan",
+      "kind": "transaction",
+      "signer": {
+        "role": "founder",
+        "account": "founder-v3s3.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "ledgerline-v3-3.everstreet.testnet",
+        "method": "create_plan_guarded",
+        "deposit": "900000000000000000000",
+        "gas": "30000000000000",
+        "args": {
+          "input": {
+            "unit_price": "150000",
+            "max_units_per_purchase": 100,
+            "max_units_outstanding": 120,
+            "max_hold_units": 1,
+            "hold_ttl_ms": "600000",
+            "settle_grace_ms": "480000"
+          },
+          "expected_control_seq": "0",
+          "expected_plan_id": 1
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "BgzvjJcG4qdFa4BURHJnzr5kidbzMbB82agCgp5oP1o2",
+        "explorer": "https://testnet.nearblocks.io/txns/BgzvjJcG4qdFa4BURHJnzr5kidbzMbB82agCgp5oP1o2",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "ledgerline-v3-3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"plan_created\",\"data\":[{\"plan_id\":1,\"unit_price\":\"150000\"}]}"
+            ]
+          },
+          {
+            "executor": "founder-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": {
+        "source": "app_recorded",
+        "resolution": {
+          "kind": "confirmed",
+          "result": "created",
+          "message": "Plan 1 was created by this request's own transaction.",
+          "verified": {
+            "plan_id": 1,
+            "plan": {
+              "unit_price": "150000",
+              "max_units_per_purchase": 100,
+              "max_units_outstanding": 120,
+              "max_hold_units": 1,
+              "hold_ttl_ms": "600000",
+              "settle_grace_ms": "480000",
+              "created_generation": 1
+            },
+            "block": {
+              "height": "276580886",
+              "hash": "xCV5ETZzU3MCcKaWnEXwnLSbq9SxHnaGJ5rZ3dSvJZS"
+            }
+          }
+        }
+      }
+    },
+    {
+      "n": 3,
+      "step": "appoint",
+      "kind": "transaction",
+      "signer": {
+        "role": "founder",
+        "account": "founder-v3s3.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "ledgerline-v3-3.everstreet.testnet",
+        "method": "appoint_operator_guarded",
+        "deposit": "1",
+        "gas": "30000000000000",
+        "args": {
+          "account": "meter-direct-v3s3.everstreet.testnet",
+          "caps": 1,
+          "expected_control_seq": "1"
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "DVhAnUy1L7NxUgvVayMHzyy1EdAQrJbvJBXEecGpdZTk",
+        "explorer": "https://testnet.nearblocks.io/txns/DVhAnUy1L7NxUgvVayMHzyy1EdAQrJbvJBXEecGpdZTk",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "ledgerline-v3-3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"operator_appointed\",\"data\":[{\"account\":\"meter-direct-v3s3.everstreet.testnet\",\"caps\":1,\"generation\":1}]}"
+            ]
+          },
+          {
+            "executor": "founder-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": {
+        "source": "app_recorded",
+        "resolution": {
+          "kind": "confirmed",
+          "result": "appointed",
+          "message": "The platform's account holds metering for this owner. Whether customers can be served now is shown separately."
+        }
+      }
+    },
+    {
+      "n": 4,
+      "step": "offer_1",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "offer": "9e147914-9fc1-4a6e-8d84-2f2c24c44358",
+        "plan": 1,
+        "unit_price": "150000"
+      }
+    },
+    {
+      "n": 5,
+      "step": "purchase_step_shell_customer",
+      "kind": "transaction",
+      "signer": {
+        "role": "customer",
+        "account": "cara-v3s3-1.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "ledgerline-v3-3.everstreet.testnet",
+        "method": "sponsor_shell",
+        "deposit": "8410000000000000000000",
+        "gas": "30000000000000",
+        "args": {
+          "customer": "cara-v3s3-1.everstreet.testnet",
+          "plan_id": 1
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "bFBkCweF1q4k9kFp3im9AFE6oFQLqmbbfpryV18UEsp",
+        "explorer": "https://testnet.nearblocks.io/txns/bFBkCweF1q4k9kFp3im9AFE6oFQLqmbbfpryV18UEsp",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "ledgerline-v3-3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"shell_sponsored\",\"data\":[{\"customer\":\"cara-v3s3-1.everstreet.testnet\",\"plan_id\":1,\"reg_id\":\"1\",\"payer\":\"cara-v3s3-1.everstreet.testnet\"}]}"
+            ]
+          },
+          {
+            "executor": "cara-v3s3-1.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": null
+    }
+  ],
+  "checkpoints": [
+    {
+      "name": "start",
+      "source": "chain_final",
+      "at": "2026-11-07T04:09:59.857Z",
+      "views": {
+        "block": {
+          "height": "276580873",
+          "hash": "CAvDyrGUfYkcFU8MrA8Mchowk1fDHYFpekWuPLwcdbHq"
+        },
+        "control": {
+          "owner": "founder-v3s3.everstreet.testnet",
+          "generation": 1,
+          "control_seq": "0",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [],
+          "live_deal": null
+        },
+        "treasury": {
+          "asset": "tusd.everstreet.testnet",
+          "held": "0",
+          "ent_free_value": "0",
+          "ent_held_value": "0",
+          "available": "0",
+          "withdrawable": "0",
+          "pending_total": "0",
+          "claims_total": "0",
+          "escrow_total": "0"
+        },
+        "entitlement": null,
+        "tusd": {
+          "cara-v3s3-1.everstreet.testnet": "20000000",
+          "ledgerline-v3-3.everstreet.testnet": "0",
+          "founder-v3s3.everstreet.testnet": "0",
+          "buyer-v3s3.everstreet.testnet": "300000000"
+        }
+      }
+    },
+    {
+      "name": "offer_open",
+      "source": "chain_final",
+      "at": "2026-11-07T04:10:15.365Z",
+      "views": {
+        "block": {
+          "height": "276580898",
+          "hash": "64f9UXfY63VA68B4Hr255kah5GK7VRvDw19i9U48i7UP"
+        },
+        "control": {
+          "owner": "founder-v3s3.everstreet.testnet",
+          "generation": 1,
+          "control_seq": "2",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3.everstreet.testnet",
+              1,
+              1
+            ]
+          ],
+          "live_deal": null
+        },
+        "treasury": {
+          "asset": "tusd.everstreet.testnet",
+          "held": "0",
+          "ent_free_value": "0",
+          "ent_held_value": "0",
+          "available": "0",
+          "withdrawable": "0",
+          "pending_total": "0",
+          "claims_total": "0",
+          "escrow_total": "0"
+        },
+        "entitlement": null,
+        "tusd": {
+          "cara-v3s3-1.everstreet.testnet": "20000000",
+          "ledgerline-v3-3.everstreet.testnet": "0",
+          "founder-v3s3.everstreet.testnet": "0",
+          "buyer-v3s3.everstreet.testnet": "300000000"
+        }
+      }
+    }
+  ],
+  "outcome": {
+    "completed": false,
+    "reason": "Internal server error"
+  },
+  "digests": {
+    "sections": {
+      "header": "97ff4afbb4e21b97b90d40d8e72d1b7a75e57c54c45dd68591611625d5df5aa3",
+      "steps": "9734792e418f5c9fa3c10b5e545eae07e018cbd77bfa2cc64a5e4d6af97939f9",
+      "checkpoints": "07f9da08a58a2f3cd11f263e3405bd4a641b032f99c51816cbea9e2036b6704b",
+      "outcome": "b3b463a3390684d743a76e38432c20e6569fec121405a3f9a3532d795f01f4e6"
+    },
+    "record": "5f430b2810ff6dc61a0a1c8a9c1c796c06e8f7e24c05b8579a73ebf216403176"
+  }
+}

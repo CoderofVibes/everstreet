@@ -1,0 +1,69 @@
+{
+  "format": "everstreet.attack-pairs-extra",
+  "network": "testnet",
+  "at": "2026-11-07T05:25:54.777Z",
+  "owner": "noor-v3s3.everstreet.testnet",
+  "generation": 3,
+  "clean": {
+    "hash": "BzzmypPPZcqgsLx7dGdCob8T7sWXCAGWUqEvwrjhksRn",
+    "explorer": "https://testnet.nearblocks.io/txns/BzzmypPPZcqgsLx7dGdCob8T7sWXCAGWUqEvwrjhksRn",
+    "ok": true,
+    "code": null
+  },
+  "replay": {
+    "hash": "FUKoYL2jPN1xQM6vPY4EyzjdCcYWcK77xMCk6Nd1JjTN",
+    "explorer": "https://testnet.nearblocks.io/txns/FUKoYL2jPN1xQM6vPY4EyzjdCcYWcK77xMCk6Nd1JjTN",
+    "ok": false,
+    "code": "E_REPLAY"
+  },
+  "stranger": {
+    "hash": "J24QSpTFKe24guhT5T3N2uaAczJn5nFqxsfWwEfuCEo3",
+    "explorer": "https://testnet.nearblocks.io/txns/J24QSpTFKe24guhT5T3N2uaAczJn5nFqxsfWwEfuCEo3",
+    "ok": false,
+    "code": "E_SUPPLIER"
+  },
+  "allowance_before": {
+    "business": "ledgerline-v3-3b.everstreet.testnet",
+    "token": "tusd.everstreet.testnet",
+    "grant": {
+      "agent": "agent-v3s3.everstreet.testnet",
+      "suppliers": [
+        "supplier-v3s3.everstreet.testnet"
+      ],
+      "per_payment": "2000000",
+      "per_period": "10000000",
+      "period_ms": "86400000",
+      "review_above": "5000000",
+      "generation": 3,
+      "granted_by": "noor-v3s3.everstreet.testnet"
+    },
+    "balance": "11500000",
+    "reserved": "0",
+    "claims_total": "0",
+    "available": "11500000",
+    "period_start_ms": "1794029115372",
+    "spent_in_period": "1000000"
+  },
+  "allowance_after": {
+    "business": "ledgerline-v3-3b.everstreet.testnet",
+    "token": "tusd.everstreet.testnet",
+    "grant": {
+      "agent": "agent-v3s3.everstreet.testnet",
+      "suppliers": [
+        "supplier-v3s3.everstreet.testnet"
+      ],
+      "per_payment": "2000000",
+      "per_period": "10000000",
+      "period_ms": "86400000",
+      "review_above": "5000000",
+      "generation": 3,
+      "granted_by": "noor-v3s3.everstreet.testnet"
+    },
+    "balance": "11000000",
+    "reserved": "0",
+    "claims_total": "0",
+    "available": "11000000",
+    "period_start_ms": "1794029115372",
+    "spent_in_period": "1500000"
+  }
+}
