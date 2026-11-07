@@ -55,18 +55,26 @@ refused. The companions did not:
 
 | # | Severity | Finding | Status |
 |---|---|---|---|
-| 1 | High | asset-key signs `setController` for any address at any nonce the caller names, so a seller can pre-sign a hand-over of the external registry and broadcast it at the close, racing the buyer | Fixed in source: the request names no destination (the companion derives the current generation's address through the signer's `derived_public_key`), a generation can't move to itself, and a path signs at most one nonce past the highest it signed. A seller can still pre-sign transactions one at a time to delay the buyer's move, never to keep the role. Not yet on testnet |
-| 3 | High | spend-allowance's `approve` changes no state before its cross-contract call; a retried approve pays an invoice twice and corrupts the books | Fixed in source: `Approving` before the control call; only the grant's maker may start an approval. Not yet on testnet |
+| 1 | High | asset-key signs `setController` for any address at any nonce the caller names, so a seller can pre-sign a hand-over of the external registry and broadcast it at the close, racing the buyer | Fixed in source: the request names no destination (the companion derives the current generation's address through the signer's `derived_public_key`), a generation can't move to itself, and a path signs at most one nonce past the highest it signed. A seller can still pre-sign transactions one at a time to delay the buyer's move, never to keep the role. On testnet since series 4 (`data/evidence/v3-s4-testnet.json`) |
+| 3 | High | spend-allowance's `approve` changes no state before its cross-contract call; a retried approve pays an invoice twice and corrupts the books | Fixed in source: `Approving` before the control call; only the grant's maker may start an approval. On testnet since series 4 (`data/evidence/v3-s4-testnet.json`) |
 | 2 | Medium | Both companions act on a control reading two receipts old; a payment, withdrawal or signature the seller starts just before the close lands after it | Documented window: the buyer's first shift drains the budget and moves the role; stated in `docs/AUTHORITY.md` |
-| 4, 5, 6 | Medium | The agent can freeze the budget with reviewable invoices (no owner reject); invoices grow storage nobody pays for; a failed signer receipt keeps the caller's deposit | Fixed in source: an owner `reject` and a 7-day expiry anyone may apply; `pay` charges its storage to the agent; a failed signature returns the deposit. Not yet on testnet |
-| 7, 8 | Low | Anyone can reserve the budget for two blocks; a refused invoice can't be retried; an oversized period bricks `pay` | Fixed in source: a withdrawal reserves only after the owner check; a refused invoice can be paid again; the period is bounded and its arithmetic saturates. Not yet on testnet |
+| 4, 5, 6 | Medium | The agent can freeze the budget with reviewable invoices (no owner reject); invoices grow storage nobody pays for; a failed signer receipt keeps the caller's deposit | Fixed in source: an owner `reject` and a 7-day expiry anyone may apply; `pay` charges its storage to the agent; a failed signature returns the deposit. On testnet since series 4 (`data/evidence/v3-s4-testnet.json`) |
+| 7, 8 | Low | Anyone can reserve the budget for two blocks; a refused invoice can't be retried; an oversized period bricks `pay` | Fixed in source: a withdrawal reserves only after the owner check; a refused invoice can be paid again; the period is bounded and its arithmetic saturates. On testnet since series 4 (`data/evidence/v3-s4-testnet.json`) |
 
 The reviewer's 60 tests are in the repository (`attack_tests3.rs` in business-v3, `attack_tests.rs`
 in each companion). Each companion finding's test now asserts its fix; the two finding-2 tests are
 kept as `*_documented_*`. The fixed companions pass their unit and local-node tests in WSL. The
-companions on testnet (`feed-key-v3s3`, `budget-v3s3`) still run the earlier code: until new
-accounts are deployed and the companion series runs again, those testnet records show the pattern
-(authority follows the business contract), not the fixed contracts.
+fixed companions run on testnet as `feed-key-v3s4` and `budget-v3s4` (series 4, Nov 7,
+reproducible builds in `docs/BUILDS.md`). Their record shows, on chain: an owner's request for a
+nonce two past the highest signed refused (`E_NONCE`); a hand-over from the current generation
+refused (`E_GENERATION`); a paid invoice submitted again refused (`E_REPLAY`); a payment without
+its storage deposit refused (`E_STORAGE`); a stranger's approval and early expiry refused; an
+invoice rejected by the owner; after the sale, every request of the former owner refused and the
+old grant's waiting invoice refused under the new owner (`E_GRANT_ENDED`); the buyer's role move
+to the address the companion derived (the request named none), final on Sepolia; and the one
+publish the seller had signed and held before the close refused by Sepolia afterwards (its nonce
+was used by the move). The series-3 companions (`feed-key-v3s3`, `budget-v3s3`) keep the earlier
+code and records.
 
 ## Reproduce it
 
@@ -103,7 +111,9 @@ CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbo
 - **Which code ran on testnet.** Series 3 (2026-11-06) ran the Direct sale, the Gated sale and
   the recovery examples on the reproducible build of the fixed contract (code hash
   `H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw`, `docs/BUILDS.md`), with the companions and
-  NEAR's intents verifier beside it (`data/evidence/v3-*-testnet.json`). Series 2 ran the same
+  NEAR's intents verifier beside it (`data/evidence/v3-*-testnet.json`). Series 4 (2026-11-07)
+  sold the Direct example's business once more with the fixed companions beside it
+  (`data/evidence/v3-s4-testnet.json`). Series 2 ran the same
   source as a plain build (`3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6`,
   `data/evidence/v3-series-2/`); series 1 ran the earlier code (`data/evidence/v3-series-1/`).
 - **Everstreet's own server** follows the contract rather than enforcing it. Two cold reviews

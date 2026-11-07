@@ -35,6 +35,26 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **SERIES 4 DONE (Nov 7; Tony: "Yes on the testnet deploy")**: the fixed companions on testnet.
+  Reproducible builds of 24ac5fb, each built twice byte-identical (asset-key e123359c...,
+  spend-allowance 3bb09676...; `docs/BUILDS.md`), local-node tests pass on those exact files
+  (sandbox tests take WASM_<CRATE>; helper `data/runtime/sandbox-recorded.sh`, run with
+  MSYS_NO_PATHCONV=1). `scripts/series4.ts setup|run|resume`: feed-key-v3s4 (G9qsYK...) and
+  budget-v3s4 (521EJE...) born locked beside ledgerline-v3-3b; new Sepolia registry
+  0x3b093ebdf5e727766c128df85d1f4540d84de269 (first controller gen-3); agent/supplier-v3s4 and
+  buyer ines-v3s4. Run complete (43 steps, resumed once: the app correctly couldn't read the
+  registry before Sepolia finalized it): every fix refused on chain as expected, sale noor-v3s3 to
+  ines-v3s4 (generation 4), buyer's move to the derived address final, the seller's held publish
+  refused by Sepolia, re-grant. Records `data/evidence/v3-s4-setup-testnet.json`,
+  `data/evidence/v3-s4-testnet.json` (verify --live OK; the Direct and ext records now report the
+  later sale). Spend 6.15 of the approved 8 NEAR; ~0.004 test ETH. App records copied to
+  `data/runtime/rehearsal-s4` (series 3's stay as they were). LESSON: a new Sepolia contract
+  reads as empty at "finalized" for ~15 min; wait before the app reads it. Grok's three points
+  answered in chat (customers protected: yes, lead with it; "one contract covers the whole life":
+  inaccurate, use "one contract decides who is in charge; companions ask it"; checkable handoff:
+  yes, the seller-loses-rights moment could be one line). NEXT: README session, Tony gives the
+  instructions.
+
 - **ROUND 3 DONE (Nov 7 evening; Tony: "1 go ahead and fix, 2 fix, 3 skip dark theme, 4 keep the
   picker; fix the Try tab, badges, studio labels and the rest of the second first-use pass")**:
   e2b187e companion contracts fixed in source (asset-key derives the move's destination, nonce

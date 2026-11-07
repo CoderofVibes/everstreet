@@ -84,7 +84,7 @@ const codeHashOf = (sha256Hex: string) => baseEncode(Buffer.from(sha256Hex, "hex
 const EVIDENCE = "data/evidence";
 const SETUP_FILE = join(EVIDENCE, "v3-s4-setup-testnet.json");
 const RUN_FILE = join(EVIDENCE, "v3-s4-testnet.json");
-const RUN_DIR = resolve("data", "runtime", "rehearsal-direct");
+const RUN_DIR = resolve("data", "runtime", "rehearsal-s4");
 const SPEND_FILE = join("data", "runtime", "rehearsal-spend-s4.json");
 const CEILING_NEAR = 8; // Tony's approved budget (Nov 7): about 8 testnet NEAR
 
@@ -482,7 +482,7 @@ async function setup() {
     const value = 2_000_000_000_000_000n;
     const est = BigInt(
       await evm<string>("eth_estimateGas", [
-        { from: deployerKey().address, to: a, value: toHex(beMin(value)) },
+        { from: deployerKey().address, to: a, value: `0x${value.toString(16)}` },
       ]),
     );
     const { hash } = await deployerSend(a, value, Buffer.alloc(0), (est * 5n) / 4n);
@@ -641,6 +641,7 @@ async function run() {
   );
   const done = (step: string) => recorded.has(step);
   await spendGuard("run start");
+  prepareAppDir();
 
   const base = JSON.parse(readFileSync(join(RUN_DIR, "config.json"), "utf8")) as Json;
   const bizId = base.v3.bindings[0].business_id as string;

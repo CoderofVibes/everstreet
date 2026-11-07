@@ -48,6 +48,27 @@ The local-node tests can run on a recorded build instead of a fresh one:
 `WASM_ASSET_KEY=<file> WASM_SPEND_ALLOWANCE=<file> WASM_BUSINESS_V3=<file> cargo test -p asset-key --test sandbox`
 (and `-p spend-allowance`).
 
+## Deployed on NEAR testnet (series 4, Nov 7 2026)
+
+The fixed companions, new accounts beside the same business (`ledgerline-v3-3b`, unchanged code),
+each created, funded, deployed and initialized in one transaction with no access key. Run by
+`scripts/series4.ts` (`setup`, then `run`); records in `data/evidence/v3-s4-setup-testnet.json`
+and `data/evidence/v3-s4-testnet.json` (`npx tsx scripts/verify-rehearsal.ts
+data/evidence/v3-s4-testnet.json --live`).
+
+| Account | Contract | Code hash on chain |
+|---|---|---|
+| `feed-key-v3s4.everstreet.testnet` | asset-key (fixed) | `G9qsYKsoqeZ3Tpopdx7QBNgp5oz4CejdSHsYK3SNUqMP` |
+| `budget-v3s4.everstreet.testnet` | spend-allowance (fixed) | `521EJESDdkoW21rbyr957LYfoxPnB9GztSkCEUFsYDmk` |
+
+The new companion account means new signer-derived addresses, so the external asset has a new
+registry on Sepolia, `0x3b093ebdf5e727766c128df85d1f4540d84de269`, whose first controller was
+generation 3's address. The series-3 companions (`feed-key-v3s3`, `budget-v3s3`) and registry stay
+as recorded; nothing points at them after series 4.
+
+The records name commit `eeacf25`; the run used that script with two corrections committed next
+(the run's own app folder, and a hex amount Sepolia's RPC now refuses with a leading zero).
+
 ## Deployed on NEAR testnet (series 3, Nov 6 2026)
 
 Each account was created, funded, deployed and initialized in one transaction, with no access
