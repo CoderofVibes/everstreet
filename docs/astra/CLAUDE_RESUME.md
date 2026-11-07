@@ -46,8 +46,12 @@ visual direction), then Opus builds.
   an unread registration counted apart, and what isn't checked (money routed through other
   accounts, recruited third parties). Demo: Delphine paid for Theo's Signalwatch registration, so
   Noah sees 28 TUSD independent and 28 linked. Attack suite 27/27 ("Seller pays its own
-  business"). Not done: a testnet run (needs Tony's yes); the buyer scenario still projects from
-  all uses. (3) A static hosted
+  business"). The buyer scenario now starts from independent uses (87d9787). Testnet run DONE (Tony: "if
+  this adds to our case, do it"): `scripts/linked-revenue-testnet.ts` (shared plumbing in
+  `scripts/lib/testnetRun.ts`): ines-v3s4 paid for wren-v3s5's registration (sponsor_shell; the
+  contract names her as payer), Wren bought 2 uses and used 1 through the app, and the owner's
+  economics show Wren's 0.15 tUSD as linked (registration paid by the seller) and Cara's 22 uses
+  independent; `data/evidence/linked-revenue-testnet.json`, verify --live OK; 0.31 NEAR spent. (3) A static hosted
   proof site: only after Tony says yes to publishing (host his call). (4) README with Astra (Tony
   has the prompt; competitor names stay out of the repo). THEN a cold Fable review of 1 to 3 only.
 

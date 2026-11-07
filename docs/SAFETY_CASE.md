@@ -113,7 +113,9 @@ CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbo
   `H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw`, `docs/BUILDS.md`), with the companions and
   NEAR's intents verifier beside it (`data/evidence/v3-*-testnet.json`). Series 4 (2026-11-07)
   sold the Direct example's business once more with the fixed companions beside it
-  (`data/evidence/v3-s4-testnet.json`). Series 2 ran the same
+  (`data/evidence/v3-s4-testnet.json`). A later run had its owner pay for a new customer's
+  registration; the contract records her as the payer, and the sale's economics show that
+  customer's revenue as linked to the seller (`data/evidence/linked-revenue-testnet.json`). Series 2 ran the same
   source as a plain build (`3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6`,
   `data/evidence/v3-series-2/`); series 1 ran the earlier code (`data/evidence/v3-series-1/`).
 - **Everstreet's own server** follows the contract rather than enforcing it. Two cold reviews
