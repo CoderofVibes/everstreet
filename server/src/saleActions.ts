@@ -25,6 +25,7 @@ import {
 import type { CustomerViewTransport, PinnedBlock } from "./customerRead.ts";
 import type { Db } from "./db.ts";
 import { armHandover, latestHandover } from "./handover.ts";
+import type { ReadinessSigner } from "./readiness.ts";
 import {
   abortCall,
   acceptCall,
@@ -695,6 +696,10 @@ export interface SaleOptions {
   };
   readTimeoutMs?: number;
   now?: () => number;
+  /** The Closing Ledger: what is still in flight for a business (CustomerUses.handoverInventory). */
+  inventory?: (businessId: string) => Record<string, number>;
+  /** The Closing Ledger: signs the Gated readiness checklist (this server's readiness key). */
+  readiness?: ReadinessSigner;
   /** The handoff proof: records the close snapshot once a close confirms here. */
   onClosed?: (
     businessId: string,
@@ -1109,7 +1114,47 @@ export class SaleActions {
       actions: rows.map(view),
       open: rows.filter((r) => OPEN.includes(r.state)).map(view),
       handover: this.handoverView(businessId, s, current ? null : g.account),
+      ...this.ledger(businessId, s, current),
     };
+  }
+
+  /**
+   * The Closing Ledger's live-deal facts for the current participants: everything still in
+   * flight (counts only, never customer content) and, for a Gated close, the signed readiness
+   * checklist bound to this exact deal version, digest and generation.
+   */
+  private ledger(businessId: string, s: SaleReading, current: boolean) {
+    const d = s.control.live_deal;
+    if (!d || !current) return { inventory: null, readiness: null };
+    const openFor = (person: string | null) =>
+      (
+        this.db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM sale_actions WHERE business_id = ? AND state IN (${OPEN.map(() => "?").join(",")})${person ? " AND person_id = ?" : ""}`,
+          )
+          .get(businessId, ...OPEN, ...(person ? [person] : [])) as { n: number }
+      ).n;
+    const base = this.opts.inventory?.(businessId) ?? null;
+    const inventory = base
+      ? { ...base, pending_payouts: s.pending.length, open_wallet_requests: openFor(null) }
+      : null;
+    let readiness = null;
+    if (s.control.close_mode === "gated" && this.opts.readiness && inventory) {
+      const sellerPerson = this.personFor(d.seller);
+      readiness = this.opts.readiness.issue({
+        deal: { seq: d.seq, version: d.version, digest: d.digest },
+        generation: s.control.generation,
+        control_seq: s.control.control_seq,
+        runtime: this.opts.serviceReadiness?.(businessId, s.control) ?? {
+          eligible: false,
+          reasons: ["not checked here"],
+        },
+        seller_open_requests: sellerPerson ? openFor(sellerPerson) : 0,
+        inventory: base ?? {},
+        now_ms: (this.opts.now ?? Date.now)(),
+      });
+    }
+    return { inventory, readiness };
   }
 
   /**

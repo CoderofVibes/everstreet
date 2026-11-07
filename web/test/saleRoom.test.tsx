@@ -238,7 +238,10 @@ describe("003wf2 the sale room page", () => {
       price: "250000000",
     });
     expect(h.controls.sent.map((c) => c.methodName)).toEqual(["propose_sale_guarded"]);
-    expect(text()).toContain("Operators named in these terms");
+    // The Closing Ledger shows what the terms carry over and what ends.
+    expect(text()).toContain("Operator kept");
+    expect(text()).toContain("meter.near (metering)");
+    expect(text()).toContain("Every other operator");
   });
 
   it("the review summarizes the terms readably; Not now keeps the draft and returns focus; nothing is sent", async () => {

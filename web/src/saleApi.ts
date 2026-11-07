@@ -179,6 +179,35 @@ export interface SaleSetup {
   actions: SaleAction[];
   open: SaleAction[];
   handover?: SaleHandover | null;
+  /** The Closing Ledger: what is still in flight (current participants of a live deal). */
+  inventory?: SaleInventory | null;
+  /** The Closing Ledger: the signed Gated readiness checklist for this exact deal version. */
+  readiness?: SaleReadiness | null;
+}
+
+export interface SaleInventory {
+  reservations_pending: number;
+  reserved_unexecuted: number;
+  executions_running: number;
+  deliveries_pending: number;
+  settlements_pending: number;
+  settlements_unsettled: number;
+  unresolved: number;
+  pending_payouts: number;
+  open_wallet_requests: number;
+}
+
+export interface SaleReadiness {
+  format: "everstreet.readiness";
+  version: 1;
+  deal: { seq: string; version: number; digest: string };
+  generation: number;
+  items: { key: string; label: string; ok: boolean; value: string }[];
+  input_digest: string;
+  issued_at_ms: string;
+  valid_until_ms: string;
+  signer: string;
+  signature: string;
 }
 
 export interface SalePreview {

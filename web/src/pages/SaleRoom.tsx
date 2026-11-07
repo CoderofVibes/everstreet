@@ -38,6 +38,7 @@ import { serviceWord } from "../serviceWords.ts";
 import { useSession } from "../session.tsx";
 import { chainWords } from "../wallet.ts";
 import { when } from "../when.ts";
+import { ClosingLedger } from "./ClosingLedger.tsx";
 
 const EMPTY: SaleFlowState = {
   status: "loading",
@@ -779,83 +780,31 @@ function TermsForm({
   );
 }
 
-function LiveTerms({ s }: { s: SaleSetup }) {
+/** The Closing Ledger's terms, one click away: the document and the contract's digests. */
+function LedgerTerms({ s }: { s: SaleSetup }) {
   const d = s.control.live_deal;
   if (!d) return null;
   return (
-    <section className="card" aria-labelledby="sale-terms-t">
-      <h2 id="sale-terms-t" style={{ fontSize: 18 }}>
-        Exact terms, as the contract shows them
-      </h2>
+    <details className="ledger-terms">
+      <summary>Review terms digest</summary>
       <dl className="facts">
-        <dt>Price</dt>
-        <dd>
-          <Amount base={d.price} s={s} />
-        </dd>
-        <dt>Seller · buyer</dt>
-        <dd className="mono wrap">
-          {d.seller} · {d.buyer}
-        </dd>
-        <dt>Deal</dt>
-        <dd>
-          Number {d.seq}, version {d.version} · {d.state}
-        </dd>
-        <dt>Accepted by</dt>
-        <dd>
-          {[d.seller_accepted && "the seller", d.buyer_accepted && "the buyer"]
-            .filter(Boolean)
-            .join(" and ") || "nobody yet"}
-        </dd>
-        <dt>Escrow</dt>
-        <dd>{d.escrow === "0" ? "Not funded" : <Amount base={d.escrow} s={s} />}</dd>
-        <dt>Offer open until</dt>
-        <dd>{when(d.expires_at_ms)}</dd>
-        <dt>How it closes</dt>
-        <dd>
-          {s.control.close_mode === "gated" ? (
-            <>
-              By its named closer ({s.control.closer ?? "not shown"}), after both accept and
-              Everstreet's handover checks, before a deadline {Number(d.close_window_ms) / 60_000}{" "}
-              minutes after the second acceptance
-              {d.state === "closing" && d.deadline_ms !== "0" ? (
-                <>
-                  {" "}
-                  (<When ms={d.deadline_ms} />)
-                </>
-              ) : null}
-              . If it isn't closed by then, either party can end the closing.
-            </>
-          ) : (
-            "On the second matching acceptance, in that same transaction"
-          )}
-        </dd>
-        <dt>Floor kept available</dt>
+        <dt>Deal digest</dt>
+        <dd className="mono wrap">{d.digest}</dd>
+        <dt>Terms hash</dt>
+        <dd className="mono wrap">{d.terms_hash}</dd>
+        <dt>Floor kept</dt>
         <dd>
           <Amount base={d.available_floor} s={s} />
         </dd>
+        <dt>Control sequence</dt>
+        <dd>{s.control.control_seq}</dd>
       </dl>
       {s.terms_doc ? (
         <TermsDocument text={s.terms_doc.text} hash={d.terms_hash} />
       ) : (
-        <p className="notice">
-          The terms document for this version isn't stored here, so only the contract's terms are
-          shown.
-        </p>
+        <p className="unknown">Terms document not stored here</p>
       )}
-      <details className="advanced">
-        <summary>Technical details</summary>
-        <dl className="facts">
-          <dt>Deal digest (the contract's own)</dt>
-          <dd className="mono wrap">{d.digest}</dd>
-          <dt>Terms hash</dt>
-          <dd className="mono wrap">{d.terms_hash}</dd>
-          <dt>Generation before the close · control sequence</dt>
-          <dd>
-            {d.expected_generation} · {s.control.control_seq}
-          </dd>
-        </dl>
-      </details>
-    </section>
+    </details>
   );
 }
 
@@ -1372,7 +1321,8 @@ export function SaleRoom({ id }: { id: string }) {
           </li>
         ))}
       </ol>
-      <div className="sale-grid">
+      {s.control.live_deal && <ClosingLedger s={s} terms={<LedgerTerms s={s} />} />}
+      <div className={s.control.live_deal ? "sale-grid ledger-below" : "sale-grid"}>
         <div className="sale-main">
           <Review flow={flow} st={st} s={s} />
           {!st.review && <FirstShift s={s} chain={chainWords(wallet, s.network)} />}
@@ -1408,12 +1358,11 @@ export function SaleRoom({ id }: { id: string }) {
             !st.review &&
             s.roles.seller &&
             !s.control.live_deal && <TermsForm flow={flow} st={st} s={s} revise={false} />}
-          <LiveTerms s={s} />
           <OtherActions flow={flow} st={st} s={s} />
           <FormerOwnerCheck flow={flow} st={st} s={s} />
           <History flow={flow} st={st} s={s} />
         </div>
-        <Continuity s={s} />
+        {!s.control.live_deal && <Continuity s={s} />}
       </div>
     </div>
   );

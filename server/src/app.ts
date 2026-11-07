@@ -39,6 +39,7 @@ import { Payments } from "./payments.ts";
 import { Portfolio } from "./portfolio.ts";
 import { Products } from "./products.ts";
 import { Publications } from "./publication.ts";
+import { ReadinessSigner } from "./readiness.ts";
 import { Releases } from "./releases.ts";
 import { SaleActions } from "./saleActions.ts";
 import { HttpError, type Person, type Store } from "./store.ts";
@@ -198,6 +199,8 @@ export function everstreetApi(store: Store, options: AppOptions) {
   });
   const sales = new SaleActions(store.db, store, v3, v3Intents, options.customer?.reader ?? null, {
     onClosed: (id, binding, seq) => proof.recordClose(id, binding, seq),
+    inventory: (id) => customerUses.handoverInventory(id),
+    readiness: new ReadinessSigner(),
     platformOperator: options.customer?.operatorAccount ?? null,
     handover: options.handover,
     serviceReadiness: (id, control) => customerUses.serviceReadiness(id, control),
