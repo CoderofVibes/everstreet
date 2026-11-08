@@ -1781,7 +1781,7 @@ ul.plain { margin: 0; padding-left: 18px; }
 .hand-big { font: 700 24px/1.1 var(--display); color: var(--ink); font-variant-numeric: tabular-nums; }
 .hand-src { gap: 6px; flex-wrap: wrap; align-items: center; }
 .hand-cell .unknown { color: var(--text-3); }
-.hand-after { grid-template-columns: 1.1fr 1fr 2.2fr; background: var(--surface-2, transparent); }
+.hand-after { grid-template-columns: 1.1fr 1.3fr 1.6fr; background: var(--surface-2, transparent); border-top: 0; }
 .hand-after .hand-wide { grid-column: span 1; }
 @media (max-width: 760px) { .hand-row, .hand-after { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 420px) { .hand-row, .hand-after { grid-template-columns: 1fr; } }

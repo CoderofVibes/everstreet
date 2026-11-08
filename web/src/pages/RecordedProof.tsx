@@ -128,11 +128,51 @@ const txLink = (t: TxRef | null) =>
 /** Each recorded sale at the moment control changed, then the business after the last one. */
 export function HandoverStrip({ h }: { h: Handovers }) {
   if (h.sales.length === 0) return null;
+  // The answers first (the Nov 8 review: a judge should find them on the first screen): who owns
+  // it now, the business contract refusing the last former owner, and the customer's uses.
+  const lastRefusal = h.sales.at(-1)?.business_refused ?? null;
   return (
     <section className="card handover-strip" aria-labelledby="rp-hand">
       <h2 id="rp-hand" className="sale-h3">
         Sales of this business
       </h2>
+      {h.after && (
+        <div className="hand-row hand-after">
+          <div className="hand-cell">
+            <span className="hand-k">Now</span>
+            <span>
+              {who(h.after.owner)} · generation {h.after.generation ?? "—"}
+            </span>
+            <span className="row hand-src">
+              block {h.after.block ?? "—"}
+              <SourceTag source="testnet_final" block={h.after.block} />
+            </span>
+          </div>
+          <div className="hand-cell">
+            <span className="hand-k">Former owner</span>
+            {lastRefusal ? (
+              <>
+                <span>
+                  refused by this business · <span className="mono">{lastRefusal.code}</span>
+                </span>
+                <span className="row hand-src">
+                  {txLink(lastRefusal)}
+                  <SourceTag source="testnet_receipt" />
+                </span>
+              </>
+            ) : (
+              <span className="unknown">Not recorded</span>
+            )}
+          </div>
+          <div className="hand-cell hand-wide">
+            <span className="hand-k">Customer {who(h.after.customer.account)}</span>
+            <span>
+              <span className="hand-big">{h.after.customer.unused ?? "—"}</span> unused ·{" "}
+              {h.after.customer.used ?? "—"} used · {h.after.customer.bought ?? "—"} bought
+            </span>
+          </div>
+        </div>
+      )}
       <ol className="hand-list">
         {h.sales.map((x, i) => (
           <li key={x.closed.hash ?? i} className="hand-row">
@@ -212,30 +252,6 @@ export function HandoverStrip({ h }: { h: Handovers }) {
           </li>
         ))}
       </ol>
-      {h.after && (
-        <div className="hand-row hand-after">
-          <div className="hand-cell">
-            <span className="hand-k">Now</span>
-            <span>
-              {who(h.after.owner)} · generation {h.after.generation ?? "—"}
-            </span>
-          </div>
-          <div className="hand-cell">
-            <span className="hand-k">Read at</span>
-            <span className="row hand-src">
-              block {h.after.block ?? "—"}
-              <SourceTag source="testnet_final" block={h.after.block} />
-            </span>
-          </div>
-          <div className="hand-cell hand-wide">
-            <span className="hand-k">Customer {who(h.after.customer.account)}</span>
-            <span>
-              <span className="hand-big">{h.after.customer.unused ?? "—"}</span> unused ·{" "}
-              {h.after.customer.used ?? "—"} used · {h.after.customer.bought ?? "—"} bought
-            </span>
-          </div>
-        </div>
-      )}
       <details className="proof-small">
         <summary>Check these records</summary>
         {[...new Set([...h.sales.map((x) => x.record), ...(h.after ? [h.after.record] : [])])].map(

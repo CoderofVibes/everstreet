@@ -66,9 +66,18 @@ describe("recorded testnet proof", () => {
     // Each close and each refusal links to the explorer.
     const links = [...(strip?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"));
     // Three closes, three first refusals, and the business contract's own refusal of the third
-    // sale's seller.
+    // sale's seller (in its row, and again with the answers at the top).
     expect(links.filter((l) => l?.startsWith("https://testnet.nearblocks.io/txns/"))).toHaveLength(
-      7,
+      8,
+    );
+    // The answers come first (Nov 8): generation 4, the business refusing the former owner, and
+    // the customer's 78 · 22 · 100, before the sale rows.
+    const first = strip?.querySelector(".hand-after");
+    expect(first?.compareDocumentPosition(rows[0] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(first?.textContent).toContain("generation 4");
+    expect(first?.textContent).toContain("refused by this business");
+    expect(first?.querySelector("a")?.getAttribute("href")).toContain(
+      "ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb",
     );
     expect(rows[2]?.textContent).toContain("appoint_operator_guarded to this business");
     expect(rows[0]?.textContent).not.toContain("to this business");
