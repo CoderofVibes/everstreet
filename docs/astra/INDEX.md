@@ -136,3 +136,4 @@
 
 
 
+| 2026-11-07 | [Agentic economy realignment](2026-11-07_AgenticEconomyRealignment.md) | Anthony's vision, the approved README wording, the evidence map to NEAR's goals, the video plan and the build order |

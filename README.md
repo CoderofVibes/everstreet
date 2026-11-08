@@ -1,11 +1,17 @@
 # Everstreet
 
-**Build, run, and sell a digital business. Hand it over intact.**
+**A launchpad for the agentic economy, on NEAR.**
 
-Everstreet is a platform for founders building AI tools, SaaS products, and agent services.
-Shape a product in the studio, publish it for people to find, serve paying customers, and run
-the business from one workspace. When it changes hands, the buyer takes over its managed
-operations and the customers keep what they already paid for.
+It's easier than ever to build products and services with AI. Everstreet turns them into
+businesses.
+
+- **Launch and run.** Anyone can launch an AI-powered product or agent service, be found by the
+  people who need it, and run it from one workspace.
+- **Agents as customers and spenders.** Agents buy from it and spend for it, using their own
+  NEAR accounts, within limits the contract enforces.
+- **Hand it over intact.** When the business changes hands, its treasury, its customers' prepaid
+  uses and its agents' permissions follow the contract, and its products and customer records
+  come with it.
 
 **Ledgerline, our example invoice API, has changed hands three times on NEAR testnet.**
 In the recorded snapshot after the third sale, its first customer has **78 unused uses and
@@ -66,6 +72,39 @@ separate companion actions.
   deployed with no access keys from reproducible builds, the recorded runs re-read testnet
   with `--live`, and a light-client proof checks the closing transaction against a block
   header.
+
+## For agents
+
+An agent is a customer with its own NEAR account. When it asks for a use and holds no units,
+Everstreet answers **HTTP 402 Payment Required** with the exact calls to sign. This is the
+answer a fictional agent received on NEAR testnet, shortened:
+
+```json
+{
+  "code": "payment_required",
+  "offer": {
+    "contract": "ledgerline-v3-3b.everstreet.testnet",
+    "token": "tusd.everstreet.testnet",
+    "unit_price": "150000",
+    "payer": "agent-buyer-v3s7.everstreet.testnet"
+  },
+  "purchase": {
+    "units": 2,
+    "amount": "300000",
+    "receiver": "tusd.everstreet.testnet",
+    "method": "ft_transfer_call",
+    "terms_digest": "c6911862e93212a7f165e1e0e40406790009b0c933b7fd8ce03aa6a77b93761a"
+  },
+  "next": { "grants_units": "the business contract's units_bought receipt for this account" }
+}
+```
+
+The agent sent its [registration](https://testnet.nearblocks.io/txns/WYCbUpGY6fvmVWwyPPgAGC8c4ZjYcDfpyqqEjpa7g4R) and its
+[purchase](https://testnet.nearblocks.io/txns/2eMu6YHuVFQ5BXGi8qMx4W9NK5F2fcFPQhgt97GUDPPV) from its own account. The units
+existed only once the business contract confirmed the purchase, and the agent then used one.
+The 402 answer itself grants nothing, and naming someone else's transaction as the payment
+grants nothing either. [Agent record](data/evidence/agent-402-testnet.json) ·
+[HTTP 402 tests](server/test/payment-402.test.ts)
 
 ## Try Everstreet
 
