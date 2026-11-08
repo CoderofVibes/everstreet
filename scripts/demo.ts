@@ -52,8 +52,6 @@ const w = await demoWorld({ dbPath: join(DIR, "demo.db") });
 const log = await simulateHistory(w, { start });
 // Two agents meet Signalwatch's HTTP 402 (one pays from its own account, one doesn't).
 await agentPurchases(w);
-// Agent hires agent: Signalwatch's own agent buys and uses an invoice read from Ledgerline over 402.
-const a2a = await agentHiresAgent(w);
 simulatedClock.realTime();
 // A fresh month of runtime budget for the businesses that run a model, so a visitor's own request
 // runs (the simulated month may have used up the default).
@@ -63,6 +61,9 @@ for (const k of ["ledgerline", "signalwatch"] as const) {
   });
   if (r.status !== 200) throw new Error(`runtime budget for ${k}: ${r.status}`);
 }
+// Agent hires agent: Signalwatch's own agent buys and uses an invoice read from Ledgerline over
+// 402 (after the fresh runtime budget, so its use runs).
+const a2a = await agentHiresAgent(w);
 console.log(
   `  ${log.uses.length} customer requests; events: ${log.events.map((e) => `day ${e.day + 1}: ${e.what}`).join("; ")}`,
 );

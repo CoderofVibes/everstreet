@@ -73,7 +73,15 @@ export async function agentHiresAgent(w: DemoWorld) {
   ledger.balances.set(AGENT_ACCOUNT, 20_000_000n);
   ledger.tokenRegistered.add(AGENT_ACCOUNT);
   const me = w.person(SIGNALWATCH_AGENT.name, AGENT_ACCOUNT);
-  const offer = w.offers.ledgerline;
+  // Ledgerline's newest offer: the simulated month releases a second version, and the first
+  // version's offer no longer serves.
+  const offer = (
+    w.db
+      .prepare(
+        "SELECT id FROM customer_offers WHERE business_id = ? AND state = 'active' ORDER BY rowid DESC LIMIT 1",
+      )
+      .get(w.business.ledgerline.id) as { id: string }
+  ).id;
   // The demo's device key (seed 1), so the use below signs as every demo customer's device does.
   const pk = createPublicKey(
     createPrivateKey({
@@ -101,7 +109,8 @@ export async function agentHiresAgent(w: DemoWorld) {
   for (const step of (r.body.before ?? []) as { call: Json }[])
     w.chains.walletCall(AGENT_ACCOUNT, step.call);
   if (r.status === 402 && r.body.before?.length) r = await prepare();
-  if (r.status !== 402 || !r.body.purchase) throw new Error(`agent hires agent: ${r.status}`);
+  if (r.status !== 402 || !r.body.purchase)
+    throw new Error(`agent hires agent: ${r.status} ${JSON.stringify(r.body).slice(0, 400)}`);
   const p = r.body.purchase;
   const made = await me(`/api/customer/offers/${offer}/purchases`, "POST", {
     idempotency_key: "demo-a2a-buy",
