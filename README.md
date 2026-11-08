@@ -106,6 +106,14 @@ The 402 answer itself grants nothing, and naming someone else's transaction as t
 grants nothing either. [Agent record](data/evidence/agent-402-testnet.json) ·
 [HTTP 402 tests](server/test/payment-402.test.ts)
 
+**Agents hire agents.** Signalwatch, a second business with its own contract, appointed its
+agent as an operator [on chain](https://testnet.nearblocks.io/txns/CGjBBb6ec6APwdWhkfb83s8WZLrUYHxpHGFnQ8ofuj5Q). That agent
+then bought invoice reads from Ledgerline over HTTP 402, paying
+[from its own account](https://testnet.nearblocks.io/txns/Hfhwf17ADeAEu6GPnYV8fWt6zrSbHqdsGCEVbbn1am9V), and used one. Two
+businesses, each with its own contract, and one agent working for one and paying the other.
+The agent's spend is limited by its own balance, not by a contract cap.
+[Agent-hires-agent record](data/evidence/agent-hires-agent-testnet.json)
+
 ## Try Everstreet
 
 Requires Node 24 or later.
@@ -174,6 +182,7 @@ chains unless the row names a local NEAR node or testnet run.
 | The buyer moves a Sepolia role through Chain Signatures to an address derived by the companion. | [Asset key on a local NEAR node](contracts/asset-key/tests/sandbox.rs) | [Final Sepolia transaction](https://sepolia.etherscan.io/tx/0x512803af90ad082206987398a933fc9ae84184498715d1fcb56a9cae264c2934) | `move_destination_derived` and `role_move_final_gen4` in [series 4](data/evidence/v3-s4-testnet.json) |
 | A registration paid by the owner causes that customer's revenue to be flagged as linked. | [Revenue attribution tests](server/test/revenue-sources.test.ts) | [Owner-paid registration](https://testnet.nearblocks.io/txns/BrRgXa3Sjj71rB2SuVsozocyyDRSb3a2GCovFWW4sscQ) | `revenue_by_source` in the [recorded application view](data/evidence/linked-revenue-testnet.json) |
 | An agent with its own NEAR account gets HTTP 402 with the exact calls, pays from its own account, and gets units only once the contract confirms the purchase. | [HTTP 402 tests](server/test/payment-402.test.ts) | [Agent's registration](https://testnet.nearblocks.io/txns/WYCbUpGY6fvmVWwyPPgAGC8c4ZjYcDfpyqqEjpa7g4R), [agent's purchase](https://testnet.nearblocks.io/txns/2eMu6YHuVFQ5BXGi8qMx4W9NK5F2fcFPQhgt97GUDPPV) | `http_402_first`, `http_402_purchase`, and `owner_sees_agent_purchases` in the [agent record](data/evidence/agent-402-testnet.json) |
+| An agent appointed by one business buys and uses another business's service over HTTP 402, from its own account. | [Demo world tests](server/test/demo-world.test.ts) | [Appointment on Signalwatch](https://testnet.nearblocks.io/txns/CGjBBb6ec6APwdWhkfb83s8WZLrUYHxpHGFnQ8ofuj5Q), [purchase from Ledgerline](https://testnet.nearblocks.io/txns/Hfhwf17ADeAEu6GPnYV8fWt6zrSbHqdsGCEVbbn1am9V) | `agent_appointed_by_signalwatch` and `used_once` in the [agent-hires-agent record](data/evidence/agent-hires-agent-testnet.json) |
 | A failed sale-proceeds transfer restores the seller's claim, which can be collected later. | [Contract payout tests](contracts/business-v3/tests/sandbox.rs) | [Failed transfer and restored claim](https://testnet.nearblocks.io/txns/BeTTPWocGTCCjm84iPyWcAc5mm9cRKsQPgCCmQWosrFB), [successful retry](https://testnet.nearblocks.io/txns/GAKRgxD9BZ19f2hBi538zfHsjELHeq5Kxz7J2UNELZLm) | [Recovery record](data/evidence/v3-recovery-testnet.json) |
 
 The Intents run uses NEAR's verifier built from published source, with Everstreet acting as
@@ -195,6 +204,7 @@ and deployments](docs/BUILDS.md)
 | On testnet | What it is |
 |---|---|
 | [`ledgerline-v3-3b.everstreet.testnet`](https://testnet.nearblocks.io/address/ledgerline-v3-3b.everstreet.testnet) | Ledgerline's business contract (Direct sales; three sales recorded) |
+| [`signalwatch-v3s8.everstreet.testnet`](https://testnet.nearblocks.io/address/signalwatch-v3s8.everstreet.testnet) | Signalwatch's business contract (same code), whose agent buys from Ledgerline |
 | [`ledgerline-gated-v3-3.everstreet.testnet`](https://testnet.nearblocks.io/address/ledgerline-gated-v3-3.everstreet.testnet) | The same business contract, Gated sale |
 | [`ledgerline-payout-v3-3.everstreet.testnet`](https://testnet.nearblocks.io/address/ledgerline-payout-v3-3.everstreet.testnet) | The same business contract, failed-payout recovery |
 | [`feed-key-v3s4.everstreet.testnet`](https://testnet.nearblocks.io/address/feed-key-v3s4.everstreet.testnet) | Asset-key companion (Chain Signatures), fixed build |

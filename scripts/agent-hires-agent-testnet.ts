@@ -240,7 +240,7 @@ try {
     if (!out.ok) throw new StopRun(`appoint: ${out.error}`);
   }
   const hired = await views();
-  const op = (hired.signalwatch?.control.operators as [string, number, number][]).find(
+  const op = ((hired.signalwatch?.control.operators ?? []) as [string, number, number][]).find(
     ([a]) => a === SW_AGENT,
   );
   if (!op) throw new StopRun("the agent isn't Signalwatch's operator");

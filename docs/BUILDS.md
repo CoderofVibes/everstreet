@@ -48,6 +48,19 @@ The local-node tests can run on a recorded build instead of a fresh one:
 `WASM_ASSET_KEY=<file> WASM_SPEND_ALLOWANCE=<file> WASM_BUSINESS_V3=<file> cargo test -p asset-key --test sandbox`
 (and `-p spend-allowance`).
 
+## Deployed on NEAR testnet (agent hires agent, Nov 7 2026, late)
+
+A second business, Signalwatch, on the same reproducible build as Ledgerline's
+(`ede1c2f7…`), created, funded, deployed and initialized in one transaction with no access key
+([deploy](https://testnet.nearblocks.io/txns/5JzVTgpQCUXBcco6FkPwemJGGjvfJpFtSrtsnaQAbR6)). Its
+owner appointed its agent as an operator; the agent bought from Ledgerline over HTTP 402. Run by
+`scripts/agent-hires-agent-testnet.ts`; record `data/evidence/agent-hires-agent-testnet.json`
+(its checkpoints carry Signalwatch's code hash, key count and control at each block).
+
+| Account | Contract | Code hash on chain |
+|---|---|---|
+| `signalwatch-v3s8.everstreet.testnet` | business-v3 | `H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw` |
+
 ## Deployed on NEAR testnet (series 4, Nov 7 2026)
 
 The fixed companions, new accounts beside the same business (`ledgerline-v3-3b`, unchanged code),

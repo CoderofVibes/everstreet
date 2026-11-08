@@ -46,7 +46,7 @@ their customers and their agents' permissions protected by the contract.
 |---|---|---|
 | Agents with their own accounts and real economic agency | An agent gets HTTP 402, pays from its own NEAR account, uses what it bought | `data/evidence/agent-402-testnet.json` (testnet) |
 | Agents spending within limits | A business's agent pays suppliers inside on-chain caps; bigger payments wait for the owner; the old owner's grants end at a sale | `data/evidence/v3-s4-testnet.json` (testnet) |
-| Agents hiring agents | Signalwatch's agent buys invoice extraction from Ledgerline over 402 | **Next: demo, then testnet** |
+| Agents hiring agents | Signalwatch's agent, appointed on Signalwatch's own contract, buys invoice reads from Ledgerline over 402 from its own account | `data/evidence/agent-hires-agent-testnet.json` (testnet); in the demo, sign in as "Signalwatch's agent" |
 | NEAR Intents | The buyer funds escrow from another token through NEAR's own verifier | `data/evidence/v3-ext-testnet.json` (testnet) |
 | Chain Signatures | A business's role on Ethereum Sepolia moves to the buyer with the business | `data/evidence/v3-s4-testnet.json` (testnet) |
 | Chain as the settlement layer | Payments, units, ownership and the sale settle in one business contract; people see uses and results, not hashes | `contracts/business-v3`, every record |
@@ -75,11 +75,11 @@ their customers and their agents' permissions protected by the contract.
 ## Build order (Claude)
 
 1. Done: agent purchase over HTTP 402 on testnet; README opening and a "For agents" section.
-2. Agent hires agent in the demo: Signalwatch's agent buys from Ledgerline while serving a
-   Signalwatch customer; both owners' desks show it.
-3. The same on testnet: Signalwatch as a second business contract (same reproducible build,
-   born locked), its agent appointed on chain, the purchase recorded and verified live.
-4. README: a claims row and a "For agents" line for it; the video stop.
+2. Done: agent hires agent in the demo (Signalwatch's agent buys and uses an invoice read from
+   Ledgerline; Ledgerline's Agent purchases page shows it; the wallet can sign in as the agent).
+3. Done: the same on testnet (Signalwatch as a second business contract, born locked, its agent
+   appointed on chain; the purchase recorded and verified live).
+4. Done: README claims row, "For agents" paragraph, testnet accounts table. Next: the video stop.
 
 ## For Astra
 

@@ -35,6 +35,7 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **AGENT HIRES AGENT (Nov 7, late; Anthony yes):** demo: Signalwatch's agent (signalwatch-agent.demo.near, also holds Signalwatch's budget) buys and uses an invoice read from Ledgerline over 402 (`agentHiresAgent`, scripts/lib/demo/agents.ts; the wallet lists it). Testnet: `scripts/agent-hires-agent-testnet.ts` deployed `signalwatch-v3s8` (born locked, same code), owner wes-v3s8 appointed signalwatch-agent-v3s8 (METERING, gen 1), the agent bought 2 and used 1 at Ledgerline; `data/evidence/agent-hires-agent-testnet.json` (resumed once: a short request key), verify --live OK, 4.93 NEAR (mostly storage). README opening realigned (launchpad for the agentic economy), For agents section, claims rows. Realignment note: `docs/astra/2026-11-07_AgenticEconomyRealignment.md`.
 - **AGENT OVER HTTP 402 ON TESTNET (Nov 7, late; Tony yes):** `scripts/agent-402-testnet.ts`: agent-buyer-v3s7 gets 402, pays its own registration and a 2-use purchase, the contract confirms, it uses one (1 unused, 1 used); the owner sees the 402 and the confirmed purchase. `data/evidence/agent-402-testnet.json`, verify --live OK, 0.309 NEAR. README claims row now points at it. Next (Tony): video shot list around "a launchpad for the agentic economy, on NEAR"; README opening draft for Tony and Astra.
 - **README SESSION (Nov 7, late; Tony: Astra's pass complete, decisions 1 to 3 yes):** Astra's
   README committed as written (77a7838). Revenue by source names a linked customer only for links
