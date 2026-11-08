@@ -65,9 +65,13 @@ describe("recorded testnet proof", () => {
     expect(rows[2]?.textContent).toContain("E_NOT_OWNER");
     // Each close and each refusal links to the explorer.
     const links = [...(strip?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"));
+    // Three closes, three first refusals, and the business contract's own refusal of the third
+    // sale's seller.
     expect(links.filter((l) => l?.startsWith("https://testnet.nearblocks.io/txns/"))).toHaveLength(
-      6,
+      7,
     );
+    expect(rows[2]?.textContent).toContain("appoint_operator_guarded to this business");
+    expect(rows[0]?.textContent).not.toContain("to this business");
     expect(rows[0]?.textContent).toContain("80");
     expect(rows[1]?.textContent).toContain("Not read");
     expect(strip?.querySelector(".hand-after")?.textContent).toMatch(

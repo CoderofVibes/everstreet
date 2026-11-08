@@ -45,7 +45,7 @@ visual direction), then Opus builds.
   `linked-revenue-first-testnet.json`). README: the strip's middle cell and a claims row use the
   business contract's own refusal; How NEAR is used; testnet accounts table; How it was made
   (disclosures); Built at; demo port 8840; Day One link left as an HTML TODO. Next: fresh-clone
-  rehearsal from the README only. Open: the proof page's strip doesn't show the new record yet.
+  rehearsal from the README only. The strip shows the business contract's own refusal under sale 3 (`business_refused`); README Team line is Anthony Langford.
 - **COLD REVIEW OF 1 TO 3 DONE (Nov 7 late, Fable 5.1):** one cold reviewer on the strip, revenue
   by source and the static copy (`reports/2026-11-07_fable-review-123.md`: 0 high, 3 medium, 8 low;
   all three hold), triage `reports/2026-11-07_triage-123.md`, fixes in small commits (208e4c4 the

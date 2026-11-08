@@ -51,6 +51,21 @@ describe("the handover strip", () => {
       ["grant", "budget-v3s3", "failed"],
       ["approve", "budget-v3s4", "answer"],
     ]);
+    // The business contract's own refusal (Nov 7, late): only the third sale's seller sent owner
+    // calls straight to the business, in a later record that closes no sale (still three rows).
+    expect(h.sales.map((x) => x.business_refused?.method ?? null)).toEqual([
+      null,
+      null,
+      "appoint_operator_guarded",
+    ]);
+    expect(h.sales[2]?.business_refused).toMatchObject({
+      receiver: BIZ,
+      code: "E_NOT_OWNER",
+      how: "failed",
+      asked_business: false,
+      hash: "ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb",
+      record: "data/evidence/former-owner-probe-testnet.json",
+    });
     // The first sale's seller was refused only in the later record (the companions' run).
     expect(h.sales[0]?.former_owner_refused?.record).toBe("data/evidence/v3-ext-testnet.json");
     // The customer was read at the first close; the later runs didn't read them.

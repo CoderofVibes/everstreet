@@ -46,6 +46,17 @@ interface TxRef {
   hash: string | null;
   explorer: string | null;
 }
+type Refusal = TxRef & {
+  method: string | null;
+  /** The contract that refused: a companion, or the business itself. */
+  receiver: string | null;
+  code: string;
+  /** Refused in the call's answer (the transaction succeeded) or as a failed transaction. */
+  how: "answer" | "failed";
+  /** Whether the refusing contract asked this business during the call. */
+  asked_business: boolean;
+  record: string;
+};
 export interface Handovers {
   sales: {
     from: { account: string | null; generation: number | null };
@@ -53,19 +64,9 @@ export interface Handovers {
     closed: TxRef;
     /** The first final read of the new owner after the close (that read's block). */
     read_after: null | { owner: string | null; block: string | null };
-    former_owner_refused:
-      | null
-      | (TxRef & {
-          method: string | null;
-          /** The contract that refused: a companion, or the business itself. */
-          receiver: string | null;
-          code: string;
-          /** Refused in the call's answer (the transaction succeeded) or as a failed transaction. */
-          how: "answer" | "failed";
-          /** Whether the refusing contract asked this business during the call. */
-          asked_business: boolean;
-          record: string;
-        });
+    former_owner_refused: null | Refusal;
+    /** The business contract's own refusal of the former owner, when it is a different call. */
+    business_refused?: null | Refusal;
     customer_unused_at_close: string | null;
     record: string;
   }[];
@@ -180,6 +181,22 @@ export function HandoverStrip({ h }: { h: Handovers }) {
                 </>
               ) : (
                 <span className="unknown">Not recorded</span>
+              )}
+              {x.business_refused && (
+                <>
+                  <span>
+                    <span className="mono">{x.business_refused.method}</span> to this business ·
+                    refused <span className="mono">{x.business_refused.code}</span>
+                  </span>
+                  <span className="muted">
+                    transaction failed
+                    {x.business_refused.record !== x.record && " · recorded in a later run"}
+                  </span>
+                  <span className="row hand-src">
+                    {txLink(x.business_refused)}
+                    <SourceTag source="testnet_receipt" />
+                  </span>
+                </>
               )}
             </div>
             <div className="hand-cell">

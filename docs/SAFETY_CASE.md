@@ -132,7 +132,8 @@ CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbo
   after the third sale the former owner (`noor-v3s3`) signed `appoint_operator_guarded` and
   `withdraw_profit` and sent them straight to `ledgerline-v3-3b`, with no app in between; both
   failed with `E_NOT_OWNER` and control was unchanged at the next final block
-  (`data/evidence/former-owner-probe-testnet.json`). The strip does not show this record yet.
+  (`data/evidence/former-owner-probe-testnet.json`). The strip shows it under the third sale, as
+  the business contract's own refusal, below the companion's.
 - **Everstreet's own server** follows the contract rather than enforcing it. Two cold reviews
   covered its permissions (`reports/2026-11-06_permissions-review.md`,
   `reports/2026-11-07_permissions-review.md`). The first found a sale closed on the contract while

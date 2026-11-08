@@ -101,7 +101,7 @@ const allowedPath = (p: string) =>
   /^\.handovers\.sales\[\]\.(from|to)(\.(account|generation))?$/.test(p) ||
   /^\.handovers\.sales\[\]\.closed(\.(hash|explorer))?$/.test(p) ||
   /^\.handovers\.sales\[\]\.read_after(\.(owner|block))?$/.test(p) ||
-  /^\.handovers\.sales\[\]\.former_owner_refused(\.(method|receiver|code|how|asked_business|hash|explorer|record))?$/.test(
+  /^\.handovers\.sales\[\]\.(former_owner_refused|business_refused)(\.(method|receiver|code|how|asked_business|hash|explorer|record))?$/.test(
     p,
   ) ||
   /^\.handovers\.sales\[\]\.(customer_unused_at_close|record)$/.test(p) ||

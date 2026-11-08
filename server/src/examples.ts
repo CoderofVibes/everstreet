@@ -184,11 +184,16 @@ export function ledgerlineExample(path = DEFAULT_LEDGERLINE_RECORD) {
   };
 }
 
-/** The verified records of every recorded sale of the example business, in order. */
+/**
+ * The verified records of every recorded sale of the example business, in order, then later
+ * records of the same business: the former owner's calls straight to the business contract after
+ * the third sale (scripts/former-owner-probe-testnet.ts; it closes no sale).
+ */
 export const DEFAULT_SALE_RECORDS = [
   DEFAULT_LEDGERLINE_RECORD,
   join("data", "evidence", "v3-ext-testnet.json"),
   join("data", "evidence", "v3-s4-testnet.json"),
+  join("data", "evidence", "former-owner-probe-testnet.json"),
 ];
 /** A read-only snapshot after all of them (scripts/ledgerline-after-sales.ts). */
 export const DEFAULT_AFTER_SALES = join("data", "evidence", "ledgerline-after-sales-testnet.json");
@@ -235,7 +240,8 @@ function saleFinalized(s: Json, contract: string | null) {
  * Each recorded sale of the business, at the moment control changed: the closing transaction, the
  * first read of the new owner after it (that read's block, not the close's), the former owner's
  * first refused call after the close (searched in that record and the later ones: which contract
- * refused, and whether as the call's answer or as a failed transaction), and the customer's unused
+ * refused, and whether as the call's answer or as a failed transaction), the business contract's
+ * own first refusal of that former owner when it is a different call, and the customer's unused
  * units at the close when the record read them. Then the snapshot after the last sale. Only
  * records whose digests verify, for this contract; every value comes from a named field.
  */
@@ -290,9 +296,9 @@ export function handoversFrom(
       .slice(0, Math.max(closedAt, 0))
       .reverse()
       .find((c) => c.views.control.owner === seller);
-    const refused = all
+    const refusals = all
       .slice(i + 1)
-      .find(
+      .filter(
         (x) =>
           x.s.kind === "transaction" &&
           x.s.signer?.account === seller &&
@@ -300,6 +306,24 @@ export function handoversFrom(
             `${x.s.chain?.error ?? ""} ${JSON.stringify(x.s.app?.resolution ?? {})}`,
           ),
       );
+    const refused = refusals[0];
+    // The business contract refusing its former owner itself (a failed call to this contract).
+    const byBusiness = refusals.find(
+      (x) => x.s.call?.receiver === contract && x.s.chain?.succeeded === false,
+    );
+    const refusalOf = (x: (typeof all)[number]) => ({
+      method: str(x.s.call?.method, /^[a-z_]{1,40}$/),
+      receiver: str(x.s.call?.receiver, ACCOUNT),
+      code: "E_NOT_OWNER",
+      // Refused as the call's answer (the transaction itself succeeded) or as a failure.
+      how: x.s.chain?.succeeded === true ? ("answer" as const) : ("failed" as const),
+      // Whether the refusing contract asked this business during that call.
+      asked_business: ((x.s.chain?.receipts ?? []) as Json[]).some(
+        (rc) => rc.executor === contract && rc.executor !== x.s.call?.receiver,
+      ),
+      ...txOf(x.s),
+      record: x.path,
+    });
     const free = closed?.views?.entitlement ? str(closed.views.entitlement.free, DIGITS) : null;
     return [
       {
@@ -316,21 +340,8 @@ export function handoversFrom(
               block: str(closed.views.block?.height, DIGITS),
             }
           : null,
-        former_owner_refused: refused
-          ? {
-              method: str(refused.s.call?.method, /^[a-z_]{1,40}$/),
-              receiver: str(refused.s.call?.receiver, ACCOUNT),
-              code: "E_NOT_OWNER",
-              // Refused as the call's answer (the transaction itself succeeded) or as a failure.
-              how: refused.s.chain?.succeeded === true ? ("answer" as const) : ("failed" as const),
-              // Whether the refusing contract asked this business during that call.
-              asked_business: ((refused.s.chain?.receipts ?? []) as Json[]).some(
-                (rc) => rc.executor === contract && rc.executor !== refused.s.call?.receiver,
-              ),
-              ...txOf(refused.s),
-              record: refused.path,
-            }
-          : null,
+        former_owner_refused: refused ? refusalOf(refused) : null,
+        business_refused: byBusiness && byBusiness !== refused ? refusalOf(byBusiness) : null,
         customer_unused_at_close: free,
         record: path,
       },
