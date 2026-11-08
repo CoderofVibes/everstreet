@@ -246,8 +246,9 @@ entry is documented in [application composition](docs/design/APPLICATION_COMPOSI
 
 ## How it was made
 
-- **Built at NEAR HACKATHON.** The first commit is November 1, 2026, inside the hackathon
-  window, which opened October 19.
+- **Built at NEAR HACKATHON.** Work began on October 25, 2026, and the first commit is
+  November 1, both inside the hackathon window, which opened October 19. Nothing comes from
+  earlier projects or a template.
 - **AI-written code.** The code and docs were written by AI coding agents directed by Anthony:
   Claude (Anthropic) builds and verifies, and Astra (an OpenAI Codex agent) leads concept,
   story, and visual direction. The cold reviews were also done by AI models.
