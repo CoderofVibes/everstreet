@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-07 | [Video cue sheet](2026-11-07_VideoCueSheet.md) | Fourteen cues, about 2:15: the surface tour, what NEAR is building toward, the proof | For Anthony and Astra |
 | 2026-11-07 | [Agentic economy realignment](2026-11-07_AgenticEconomyRealignment.md) | Anthony's vision, the approved README wording, the evidence map to NEAR's goals, the video plan and the build order | Brief for Astra · from Anthony |
 | 2026-11-07 | [README draft](2026-11-07_READMEDraft.md) | Platform opening, current Ledgerline evidence, ambition and verification | Draft for Tony and Claude |
 | 2026-11-07 | [README story and film](2026-11-07_READMEStory.md) | Customer receipt opening, recorded handover, proof structure and 90-second film | Proposed for Tony and Claude |
