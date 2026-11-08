@@ -18,7 +18,7 @@ import { forkSuccessorRunner } from "../server/src/successorRunner.ts";
 import type { Json } from "../server/test/customer-world.ts";
 import { ALT_TOKEN, VERIFIER } from "../server/test/intents-chain.ts";
 import { labelScript } from "./lib/customerPreview.ts";
-import { agentPurchases } from "./lib/demo/agents.ts";
+import { agentHiresAgent, agentPurchases, SIGNALWATCH_AGENT } from "./lib/demo/agents.ts";
 import { simulatedClock } from "./lib/demo/clock.ts";
 import { signalwatchSaleAction, simulateHistory } from "./lib/demo/history.ts";
 import {
@@ -52,6 +52,8 @@ const w = await demoWorld({ dbPath: join(DIR, "demo.db") });
 const log = await simulateHistory(w, { start });
 // Two agents meet Signalwatch's HTTP 402 (one pays from its own account, one doesn't).
 await agentPurchases(w);
+// Agent hires agent: Signalwatch's own agent buys and uses an invoice read from Ledgerline over 402.
+const a2a = await agentHiresAgent(w);
 simulatedClock.realTime();
 // A fresh month of runtime budget for the businesses that run a model, so a visitor's own request
 // runs (the simulated month may have used up the default).
@@ -71,6 +73,7 @@ const people: Record<string, string> = {
   [BUYER.account]: w.noah.id,
 };
 for (const [i, c] of CUSTOMERS.entries()) people[c.account] = (w.customers[i] as { id: string }).id;
+people[SIGNALWATCH_AGENT.account] = a2a.person;
 // A newcomer with nothing yet (fictional), for first-day walkthroughs.
 const NEWCOMER = { id: "person-rosa-lind", name: "Rosa Lind", account: "rosa.near" };
 w.db
@@ -135,11 +138,13 @@ const roles: Record<string, string> = {
   [FOUNDER.account]: "the seller: owns the businesses",
   [BUYER.account]: "the buyer: Signalwatch's sale",
   [NEWCOMER.account]: "new here, nothing yet",
+  [SIGNALWATCH_AGENT.account]: "an agent: Signalwatch's, buys from Ledgerline",
 };
 const names: Record<string, string> = {
   [FOUNDER.account]: FOUNDER.name,
   [BUYER.account]: BUYER.name,
   [NEWCOMER.account]: NEWCOMER.name,
+  [SIGNALWATCH_AGENT.account]: SIGNALWATCH_AGENT.name,
 };
 for (const c of CUSTOMERS) names[c.account] = c.name;
 site.get("/__harness/accounts", (c) =>

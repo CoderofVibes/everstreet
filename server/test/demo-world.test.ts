@@ -7,7 +7,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ACCOUNTS, CUSTOMERS, demoWorld } from "../../scripts/lib/demo/world.ts";
+import { agentHiresAgent } from "../../scripts/lib/demo/agents.ts";
+import { ACCOUNTS, AGENT_ACCOUNT, CUSTOMERS, demoWorld } from "../../scripts/lib/demo/world.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -60,4 +61,36 @@ describe("step 7 demo world", () => {
     expect(JSON.stringify(p)).toContain("Signalwatch");
     w.db.close();
   }, 60_000);
+});
+
+describe("agent hires agent (the demo)", () => {
+  it("Signalwatch's agent buys from Ledgerline over 402 with its own account and uses one unit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "everstreet-demo-a2a-"));
+    dirs.push(dir);
+    const w = await demoWorld({ dbPath: join(dir, "demo.db") });
+    const r = await agentHiresAgent(w);
+    expect(r.use).toBeTruthy();
+    // On Ledgerline's own contract: the agent's account bought two units and used one.
+    const ledger = w.chains.chains.get(ACCOUNTS.ledgerline) as unknown as {
+      ents: Map<
+        string,
+        { purchased?: string; consumed?: string; free?: string; storage_payer?: string }
+      >;
+    };
+    const ent = ledger.ents.get(AGENT_ACCOUNT);
+    expect(ent).toMatchObject({ consumed: "1", free: "1", storage_payer: AGENT_ACCOUNT });
+    // Nothing on Signalwatch's contract: it paid Ledgerline, not its own business.
+    const sw = w.chains.chains.get(ACCOUNTS.signalwatch) as unknown as {
+      ents: Map<string, unknown>;
+    };
+    expect(sw.ents.has(AGENT_ACCOUNT)).toBe(false);
+    // Ledgerline's owner sees the 402 and the purchase the contract confirmed, by that account.
+    const desk = await w.delphine(`/api/businesses/${w.business.ledgerline.id}/agent-purchases`);
+    expect(desk.status).toBe(200);
+    const mine = (
+      desk.body.offers as { account: string; purchase: { state: string } | null }[]
+    ).filter((o) => o.account === AGENT_ACCOUNT);
+    expect(mine.some((o) => o.purchase?.state === "confirmed")).toBe(true);
+    w.db.close();
+  });
 });
