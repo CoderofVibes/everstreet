@@ -51,7 +51,8 @@ separate companion actions.
   authority generation, operators and their capabilities, each customer's prepaid units, the
   treasury, and sale escrow. A sale closes only on the exact terms both sides accepted, and the
   close changes the owner and the generation in one step.
-- **Customers and agents pay as NEAR accounts.** They buy prepaid uses with a NEP-141 test token
+- **Customers and agents pay as NEAR accounts.** An agent that asks for a use without units gets
+  HTTP 402 with the exact calls to sign. It buys prepaid uses with a NEP-141 test token
   (`ft_transfer_call` to the business contract). Each use settles against units the contract
   holds for that customer, so the units survive a sale. People sign in with a NEP-413 signed
   message.
@@ -133,7 +134,7 @@ chains unless the row names a local NEAR node or testnet run.
 | A buyer funds escrow from another token through NEAR Intents. | [Verifier and business on a local NEAR node](contracts/intents-funding/tests/sandbox.rs) | [Withdrawal from the verifier](https://testnet.nearblocks.io/txns/CdoArhZoAVJ6b6Cn5xEvr2MfEZae3uEwr4gY4hQJFgWk), [escrow funding](https://testnet.nearblocks.io/txns/CvmiCw4NpvT8k6H2jQPeRTJ7CfCDYxjTUB1EsuhSB95a) | [Recorded swap, recovery, and funding](data/evidence/v3-ext-testnet.json) |
 | The buyer moves a Sepolia role through Chain Signatures to an address derived by the companion. | [Asset key on a local NEAR node](contracts/asset-key/tests/sandbox.rs) | [Final Sepolia transaction](https://sepolia.etherscan.io/tx/0x512803af90ad082206987398a933fc9ae84184498715d1fcb56a9cae264c2934) | `move_destination_derived` and `role_move_final_gen4` in [series 4](data/evidence/v3-s4-testnet.json) |
 | A registration paid by the owner causes that customer's revenue to be flagged as linked. | [Revenue attribution tests](server/test/revenue-sources.test.ts) | [Owner-paid registration](https://testnet.nearblocks.io/txns/BrRgXa3Sjj71rB2SuVsozocyyDRSb3a2GCovFWW4sscQ) | `revenue_by_source` in the [recorded application view](data/evidence/linked-revenue-testnet.json) |
-| Agents receive purchase terms through HTTP 402 and get units after a confirmed purchase. | [HTTP 402 tests](server/test/payment-402.test.ts) | [Synthetic demo flow](scripts/lib/demo/agents.ts) | The owner's Agent purchases page |
+| An agent with its own NEAR account gets HTTP 402 with the exact calls, pays from its own account, and gets units only once the contract confirms the purchase. | [HTTP 402 tests](server/test/payment-402.test.ts) | [Agent's registration](https://testnet.nearblocks.io/txns/WYCbUpGY6fvmVWwyPPgAGC8c4ZjYcDfpyqqEjpa7g4R), [agent's purchase](https://testnet.nearblocks.io/txns/2eMu6YHuVFQ5BXGi8qMx4W9NK5F2fcFPQhgt97GUDPPV) | `http_402_first`, `http_402_purchase`, and `owner_sees_agent_purchases` in the [agent record](data/evidence/agent-402-testnet.json) |
 | A failed sale-proceeds transfer restores the seller's claim, which can be collected later. | [Contract payout tests](contracts/business-v3/tests/sandbox.rs) | [Failed transfer and restored claim](https://testnet.nearblocks.io/txns/BeTTPWocGTCCjm84iPyWcAc5mm9cRKsQPgCCmQWosrFB), [successful retry](https://testnet.nearblocks.io/txns/GAKRgxD9BZ19f2hBi538zfHsjELHeq5Kxz7J2UNELZLm) | [Recovery record](data/evidence/v3-recovery-testnet.json) |
 
 The Intents run uses NEAR's verifier built from published source, with Everstreet acting as

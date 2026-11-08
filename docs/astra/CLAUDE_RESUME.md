@@ -35,6 +35,7 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **AGENT OVER HTTP 402 ON TESTNET (Nov 7, late; Tony yes):** `scripts/agent-402-testnet.ts`: agent-buyer-v3s7 gets 402, pays its own registration and a 2-use purchase, the contract confirms, it uses one (1 unused, 1 used); the owner sees the 402 and the confirmed purchase. `data/evidence/agent-402-testnet.json`, verify --live OK, 0.309 NEAR. README claims row now points at it. Next (Tony): video shot list around "a launchpad for the agentic economy, on NEAR"; README opening draft for Tony and Astra.
 - **README SESSION (Nov 7, late; Tony: Astra's pass complete, decisions 1 to 3 yes):** Astra's
   README committed as written (77a7838). Revenue by source names a linked customer only for links
   on chain (owner, operator, registration payer); a link only in Everstreet's records shows its
