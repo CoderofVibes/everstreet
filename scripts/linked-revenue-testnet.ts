@@ -10,7 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { ROOT, view } from "./lib/near.ts";
+import { provider, ROOT, view } from "./lib/near.ts";
 import { Recorder } from "./lib/rehearsal/evidence.ts";
 import {
   buy,
@@ -94,7 +94,11 @@ const client = (id: string) => {
 const views = async () => {
   const ent = (c: string) =>
     view<Json | null>(BIZ, "get_entitlement", { customer: c, plan_id: 1 }).catch(() => null);
+  // The final block each checkpoint was read at (the Nov 7 review: the first run's record carries
+  // none, so it can't be re-read at the moment it describes).
+  const block = (await provider.viewBlock({ finality: "final" } as never)) as Json;
   return {
+    block: { height: String(block.header.height), hash: block.header.hash },
     control: await view<Json>(BIZ, "get_control"),
     entitlement: await ent(WREN),
     earlier_customer: await ent(CARA),

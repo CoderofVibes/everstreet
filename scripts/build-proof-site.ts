@@ -1,7 +1,8 @@
 // Builds the static proof site into web/dist-proof (web/src/proofSite.tsx): the front end, then the
 // two data files its pages read, written from the same functions the server answers with (each
-// serves nothing from a record whose digests don't verify). Then a fallback so a static host serves
-// the page for every route, and a manifest of what went in.
+// serves nothing from a record whose digests don't verify). Then fallbacks so a static host serves
+// the page for every route (it must sit at the domain root: `base` is `/`), and a manifest of what
+// went in.
 //
 //   npx tsx scripts/build-proof-site.ts
 //   npx vite preview --config web/vite.proof.config.ts     (http://localhost:8830)
@@ -33,8 +34,11 @@ for (const [name, value] of Object.entries(data)) {
   writeFileSync(join(OUT, "data", name), text);
 }
 
-// Every route serves the page (Cloudflare Pages and Netlify read _redirects; Vercel vercel.json).
-writeFileSync(join(OUT, "_redirects"), "/data/*  /data/:splat  200\n/*  /index.html  200\n");
+// Every route serves the page: Cloudflare Pages and Netlify read _redirects, Vercel vercel.json,
+// GitHub Pages serves 404.html for an unknown path (the page itself, so the router takes over).
+// A host with none of these answers 404 to a deep link; serve index.html for every route there.
+writeFileSync(join(OUT, "_redirects"), "/*  /index.html  200\n");
+writeFileSync(join(OUT, "404.html"), readFileSync(join(OUT, "index.html")));
 writeFileSync(
   join(OUT, "vercel.json"),
   `${JSON.stringify({ rewrites: [{ source: "/((?!data/|assets/).*)", destination: "/index.html" }] }, null, 2)}\n`,

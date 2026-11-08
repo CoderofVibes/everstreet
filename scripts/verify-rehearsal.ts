@@ -44,8 +44,9 @@ console.log(
   `  contract ${r.header.contract.account} · expected code hash ${r.header.contract.code_hash_expected}`,
 );
 console.log(`  completed: ${r.outcome.completed}`);
+const pinned = r.checkpoints.filter((c) => c.views.block?.height).length;
 console.log(
-  `  ${r.checkpoints.length} checkpoints at final blocks; ${r.steps.filter((s) => s.kind === "transaction").length} signed transactions`,
+  `  ${r.checkpoints.length} checkpoints at final finality (${pinned === r.checkpoints.length ? "each names its block" : `${pinned} name their block`}); ${r.steps.filter((s) => s.kind === "transaction").length} signed transactions`,
 );
 for (const s of r.steps) if (s.chain?.explorer) console.log(`    ${s.chain.explorer}`);
 
