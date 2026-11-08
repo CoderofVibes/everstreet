@@ -35,6 +35,26 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **COLD REVIEW OF 1 TO 3 DONE (Nov 7 late, Fable 5.1):** one cold reviewer on the strip, revenue
+  by source and the static copy (`reports/2026-11-07_fable-review-123.md`: 0 high, 3 medium, 8 low;
+  all three hold), triage `reports/2026-11-07_triage-123.md`, fixes in small commits (208e4c4 the
+  strip names which contract refused the former owner, a companion each time, and whether as the
+  call's answer or a failed transaction; "Closed" block relabelled as the new owner's read; the close
+  found by the contract's `sale_finalized` event, two-sale test; cd1ad74 economics: "the owner's
+  side", payer read per plan, scenario from zero; 1c137c8 docket "refused or flagged", uncommitted
+  mark, Revenue attribution as group 9 and planted faults as group 10; 7fa7a32 static copy 404.html,
+  read test follows the bundle, linked-revenue script records blocks; 996001e suite re-recorded at a
+  clean commit), then a second cold pass (`reports/2026-11-07_second-pass-123.md`: 0 high, 3 medium,
+  4 low; its real find was my own: the re-recorded suite broke the suite test's group count, fixed;
+  disposition at the end of the triage; the after-sales snapshot re-taken read-only, still 78/22/100).
+  Safety case: a bullet on what the recorded refusals are. OPEN, Tony's decisions (asked in chat):
+  (a) record one `owner_probe` by a former owner against ledgerline-v3-3b on testnet so the strip has
+  the business contract's own refusal (one small transaction, new record); (b) whether a buyer is
+  shown linked customers' account ids, and whether the Everstreet-only reasons (owner here, team
+  here) name the account at all; (c) optional: re-run the linked-revenue testnet script so its record
+  carries blocks (~0.3 NEAR). README: NOT touched by Claude; Astra left a README draft and
+  `docs/astra/2026-11-07_READMEDraft.md` uncommitted in the tree for Tony. LESSON: run the full
+  check before every commit, records included. NEXT: Tony's answers, then the README session.
 - **AGREED LIST (Tony, Nov 7 evening), in order:** (1) the handover strip on /proof/ledgerline:
   DONE (each of Ledgerline's three testnet sales at the close: block and transaction, the former
   owner's first refused call on chain, the customer's units; then a read-only snapshot after the
