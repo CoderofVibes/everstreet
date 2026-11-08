@@ -1,0 +1,724 @@
+{
+  "format": "everstreet-v3-rehearsal",
+  "version": 1,
+  "header": {
+    "example": "agent-hires-agent",
+    "network": "testnet",
+    "label": "NEAR testnet",
+    "commit": "be8031939c80eabc8c6c9cf32db7a89917e6fff9",
+    "contract": {
+      "account": "ledgerline-v3-3b.everstreet.testnet",
+      "wasm_sha256": "ede1c2f7bed77d1832f5b16e8a873645b387693a486b42a745a06b6d510a29b4",
+      "code_hash_expected": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw"
+    },
+    "accounts": {
+      "founder": "ines-v3s4.everstreet.testnet",
+      "customer": "signalwatch-agent-v3s8.everstreet.testnet",
+      "operator": "meter-direct-v3s3b.everstreet.testnet",
+      "agents_business": "signalwatch-v3s8.everstreet.testnet",
+      "agents_business_owner": "wes-v3s8.everstreet.testnet"
+    },
+    "model": "stand-in (labelled; no AI provider is called)"
+  },
+  "steps": [
+    {
+      "n": 1,
+      "step": "signalwatch_deployed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "account": "signalwatch-v3s8.everstreet.testnet",
+        "owner": "wes-v3s8.everstreet.testnet",
+        "code_hash": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw",
+        "access_keys": 0,
+        "setup": [
+          {
+            "what": "deploy and init Signalwatch (born locked: no key)",
+            "hash": "5JzVTgpQCUXBcco6FkPwemJGGjvfJpFtSrtsnaQAbR6"
+          }
+        ]
+      }
+    },
+    {
+      "n": 2,
+      "step": "signalwatch_appoints_its_agent",
+      "kind": "transaction",
+      "signer": {
+        "role": "founder",
+        "account": "wes-v3s8.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "signalwatch-v3s8.everstreet.testnet",
+        "method": "appoint_operator_guarded",
+        "deposit": "1",
+        "gas": "30000000000000",
+        "args": {
+          "account": "signalwatch-agent-v3s8.everstreet.testnet",
+          "caps": 1,
+          "expected_control_seq": "0"
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "CGjBBb6ec6APwdWhkfb83s8WZLrUYHxpHGFnQ8ofuj5Q",
+        "explorer": "https://testnet.nearblocks.io/txns/CGjBBb6ec6APwdWhkfb83s8WZLrUYHxpHGFnQ8ofuj5Q",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "signalwatch-v3s8.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"operator_appointed\",\"data\":[{\"account\":\"signalwatch-agent-v3s8.everstreet.testnet\",\"caps\":1,\"generation\":1}]}"
+            ]
+          },
+          {
+            "executor": "wes-v3s8.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": null
+    },
+    {
+      "n": 3,
+      "step": "http_402_first",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "status": 402,
+        "code": "payment_required",
+        "reason": "no_entitlement",
+        "offer": {
+          "network": "testnet",
+          "contract": "ledgerline-v3-3b.everstreet.testnet",
+          "token": "tusd.everstreet.testnet",
+          "symbol": "tUSD",
+          "decimals": 6,
+          "plan_id": 1,
+          "unit_price": "150000",
+          "payer": "signalwatch-agent-v3s8.everstreet.testnet"
+        },
+        "before": [
+          {
+            "step": "registration",
+            "receiver": "ledgerline-v3-3b.everstreet.testnet",
+            "method": "sponsor_shell"
+          }
+        ],
+        "purchase": null
+      }
+    },
+    {
+      "n": 4,
+      "step": "agent_registration",
+      "kind": "transaction",
+      "signer": {
+        "role": "customer",
+        "account": "signalwatch-agent-v3s8.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "ledgerline-v3-3b.everstreet.testnet",
+        "method": "sponsor_shell",
+        "deposit": "8520000000000000000000",
+        "gas": "30000000000000",
+        "args": {
+          "customer": "signalwatch-agent-v3s8.everstreet.testnet",
+          "plan_id": 1
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "AAmhsmZDewvGaYuJ8UeNdhSA2KGcgZcZKaVQoN1EBXFs",
+        "explorer": "https://testnet.nearblocks.io/txns/AAmhsmZDewvGaYuJ8UeNdhSA2KGcgZcZKaVQoN1EBXFs",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "ledgerline-v3-3b.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"shell_sponsored\",\"data\":[{\"customer\":\"signalwatch-agent-v3s8.everstreet.testnet\",\"plan_id\":1,\"reg_id\":\"5\",\"payer\":\"signalwatch-agent-v3s8.everstreet.testnet\"}]}"
+            ]
+          },
+          {
+            "executor": "signalwatch-agent-v3s8.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": null
+    },
+    {
+      "n": 5,
+      "step": "http_402_purchase",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "status": 402,
+        "code": "payment_required",
+        "reason": "no_entitlement",
+        "offer": {
+          "network": "testnet",
+          "contract": "ledgerline-v3-3b.everstreet.testnet",
+          "token": "tusd.everstreet.testnet",
+          "symbol": "tUSD",
+          "decimals": 6,
+          "plan_id": 1,
+          "unit_price": "150000",
+          "payer": "signalwatch-agent-v3s8.everstreet.testnet"
+        },
+        "before": [],
+        "purchase": {
+          "units": 2,
+          "amount": "300000",
+          "receiver": "tusd.everstreet.testnet",
+          "method": "ft_transfer_call",
+          "terms_digest": "e9ce153415f227c12e935081406a7c4feadffbb3efd13e1d8da218c18189c89e"
+        }
+      }
+    },
+    {
+      "n": 6,
+      "step": "resumed",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "previous_outcome": {
+          "completed": false,
+          "reason": "purchase: 400 {\"error\":\"idempotency_key must be 8 to 80 letters, digits, dashes or underscores\"}"
+        },
+        "reason": "the first attempt stopped before the purchase: its request key was too short"
+      }
+    },
+    {
+      "n": 7,
+      "step": "http_402_purchase_again",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "status": 402,
+        "code": "payment_required",
+        "reason": "no_entitlement",
+        "offer": {
+          "network": "testnet",
+          "contract": "ledgerline-v3-3b.everstreet.testnet",
+          "token": "tusd.everstreet.testnet",
+          "symbol": "tUSD",
+          "decimals": 6,
+          "plan_id": 1,
+          "unit_price": "150000",
+          "payer": "signalwatch-agent-v3s8.everstreet.testnet"
+        },
+        "before": [],
+        "purchase": {
+          "units": 2,
+          "amount": "300000",
+          "receiver": "tusd.everstreet.testnet",
+          "method": "ft_transfer_call",
+          "terms_digest": "c7f3530455857a047f7dd536e43b2770f4d2031d83863ee17ab07197032f28cd"
+        }
+      }
+    },
+    {
+      "n": 8,
+      "step": "agent_purchase_2",
+      "kind": "transaction",
+      "signer": {
+        "role": "customer",
+        "account": "signalwatch-agent-v3s8.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "tusd.everstreet.testnet",
+        "method": "ft_transfer_call",
+        "deposit": "1",
+        "gas": "100000000000000",
+        "args": {
+          "receiver_id": "ledgerline-v3-3b.everstreet.testnet",
+          "amount": "300000",
+          "msg": "{\"buy\":{\"plan_id\":1,\"units\":2,\"purchase_seq\":1,\"install\":{\"slot\":0,\"pk\":\"19c3e6fb3ebdeda6d383abda546b5cb9202473c545d4334a00eea688e3964be0\",\"max_hold_units\":1,\"max_units_per_day\":100},\"reg_id\":\"5\"}}"
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "Hfhwf17ADeAEu6GPnYV8fWt6zrSbHqdsGCEVbbn1am9V",
+        "explorer": "https://testnet.nearblocks.io/txns/Hfhwf17ADeAEu6GPnYV8fWt6zrSbHqdsGCEVbbn1am9V",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "tusd.everstreet.testnet",
+            "status": "SuccessReceiptId",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"signalwatch-agent-v3s8.everstreet.testnet\",\"new_owner_id\":\"ledgerline-v3-3b.everstreet.testnet\",\"amount\":\"300000\"}]}"
+            ]
+          },
+          {
+            "executor": "ledgerline-v3-3b.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"signalwatch-agent-v3s8.everstreet.testnet\",\"plan_id\":1,\"units\":2,\"amount\":\"300000\"}]}"
+            ]
+          },
+          {
+            "executor": "signalwatch-agent-v3s8.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "tusd.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "signalwatch-agent-v3s8.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "signalwatch-agent-v3s8.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": {
+        "source": "app_recorded",
+        "resolution": {
+          "kind": "confirmed",
+          "units": 2,
+          "amount": "300000"
+        }
+      }
+    },
+    {
+      "n": 9,
+      "step": "use_3",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "use": "4669888a-165a-47e0-9ebc-04cc1bf0eb1e",
+        "offer": "1b909d95-22e1-452a-9a26-f440f35004cb",
+        "key_slot": 0,
+        "delivered": true,
+        "unit": "charged"
+      }
+    },
+    {
+      "n": 10,
+      "step": "ledgerline_owner_sees_the_agent",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "this_agent": [
+          {
+            "reason": "no_entitlement",
+            "units": 2,
+            "amount": "300000",
+            "purchase": {
+              "state": "confirmed",
+              "units_granted": 2,
+              "tx_hash": "Hfhwf17ADeAEu6GPnYV8fWt6zrSbHqdsGCEVbbn1am9V"
+            }
+          },
+          {
+            "reason": "no_entitlement",
+            "units": 2,
+            "amount": "300000",
+            "purchase": null
+          },
+          {
+            "reason": "no_entitlement",
+            "units": 2,
+            "amount": "300000",
+            "purchase": null
+          },
+          {
+            "reason": "no_entitlement",
+            "units": null,
+            "amount": null,
+            "purchase": null
+          }
+        ]
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "name": "signalwatch_deployed",
+      "source": "chain_final",
+      "at": "2026-11-08T03:54:07.687Z",
+      "views": {
+        "block": {
+          "height": "276723630",
+          "hash": "7YJWdCP8MRhCsaFtNVzZ3Fm1CT9dbzbNcSJvz5cbbidN"
+        },
+        "control": {
+          "owner": "ines-v3s4.everstreet.testnet",
+          "generation": 4,
+          "control_seq": "14",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              4
+            ]
+          ],
+          "live_deal": null
+        },
+        "entitlement": null,
+        "signalwatch": {
+          "account": "signalwatch-v3s8.everstreet.testnet",
+          "code_hash": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw",
+          "access_keys": 0,
+          "control": {
+            "owner": "wes-v3s8.everstreet.testnet",
+            "generation": 1,
+            "control_seq": "0",
+            "close_mode": "direct",
+            "closer": null,
+            "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+            "manifest_seq": "0",
+            "operators": [],
+            "live_deal": null
+          }
+        }
+      }
+    },
+    {
+      "name": "agent_appointed_by_signalwatch",
+      "source": "chain_final",
+      "at": "2026-11-08T03:54:13.304Z",
+      "views": {
+        "block": {
+          "height": "276723656",
+          "hash": "8EKwVNPQEMrMfNcpGxHH3nhub8qMDJEYPFJbKgyUnJ26"
+        },
+        "control": {
+          "owner": "ines-v3s4.everstreet.testnet",
+          "generation": 4,
+          "control_seq": "14",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              4
+            ]
+          ],
+          "live_deal": null
+        },
+        "entitlement": null,
+        "signalwatch": {
+          "account": "signalwatch-v3s8.everstreet.testnet",
+          "code_hash": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw",
+          "access_keys": 0,
+          "control": {
+            "owner": "wes-v3s8.everstreet.testnet",
+            "generation": 1,
+            "control_seq": "1",
+            "close_mode": "direct",
+            "closer": null,
+            "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+            "manifest_seq": "0",
+            "operators": [
+              [
+                "signalwatch-agent-v3s8.everstreet.testnet",
+                1,
+                1
+              ]
+            ],
+            "live_deal": null
+          }
+        }
+      }
+    },
+    {
+      "name": "bought",
+      "source": "chain_final",
+      "at": "2026-11-08T03:56:03.655Z",
+      "views": {
+        "block": {
+          "height": "276723845",
+          "hash": "7d3FhAzjDiTMhdAexNEnJHqeSiSzKWZrbkAcmiaMxUpK"
+        },
+        "control": {
+          "owner": "ines-v3s4.everstreet.testnet",
+          "generation": 4,
+          "control_seq": "14",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              4
+            ]
+          ],
+          "live_deal": null
+        },
+        "entitlement": {
+          "reg_id": "5",
+          "active": true,
+          "free": "2",
+          "consumed": "0",
+          "units_retired_to_refund": "0",
+          "purchased": "2",
+          "purchase_seq": 1,
+          "hold_seq": 0,
+          "hold_active": false,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 0,
+          "hold_units": 0,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [],
+          "hold_opened_at_ms": "0",
+          "serve_until_ms": "0",
+          "settle_until_ms": "0",
+          "last_hold_seq": 0,
+          "last_hold_used": 0,
+          "last_hold_charged": 0,
+          "last_hold_root": "0000000000000000000000000000000000000000000000000000000000000000",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "19c3e6fb3ebdeda6d383abda546b5cb9202473c545d4334a00eea688e3964be0",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "signalwatch-agent-v3s8.everstreet.testnet",
+          "storage_paid": "8520000000000000000000"
+        },
+        "signalwatch": {
+          "account": "signalwatch-v3s8.everstreet.testnet",
+          "code_hash": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw",
+          "access_keys": 0,
+          "control": {
+            "owner": "wes-v3s8.everstreet.testnet",
+            "generation": 1,
+            "control_seq": "1",
+            "close_mode": "direct",
+            "closer": null,
+            "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+            "manifest_seq": "0",
+            "operators": [
+              [
+                "signalwatch-agent-v3s8.everstreet.testnet",
+                1,
+                1
+              ]
+            ],
+            "live_deal": null
+          }
+        }
+      }
+    },
+    {
+      "name": "used_once",
+      "source": "chain_final",
+      "at": "2026-11-08T03:56:13.174Z",
+      "views": {
+        "block": {
+          "height": "276723861",
+          "hash": "FQr7oASukPGkpNBrGAxVcey4nm3LdCxSDTJQ7eBfxa7Z"
+        },
+        "control": {
+          "owner": "ines-v3s4.everstreet.testnet",
+          "generation": 4,
+          "control_seq": "14",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              4
+            ]
+          ],
+          "live_deal": null
+        },
+        "entitlement": {
+          "reg_id": "5",
+          "active": true,
+          "free": "1",
+          "consumed": "1",
+          "units_retired_to_refund": "0",
+          "purchased": "2",
+          "purchase_seq": 1,
+          "hold_seq": 1,
+          "hold_active": false,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 0,
+          "hold_units": 0,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [],
+          "hold_opened_at_ms": "0",
+          "serve_until_ms": "0",
+          "settle_until_ms": "0",
+          "last_hold_seq": 1,
+          "last_hold_used": 1,
+          "last_hold_charged": 1,
+          "last_hold_root": "78cb2cbf4951591624477caeca462c14036367b50dccb71241d0352228334040",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "19c3e6fb3ebdeda6d383abda546b5cb9202473c545d4334a00eea688e3964be0",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 20765,
+              "held_today": 1
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "signalwatch-agent-v3s8.everstreet.testnet",
+          "storage_paid": "8520000000000000000000"
+        },
+        "signalwatch": {
+          "account": "signalwatch-v3s8.everstreet.testnet",
+          "code_hash": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw",
+          "access_keys": 0,
+          "control": {
+            "owner": "wes-v3s8.everstreet.testnet",
+            "generation": 1,
+            "control_seq": "1",
+            "close_mode": "direct",
+            "closer": null,
+            "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+            "manifest_seq": "0",
+            "operators": [
+              [
+                "signalwatch-agent-v3s8.everstreet.testnet",
+                1,
+                1
+              ]
+            ],
+            "live_deal": null
+          }
+        }
+      }
+    }
+  ],
+  "outcome": {
+    "completed": true
+  },
+  "digests": {
+    "sections": {
+      "header": "c1c50e6f4393a97f5efe12e9da8651ea73664a0679c6a86311ffe127348662c0",
+      "steps": "7a8136d57cc1fe956aa847460f4ef08b907d5e04a66888afa439d091bdff4726",
+      "checkpoints": "500ba2fedf366a30499b28e5e6e94e7e759bfddc31f76f630f0fa640e59fb527",
+      "outcome": "b0ce5e6a8fd8db36ff1175157b0ab566e3088b8d85ab627e49a75ce531efeb10"
+    },
+    "record": "051ef91ae9bb72e3b3791e3e580b13ba5d44624a31a04594c5bb0b2f741107be"
+  }
+}
