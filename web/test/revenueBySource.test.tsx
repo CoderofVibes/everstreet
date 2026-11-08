@@ -50,7 +50,7 @@ describe("earned revenue by source", () => {
     expect(text).toContain("36 TUSD · 2 customers · 9 uses");
     expect(text).toContain("12 TUSD · 1 customer · 3 uses");
     expect(text).toContain("theo.near");
-    expect(text).toContain("registration paid by the seller's side");
+    expect(text).toContain("registration paid by the owner's side");
     expect(text).not.toContain("Registration not read");
     // What isn't checked is one click away, never implied away.
     expect(text).toContain("money routed through other accounts");

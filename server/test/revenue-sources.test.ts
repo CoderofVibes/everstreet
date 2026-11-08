@@ -3,7 +3,7 @@
 // customer whose registration payer couldn't be read is never counted as independent.
 
 import { describe, expect, it } from "vitest";
-import { revenueSources } from "../src/revenueSources.ts";
+import { registrationPayers, revenueSources } from "../src/revenueSources.ts";
 import { CUSTOMER } from "./customer-world.ts";
 import { SELLER, saleWorld } from "./sale-world.ts";
 
@@ -131,5 +131,33 @@ describe("revenue by source on the sale's economics (owner and buyer view)", () 
     expect(e.body.revenue_sources.linked.accounts).toEqual([
       { account: CUSTOMER, uses: 1, reasons: ["owner_here"] },
     ]);
+  });
+});
+
+// Nov 7 review (finding 11): a customer charged on two plans had only the last plan's registration
+// payer read. One payer per customer now comes from every plan's read.
+describe("one registration payer per customer, from every plan's read", () => {
+  const sellerSide = (a: string) => a === "seller.testnet";
+  it("is the seller's side if any plan's registration was paid there", () => {
+    const p = registrationPayers(
+      new Map([["c.testnet", ["c.testnet", "seller.testnet"]]]),
+      sellerSide,
+    );
+    expect(p.get("c.testnet")).toBe("seller.testnet");
+  });
+  it("is unchecked (null) if any plan's read failed and none was the seller's", () => {
+    const p = registrationPayers(new Map([["c.testnet", ["c.testnet", null]]]), sellerSide);
+    expect(p.get("c.testnet")).toBeNull();
+  });
+  it("is the seller's side even when another plan's read failed", () => {
+    const p = registrationPayers(new Map([["c.testnet", [null, "seller.testnet"]]]), sellerSide);
+    expect(p.get("c.testnet")).toBe("seller.testnet");
+  });
+  it("is the first payer read when every plan was read and none was the seller's", () => {
+    const p = registrationPayers(
+      new Map([["c.testnet", ["c.testnet", "friend.testnet"]]]),
+      sellerSide,
+    );
+    expect(p.get("c.testnet")).toBe("c.testnet");
   });
 });

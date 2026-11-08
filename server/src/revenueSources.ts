@@ -69,6 +69,24 @@ export function sellerSide(
   return { accounts, ownerPerson: owner ?? null, teamPersons: new Set(team) };
 }
 
+/**
+ * One registration payer per customer from the reads of each plan they were charged on (the Nov 7
+ * review: a customer on two plans had only the last plan's payer read): a payer on the seller's
+ * side if any plan's registration was paid there; otherwise null (unchecked) if any read failed;
+ * otherwise the first payer read.
+ */
+export function registrationPayers(
+  reads: Map<string, (string | null)[]>,
+  sellerSide: (account: string) => boolean,
+) {
+  const out = new Map<string, string | null>();
+  for (const [customer, payers] of reads) {
+    const linked = payers.find((p) => p !== null && p !== customer && sellerSide(p));
+    out.set(customer, linked ?? (payers.some((p) => p === null) ? null : (payers[0] ?? null)));
+  }
+  return out;
+}
+
 /** Each customer account's bucket and reasons (see revenueSources). */
 export function classify(
   uses: ChargedUse[],

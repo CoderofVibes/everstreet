@@ -57,7 +57,7 @@ const REASON: Record<LinkReason, string> = {
   operator: "an operator on the contract",
   owner_here: "the owner in Everstreet",
   team_here: "a team member in Everstreet",
-  registration_paid_by_seller: "registration paid by the seller's side",
+  registration_paid_by_seller: "registration paid by the owner's side",
 };
 const NOT_CHECKED: Record<string, string> = {
   funding_through_other_accounts: "money routed through other accounts",
@@ -100,7 +100,7 @@ export function RevenueBySource({
       </h2>
       <dl className="proof-rows">
         <Row label="Independent customers">{line(r.independent)}</Row>
-        <Row label="Linked to the seller">
+        <Row label="Linked to the owner's side">
           {r.linked.customers === 0 ? <span className="muted">None found</span> : line(r.linked)}
         </Row>
         {r.unchecked.customers > 0 && <Row label="Registration not read">{line(r.unchecked)}</Row>}
@@ -141,7 +141,7 @@ export function UseEconomics({ e, businessId }: { e: UseEconomicsView; businessI
     );
   // Independent customers' uses only (revenue linked to the seller isn't projected).
   const startUses = e.scenario.independent_uses_last_30_days ?? e.scenario.uses_last_30_days;
-  const [uses, setUses] = useState(String(Math.max(startUses, 1)));
+  const [uses, setUses] = useState(String(startUses));
   const [multiple, setMultiple] = useState("2");
   const margin = e.per_use.margin !== null ? BigInt(e.per_use.margin) : null;
   const n = /^\d{1,6}$/.test(uses) ? BigInt(uses) : null;

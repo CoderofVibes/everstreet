@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import type { Companions } from "./companions.ts";
 import { type CustomerViewTransport, decodeEntitlement, type PinnedBlock } from "./customerRead.ts";
 import type { Db } from "./db.ts";
-import { classify, revenueSources, sellerSide } from "./revenueSources.ts";
+import { classify, registrationPayers, revenueSources, sellerSide } from "./revenueSources.ts";
 import { tokenMetaOf } from "./tokenMeta.ts";
 import { type BlockRef, decodeControl, decodeTreasury, V3ReadError } from "./v3read.ts";
 
@@ -53,7 +53,7 @@ export class UseEconomics {
     let plan: { unit_price: string } | null;
     let treasury: ReturnType<typeof decodeTreasury>;
     let bizControl: ReturnType<typeof decodeControl>;
-    const payers = new Map<string, string | null>();
+    const reads = new Map<string, (string | null)[]>();
     try {
       block = (await reader.finalBlock(binding.network, controller.signal)) as PinnedBlock;
       const v = async (method: string, args: Record<string, unknown>) =>
@@ -73,14 +73,16 @@ export class UseEconomics {
         v("get_treasury", {}).then(decodeTreasury),
         v("get_control", {}).then(decodeControl),
       ]);
-      // Who paid for each customer's registration (the contract's storage payer), same block.
-      const customers = [...new Map(charged.map((u) => [u.customer_account, u.plan_id]))];
+      // Who paid for each customer's registration (the contract's storage payer), same block, for
+      // each plan the customer was charged on (the first PAYERS_READ_MAX pairs by first use).
+      const pairs = [...new Set(charged.map((u) => `${u.customer_account}\n${u.plan_id}`))];
       await Promise.all(
-        customers.slice(0, PAYERS_READ_MAX).map(async ([customer, plan_id]) => {
-          const e = await v("get_entitlement", { customer, plan_id })
+        pairs.slice(0, PAYERS_READ_MAX).map(async (key) => {
+          const [customer, plan] = key.split("\n") as [string, string];
+          const e = await v("get_entitlement", { customer, plan_id: Number(plan) })
             .then(decodeEntitlement)
             .catch(() => null);
-          payers.set(customer, e?.storage_payer ?? null);
+          reads.set(customer, [...(reads.get(customer) ?? []), e?.storage_payer ?? null]);
         }),
       );
     } finally {
@@ -125,6 +127,7 @@ export class UseEconomics {
       owner: bizControl.owner,
       operators: bizControl.operators.map((o) => o.account),
     });
+    const payers = registrationPayers(reads, (a) => side.accounts.has(a));
     const buckets = classify(charged, side, payers);
     const recent = charged.filter((u) => Date.parse(u.updated_at) >= since);
     return {
