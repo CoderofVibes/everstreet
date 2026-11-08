@@ -115,7 +115,8 @@ export function Home() {
           <span>
             <strong>What we tried to break</strong>
             <span>
-              Attacks on the app and its contract rules, each refused; testnet pairs where they ran.
+              Attacks on the app and its contract rules, each refused or flagged; testnet pairs
+              where they ran.
             </span>
           </span>
         </Link>

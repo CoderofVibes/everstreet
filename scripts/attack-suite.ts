@@ -1,4 +1,4 @@
-// The attack suite (Case Docket): nine groups of attacks on a sale and its companions (the
+// The attack suite (Case Docket): ten groups of attacks on a sale and its companions (the
 // external feed and the supplier allowance), each run beside a clean run from the same pinned
 // starting state. After each attack the protected values (owner, generation, escrow, customer
 // units, pending payouts, the feed's controller, the supplier budget) are read again and must
@@ -589,7 +589,7 @@ async function fundedWithUse() {
   return s;
 }
 await pair(
-  8,
+  9,
   "Seller pays its own business",
   fundedWithUse,
   async (s) => {
@@ -977,7 +977,7 @@ await pair(
   },
 );
 
-// ---------- 9. Faults planted in our own checks ----------
+// ---------- 10. Faults planted in our own checks ----------
 interface Planted {
   fault: string;
   invariant: string;
@@ -992,7 +992,7 @@ const planted: Planted[] = [];
     const after = protectedOf(s);
     const caught = before[invariant] !== after[invariant];
     planted.push({ fault, invariant, caught });
-    if (!caught) failures.push(`9 · ${fault}`);
+    if (!caught) failures.push(`10 · ${fault}`);
   };
   await plant(
     "The generation guard removed: control moves without a matching close",
@@ -1053,8 +1053,9 @@ const report = {
     "Quote or signer substitution",
     "Shared-cap race and storage pressure",
     "Evidence substitution",
+    "Revenue attribution",
     "Faults planted in our checks",
-  ].map((title, i) => ({ n: i + 1, title })),
+  ].map((title, i, all) => ({ n: i + 1, title, planted: i === all.length - 1 })),
   cases,
   planted,
   summary: {

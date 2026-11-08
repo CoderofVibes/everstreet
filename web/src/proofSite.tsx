@@ -69,7 +69,7 @@ function Landing() {
           <Icon name="flask" />
           <span>
             <strong>What we tried to break</strong>
-            <span>Attacks on the app and its contract rules, each refused.</span>
+            <span>Attacks on the app and its contract rules, each refused or flagged.</span>
           </span>
         </Link>
       </nav>

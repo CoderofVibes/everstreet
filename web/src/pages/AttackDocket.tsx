@@ -37,9 +37,11 @@ export interface Suite {
   format: "everstreet.attack-suite";
   version: 1;
   commit: string;
+  /** The code it ran had changes beyond `commit`. */
+  uncommitted?: boolean;
   source: "synthetic" | "local_node";
   label: string;
-  groups: { n: number; title: string }[];
+  groups: { n: number; title: string; planted?: boolean }[];
   cases: Case[];
   planted: { fault: string; invariant: keyof Protected; caught: boolean }[];
   summary: { cases: number; passed: number; planted: number; caught: number; failures: string[] };
@@ -155,13 +157,17 @@ export function AttackDocket({ suite }: { suite: Suite }) {
         <h1 className="display sale-title">What we tried to break</h1>
         <p className="row docket-summary">
           <span className="pill success">
-            {suite.summary.passed} of {suite.summary.cases} attacks refused
+            {suite.summary.passed} of {suite.summary.cases} attacks{" "}
+            {suite.cases.some((c) => /^Flagged/.test(c.attack.refusal ?? ""))
+              ? "refused or flagged"
+              : "refused"}
           </span>
           <span className="pill success">
             {suite.summary.caught} of {suite.summary.planted} planted faults caught
           </span>
           <span className="pill" title="The repository commit the suite ran at.">
             Run at commit <span className="mono">{suite.commit.slice(0, 7)}</span>
+            {suite.uncommitted && " · with uncommitted changes"}
           </span>
         </p>
         <p className="muted proof-small">
@@ -194,7 +200,7 @@ export function AttackDocket({ suite }: { suite: Suite }) {
               <h2 id={`group-${g.n}-t`} className="ledger-h">
                 {g.title}
               </h2>
-              {g.n === 9 ? (
+              {(g.planted ?? g.n === 9) ? (
                 <ul className="docket-planted">
                   {suite.planted.map((p) => (
                     <li key={p.fault}>

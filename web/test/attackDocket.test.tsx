@@ -37,8 +37,15 @@ describe("Case Docket", () => {
     root = createRoot(host);
     act(() => root?.render(createElement(AttackDocket, { suite: s })));
     const text = host.textContent ?? "";
-    expect(text).toContain(`${s.summary.passed} of ${s.summary.cases} attacks refused`);
-    expect(host.querySelectorAll(".docket-group").length).toBe(9);
+    // A case whose outcome is a flag (revenue labelled, nothing refused) is counted as such.
+    const flagged = s.cases.some((c) => /^Flagged/.test(c.attack.refusal ?? ""));
+    expect(text).toContain(
+      `${s.summary.passed} of ${s.summary.cases} attacks ${flagged ? "refused or flagged" : "refused"}`,
+    );
+    // The commit the suite ran at, and whether the code had uncommitted changes then.
+    expect(text).toContain(`Run at commit ${s.commit.slice(0, 7)}`);
+    expect(text.includes("with uncommitted changes")).toBe(s.uncommitted === true);
+    expect(host.querySelectorAll(".docket-group").length).toBe(s.groups.length);
     expect(host.querySelectorAll(".docket-case").length).toBe(s.cases.length);
     for (const c of s.cases) {
       expect(text).toContain(c.name);
@@ -55,6 +62,6 @@ describe("Case Docket", () => {
     // Planted faults name the check that caught each one.
     expect(text).toContain("Caught: Owner check");
     expect(text).toContain("Caught: Customer units check");
-    expect(host.querySelectorAll("nav a[href^='#group-']").length).toBe(9);
+    expect(host.querySelectorAll("nav a[href^='#group-']").length).toBe(s.groups.length);
   });
 });
