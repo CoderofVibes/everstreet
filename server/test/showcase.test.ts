@@ -99,8 +99,9 @@ const allowedPath = (p: string) =>
   // The handover strip (each recorded sale; the snapshot after the last one).
   /^\.handovers(\.sales|\.after)?$/.test(p) ||
   /^\.handovers\.sales\[\]\.(from|to)(\.(account|generation))?$/.test(p) ||
-  /^\.handovers\.sales\[\]\.closed(\.(hash|explorer|block))?$/.test(p) ||
-  /^\.handovers\.sales\[\]\.former_owner_refused(\.(method|receiver|code|hash|explorer|record))?$/.test(
+  /^\.handovers\.sales\[\]\.closed(\.(hash|explorer))?$/.test(p) ||
+  /^\.handovers\.sales\[\]\.read_after(\.(owner|block))?$/.test(p) ||
+  /^\.handovers\.sales\[\]\.former_owner_refused(\.(method|receiver|code|how|asked_business|hash|explorer|record))?$/.test(
     p,
   ) ||
   /^\.handovers\.sales\[\]\.(customer_unused_at_close|record)$/.test(p) ||

@@ -204,23 +204,62 @@ function verifiedRecord(path: string): Json | null {
   }
 }
 
+/** Records that verify, are complete testnet runs and are about this contract. */
+function saleRecords(contract: string | null, paths: string[]) {
+  return paths
+    .map((path) => ({ path: path.replaceAll("\\", "/"), r: verifiedRecord(path) }))
+    .filter(
+      (x): x is { path: string; r: Json } => !!x.r && x.r.header.contract?.account === contract,
+    );
+}
+
+/** The business contract's `sale_finalized` event in a closing transaction's receipts. */
+function saleFinalized(s: Json, contract: string | null) {
+  for (const rc of (s.chain?.receipts ?? []) as Json[]) {
+    if (rc.executor !== contract) continue;
+    for (const log of (rc.logs ?? []) as string[]) {
+      if (!log.startsWith("EVENT_JSON:")) continue;
+      try {
+        const e = JSON.parse(log.slice("EVENT_JSON:".length)) as Json;
+        const d = e.event === "sale_finalized" ? (e.data as Json[])?.[0] : null;
+        if (d) return { buyer: str(d.buyer, ACCOUNT), generation: int(d.generation) };
+      } catch {
+        // not an event
+      }
+    }
+  }
+  return null;
+}
+
 /**
- * Each recorded sale of the business, at the moment control changed: the closing transaction and
- * the first block after it, the former owner's first refused call after the close (searched in
- * that record and the later ones), and the customer's unused units at the close when the record
- * read them. Then the snapshot after the last sale. Only records whose digests verify, for this
- * contract; every value comes from a named field.
+ * Each recorded sale of the business, at the moment control changed: the closing transaction, the
+ * first read of the new owner after it (that read's block, not the close's), the former owner's
+ * first refused call after the close (searched in that record and the later ones: which contract
+ * refused, and whether as the call's answer or as a failed transaction), and the customer's unused
+ * units at the close when the record read them. Then the snapshot after the last sale. Only
+ * records whose digests verify, for this contract; every value comes from a named field.
  */
 export function handoversOf(
   contract: string | null,
   paths = DEFAULT_SALE_RECORDS,
   afterPath = DEFAULT_AFTER_SALES,
 ) {
-  const records = paths
-    .map((path) => ({ path, r: verifiedRecord(path) }))
-    .filter(
-      (x): x is { path: string; r: Json } => !!x.r && x.r.header.contract?.account === contract,
-    );
+  const snap = verifiedRecord(afterPath);
+  return handoversFrom(
+    contract,
+    saleRecords(contract, paths),
+    snap?.header.contract?.account === contract
+      ? { path: afterPath.replaceAll("\\", "/"), r: snap as Json }
+      : null,
+  );
+}
+
+/** The strip from parsed records (handoversOf reads and verifies them first). */
+export function handoversFrom(
+  contract: string | null,
+  records: { path: string; r: Json }[],
+  snap: { path: string; r: Json } | null,
+) {
   // Every step in recorded order across the records.
   const all = records.flatMap(({ path, r }) => (r.steps as Json[]).map((s) => ({ path, r, s })));
   const txOf = (s: Json) => {
@@ -229,9 +268,16 @@ export function handoversOf(
   };
   const sales = all.flatMap(({ path, r, s }, i) => {
     if (s.kind !== "transaction" || s.app?.resolution?.result !== "closed") return [];
+    if (s.call?.receiver !== contract) return [];
     const seller = str(s.signer?.account, ACCOUNT);
     const cps = (r.checkpoints as Json[]).filter((c) => c.views?.control);
-    const closedAt = cps.findIndex((c) => c.views.control.owner !== seller);
+    // The contract's own event names the buyer and the new generation; the first checkpoint read
+    // at that generation is the read after this close (a record may hold several sales).
+    const ev = saleFinalized(s, contract);
+    const closedAt =
+      ev?.generation !== null && ev?.generation !== undefined
+        ? cps.findIndex((c) => c.views.control.generation === ev.generation)
+        : -1;
     const closed = closedAt >= 0 ? cps[closedAt] : null;
     const before = cps
       .slice(0, Math.max(closedAt, 0))
@@ -252,43 +298,53 @@ export function handoversOf(
       {
         from: { account: seller, generation: int(before?.views?.control?.generation) },
         to: {
-          account: str(closed?.views?.control?.owner, ACCOUNT),
-          generation: int(closed?.views?.control?.generation),
+          account: ev?.buyer ?? str(closed?.views?.control?.owner, ACCOUNT),
+          generation: ev?.generation ?? int(closed?.views?.control?.generation),
         },
-        closed: { ...txOf(s), block: str(closed?.views?.block?.height, DIGITS) },
+        closed: txOf(s),
+        // The first final read of the new owner after the close, and its block.
+        read_after: closed
+          ? {
+              owner: str(closed.views.control.owner, ACCOUNT),
+              block: str(closed.views.block?.height, DIGITS),
+            }
+          : null,
         former_owner_refused: refused
           ? {
               method: str(refused.s.call?.method, /^[a-z_]{1,40}$/),
               receiver: str(refused.s.call?.receiver, ACCOUNT),
               code: "E_NOT_OWNER",
+              // Refused as the call's answer (the transaction itself succeeded) or as a failure.
+              how: refused.s.chain?.succeeded === true ? ("answer" as const) : ("failed" as const),
+              // Whether the refusing contract asked this business during that call.
+              asked_business: ((refused.s.chain?.receipts ?? []) as Json[]).some(
+                (rc) => rc.executor === contract && rc.executor !== refused.s.call?.receiver,
+              ),
               ...txOf(refused.s),
-              record: refused.path.replaceAll("\\", "/"),
+              record: refused.path,
             }
           : null,
         customer_unused_at_close: free,
-        record: path.replaceAll("\\", "/"),
+        record: path,
       },
     ];
   });
-  const snap = verifiedRecord(afterPath);
-  const view =
-    snap?.header.contract?.account === contract
-      ? (snap?.checkpoints as Json[])?.at(-1)?.views
+  const view = (snap?.r.checkpoints as Json[] | undefined)?.at(-1)?.views;
+  const after =
+    snap && view
+      ? {
+          block: str(view.block?.height, DIGITS),
+          owner: str(view.control?.owner, ACCOUNT),
+          generation: int(view.control?.generation),
+          customer: {
+            account: str(snap.r.header.accounts?.customer, ACCOUNT),
+            unused: str(view.entitlement?.free, DIGITS),
+            used: str(view.entitlement?.consumed, DIGITS),
+            bought: str(view.entitlement?.purchased, DIGITS),
+          },
+          record: snap.path,
+        }
       : null;
-  const after = view
-    ? {
-        block: str(view.block?.height, DIGITS),
-        owner: str(view.control?.owner, ACCOUNT),
-        generation: int(view.control?.generation),
-        customer: {
-          account: str(snap?.header.accounts?.customer, ACCOUNT),
-          unused: str(view.entitlement?.free, DIGITS),
-          used: str(view.entitlement?.consumed, DIGITS),
-          bought: str(view.entitlement?.purchased, DIGITS),
-        },
-        record: afterPath.replaceAll("\\", "/"),
-      }
-    : null;
   return { sales, after };
 }
 

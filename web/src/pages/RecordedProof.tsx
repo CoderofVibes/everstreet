@@ -50,10 +50,22 @@ export interface Handovers {
   sales: {
     from: { account: string | null; generation: number | null };
     to: { account: string | null; generation: number | null };
-    closed: TxRef & { block: string | null };
+    closed: TxRef;
+    /** The first final read of the new owner after the close (that read's block). */
+    read_after: null | { owner: string | null; block: string | null };
     former_owner_refused:
       | null
-      | (TxRef & { method: string | null; receiver: string | null; code: string; record: string });
+      | (TxRef & {
+          method: string | null;
+          /** The contract that refused: a companion, or the business itself. */
+          receiver: string | null;
+          code: string;
+          /** Refused in the call's answer (the transaction succeeded) or as a failed transaction. */
+          how: "answer" | "failed";
+          /** Whether the refusing contract asked this business during the call. */
+          asked_business: boolean;
+          record: string;
+        });
     customer_unused_at_close: string | null;
     record: string;
   }[];
@@ -134,10 +146,14 @@ export function HandoverStrip({ h }: { h: Handovers }) {
             </div>
             <div className="hand-cell">
               <span className="hand-k">Closed</span>
-              <span>block {x.closed.block ?? "—"}</span>
               <span className="row hand-src">
                 {txLink(x.closed)}
-                <SourceTag source="testnet_final" block={x.closed.block} />
+                <SourceTag source="testnet_receipt" />
+              </span>
+              <span className="hand-k">New owner read at</span>
+              <span className="row hand-src">
+                block {x.read_after?.block ?? "—"}
+                <SourceTag source="testnet_final" block={x.read_after?.block ?? null} />
               </span>
             </div>
             <div className="hand-cell">
@@ -145,8 +161,16 @@ export function HandoverStrip({ h }: { h: Handovers }) {
               {x.former_owner_refused ? (
                 <>
                   <span>
-                    <span className="mono">{x.former_owner_refused.method}</span> refused ·{" "}
+                    <span className="mono">{x.former_owner_refused.method}</span> to{" "}
+                    {who(x.former_owner_refused.receiver)} · refused{" "}
                     <span className="mono">{x.former_owner_refused.code}</span>
+                  </span>
+                  <span className="muted">
+                    {x.former_owner_refused.how === "answer"
+                      ? "in the call's answer"
+                      : "transaction failed"}
+                    {x.former_owner_refused.asked_business &&
+                      " · it asked this business who the owner is"}
                   </span>
                   <span className="row hand-src">
                     {txLink(x.former_owner_refused)}
