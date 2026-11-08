@@ -163,7 +163,10 @@ writeFileSync(cfgFile, JSON.stringify({ ...base, listen: { host: "127.0.0.1", po
 const app = startApp(cfgFile);
 await app.ready();
 
-const rec = new Recorder({
+// A stopped run resumes its own record (its steps and checkpoints kept as they were).
+const prior = existsSync(OUT) ? (JSON.parse(readFileSync(OUT, "utf8")) as Json) : null;
+const done = new Set(((prior?.steps ?? []) as Json[]).map((x) => x.step as string));
+const header: ConstructorParameters<typeof Recorder>[0] = {
   example: "agent-hires-agent",
   network: "testnet",
   label: "NEAR testnet",
@@ -177,7 +180,12 @@ const rec = new Recorder({
     agents_business_owner: SW_OWNER,
   },
   model: "stand-in (labelled; no AI provider is called)",
-});
+};
+const rec = prior
+  ? Recorder.resume(prior, {
+      reason: "the first attempt stopped before the purchase: its request key was too short",
+    })
+  : new Recorder(header);
 const accounts: Record<Who, string> = {
   founder: LL_OWNER,
   buyer: LL_OWNER, // no sale in this run
@@ -201,14 +209,16 @@ const env = {
 };
 
 try {
-  rec.app("signalwatch_deployed", {
-    account: SIGNALWATCH,
-    owner: SW_OWNER,
-    code_hash: deployed.signalwatch.code_hash,
-    access_keys: deployed.signalwatch.access_keys,
-    setup: setupTx,
-  });
-  await rec.checkpoint("signalwatch_deployed", deployed);
+  if (!done.has("signalwatch_deployed")) {
+    rec.app("signalwatch_deployed", {
+      account: SIGNALWATCH,
+      owner: SW_OWNER,
+      code_hash: deployed.signalwatch.code_hash,
+      access_keys: deployed.signalwatch.access_keys,
+      setup: setupTx,
+    });
+    await rec.checkpoint("signalwatch_deployed", deployed);
+  }
 
   // 2. Signalwatch's owner appoints its agent as an operator on Signalwatch's own contract.
   const swc = deployed.signalwatch.control as Json;
@@ -234,7 +244,8 @@ try {
     ([a]) => a === SW_AGENT,
   );
   if (!op) throw new StopRun("the agent isn't Signalwatch's operator");
-  await rec.checkpoint("agent_appointed_by_signalwatch", hired);
+  if (!done.has("signalwatch_deployed") || !prior)
+    await rec.checkpoint("agent_appointed_by_signalwatch", hired);
 
   // 3. The agent asks Ledgerline for an invoice read: 402, its registration, 402, its purchase.
   for (const id of [LL_OWNER, SW_AGENT]) await signIn(client(id), id);
@@ -243,7 +254,7 @@ try {
   const install = { slot: SLOT, pk: key.pk, max_hold_units: 1, max_units_per_day: 100 };
   const ask = (n: number) =>
     agent(`/api/customer/offers/${OFFER}/prepare`, "POST", {
-      idempotency_key: `a2a-ask-${n}`,
+      idempotency_key: `a2a-ask-${String(n).padStart(4, "0")}`,
       input: invoice(n),
       key_slot: SLOT,
       buy: { units: UNITS, install },
@@ -270,7 +281,7 @@ try {
   let r = await ask(1);
   if (r.status !== 402)
     throw new StopRun(`expected 402, got ${r.status}: ${JSON.stringify(r.body)}`);
-  rec.app("http_402_first", { status: 402, ...summary(r.body) });
+  if (!done.has("http_402_first")) rec.app("http_402_first", { status: 402, ...summary(r.body) });
   for (const b of r.body.before as Json[]) {
     const out = await sendAs(SW_AGENT, b.call as WalletCall);
     rec.tx(`agent_${b.step}`, "customer", SW_AGENT, b.call as WalletCall, out, null);
@@ -279,10 +290,13 @@ try {
   r = await ask(2);
   if (r.status !== 402 || !r.body.purchase)
     throw new StopRun(`expected 402 with a purchase, got ${r.status}: ${JSON.stringify(r.body)}`);
-  rec.app("http_402_purchase", { status: 402, ...summary(r.body) });
+  rec.app(done.has("http_402_purchase") ? "http_402_purchase_again" : "http_402_purchase", {
+    status: 402,
+    ...summary(r.body),
+  });
   const made = okBody(
     await agent(`/api/customer/offers/${OFFER}/purchases`, "POST", {
-      idempotency_key: "a2a-buy",
+      idempotency_key: "a2a-buy-0001",
       units: UNITS,
       install,
       terms_digest: r.body.purchase.terms_digest,
