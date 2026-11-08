@@ -263,6 +263,6 @@ entry is documented in [application composition](docs/design/APPLICATION_COMPOSI
 
 DadMod — Anthony Langford, with AI collaborators Astra and Claude.
 
-Everstreet is a separate project from the same team's other hackathon entry, Day One, an AI
-purchasing assistant. The projects share no code, data, accounts, or deployments.
-<!-- TODO before submitting: link Day One's public repository in the sentence above. -->
+Everstreet is a separate project from the same team's other hackathon entry,
+[Day One](https://github.com/CoderofVibes/day-one), an AI purchasing assistant. The projects
+share no code, data, accounts, or deployments.
