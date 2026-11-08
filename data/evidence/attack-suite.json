@@ -1,46 +1,60 @@
 {
   "format": "everstreet.attack-suite",
   "version": 1,
-  "commit": "6f7b3f6ef949f3cff508819c3bb5e3e01b37178d",
-  "uncommitted": true,
+  "commit": "7fa7a32c96a739ed3bed9f39bfd6863c261ea213",
+  "uncommitted": false,
   "source": "synthetic",
   "label": "Fixture results: Everstreet's real routes over the synthetic chain, which follows the business contract's rules. Not the contract's own code.",
   "groups": [
     {
       "n": 1,
-      "title": "Changed terms and stale seller"
+      "title": "Changed terms and stale seller",
+      "planted": false
     },
     {
       "n": 2,
-      "title": "Dropped response or misleading success"
+      "title": "Dropped response or misleading success",
+      "planted": false
     },
     {
       "n": 3,
-      "title": "Old write admitted before close"
+      "title": "Old write admitted before close",
+      "planted": false
     },
     {
       "n": 4,
-      "title": "Signed before the change"
+      "title": "Signed before the change",
+      "planted": false
     },
     {
       "n": 5,
-      "title": "Poisoned observation"
+      "title": "Poisoned observation",
+      "planted": false
     },
     {
       "n": 6,
-      "title": "Quote or signer substitution"
+      "title": "Quote or signer substitution",
+      "planted": false
     },
     {
       "n": 7,
-      "title": "Shared-cap race and storage pressure"
+      "title": "Shared-cap race and storage pressure",
+      "planted": false
     },
     {
       "n": 8,
-      "title": "Evidence substitution"
+      "title": "Evidence substitution",
+      "planted": false
     },
     {
       "n": 9,
-      "title": "Faults planted in our checks"
+      "title": "Revenue attribution",
+      "planted": false
+    },
+    {
+      "n": 10,
+      "title": "Faults planted in our checks",
+      "planted": true
     }
   ],
   "cases": [
@@ -585,7 +599,7 @@
       "passed": true
     },
     {
-      "group": 8,
+      "group": 9,
       "name": "Seller pays its own business",
       "clean": {
         "what": "The buyer reviews the sale's earned revenue, paid by an independent customer",
