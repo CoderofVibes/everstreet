@@ -1051,11 +1051,20 @@ function FirstShift({
   companions: CompanionView | null;
   reload: () => void;
 }) {
-  if (!s.roles.new_owner || s.control.live_deal) return null;
   const asset = companions?.asset ?? null;
   const allowance = companions?.allowance ?? null;
   const moved = asset !== null && asset.controller_generation === s.control.generation;
   const pending = asset?.move?.state === "external_pending";
+  // While the role move waits for the other chain to finalize, read again every few seconds, so
+  // the item turns done without a reload (the Nov 7 dry run: it stayed pending until a reload).
+  const again = useRef(reload);
+  again.current = reload;
+  useEffect(() => {
+    if (!pending) return;
+    const t = setInterval(() => again.current(), 4_000);
+    return () => clearInterval(t);
+  }, [pending]);
+  if (!s.roles.new_owner || s.control.live_deal) return null;
   const ops = s.control.operators.filter((o) => o.generation === s.control.generation);
   const kept = ops.filter((o) => o.account !== s.platform_operator);
   return (
