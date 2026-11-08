@@ -31,6 +31,18 @@ export const REASONS_CHECKED: LinkReason[] = [
 ];
 export const NOT_CHECKED = ["funding_through_other_accounts", "recruited_third_parties"] as const;
 
+/**
+ * Links anyone can read on chain: the contract's owner and operators, and who paid a registration.
+ * A linked customer is named only for these (Tony, Nov 7). A link found only in Everstreet's own
+ * records (the owner's or a team member's account here) shows its reason and use count, not the
+ * account, so a buyer never learns a private tie between an account and a person.
+ */
+export const PUBLIC_REASONS: LinkReason[] = [
+  "owner_account",
+  "operator",
+  "registration_paid_by_seller",
+];
+
 /** One charged use: who it was for (the customer account) and the person who asked here. */
 export interface ChargedUse {
   customer_account: string;
@@ -154,6 +166,12 @@ export function revenueSources(
   const linkedUses = linked.reduce((n, x) => n + x.uses, 0);
   const value = (n: number) => (price === null ? null : (price * BigInt(n)).toString());
   linked.sort((a, b) => b.uses - a.uses || a.account.localeCompare(b.account));
+  const shown = linked.slice(0, 20).map((x) => {
+    const open = x.reasons.filter((r) => PUBLIC_REASONS.includes(r));
+    return open.length > 0
+      ? { account: x.account as string | null, uses: x.uses, reasons: open }
+      : { account: null, uses: x.uses, reasons: x.reasons };
+  });
   return {
     independent: {
       customers: independentCustomers,
@@ -164,7 +182,7 @@ export function revenueSources(
       customers: linked.length,
       uses: linkedUses,
       revenue: value(linkedUses),
-      accounts: linked.slice(0, 20),
+      accounts: shown,
     },
     unchecked: {
       customers: uncheckedCustomers,

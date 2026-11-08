@@ -46,7 +46,8 @@ interface Bucket {
 }
 export interface RevenueSources {
   independent: Bucket;
-  linked: Bucket & { accounts: { account: string; uses: number; reasons: LinkReason[] }[] };
+  // account is null when the link is only in Everstreet's records (never named to a buyer).
+  linked: Bucket & { accounts: { account: string | null; uses: number; reasons: LinkReason[] }[] };
   unchecked: Bucket;
   checked: LinkReason[];
   not_checked: string[];
@@ -107,11 +108,15 @@ export function RevenueBySource({
       </dl>
       {r.linked.accounts.length > 0 && (
         <ul className="linked-list">
-          {r.linked.accounts.map((x) => (
-            <li key={x.account}>
-              <span className="mono" title={x.account}>
-                {x.account}
-              </span>{" "}
+          {r.linked.accounts.map((x, i) => (
+            <li key={x.account ?? `private-${i}`}>
+              {x.account === null ? (
+                <span className="muted">An account in Everstreet's records</span>
+              ) : (
+                <span className="mono" title={x.account}>
+                  {x.account}
+                </span>
+              )}{" "}
               <span className="muted">· {plural(x.uses, "use")} · </span>
               {x.reasons.map((k) => REASON[k]).join("; ")}
             </li>

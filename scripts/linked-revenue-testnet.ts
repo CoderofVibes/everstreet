@@ -38,13 +38,16 @@ import {
 const TOKEN = "tusd.everstreet.testnet";
 const BIZ = `ledgerline-v3-3b.${ROOT}`;
 const OWNER = `ines-v3s4.${ROOT}`; // generation 4
-const WREN = `wren-v3s5.${ROOT}`; // the new customer, registration paid by the owner
+// The second run (Nov 7, late): a new customer, so the record holds the owner-paid registration
+// and each checkpoint names its block. The first run (wren-v3s5, no blocks) is kept as
+// data/evidence/linked-revenue-first-testnet.json.
+const WREN = `wren-v3s6.${ROOT}`; // the new customer, registration paid by the owner
 const CARA = `cara-v3s3-1.${ROOT}`; // the earlier customer (paid for her own registration)
 const METER = `meter-direct-v3s3b.${ROOT}`;
 const OFFER = "1b909d95-22e1-452a-9a26-f440f35004cb"; // the business's current offer (0.15 tUSD)
 const RUN_DIR = resolve("data", "runtime", "rehearsal-s4");
 const OUT = join("data", "evidence", "linked-revenue-testnet.json");
-const SPEND = join("data", "runtime", "rehearsal-spend-s5.json");
+const SPEND = join("data", "runtime", "rehearsal-spend-s6.json");
 const guard = spendGuard(SPEND, 1.5);
 
 if (existsSync(OUT) && (JSON.parse(readFileSync(OUT, "utf8")) as Json).outcome?.completed)
@@ -92,14 +95,21 @@ const client = (id: string) => {
   return clients.get(id) as Call;
 };
 const views = async () => {
-  const ent = (c: string) =>
-    view<Json | null>(BIZ, "get_entitlement", { customer: c, plan_id: 1 }).catch(() => null);
-  // The final block each checkpoint was read at (the Nov 7 review: the first run's record carries
-  // none, so it can't be re-read at the moment it describes).
+  // The final block each checkpoint was read at, and every view read at that block (the Nov 7
+  // review: the first run's record carries none, so it can't be re-read at the moment it describes).
   const block = (await provider.viewBlock({ finality: "final" } as never)) as Json;
+  const at = async <T>(method: string, args: Json) =>
+    (await provider.callFunction({
+      contractId: BIZ,
+      method,
+      args,
+      blockQuery: { blockId: block.header.height },
+    } as never)) as T;
+  const ent = (c: string) =>
+    at<Json | null>("get_entitlement", { customer: c, plan_id: 1 }).catch(() => null);
   return {
     block: { height: String(block.header.height), hash: block.header.hash },
-    control: await view<Json>(BIZ, "get_control"),
+    control: await at<Json>("get_control", {}),
     entitlement: await ent(WREN),
     earlier_customer: await ent(CARA),
   };

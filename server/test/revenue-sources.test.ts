@@ -51,14 +51,19 @@ describe("revenue by source (the classification)", () => {
     );
     expect(r.independent).toEqual({ customers: 1, uses: 2, revenue: "20" });
     expect(r.linked).toMatchObject({ customers: 5, uses: 5, revenue: "50" });
-    const why = Object.fromEntries(r.linked.accounts.map((x) => [x.account, x.reasons]));
-    expect(why).toEqual({
+    // Named only for links readable on chain; a link only in Everstreet's records is unnamed.
+    const named = Object.fromEntries(
+      r.linked.accounts.filter((x) => x.account).map((x) => [x.account, x.reasons]),
+    );
+    expect(named).toEqual({
       "own.near": ["owner_account"],
       "op.near": ["operator"],
-      "alt.near": ["owner_here"],
-      "mate.near": ["team_here"],
       "sponsored.near": ["registration_paid_by_seller"],
     });
+    const unnamed = r.linked.accounts.filter((x) => x.account === null).map((x) => x.reasons);
+    expect(unnamed.sort()).toEqual([["owner_here"], ["team_here"]]);
+    expect(JSON.stringify(r)).not.toContain("alt.near");
+    expect(JSON.stringify(r)).not.toContain("mate.near");
     expect(r.unchecked.customers).toBe(0);
     expect(r.not_checked).toEqual(["funding_through_other_accounts", "recruited_third_parties"]);
   });
@@ -128,9 +133,11 @@ describe("revenue by source on the sale's economics (owner and buyer view)", () 
       )
       .run(CUSTOMER, owner, new Date().toISOString());
     const e = await s.ava(`/api/sales/${s.biz}/economics`);
+    // Linked, but the tie is only in Everstreet's records: reason and count, never the account.
     expect(e.body.revenue_sources.linked.accounts).toEqual([
-      { account: CUSTOMER, uses: 1, reasons: ["owner_here"] },
+      { account: null, uses: 1, reasons: ["owner_here"] },
     ]);
+    expect(JSON.stringify(e.body.revenue_sources)).not.toContain(CUSTOMER);
   });
 });
 

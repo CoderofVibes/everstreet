@@ -56,6 +56,20 @@ describe("earned revenue by source", () => {
     expect(text).toContain("money routed through other accounts");
   });
 
+  it("a link only in Everstreet's records shows its reason and count, not an account", () => {
+    const text = render({
+      ...base,
+      linked: {
+        ...base.linked,
+        customers: 2,
+        accounts: [...base.linked.accounts, { account: null, uses: 1, reasons: ["team_here"] }],
+      },
+    });
+    expect(text).toContain(
+      "An account in Everstreet's records · 1 use · a team member in Everstreet",
+    );
+  });
+
   it("says none found when nothing links a customer, and counts unread registrations apart", () => {
     const text = render({
       ...base,
