@@ -171,6 +171,7 @@ export function HandoverStrip({ h }: { h: Handovers }) {
                       : "transaction failed"}
                     {x.former_owner_refused.asked_business &&
                       " · it asked this business who the owner is"}
+                    {x.former_owner_refused.record !== x.record && " · recorded in a later run"}
                   </span>
                   <span className="row hand-src">
                     {txLink(x.former_owner_refused)}

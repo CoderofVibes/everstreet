@@ -266,9 +266,16 @@ export function handoversFrom(
     const hash = str(s.chain?.hash, HASH);
     return { hash, explorer: hash ? `${EXPLORER}${hash}` : null };
   };
+  const seenClose = new Set<string>();
   const sales = all.flatMap(({ path, r, s }, i) => {
     if (s.kind !== "transaction" || s.app?.resolution?.result !== "closed") return [];
     if (s.call?.receiver !== contract) return [];
+    // One row per close, should two records carry the same closing transaction.
+    const closeHash = str(s.chain?.hash, HASH);
+    if (closeHash) {
+      if (seenClose.has(closeHash)) return [];
+      seenClose.add(closeHash);
+    }
     const seller = str(s.signer?.account, ACCOUNT);
     const cps = (r.checkpoints as Json[]).filter((c) => c.views?.control);
     // The contract's own event names the buyer and the new generation; the first checkpoint read

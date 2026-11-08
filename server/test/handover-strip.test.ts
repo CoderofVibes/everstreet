@@ -166,6 +166,17 @@ describe("the handover strip", () => {
     };
     const h = handoversFrom(BIZ, [{ path: "two-sales.json", r }], null);
     expect(h.sales).toHaveLength(2);
+    // The same close in two records (a copy of a record) is one row, not two.
+    expect(
+      handoversFrom(
+        BIZ,
+        [
+          { path: "two-sales.json", r },
+          { path: "copy.json", r },
+        ],
+        null,
+      ).sales,
+    ).toHaveLength(2);
     expect(h.sales[0]).toMatchObject({
       from: { account: a, generation: 1 },
       to: { account: b, generation: 2 },

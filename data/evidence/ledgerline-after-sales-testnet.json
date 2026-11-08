@@ -5,7 +5,7 @@
     "example": "ledgerline-after-sales",
     "network": "testnet",
     "label": "NEAR testnet",
-    "commit": "7922ace702a7e8edb572d1f4c62af60337acb114",
+    "commit": "996001e17d95c06af09d295e8e918cf662346e4c",
     "contract": {
       "account": "ledgerline-v3-3b.everstreet.testnet",
       "wasm_sha256": "ede1c2f7bed77d1832f5b16e8a873645b387693a486b42a745a06b6d510a29b4",
@@ -22,11 +22,11 @@
     {
       "name": "after_third_sale",
       "source": "chain_final",
-      "at": "2026-11-07T20:04:06.299Z",
+      "at": "2026-11-08T00:51:01.703Z",
       "views": {
         "block": {
-          "height": "276677171",
-          "hash": "GDwm87BunG7MSgPXqNAevFKAbEJszhYiCPHU5DUceoLU"
+          "height": "276705376",
+          "hash": "AG93iXGacfyDpQpAS2MXtE88a5Eu2ERDEQcC4UbtHSTh"
         },
         "control": {
           "owner": "ines-v3s4.everstreet.testnet",
@@ -136,11 +136,11 @@
   },
   "digests": {
     "sections": {
-      "header": "bac4c4032ac735aea36e2055ef911c6292c5923869ebe983ceeb924efb67c05f",
+      "header": "871e40e6c8dcabdd805eee26ac5d7e1633d980917627bc46e6fa0014d3806fc0",
       "steps": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-      "checkpoints": "6bd82932e641849080856c5e69273bdeeb0d5fe97b35ffc76b429fb7e4f9af21",
+      "checkpoints": "ff2d12e9f23304f5ea53ea69723e938f4a30760f9fb2ad9766276a01981ebd86",
       "outcome": "b0ce5e6a8fd8db36ff1175157b0ab566e3088b8d85ab627e49a75ce531efeb10"
     },
-    "record": "c3ed5341c251a260c249b80ca3f9ee7222f05a2385da5decbf72b93efd414745"
+    "record": "b35ad19fcb366d8e56fadca1e16fb2004ae042ed1c4d3caa61f1db727352136b"
   }
 }

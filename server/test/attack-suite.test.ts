@@ -22,10 +22,10 @@ describe("attack suite", () => {
   it("the committed results are complete and served publicly", () => {
     const r = JSON.parse(readFileSync("data/evidence/attack-suite.json", "utf8"));
     expect(r).toMatchObject({ format: "everstreet.attack-suite", version: 1, source: "synthetic" });
-    expect(r.groups).toHaveLength(9);
+    expect(r.groups).toHaveLength(10);
     expect(r.cases.every((c: { passed: boolean }) => c.passed)).toBe(true);
     expect(r.planted.every((p: { caught: boolean }) => p.caught)).toBe(true);
-    expect(new Set(r.cases.map((c: { group: number }) => c.group)).size).toBe(8);
+    expect(new Set(r.cases.map((c: { group: number }) => c.group)).size).toBe(9);
     // Served as committed, plus the cases that also ran on NEAR testnet (attack-pairs-testnet.json).
     const served = attackSuite() as unknown as typeof r;
     const plain = served.cases.map(({ testnet, ...c }: { testnet?: unknown }) => c);
