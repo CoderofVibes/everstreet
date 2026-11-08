@@ -35,6 +35,17 @@ visual direction), then Opus builds.
 
 ## Now
 
+- **README SESSION (Nov 7, late; Tony: Astra's pass complete, decisions 1 to 3 yes):** Astra's
+  README committed as written (77a7838). Revenue by source names a linked customer only for links
+  on chain (owner, operator, registration payer); a link only in Everstreet's records shows its
+  reason and use count, never the account (9ecd293). Testnet (81f512d): the business contract
+  refuses its former owner directly (`scripts/former-owner-probe-testnet.ts`, two `E_NOT_OWNER`
+  failures, control unchanged, gas only; `data/evidence/former-owner-probe-testnet.json`); linked
+  revenue re-run with wren-v3s6 and block-pinned checkpoints (0.308 NEAR; first run kept as
+  `linked-revenue-first-testnet.json`). README: the strip's middle cell and a claims row use the
+  business contract's own refusal; How NEAR is used; testnet accounts table; How it was made
+  (disclosures); Built at; demo port 8840; Day One link left as an HTML TODO. Next: fresh-clone
+  rehearsal from the README only. Open: the proof page's strip doesn't show the new record yet.
 - **COLD REVIEW OF 1 TO 3 DONE (Nov 7 late, Fable 5.1):** one cold reviewer on the strip, revenue
   by source and the static copy (`reports/2026-11-07_fable-review-123.md`: 0 high, 3 medium, 8 low;
   all three hold), triage `reports/2026-11-07_triage-123.md`, fixes in small commits (208e4c4 the

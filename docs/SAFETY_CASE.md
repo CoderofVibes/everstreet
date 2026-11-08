@@ -115,7 +115,9 @@ CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbo
   sold the Direct example's business once more with the fixed companions beside it
   (`data/evidence/v3-s4-testnet.json`). A later run had its owner pay for a new customer's
   registration; the contract records her as the payer, and the sale's economics show that
-  customer's revenue as linked to the seller (`data/evidence/linked-revenue-testnet.json`). Series 2 ran the same
+  customer's revenue as linked to the seller (`data/evidence/linked-revenue-testnet.json`, re-run on
+  2026-11-07 with a new customer so every checkpoint names its block; the first run is kept as
+  `data/evidence/linked-revenue-first-testnet.json`). Series 2 ran the same
   source as a plain build (`3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6`,
   `data/evidence/v3-series-2/`); series 1 ran the earlier code (`data/evidence/v3-series-1/`).
 - **What the recorded refusals are.** The proof page's handover strip shows, for each of
@@ -125,8 +127,12 @@ CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbo
   two of the three are the call's answer inside a transaction that succeeded. The strip names
   the receiver and the kind of refusal. The business contract's own refusal of a former owner is
   covered by its tests and the synthetic chain, and the app refuses such a call before it is
-  sent; it has not been recorded on testnet (a cold review on 2026-11-07,
-  `reports/2026-11-07_fable-review-123.md`, found this and the rest of that page's claims sound).
+  sent (a cold review on 2026-11-07, `reports/2026-11-07_fable-review-123.md`, found this and
+  the rest of that page's claims sound). It is also recorded on testnet since 2026-11-07, late:
+  after the third sale the former owner (`noor-v3s3`) signed `appoint_operator_guarded` and
+  `withdraw_profit` and sent them straight to `ledgerline-v3-3b`, with no app in between; both
+  failed with `E_NOT_OWNER` and control was unchanged at the next final block
+  (`data/evidence/former-owner-probe-testnet.json`). The strip does not show this record yet.
 - **Everstreet's own server** follows the contract rather than enforcing it. Two cold reviews
   covered its permissions (`reports/2026-11-06_permissions-review.md`,
   `reports/2026-11-07_permissions-review.md`). The first found a sale closed on the contract while

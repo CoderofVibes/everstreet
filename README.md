@@ -13,12 +13,12 @@ In the recorded snapshot after the third sale, its first customer has **78 unuse
 
 | The sale closes | The former owner is refused | The customer keeps their uses |
 |---|---|---|
-| Ledgerline moves to its next owner, at generation 4. | The supplier-budget companion checks Ledgerline's owner and refuses the seller's new grant with `E_NOT_OWNER`. | All 100 uses are accounted for after three sales. |
-| [Closing transaction](https://testnet.nearblocks.io/txns/3psBJvLE3EBq9BNMF7ZZQub9EZab77L7je5U8x8zcSet) | [Failed grant transaction](https://testnet.nearblocks.io/txns/6wPkYAYDvcyQGZtmqyC4EXe75Cc5zrj9Nr9iytuN625f) | [Customer snapshot](data/evidence/ledgerline-after-sales-testnet.json) |
+| Ledgerline moves to its next owner, at generation 4. | Ledgerline's contract refuses the former owner's owner actions with `E_NOT_OWNER`. Control is unchanged. | All 100 uses are accounted for after three sales. |
+| [Closing transaction](https://testnet.nearblocks.io/txns/3psBJvLE3EBq9BNMF7ZZQub9EZab77L7je5U8x8zcSet) | [Refused owner action](https://testnet.nearblocks.io/txns/ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb) | [Customer snapshot](data/evidence/ledgerline-after-sales-testnet.json) |
 
 [Try Everstreet](#try-everstreet) · [Follow the proof](#follow-the-proof) · [Check the build](#check-the-build)
 
-Built for NEAR HACKATHON, November 2026. Fictional businesses and people, NEAR testnet and
+Built at NEAR HACKATHON, November 2026. Fictional businesses and people, NEAR testnet and
 Ethereum Sepolia, and test tokens with no monetary value.
 
 ## From an idea to the next owner
@@ -45,6 +45,27 @@ customer claims, treasury balances, and sale escrow. At close it changes the own
 generation together. Everstreet follows the finalized result, and the buyer completes any
 separate companion actions.
 
+## How NEAR is used
+
+- **One contract per business decides who is in charge.** `business-v3` holds the owner and an
+  authority generation, operators and their capabilities, each customer's prepaid units, the
+  treasury, and sale escrow. A sale closes only on the exact terms both sides accepted, and the
+  close changes the owner and the generation in one step.
+- **Customers and agents pay as NEAR accounts.** They buy prepaid uses with a NEP-141 test token
+  (`ft_transfer_call` to the business contract). Each use settles against units the contract
+  holds for that customer, so the units survive a sale. People sign in with a NEP-413 signed
+  message.
+- **Companion contracts ask the business contract before they act.** The supplier-budget
+  companion pays suppliers within the owner's limits. The asset-key companion uses NEAR Chain
+  Signatures (`v1.signer-prod.testnet`) to sign for an Ethereum address derived for each
+  generation, and moves a role in a Sepolia registry to the buyer's address.
+- **NEAR Intents funds the escrow.** A buyer swaps another token through NEAR's intents verifier
+  and funds escrow with the proceeds.
+- **Anyone can check the chain side.** The business, companion, and verifier contracts were
+  deployed with no access keys from reproducible builds, the recorded runs re-read testnet
+  with `--live`, and a light-client proof checks the closing transaction against a block
+  header.
+
 ## Try Everstreet
 
 Requires Node 24 or later.
@@ -66,7 +87,7 @@ Its mid-sale business is Signalwatch. Sign out and back in to switch roles.
 4. As **Cara Okafor**, use Signalwatch with the prepaid entitlement she bought before the sale.
 
 Explore the studio and the other businesses from Delphine's portfolio. The demo uses ports
-8820 and 8821 and stops after two hours. Use `npm run demo -- --port 8830` to move the ports
+8820 and 8821 and stops after two hours. Use `npm run demo -- --port 8840` to move the ports
 or `npm run demo -- --minutes 300` for a longer session.
 
 The recorded Ledgerline proof is also available in the running app at
@@ -92,17 +113,23 @@ The later sale records and that snapshot are separate observations. [First sale 
 update](data/evidence/v3-direct-testnet.json) · [Second sale](data/evidence/v3-ext-testnet.json) ·
 [Third sale](data/evidence/v3-s4-testnet.json) · [Final snapshot](data/evidence/ledgerline-after-sales-testnet.json)
 
+After the third sale, the former owner signed two owner-only calls and sent them straight to
+the business contract, with no app in between: appointing itself as an operator and withdrawing
+profit. The contract refused both with `E_NOT_OWNER` and control did not change.
+[Former-owner record](data/evidence/former-owner-probe-testnet.json)
+
 Each claim below has a test or verifier and its recorded evidence. App tests use synthetic
 chains unless the row names a local NEAR node or testnet run.
 
 | Claim | Test or verifier | Recorded evidence | Where to look |
 |---|---|---|---|
 | The buyer serves a customer who prepaid before the sale, including on a new release. | [Full application journey](server/test/flagship-journey-process.test.ts) | [NEAR close](https://testnet.nearblocks.io/txns/24RLpPg2CdVbPRUtLSKUL1fhFqP4TP2FhkarZWEoreGi), [Direct record](data/evidence/v3-direct-testnet.json) | `next_use_under_buyer` and `after_update` checkpoints |
+| The business contract refuses the former owner's owner actions after the third sale and leaves control unchanged. | [Contract attack tests](contracts/business-v3/src/attack_tests3.rs) | [Refused appointment](https://testnet.nearblocks.io/txns/ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb), [refused withdrawal](https://testnet.nearblocks.io/txns/5GHE62Gn8futiMAsjBiU1GDLeyeDr3y9oYiLPDyN2gzF) | `before` and `after` checkpoints in the [former-owner record](data/evidence/former-owner-probe-testnet.json) |
 | The former owner's supplier grant is refused after the third sale. | [Companion on a local NEAR node](contracts/spend-allowance/tests/sandbox.rs) | [Failed grant](https://testnet.nearblocks.io/txns/6wPkYAYDvcyQGZtmqyC4EXe75Cc5zrj9Nr9iytuN625f), [series 4 record](data/evidence/v3-s4-testnet.json) | `former_owner_grant_refused` |
 | A Gated sale returns an outstanding reservation and resumes service under the buyer. | [Gated application journey](server/test/flagship-gated-journey.test.ts) | [Gated testnet record](data/evidence/v3-gated-testnet.json) | `request_during_gate` and the closing checkpoints |
 | A buyer funds escrow from another token through NEAR Intents. | [Verifier and business on a local NEAR node](contracts/intents-funding/tests/sandbox.rs) | [Withdrawal from the verifier](https://testnet.nearblocks.io/txns/CdoArhZoAVJ6b6Cn5xEvr2MfEZae3uEwr4gY4hQJFgWk), [escrow funding](https://testnet.nearblocks.io/txns/CvmiCw4NpvT8k6H2jQPeRTJ7CfCDYxjTUB1EsuhSB95a) | [Recorded swap, recovery, and funding](data/evidence/v3-ext-testnet.json) |
 | The buyer moves a Sepolia role through Chain Signatures to an address derived by the companion. | [Asset key on a local NEAR node](contracts/asset-key/tests/sandbox.rs) | [Final Sepolia transaction](https://sepolia.etherscan.io/tx/0x512803af90ad082206987398a933fc9ae84184498715d1fcb56a9cae264c2934) | `move_destination_derived` and `role_move_final_gen4` in [series 4](data/evidence/v3-s4-testnet.json) |
-| A registration paid by the owner causes that customer's revenue to be flagged as linked. | [Revenue attribution tests](server/test/revenue-sources.test.ts) | [Owner-paid registration](https://testnet.nearblocks.io/txns/68QvKsQKUW72BWYmBtMG7pmJEVoixRV5ZZz3hcBPzr7V) | `revenue_by_source` in the [recorded application view](data/evidence/linked-revenue-testnet.json) |
+| A registration paid by the owner causes that customer's revenue to be flagged as linked. | [Revenue attribution tests](server/test/revenue-sources.test.ts) | [Owner-paid registration](https://testnet.nearblocks.io/txns/BrRgXa3Sjj71rB2SuVsozocyyDRSb3a2GCovFWW4sscQ) | `revenue_by_source` in the [recorded application view](data/evidence/linked-revenue-testnet.json) |
 | Agents receive purchase terms through HTTP 402 and get units after a confirmed purchase. | [HTTP 402 tests](server/test/payment-402.test.ts) | [Synthetic demo flow](scripts/lib/demo/agents.ts) | The owner's Agent purchases page |
 | A failed sale-proceeds transfer restores the seller's claim, which can be collected later. | [Contract payout tests](contracts/business-v3/tests/sandbox.rs) | [Failed transfer and restored claim](https://testnet.nearblocks.io/txns/BeTTPWocGTCCjm84iPyWcAc5mm9cRKsQPgCCmQWosrFB), [successful retry](https://testnet.nearblocks.io/txns/GAKRgxD9BZ19f2hBi538zfHsjELHeq5Kxz7J2UNELZLm) | [Recovery record](data/evidence/v3-recovery-testnet.json) |
 
@@ -122,16 +149,28 @@ The featured NEAR business contracts, fixed companions, and Intents verifier wer
 and code hash. Anyone can rebuild them and compare with the deployed code. [Build instructions
 and deployments](docs/BUILDS.md)
 
+| On testnet | What it is |
+|---|---|
+| [`ledgerline-v3-3b.everstreet.testnet`](https://testnet.nearblocks.io/address/ledgerline-v3-3b.everstreet.testnet) | Ledgerline's business contract (Direct sales; three sales recorded) |
+| [`ledgerline-gated-v3-3.everstreet.testnet`](https://testnet.nearblocks.io/address/ledgerline-gated-v3-3.everstreet.testnet) | The same business contract, Gated sale |
+| [`ledgerline-payout-v3-3.everstreet.testnet`](https://testnet.nearblocks.io/address/ledgerline-payout-v3-3.everstreet.testnet) | The same business contract, failed-payout recovery |
+| [`feed-key-v3s4.everstreet.testnet`](https://testnet.nearblocks.io/address/feed-key-v3s4.everstreet.testnet) | Asset-key companion (Chain Signatures), fixed build |
+| [`budget-v3s4.everstreet.testnet`](https://testnet.nearblocks.io/address/budget-v3s4.everstreet.testnet) | Supplier-budget companion, fixed build |
+| [`intents-v3s3.everstreet.testnet`](https://testnet.nearblocks.io/address/intents-v3s3.everstreet.testnet) | NEAR's intents verifier, built from its published source |
+| [`tusd.everstreet.testnet`](https://testnet.nearblocks.io/address/tusd.everstreet.testnet) | Test token (NEP-141), no monetary value |
+| Sepolia [`0x3b093ebdf5e727766c128df85d1f4540d84de269`](https://sepolia.etherscan.io/address/0x3b093ebdf5e727766c128df85d1f4540d84de269) | Example registry whose role moves to the buyer |
+
 Separate cold AI reviewers attacked the contracts and the application's permissions. Their
 findings include companion vulnerabilities that were fixed and deployed in series 4, and an
 in-flight authority window documented below. The reports retain the findings and the tests
 that reproduce them. [Contract reviews](docs/SAFETY_CASE.md) ·
 [Application permissions review](reports/2026-11-07_permissions-review.md)
 
-The recorded application attack suite contains **27 cases**, including refused actions and
-flagged revenue, plus **5 deliberately planted faults caught by its checks**. It runs through
-the real application routes over a synthetic chain. The record carries its commit and an
-uncommitted-changes flag. Separate testnet records pair permitted actions with attacks.
+The recorded application attack suite contains **27 cases, each refused or flagged**, plus
+**5 deliberately planted faults, all caught by its checks**. It runs through the real
+application routes over a synthetic chain, and the record names the commit it ran at
+(`7fa7a32`, with no uncommitted changes). Separate testnet records pair permitted actions with
+attacks.
 [Suite record](data/evidence/attack-suite.json) · [Testnet pairs](data/evidence/attack-pairs-testnet.json) ·
 [Additional testnet pairs](data/evidence/attack-pairs-extra-testnet.json)
 
@@ -202,9 +241,24 @@ The earlier OpenSeat booking and v2 sale examples remain in the
 and [sale](data/evidence/sale-testnet.json) records. Configuration for the normal application
 entry is documented in [application composition](docs/design/APPLICATION_COMPOSITION.md).
 
+## How it was made
+
+- **Built at NEAR HACKATHON.** The first commit is November 1, 2026, inside the hackathon
+  window, which opened October 19.
+- **AI-written code.** The code and docs were written by AI coding agents directed by Tony:
+  Claude (Anthropic) builds and verifies, and Astra (an OpenAI Codex agent) leads concept,
+  story, and visual direction. The cold reviews were also done by AI models.
+- **Libraries.** Contracts: near-sdk and near-contract-standards, tested with near-sandbox and
+  near-api, built with cargo-near. App: Hono, React, Vite, near-api-js, NEAR Wallet Selector,
+  and noble curves and hashes. Tooling: TypeScript, Biome, and Vitest.
+- **Third-party contract.** NEAR's intents verifier, built unmodified from
+  [github.com/near/intents](https://github.com/near/intents) (MIT) at commit `32cd1f97`.
+  [Build and deployment](docs/INTENTS.md)
+
 ## Team
 
 DadMod — Tony Langford, with AI collaborators Astra and Claude.
 
 Everstreet is a separate project from the same team's other hackathon entry, Day One, an AI
 purchasing assistant. The projects share no code, data, accounts, or deployments.
+<!-- TODO before submitting: link Day One's public repository in the sentence above. -->
