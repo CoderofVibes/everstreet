@@ -19,7 +19,8 @@ Claude builds. This note is the one place the new direction is written down.
 
 ## Approved wording (Anthony, Nov 7)
 
-- **Headline:** "A launchpad for the agentic economy, on NEAR."
+- **Headline:** "A launchpad and marketplace for the agentic economy, on NEAR." (Anthony, Nov 7
+  late: "marketplace" because customers find services here and buyers find businesses.)
 - **The three parts:** anyone can launch an AI-powered product or agent service; agents can buy
   from it and spend for it, using their own NEAR accounts within limits the contract enforces;
   and when the business changes hands, its customers and its agents' permissions follow the

@@ -1,6 +1,6 @@
 # Everstreet
 
-**A launchpad for the agentic economy, on NEAR.**
+**A launchpad and marketplace for the agentic economy, on NEAR.**
 
 It's easier than ever to build products and services with AI. Everstreet turns them into
 businesses.
@@ -9,9 +9,10 @@ businesses.
   people who need it, and run it from one workspace.
 - **Agents as customers and spenders.** Agents buy from it and spend for it, using their own
   NEAR accounts, within limits the contract enforces.
-- **Hand it over intact.** When the business changes hands, its treasury, its customers' prepaid
-  uses and its agents' permissions follow the contract, and its products and customer records
-  come with it.
+- **Sell it, and hand it over intact.** Investors and other companies can find businesses open to
+  acquisition and check what they would buy. When a business changes hands, its treasury, its
+  customers' prepaid uses and its agents' permissions follow the contract, and its products and
+  customer records come with it.
 
 **Ledgerline, our example invoice API, has changed hands three times on NEAR testnet.**
 In the recorded snapshot after the third sale, its first customer has **78 unused uses and
