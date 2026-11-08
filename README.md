@@ -75,16 +75,19 @@ npm install
 npm run demo
 ```
 
-Open the [demo portfolio](http://127.0.0.1:8820/portfolio), choose **Continue with Synthetic
-demo wallet**, and pick a person. This local walkthrough uses a synthetic wallet and chain.
-Its mid-sale business is Signalwatch. Sign out and back in to switch roles.
+Open the [demo portfolio](http://127.0.0.1:8820/portfolio) and choose **Continue with Synthetic
+demo wallet**. You start as Delphine Marsh. This local walkthrough uses a synthetic wallet and
+chain. Its mid-sale business is Signalwatch. To switch people, open the menu under your name,
+choose **Disconnect Synthetic demo wallet**, then **Sign out of Everstreet**, and sign in again
+to pick someone from the wallet's list.
 
 1. As **Delphine Marsh**, open Signalwatch from **Needs you today** and accept the sale terms.
 2. As **Noah Brandt**, accept and close. Follow the first-shift checklist into the business
    you now control.
-3. As **Delphine**, collect the proceeds and choose **Try an owner action**. The synthetic
-   contract refuses her attempt to appoint herself.
-4. As **Cara Okafor**, use Signalwatch with the prepaid entitlement she bought before the sale.
+3. As **Delphine**, register with the token, collect the proceeds, and choose **Try an owner
+   action**. The synthetic contract refuses her attempt to appoint herself.
+4. As **Cara Okafor**, open Signalwatch from **My activity**, enroll the device, and spend one of
+   the prepaid uses she bought before the sale.
 
 Explore the studio and the other businesses from Delphine's portfolio. The demo uses ports
 8820 and 8821 and stops after two hours. Use `npm run demo -- --port 8840` to move the ports
