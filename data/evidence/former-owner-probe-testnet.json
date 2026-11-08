@@ -1,0 +1,220 @@
+{
+  "format": "everstreet-v3-rehearsal",
+  "version": 1,
+  "header": {
+    "example": "former-owner-probe",
+    "network": "testnet",
+    "label": "NEAR testnet",
+    "commit": "9ecd293c05056125249bf921c98d4cb9a6feb6e7",
+    "contract": {
+      "account": "ledgerline-v3-3b.everstreet.testnet",
+      "wasm_sha256": "ede1c2f7bed77d1832f5b16e8a873645b387693a486b42a745a06b6d510a29b4",
+      "code_hash_expected": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw"
+    },
+    "accounts": {
+      "founder": "ines-v3s4.everstreet.testnet",
+      "prober": "noor-v3s3.everstreet.testnet"
+    },
+    "model": "none (no app, no AI: two transactions signed by the former owner)"
+  },
+  "steps": [
+    {
+      "n": 1,
+      "step": "former_owner_appoints_itself",
+      "kind": "transaction",
+      "signer": {
+        "role": "prober",
+        "account": "noor-v3s3.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "ledgerline-v3-3b.everstreet.testnet",
+        "method": "appoint_operator_guarded",
+        "deposit": "1",
+        "gas": "30000000000000",
+        "args": {
+          "account": "noor-v3s3.everstreet.testnet",
+          "caps": 1,
+          "expected_control_seq": "14"
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb",
+        "explorer": "https://testnet.nearblocks.io/txns/ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb",
+        "succeeded": false,
+        "error": "{\"ActionError\":{\"index\":0,\"kind\":{\"FunctionCallError\":{\"ExecutionError\":\"Smart contract panicked: E_NOT_OWNER: only the current owner\"}}}}",
+        "receipts": [
+          {
+            "executor": "ledgerline-v3-3b.everstreet.testnet",
+            "status": "Failure",
+            "logs": []
+          },
+          {
+            "executor": "noor-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "noor-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": null
+    },
+    {
+      "n": 2,
+      "step": "former_owner_withdraws_profit",
+      "kind": "transaction",
+      "signer": {
+        "role": "prober",
+        "account": "noor-v3s3.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "ledgerline-v3-3b.everstreet.testnet",
+        "method": "withdraw_profit",
+        "deposit": "1",
+        "gas": "30000000000000",
+        "args": {
+          "amount": "1"
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "5GHE62Gn8futiMAsjBiU1GDLeyeDr3y9oYiLPDyN2gzF",
+        "explorer": "https://testnet.nearblocks.io/txns/5GHE62Gn8futiMAsjBiU1GDLeyeDr3y9oYiLPDyN2gzF",
+        "succeeded": false,
+        "error": "{\"ActionError\":{\"index\":0,\"kind\":{\"FunctionCallError\":{\"ExecutionError\":\"Smart contract panicked: E_NOT_OWNER: only the current owner\"}}}}",
+        "receipts": [
+          {
+            "executor": "ledgerline-v3-3b.everstreet.testnet",
+            "status": "Failure",
+            "logs": []
+          },
+          {
+            "executor": "noor-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "noor-v3s3.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": null
+    },
+    {
+      "n": 3,
+      "step": "unchanged",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "owner": "ines-v3s4.everstreet.testnet",
+        "generation": 4,
+        "control_seq": "14",
+        "operators": [
+          [
+            "meter-direct-v3s3b.everstreet.testnet",
+            1,
+            4
+          ]
+        ]
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "name": "before",
+      "source": "chain_final",
+      "at": "2026-11-08T01:31:15.993Z",
+      "views": {
+        "block": {
+          "height": "276709359",
+          "hash": "QeeK6RuwrY5KjQPfs5YfHchmvaPm74SLcR8QEmL7FRz"
+        },
+        "control": {
+          "owner": "ines-v3s4.everstreet.testnet",
+          "generation": 4,
+          "control_seq": "14",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              4
+            ]
+          ],
+          "live_deal": null
+        },
+        "treasury": {
+          "asset": "tusd.everstreet.testnet",
+          "held": "695300000",
+          "ent_free_value": "11850000",
+          "ent_held_value": "0",
+          "available": "3450000",
+          "withdrawable": "2700000",
+          "pending_total": "0",
+          "claims_total": "680000000",
+          "escrow_total": "0"
+        }
+      }
+    },
+    {
+      "name": "after",
+      "source": "chain_final",
+      "at": "2026-11-08T01:31:24.490Z",
+      "views": {
+        "block": {
+          "height": "276709373",
+          "hash": "4vHHmP7Es6VaXzXFsnaUrKPtUT5Ui1CVK3dGX4hatWKo"
+        },
+        "control": {
+          "owner": "ines-v3s4.everstreet.testnet",
+          "generation": 4,
+          "control_seq": "14",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              4
+            ]
+          ],
+          "live_deal": null
+        },
+        "treasury": {
+          "asset": "tusd.everstreet.testnet",
+          "held": "695300000",
+          "ent_free_value": "11850000",
+          "ent_held_value": "0",
+          "available": "3450000",
+          "withdrawable": "2700000",
+          "pending_total": "0",
+          "claims_total": "680000000",
+          "escrow_total": "0"
+        }
+      }
+    }
+  ],
+  "outcome": {
+    "completed": true
+  },
+  "digests": {
+    "sections": {
+      "header": "14ac4678e68debd24750e40b890387e51499a980ccd557b5d9c8b38b29097d6a",
+      "steps": "68710acc8c69f2e60975c4e6a69b8a9e70a38a470393c7f087046992b6d27588",
+      "checkpoints": "9c370c4c89513020a10903f239ba139c3298403ea0eea8273bdbc3fe3eb352aa",
+      "outcome": "b0ce5e6a8fd8db36ff1175157b0ab566e3088b8d85ab627e49a75ce531efeb10"
+    },
+    "record": "d60e929d7c1de67e28232c14233129d7741d7718ca76e280cb65e9f39ff00a6b"
+  }
+}

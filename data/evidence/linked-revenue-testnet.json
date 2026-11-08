@@ -1,0 +1,717 @@
+{
+  "format": "everstreet-v3-rehearsal",
+  "version": 1,
+  "header": {
+    "example": "linked-revenue",
+    "network": "testnet",
+    "label": "NEAR testnet",
+    "commit": "9ecd293c05056125249bf921c98d4cb9a6feb6e7",
+    "contract": {
+      "account": "ledgerline-v3-3b.everstreet.testnet",
+      "wasm_sha256": "ede1c2f7bed77d1832f5b16e8a873645b387693a486b42a745a06b6d510a29b4",
+      "code_hash_expected": "H1bHmRMXLKb6BY7UXH4fEzPyQ5vs5FMoXhA9Z3tMTUvw"
+    },
+    "accounts": {
+      "founder": "ines-v3s4.everstreet.testnet",
+      "customer": "wren-v3s6.everstreet.testnet",
+      "earlier_customer": "cara-v3s3-1.everstreet.testnet",
+      "operator": "meter-direct-v3s3b.everstreet.testnet"
+    },
+    "model": "stand-in (labelled; no AI provider is called)"
+  },
+  "steps": [
+    {
+      "n": 1,
+      "step": "owner_pays_customer_registration",
+      "kind": "transaction",
+      "signer": {
+        "role": "founder",
+        "account": "ines-v3s4.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "ledgerline-v3-3b.everstreet.testnet",
+        "method": "sponsor_shell",
+        "deposit": "8390000000000000000000",
+        "gas": "30000000000000",
+        "args": {
+          "customer": "wren-v3s6.everstreet.testnet",
+          "plan_id": 1
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "BrRgXa3Sjj71rB2SuVsozocyyDRSb3a2GCovFWW4sscQ",
+        "explorer": "https://testnet.nearblocks.io/txns/BrRgXa3Sjj71rB2SuVsozocyyDRSb3a2GCovFWW4sscQ",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "ledgerline-v3-3b.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"shell_sponsored\",\"data\":[{\"customer\":\"wren-v3s6.everstreet.testnet\",\"plan_id\":1,\"reg_id\":\"3\",\"payer\":\"ines-v3s4.everstreet.testnet\"}]}"
+            ]
+          },
+          {
+            "executor": "ines-v3s4.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": null
+    },
+    {
+      "n": 2,
+      "step": "purchase_2_customer",
+      "kind": "transaction",
+      "signer": {
+        "role": "customer",
+        "account": "wren-v3s6.everstreet.testnet"
+      },
+      "call": {
+        "receiver": "tusd.everstreet.testnet",
+        "method": "ft_transfer_call",
+        "deposit": "1",
+        "gas": "100000000000000",
+        "args": {
+          "receiver_id": "ledgerline-v3-3b.everstreet.testnet",
+          "amount": "300000",
+          "msg": "{\"buy\":{\"plan_id\":1,\"units\":2,\"purchase_seq\":1,\"install\":{\"slot\":0,\"pk\":\"cca3f39ff69bb8e72ca07cb1aafe5aa29540e8c36b4df31ea8cc314e474770a2\",\"max_hold_units\":1,\"max_units_per_day\":100},\"reg_id\":\"3\"}}"
+        }
+      },
+      "chain": {
+        "source": "chain_final",
+        "hash": "2HoYM3cZxjr53j92Diw6fZP2oYfMobuhxyvGosJoAqYS",
+        "explorer": "https://testnet.nearblocks.io/txns/2HoYM3cZxjr53j92Diw6fZP2oYfMobuhxyvGosJoAqYS",
+        "succeeded": true,
+        "error": null,
+        "receipts": [
+          {
+            "executor": "tusd.everstreet.testnet",
+            "status": "SuccessReceiptId",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"nep141\",\"version\":\"1.0.0\",\"event\":\"ft_transfer\",\"data\":[{\"old_owner_id\":\"wren-v3s6.everstreet.testnet\",\"new_owner_id\":\"ledgerline-v3-3b.everstreet.testnet\",\"amount\":\"300000\"}]}"
+            ]
+          },
+          {
+            "executor": "ledgerline-v3-3b.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": [
+              "EVENT_JSON:{\"standard\":\"business_core\",\"version\":\"3.0.0\",\"event\":\"units_bought\",\"data\":[{\"customer\":\"wren-v3s6.everstreet.testnet\",\"plan_id\":1,\"units\":2,\"amount\":\"300000\"}]}"
+            ]
+          },
+          {
+            "executor": "wren-v3s6.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "tusd.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "wren-v3s6.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          },
+          {
+            "executor": "wren-v3s6.everstreet.testnet",
+            "status": "SuccessValue",
+            "logs": []
+          }
+        ]
+      },
+      "app": {
+        "source": "app_recorded",
+        "resolution": {
+          "kind": "confirmed",
+          "units": 2,
+          "amount": "300000"
+        }
+      }
+    },
+    {
+      "n": 3,
+      "step": "use_1",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "use": "38b8e039-e5e4-4b3e-a658-758207e3aab5",
+        "offer": "1b909d95-22e1-452a-9a26-f440f35004cb",
+        "key_slot": 0,
+        "delivered": true,
+        "unit": "charged"
+      }
+    },
+    {
+      "n": 4,
+      "step": "revenue_by_source",
+      "kind": "app",
+      "source": "app_recorded",
+      "facts": {
+        "independent": {
+          "customers": 1,
+          "uses": 22,
+          "revenue": "3300000"
+        },
+        "linked": {
+          "customers": 2,
+          "uses": 2,
+          "revenue": "300000",
+          "accounts": [
+            {
+              "account": "wren-v3s5.everstreet.testnet",
+              "uses": 1,
+              "reasons": [
+                "registration_paid_by_seller"
+              ]
+            },
+            {
+              "account": "wren-v3s6.everstreet.testnet",
+              "uses": 1,
+              "reasons": [
+                "registration_paid_by_seller"
+              ]
+            }
+          ]
+        },
+        "unchecked": {
+          "customers": 0,
+          "uses": 0,
+          "revenue": "0"
+        },
+        "checked": [
+          "owner_account",
+          "operator",
+          "owner_here",
+          "team_here",
+          "registration_paid_by_seller"
+        ],
+        "not_checked": [
+          "funding_through_other_accounts",
+          "recruited_third_parties"
+        ],
+        "books": {
+          "earned_uses": 24,
+          "earned_revenue": "3600000"
+        }
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "name": "start",
+      "source": "chain_final",
+      "at": "2026-11-08T01:32:05.529Z",
+      "views": {
+        "block": {
+          "height": "276709439",
+          "hash": "584c6kEE8RujYzeTiaG6BGPKJUCh5vmiszndHhFo9MFw"
+        },
+        "control": {
+          "owner": "ines-v3s4.everstreet.testnet",
+          "generation": 4,
+          "control_seq": "14",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              4
+            ]
+          ],
+          "live_deal": null
+        },
+        "entitlement": null,
+        "earlier_customer": {
+          "reg_id": "1",
+          "active": true,
+          "free": "78",
+          "consumed": "22",
+          "units_retired_to_refund": "0",
+          "purchased": "100",
+          "purchase_seq": 1,
+          "hold_seq": 22,
+          "hold_active": false,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 0,
+          "hold_units": 0,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [],
+          "hold_opened_at_ms": "0",
+          "serve_until_ms": "0",
+          "settle_until_ms": "0",
+          "last_hold_seq": 22,
+          "last_hold_used": 1,
+          "last_hold_charged": 1,
+          "last_hold_root": "2b612dcd3ed0b355579becce64dff701fd7954ade4deb063f6c4d66cab909142",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "ba6c85d72adf723a6476ee6b5e7f02220565a42583eea4d6ba271a7489127704",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 20764,
+              "held_today": 22
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "cara-v3s3-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
+        }
+      }
+    },
+    {
+      "name": "registration_paid_by_owner",
+      "source": "chain_final",
+      "at": "2026-11-08T01:32:11.579Z",
+      "views": {
+        "block": {
+          "height": "276709448",
+          "hash": "8KK4BTU2dE9FjQEiMPPPYg1JvhG8dnuiAdKx5sWYbfxj"
+        },
+        "control": {
+          "owner": "ines-v3s4.everstreet.testnet",
+          "generation": 4,
+          "control_seq": "14",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              4
+            ]
+          ],
+          "live_deal": null
+        },
+        "entitlement": {
+          "reg_id": "3",
+          "active": false,
+          "free": "0",
+          "consumed": "0",
+          "units_retired_to_refund": "0",
+          "purchased": "0",
+          "purchase_seq": 0,
+          "hold_seq": 0,
+          "hold_active": false,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 0,
+          "hold_units": 0,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [],
+          "hold_opened_at_ms": "0",
+          "serve_until_ms": "0",
+          "settle_until_ms": "0",
+          "last_hold_seq": 0,
+          "last_hold_used": 0,
+          "last_hold_charged": 0,
+          "last_hold_root": "0000000000000000000000000000000000000000000000000000000000000000",
+          "key_states": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "ines-v3s4.everstreet.testnet",
+          "storage_paid": "8390000000000000000000"
+        },
+        "earlier_customer": {
+          "reg_id": "1",
+          "active": true,
+          "free": "78",
+          "consumed": "22",
+          "units_retired_to_refund": "0",
+          "purchased": "100",
+          "purchase_seq": 1,
+          "hold_seq": 22,
+          "hold_active": false,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 0,
+          "hold_units": 0,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [],
+          "hold_opened_at_ms": "0",
+          "serve_until_ms": "0",
+          "settle_until_ms": "0",
+          "last_hold_seq": 22,
+          "last_hold_used": 1,
+          "last_hold_charged": 1,
+          "last_hold_root": "2b612dcd3ed0b355579becce64dff701fd7954ade4deb063f6c4d66cab909142",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "ba6c85d72adf723a6476ee6b5e7f02220565a42583eea4d6ba271a7489127704",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 20764,
+              "held_today": 22
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "cara-v3s3-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
+        }
+      }
+    },
+    {
+      "name": "used_once",
+      "source": "chain_final",
+      "at": "2026-11-08T01:32:27.382Z",
+      "views": {
+        "block": {
+          "height": "276709471",
+          "hash": "F4y5UxedmFoAMSpyaXRBZhxGHun6TD6nyVTvfRAurozG"
+        },
+        "control": {
+          "owner": "ines-v3s4.everstreet.testnet",
+          "generation": 4,
+          "control_seq": "14",
+          "close_mode": "direct",
+          "closer": null,
+          "service_manifest": "0000000000000000000000000000000000000000000000000000000000000000",
+          "manifest_seq": "0",
+          "operators": [
+            [
+              "meter-direct-v3s3b.everstreet.testnet",
+              1,
+              4
+            ]
+          ],
+          "live_deal": null
+        },
+        "entitlement": {
+          "reg_id": "3",
+          "active": true,
+          "free": "1",
+          "consumed": "1",
+          "units_retired_to_refund": "0",
+          "purchased": "2",
+          "purchase_seq": 1,
+          "hold_seq": 1,
+          "hold_active": false,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 0,
+          "hold_units": 0,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [],
+          "hold_opened_at_ms": "0",
+          "serve_until_ms": "0",
+          "settle_until_ms": "0",
+          "last_hold_seq": 1,
+          "last_hold_used": 1,
+          "last_hold_charged": 1,
+          "last_hold_root": "d2fbbdbd11c28657a0f545908be567ad6a22af163a5fa9661d6caa1fefa5e087",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "cca3f39ff69bb8e72ca07cb1aafe5aa29540e8c36b4df31ea8cc314e474770a2",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 20765,
+              "held_today": 1
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "ines-v3s4.everstreet.testnet",
+          "storage_paid": "8390000000000000000000"
+        },
+        "earlier_customer": {
+          "reg_id": "1",
+          "active": true,
+          "free": "78",
+          "consumed": "22",
+          "units_retired_to_refund": "0",
+          "purchased": "100",
+          "purchase_seq": 1,
+          "hold_seq": 22,
+          "hold_active": false,
+          "hold_key_slot": 0,
+          "hold_key_epoch": 0,
+          "hold_units": 0,
+          "hold_charged": 0,
+          "hold_used": 0,
+          "hold_slots": [],
+          "hold_opened_at_ms": "0",
+          "serve_until_ms": "0",
+          "settle_until_ms": "0",
+          "last_hold_seq": 22,
+          "last_hold_used": 1,
+          "last_hold_charged": 1,
+          "last_hold_root": "2b612dcd3ed0b355579becce64dff701fd7954ade4deb063f6c4d66cab909142",
+          "key_states": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "key_epochs": [
+            1,
+            0,
+            0,
+            0
+          ],
+          "keys": [
+            {
+              "slot": 0,
+              "state": "active",
+              "epoch": 1,
+              "public_key": "ba6c85d72adf723a6476ee6b5e7f02220565a42583eea4d6ba271a7489127704",
+              "max_hold_units": 1,
+              "max_units_per_day": 100,
+              "day": 20764,
+              "held_today": 22
+            },
+            {
+              "slot": 1,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 2,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            },
+            {
+              "slot": 3,
+              "state": "empty",
+              "epoch": 0,
+              "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+              "max_hold_units": 0,
+              "max_units_per_day": 0,
+              "day": 0,
+              "held_today": 0
+            }
+          ],
+          "claim": "0",
+          "pending_refs": 0,
+          "paused": false,
+          "storage_payer": "cara-v3s3-1.everstreet.testnet",
+          "storage_paid": "8410000000000000000000"
+        }
+      }
+    }
+  ],
+  "outcome": {
+    "completed": true
+  },
+  "digests": {
+    "sections": {
+      "header": "b1832ebda25f8002681ada5644f4ccc902a437455f8496c8f3f575317361bd3b",
+      "steps": "ddc6f76a79b27fa9fcb64bc9e7373b1d3c0cc49bd2a55d3a5d0a3719dac3b468",
+      "checkpoints": "b269754fd07e974672eedcb491c35b8ec6ae021ceafaa1ba3c37f553cb9aa889",
+      "outcome": "b0ce5e6a8fd8db36ff1175157b0ab566e3088b8d85ab627e49a75ce531efeb10"
+    },
+    "record": "193814f66377a279121a9f6af15582060f85b71a4995c90e09092a4c70393e1e"
+  }
+}
