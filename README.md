@@ -1,238 +1,210 @@
 # Everstreet
 
-Start an online business, get found by the people who need it, and, if you ever sell, hand it to a
-buyer without breaking what customers already paid for.
+**Build, run, and sell a digital business. Hand it over intact.**
 
-Small online businesses (an AI API, a SaaS workflow, an agent service) are hard to sell. Customers
-have prepaid credits, keys and open requests, and today a sale means trusting the seller to hand
-everything over and stop using it. On Everstreet each business runs on its own NEAR contract. The
-contract holds customers' prepaid units, refuses the old owner the moment the sale closes, and lets
-the buyer serve the very next request.
+Everstreet is a platform for founders building AI tools, SaaS products, and agent services.
+Shape a product in the studio, publish it for people to find, serve paying customers, and run
+the business from one workspace. When it changes hands, the buyer takes over its managed
+operations and the customers keep what they already paid for.
 
-Built for NEAR HACKATHON (November 2026). Fictional people and data, NEAR testnet only, test tokens
-with no value. Everstreet is a separate project from the same team's other entry, Day One (an AI
-purchasing assistant); the two share no code, data or deployments.
+**Ledgerline, our example invoice API, has changed hands three times on NEAR testnet.**
+In the recorded snapshot after the third sale, its first customer has **78 unused uses and
+22 used of the 100 they bought**.
 
-**Watch:** demo video (link added at submission).
+| The sale closes | The former owner is refused | The customer keeps their uses |
+|---|---|---|
+| Ledgerline moves to its next owner, at generation 4. | The supplier-budget companion checks Ledgerline's owner and refuses the seller's new grant with `E_NOT_OWNER`. | All 100 uses are accounted for after three sales. |
+| [Closing transaction](https://testnet.nearblocks.io/txns/3psBJvLE3EBq9BNMF7ZZQub9EZab77L7je5U8x8zcSet) | [Failed grant transaction](https://testnet.nearblocks.io/txns/6wPkYAYDvcyQGZtmqyC4EXe75Cc5zrj9Nr9iytuN625f) | [Customer snapshot](data/evidence/ledgerline-after-sales-testnet.json) |
 
-## Try it
+[Try Everstreet](#try-everstreet) · [Follow the proof](#follow-the-proof) · [Check the build](#check-the-build)
 
-Requirements: Node 24+.
+Built for NEAR HACKATHON, November 2026. Fictional businesses and people, NEAR testnet and
+Ethereum Sepolia, and test tokens with no monetary value.
 
-```
+## From an idea to the next owner
+
+**Build something people can use.** Start with an idea or a request on the need board. Shape
+the product in the studio, keep its revisions, run checks, and release a customer offer.
+Published businesses can be found by people searching for a solution. The examples span
+Ledgerline's invoice extraction, Relaydesk's case workflow, and Signalwatch's changelog analysis.
+The AI examples use a labeled stand-in model.
+
+**Run the business.** The owner's desk brings together customer activity, team access,
+releases, revenue, and costs. People and agents can buy prepaid uses. An agent with its own
+account receives an HTTP 402 purchase offer and pays as a customer. A business can also give
+an agent a supplier budget with spending limits and owner approval for larger payments.
+
+**Prepare it for someone else to own.** A buyer can discover an acquisition, request access
+to evidence, inspect the economics, and agree to exact sale terms. Everstreet carries the
+business's projects, releases, and customer records through the handover. The buyer's first
+shift is to confirm control, set up their team, and serve the people who already paid.
+
+The studio and service run in the app. **For each business, one NEAR contract decides who is
+in charge. The companion contracts ask it before they act.** The business contract holds prepaid units,
+customer claims, treasury balances, and sale escrow. At close it changes the owner and authority
+generation together. Everstreet follows the finalized result, and the buyer completes any
+separate companion actions.
+
+## Try Everstreet
+
+Requires Node 24 or later.
+
+```sh
 npm install
 npm run demo
 ```
 
-Open http://127.0.0.1:8820/portfolio, choose **Continue with Synthetic demo wallet**, and pick
-who to be. The demo runs entirely on your machine with a synthetic wallet and chain; the same sale
-on real NEAR testnet is recorded below. One route through it (sign out and in again to switch):
+Open the [demo portfolio](http://127.0.0.1:8820/portfolio), choose **Continue with Synthetic
+demo wallet**, and pick a person. This local walkthrough uses a synthetic wallet and chain.
+Its mid-sale business is Signalwatch. Sign out and back in to switch roles.
 
-1. **Delphine Marsh**, the seller: Signalwatch is mid-sale. Open it from "Needs you today" and
-   accept the terms.
-2. **Noah Brandt**, the buyer: accept and close the sale. The sale page then shows your first
-   shift: control, customers' uses, customers' prepaid units, your team.
-3. **Delphine** again: collect the proceeds, then **Try an owner action**. Her own wallet asks
-   the contract to appoint her; it refuses (`E_NOT_OWNER`, here on the synthetic chain, which
-   follows the contract's rules) and the page shows the transaction.
-4. **Cara Okafor**, a customer who paid before the sale: use Signalwatch under its new owner.
+1. As **Delphine Marsh**, open Signalwatch from **Needs you today** and accept the sale terms.
+2. As **Noah Brandt**, accept and close. Follow the first-shift checklist into the business
+   you now control.
+3. As **Delphine**, collect the proceeds and choose **Try an owner action**. The synthetic
+   contract refuses her attempt to appoint herself.
+4. As **Cara Okafor**, use Signalwatch with the prepaid entitlement she bought before the sale.
 
-The demo uses ports 8820 and 8821 (`npm run demo -- --port 8830` moves it), and stops by itself
-after two hours (`-- --minutes 300` for longer).
+Explore the studio and the other businesses from Delphine's portfolio. The demo uses ports
+8820 and 8821 and stops after two hours. Use `npm run demo -- --port 8830` to move the ports
+or `npm run demo -- --minutes 300` for a longer session.
 
-## What it proves on NEAR testnet
+The recorded Ledgerline proof is also available in the running app at
+[/proof/ledgerline](http://127.0.0.1:8820/proof/ledgerline), with the attack docket at
+[/attacks](http://127.0.0.1:8820/attacks).
 
-The Direct sale example ran through Everstreet's own routes on a business-v3 contract born with no
-access keys (`ledgerline-v3-2.everstreet.testnet`, Nov 6 2026):
+To view just the recorded proof as a static site, after installing dependencies, run the
+following and open the [proof copy](http://localhost:8830).
 
-1. **The customer keeps what they bought.** A customer bought 100 uses and used 20. At the close,
-   their 80 unused uses stayed on the contract, unchanged.
-2. **The former owner loses authority.** In the same transaction that closed the sale, the
-   contract moved control to the buyer at a new generation. Everstreet then refused the seller's
-   owner view and release (404). The contract refuses owner calls from anyone but the current
-   owner (`E_NOT_OWNER`, shown in the contract tests below and in step 3 of the demo).
-3. **The buyer serves the next use.** The customer's next request ran under the buyer, leaving 79.
-   A later use on the buyer's own update left 78, which is what the contract shows today.
+```sh
+npm run proof-site
+npx vite preview --config web/vite.proof.config.ts
+```
 
-Every transaction, with explorer links: [data/evidence/v3-direct-testnet.json](data/evidence/v3-direct-testnet.json).
-Check it: `npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json --live`
-checks the record's digests offline, then reads the contract on public testnet (read-only, no
-keys): its code hash, that it has no access keys, its owner, and the customer's units.
-Details of all four v3 examples are [further down](#business-v3-handover-and-recovery-examples).
+This builds the same proof pages from committed evidence into `web/dist-proof/`.
 
-## How we tested these promises
+## Follow the proof
 
-- **[Safety case](docs/SAFETY_CASE.md):** the eight promises the contract makes, what enforces
-  each one, and the attacks that were tried against it and refused.
-- **Cold attack review:** a reviewer that had never seen the project attacked the contract as
-  buyer, seller, former owner, operator, customer, outsider and the network. Its 92 attack tests
-  are in the repository; the four issues it found are fixed
-  ([report](reports/2026-11-06_attack-review.md)).
-- **A real local NEAR node:** payouts failing and retried with a real token, every amount of
-  attached gas, and a sale closing while a refund is in flight
-  ([output](data/evidence/v3-sandbox-payouts.txt)).
-- **Permissions in Everstreet's own server:** a second cold review attacked the app as a former
-  owner, former helper, buyer, customer, agent and outsider. One gap was real: a sale closed on
-  the contract without anyone telling Everstreet left the seller in charge here until someone
-  checked. A watcher now reads every recorded sale from the chain every 15 seconds. Its 29 tests
-  run with `npm run check` ([report](reports/2026-11-06_permissions-review.md)).
-- **What isn't covered** is listed in the safety case and under [Limitations](#limitations-honest-edges).
+Ledgerline's first sale left its customer with 80 unused uses. The first buyer served the next
+use, leaving 79, then released an update and served another, leaving 78. Two later sales took
+the business to generation 4. The final customer snapshot still accounts for all 100 uses.
+The later sale records and that snapshot are separate observations. [First sale and buyer's
+update](data/evidence/v3-direct-testnet.json) · [Second sale](data/evidence/v3-ext-testnet.json) ·
+[Third sale](data/evidence/v3-s4-testnet.json) · [Final snapshot](data/evidence/ledgerline-after-sales-testnet.json)
 
-Reproduce (WSL, from `contracts/`): `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3`.
+Each claim below has a test or verifier and its recorded evidence. App tests use synthetic
+chains unless the row names a local NEAR node or testnet run.
 
-## Everything in it
+| Claim | Test or verifier | Recorded evidence | Where to look |
+|---|---|---|---|
+| The buyer serves a customer who prepaid before the sale, including on a new release. | [Full application journey](server/test/flagship-journey-process.test.ts) | [NEAR close](https://testnet.nearblocks.io/txns/24RLpPg2CdVbPRUtLSKUL1fhFqP4TP2FhkarZWEoreGi), [Direct record](data/evidence/v3-direct-testnet.json) | `next_use_under_buyer` and `after_update` checkpoints |
+| The former owner's supplier grant is refused after the third sale. | [Companion on a local NEAR node](contracts/spend-allowance/tests/sandbox.rs) | [Failed grant](https://testnet.nearblocks.io/txns/6wPkYAYDvcyQGZtmqyC4EXe75Cc5zrj9Nr9iytuN625f), [series 4 record](data/evidence/v3-s4-testnet.json) | `former_owner_grant_refused` |
+| A Gated sale returns an outstanding reservation and resumes service under the buyer. | [Gated application journey](server/test/flagship-gated-journey.test.ts) | [Gated testnet record](data/evidence/v3-gated-testnet.json) | `request_during_gate` and the closing checkpoints |
+| A buyer funds escrow from another token through NEAR Intents. | [Verifier and business on a local NEAR node](contracts/intents-funding/tests/sandbox.rs) | [Withdrawal from the verifier](https://testnet.nearblocks.io/txns/CdoArhZoAVJ6b6Cn5xEvr2MfEZae3uEwr4gY4hQJFgWk), [escrow funding](https://testnet.nearblocks.io/txns/CvmiCw4NpvT8k6H2jQPeRTJ7CfCDYxjTUB1EsuhSB95a) | [Recorded swap, recovery, and funding](data/evidence/v3-ext-testnet.json) |
+| The buyer moves a Sepolia role through Chain Signatures to an address derived by the companion. | [Asset key on a local NEAR node](contracts/asset-key/tests/sandbox.rs) | [Final Sepolia transaction](https://sepolia.etherscan.io/tx/0x512803af90ad082206987398a933fc9ae84184498715d1fcb56a9cae264c2934) | `move_destination_derived` and `role_move_final_gen4` in [series 4](data/evidence/v3-s4-testnet.json) |
+| A registration paid by the owner causes that customer's revenue to be flagged as linked. | [Revenue attribution tests](server/test/revenue-sources.test.ts) | [Owner-paid registration](https://testnet.nearblocks.io/txns/68QvKsQKUW72BWYmBtMG7pmJEVoixRV5ZZz3hcBPzr7V) | `revenue_by_source` in the [recorded application view](data/evidence/linked-revenue-testnet.json) |
+| Agents receive purchase terms through HTTP 402 and get units after a confirmed purchase. | [HTTP 402 tests](server/test/payment-402.test.ts) | [Synthetic demo flow](scripts/lib/demo/agents.ts) | The owner's Agent purchases page |
+| A failed sale-proceeds transfer restores the seller's claim, which can be collected later. | [Contract payout tests](contracts/business-v3/tests/sandbox.rs) | [Failed transfer and restored claim](https://testnet.nearblocks.io/txns/BeTTPWocGTCCjm84iPyWcAc5mm9cRKsQPgCCmQWosrFB), [successful retry](https://testnet.nearblocks.io/txns/GAKRgxD9BZ19f2hBi538zfHsjELHeq5Kxz7J2UNELZLm) | [Recovery record](data/evidence/v3-recovery-testnet.json) |
 
-Besides selling a business: a product studio, starting and publishing a business, search with
-constraints, a need board, bookings and payments on NEAR testnet, books and a value estimate,
-helpers appointed on the contract, buying profiles, acquisition search, evidence rooms and the
-earlier (v2) deals. Each one, with what runs only in the legacy local preview and other ways to
-start it: [docs/FEATURES.md](docs/FEATURES.md).
+The Intents run uses NEAR's verifier built from published source, with Everstreet acting as
+the solver. The recorded swap recovered from a lost response by checking spent nonces before
+the buyer withdrew the proceeds and funded escrow. [Intents flow and build](docs/INTENTS.md)
 
-## The ownership handoff on NEAR testnet
+The latest companion run uses the fixed, reproducibly built series 4 contracts. It records
+the old agent grant being refused, the buyer's new grant working, and the seller's held
+pre-signed publish being refused by Sepolia's RPC after the buyer's role move consumed its
+nonce. [Series 4 run](data/evidence/v3-s4-testnet.json) · [Deployment and build hashes](docs/BUILDS.md)
 
-A sample business, **OpenSeat** (class booking with a waitlist), is controlled by a NEAR contract.
-On testnet, its founder sold control to a buyer, Northline, and:
+## Check the build
 
-- the sale settled in one transaction: owner changed, the seller was paid 100 demo credits, and the
-  business treasury kept its 20 credits reserved for customers;
-- the founder's later transactions failed on chain (`E_NOT_OWNER`), and OpenSeat refused their
-  stale commands and their old worker;
-- a customer who joined the waitlist before the sale was promoted under the buyer's new worker and
-  still uses the same booking reference.
+The featured NEAR business contracts, fixed companions, and Intents verifier were created with
+**no access keys**. Their reproducible builds record the source commit, pinned build image,
+and code hash. Anyone can rebuild them and compare with the deployed code. [Build instructions
+and deployments](docs/BUILDS.md)
 
-Every step with its transaction link: [data/evidence/handoff-testnet.json](data/evidence/handoff-testnet.json).
+Separate cold AI reviewers attacked the contracts and the application's permissions. Their
+findings include companion vulnerabilities that were fixed and deployed in series 4, and an
+in-flight authority window documented below. The reports retain the findings and the tests
+that reproduce them. [Contract reviews](docs/SAFETY_CASE.md) ·
+[Application permissions review](reports/2026-11-07_permissions-review.md)
 
-The same sale now runs through Everstreet itself on the token-backed v2 contract: a fictional
-pottery studio was sold to a customer co-op on testnet, with a revision that cleared both
-acceptances, the buyer's stale acceptance refused, the old hold returned, the close, the former
-owner and old helper refused, the new owner serving a customer who paid before the sale, that
-customer's refund honoured under the original rules, and the seller's proceeds claimed. Every
-step: [data/evidence/sale-testnet.json](data/evidence/sale-testnet.json).
-Who can do what, and what the sale does and does not cover: [docs/AUTHORITY.md](docs/AUTHORITY.md).
+The recorded application attack suite contains **27 cases**, including refused actions and
+flagged revenue, plus **5 deliberately planted faults caught by its checks**. It runs through
+the real application routes over a synthetic chain. The record carries its commit and an
+uncommitted-changes flag. Separate testnet records pair permitted actions with attacks.
+[Suite record](data/evidence/attack-suite.json) · [Testnet pairs](data/evidence/attack-pairs-testnet.json) ·
+[Additional testnet pairs](data/evidence/attack-pairs-extra-testnet.json)
 
-### Business v3 handover and recovery examples
+Checks run from the repository root.
 
-The testnet records above cover the earlier contracts. All four examples below have local test
-coverage and were run on NEAR testnet through the app's normal routes, each on its own
-born-locked business-v3 contract. They used fictional script-held accounts and a labelled
-stand-in AI model. Every write's outcome was read from its own finalized transaction. Testnet
-NEAR has no value.
+```sh
+npm run check
+npm run attacks -- --check
+npx tsx scripts/verify-rehearsal.ts data/evidence/ledgerline-after-sales-testnet.json
+npx tsx scripts/verify-light-client.ts data/evidence/light-client-close.json
+```
 
-**Series 2 (Nov 6 2026)** reran the examples on new accounts with the contract as fixed after the
-attack review (code hash `3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6`, business-v3 wasm
-SHA-256 `2394b224…ce431`, rustc 1.99.1, cargo-near 0.22.0, non-reproducible build). **Series 1
-(Nov 5)** ran the earlier code (code hash `HMGhGxrpnKJfxBSwovHmvd1zoKv5nw4hSGp3s6qhxM7C`); its
-records are kept in [data/evidence/v3-series-1/](data/evidence/v3-series-1/).
+The rehearsal verifier checks the record's digests offline. Add `--live` to read the current
+testnet code hash, access keys, owner, and customer balance without signing a transaction.
+The light-client verifier checks the closing transaction and receipt against a recorded
+block header.
 
-Series 1 hit two faults from the public RPC, both recorded in its evidence:
-- **Rate limit:** FastNEAR's free tier rate-limited the runs (HTTP 429). Later runs read
-  through dRPC, NEAR's listed public testnet endpoint.
-- **Lost charge:** one platform charge couldn't be confirmed and was never re-sent. The chain
-  showed it never executed, and the customer released that hold after the contract's
-  deadline, so that use was delivered and not charged.
+For contract tests, run in WSL Ubuntu from `contracts/`.
 
-Series 1 also caught a real lost purchase response (the provider answered 500 to the wallet's
-send). The app answered "unknown" until the customer's original transaction ID confirmed the
-purchase once. Series 2 repeats that recovery with a controlled fault (below).
+```sh
+CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --lib
+CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbox -- --nocapture
+```
 
-**Direct sale: verified on NEAR testnet (series 2, Nov 6 2026).**
-- **Setup:** contract `ledgerline-v3-2.everstreet.testnet` was deployed born locked (no access
-  keys), with code hash `3Ptn4BCWZuji2HaGawwHWZ1wpMTF3QA4fjLZF2sLNLM6`. The platform's metering
-  account holds only a function-call key for `open_hold`, `settle_hold` and `release_hold_for` on
-  that contract.
-- **Before the sale (final views):** a fresh fictional customer bought 100 uses and used 20,
-  leaving 80 free and 20 consumed.
-- **The sale:** the Direct sale closed. Control moved from the founder (generation 1) to the buyer
-  (generation 2) with 80 still owed, and the former owner's owner view and release were refused
-  (404).
-- **After the sale:** the customer's next use under the buyer left 79. The buyer's checked
-  update was released, and a later use on its offer was charged, leaving 78.
-- **Labels:** AI results came from a labelled stand-in model, not a provider. The public RPC
-  stopped the run twice (FastNEAR's free tier answered `read_failed`; later reads went through
-  dRPC). One platform charge was broadcast and then dropped by the RPC, and the app left it
-  unknown by design. Before the contract's deadline the identical signed transaction (same nonce
-  and hash, so it can only execute once) was broadcast again, and it landed. The record's
-  operator note gives the hash.
-- **Evidence:**
-  - [data/evidence/v3-direct-testnet.json](data/evidence/v3-direct-testnet.json): every
-    transaction with its explorer link, and the views at each checkpoint;
-  - [data/evidence/v3-setup-testnet.json](data/evidence/v3-setup-testnet.json): accounts, the
-    deployment and the key scope.
-- **Verify:** `npx tsx scripts/verify-rehearsal.ts data/evidence/v3-direct-testnet.json --live`.
-  It checks the digests and that no keys are present, then reads the contract on testnet and
-  compares it with the record. The explorer links show each transaction.
+The sandbox suite runs the real contract on a local NEAR node, including failed payouts,
+retries, gas limits, and a sale closing while a refund is in flight.
+[Recorded sandbox output](data/evidence/v3-sandbox-payouts.txt)
 
-| Example | What the local check covers | Reproduce locally |
-|---|---|---|
-| Direct sale (also verified on testnet, above) | A customer buys 100 uses, consumes 20 and retains 80 at close. The seller loses control, the buyer serves the next use, and the customer has 79 left. | `npx vitest run server/test/flagship-journey-process.test.ts`; the rehearsal driver's dry run: `npx vitest run server/test/rehearsal-driver.test.ts` |
-| Gated sale (also verified on testnet, below) | The closer returns one outstanding reservation, closes once and reopens service under the buyer. The customer retains 95 unused units and access to earlier results. | `npx vitest run server/test/flagship-gated-journey.test.ts`; dry run `npx vitest run server/test/rehearsal-examples.test.ts` |
-| Lost purchase response (also verified on testnet, below) | The payment lands in the chain fixture before the app loses its readback. Rechecking the original transaction confirms one purchase without adding units twice. | `npx vitest run server/test/flagship-restart-matrix.test.ts` |
-| Failed token payout (also verified on testnet, below) | Contract tests simulate a failed transfer callback, check that the claim keeps its category and beneficiary, and exercise a successful retry and duplicate callback. | `cargo test --manifest-path contracts/business-v3/Cargo.toml payouts_keep_their_category_through_failures_claims_and_duplicates` |
+## Not claimed
 
-**Gated sale: verified on NEAR testnet (series 2).**
-- **Setup:** contract `ledgerline-gated-v3-2.everstreet.testnet`, in Gated mode. Its closer
-  account holds only a function-call key for `close_sale` on that contract.
-- **At the seller's acceptance (final views):** 94 free, 1 reserved and 5 consumed. A second
-  customer's fresh request during the gate was refused by the app (`handover_pause`): no hold,
-  no charge.
-- **After the managed close:** the reservation was returned once, leaving 95 free, 0 reserved and
-  5 consumed. The buyer is at generation 2 and the former owner's release is refused (404).
-- **Under the buyer:** the next use left 94 free and 6 consumed.
-- **Evidence:** [data/evidence/v3-gated-testnet.json](data/evidence/v3-gated-testnet.json);
-  [setup](data/evidence/v3-gated-setup-testnet.json).
+- **Production readiness.** This is a hackathon build using fictional data and test tokens.
+  The recorded testnet participants use separate accounts whose keys are held by the rehearsal
+  operator. The local demo uses synthetic accounts and a synthetic chain.
+- **Model quality.** The AI examples and recorded runs use a labeled stand-in model. They
+  demonstrate the build, release, payment, and handover paths.
+- **An automatic transfer of every business asset.** The sale transfers managed operating
+  rights. Legal entities, IP, domains, hosting accounts, and other third-party assets need
+  their own transfer evidence. The Sepolia example transfers a role in an example registry.
+- **Instant enforcement everywhere.** Contract ownership changes at close. The server follows
+  observed final state. Companion actions already in flight can finish using a control read
+  taken before the sale. The external role move is a separate buyer action, and Gated sales
+  pause new uses during closing.
+- **Trustless hosting or complete revenue attribution.** The app's operator controls its
+  service and database. Revenue attribution checks known account, team, operator, and
+  registration-payer links. Money routed through other wallets, hidden relationships, and
+  off-platform reimbursement can escape those checks.
+- **An independent security audit or a fully verified light-client head.** The cold reviews
+  were performed by AI models. The light-client proof is checked against a supplied block
+  header whose validator signatures this verifier does not check.
 
-**Lost purchase response and failed token payout: verified on NEAR testnet (series 2).**
-- **Setup:** contract `ledgerline-payout-v3-2.everstreet.testnet`.
-- **Lost purchase response, controlled fault:** a test-only drop of the app's readback answer.
-  The app answered "unknown", then the recheck with the original transaction confirmed one
-  purchase: 10 units for exactly 1.5 tUSD, listed once.
-- **Failed token payout, after a small Direct sale:**
-  - The seller was owed 10 tUSD and unregistered from the token after the app's review: the
-    deliberate fault.
-  - The claim's downstream token transfer failed, and the contract restored the same 10 tUSD sale
-    proceeds claim to the same seller. The buyer's attempt to claim was refused (nothing owed).
-  - The seller registered again and collected exactly 10 tUSD.
-  - A replay was refused by both the app and the contract, so nothing more was paid.
-- **Evidence:** [data/evidence/v3-recovery-testnet.json](data/evidence/v3-recovery-testnet.json);
-  [setup](data/evidence/v3-recovery-setup-testnet.json).
+The remaining contract assumptions and failure windows are documented in the
+[safety case](docs/SAFETY_CASE.md) and [authority model](docs/AUTHORITY.md).
 
-Verify any record with `npx tsx scripts/verify-rehearsal.ts <file> --live` (drop `--live` to
-stay offline), then follow its explorer links.
+## Explore the repository
 
-## Run it
-
-Requirements: Node 24+. For the contract: WSL Ubuntu with Rust and `cargo-near`.
-
-| Task | Command |
+| Path | What it contains |
 |---|---|
-| Install | `npm install` |
-| The demo (fictional, synthetic wallet and chain) | `npm run demo` → http://127.0.0.1:8820/portfolio |
-| Build and run the app (legacy local preview) | `npm run app` → http://localhost:8800 |
-| Run the normal composed entry (003w) | `npm run entry -- --config <absolute path to a config>` |
-| Review the composed entry in a browser (temporary, no network) | `npm run web:build`, then `npx tsx scripts/preview-entry.ts configured` → http://127.0.0.1:8870 |
-| Fill an empty local database with fictional examples | `npm run seed:demo` (`-- --reset` starts over; stop the app first) |
-| Work on the UI with live reload | `npm run serve` and, beside it, `npm run web:dev` → http://localhost:5173 |
-| Add the examples' fictional history, buyers and listings to an existing local database (no reset) | `npm run seed:history` |
-| Lint, typecheck, all tests | `npm run check` |
-| Contract unit tests (WSL, `contracts/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --lib` → 195 tests, the attack review's included (v3); `-p business-v2 --lib` (v2); `-p business --lib` (v1) |
-| Contract on a local NEAR node (WSL) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo test -p business-v3 --test sandbox -- --nocapture` (v3 payouts, gas and a close mid-refund); `-p business-v2 --test sandbox`; `-p business --test sandbox` |
-| Build the wasm (WSL, `contracts/business/` or `contracts/business-v2/`) | `CARGO_TARGET_DIR=$HOME/everstreet-target cargo near build non-reproducible-wasm` |
-| Publish v2 as shared code and create test dollars (needs `everstreet.testnet`'s key) | `npm run setup:v2` |
-| Run the payment path on testnet (needs the root key) | `npm run smoke:payments` → `data/evidence/payments-testnet.json` |
-| Run a whole sale on testnet through Everstreet's API, fresh fictional accounts (needs the root key) | `npm run smoke:sale` → `data/evidence/sale-testnet.json` |
-| Check who can still change the contract (no keys needed) | `npm run inspect` → expects 0 access keys |
-| Check testnet and the Chain Signatures signer (read-only) | `npm run probe:signer` |
-| Create accounts and deploy (needs `everstreet.testnet`'s key) | `npm run setup:testnet` |
-| Run the handoff on testnet (needs the demo keys) | `npm run handoff` |
-| Run OpenSeat on its own | `OPENSEAT_BUSINESS=openseat.everstreet.testnet npm run openseat -- --seed` |
+| `web/` | Studio, customer workspace, owner desk, sale room, and proof pages |
+| `server/` | Application routes, managed product runtimes, permissions, and reconciliation |
+| `contracts/business-v3/` | Owner authority, customer units, treasury, escrow, and closing |
+| `contracts/asset-key/`, `contracts/spend-allowance/` | Chain Signatures and supplier-budget companions |
+| `contracts/intents-funding/` | Local-node tests of the Intents funding flow |
+| `data/evidence/` | Recorded runs, transactions, checkpoints, and attack results |
+| `scripts/` | Rehearsals, read-only verification, demo, and static proof build |
 
-## Limitations (honest edges)
+The earlier OpenSeat booking and v2 sale examples remain in the
+[feature reference](docs/FEATURES.md), with their [handoff](data/evidence/handoff-testnet.json)
+and [sale](data/evidence/sale-testnet.json) records. Configuration for the normal application
+entry is documented in [application composition](docs/design/APPLICATION_COMPOSITION.md).
 
-- Every demo identity is a real, separate testnet account, but this machine holds all their keys.
-- The contract proves who may operate OpenSeat. Whoever hosts the OpenSeat process could still
-  change its database directly; moving the hosting is a separate transfer item.
-- Amounts are demo credits with no value. No mainnet, no real money.
+## Team
 
-## About the team
+DadMod — Tony Langford, with AI collaborators Astra and Claude.
 
-DadMod: Tony Langford (founder) with two AI collaborators.
+Everstreet is a separate project from the same team's other hackathon entry, Day One, an AI
+purchasing assistant. The projects share no code, data, accounts, or deployments.

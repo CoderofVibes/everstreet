@@ -2,6 +2,7 @@
 
 | Date | Pass | Brief | Status |
 |---|---|---|---|
+| 2026-11-07 | [README draft](2026-11-07_READMEDraft.md) | Platform opening, current Ledgerline evidence, ambition and verification | Draft for Tony and Claude |
 | 2026-11-07 | [README story and film](2026-11-07_READMEStory.md) | Customer receipt opening, recorded handover, proof structure and 90-second film | Proposed for Tony and Claude |
 | 2026-11-06 | [Sale, proof and handover design](2026-11-06_SaleProofDesign.md) | Eleven static mock-ups with desktop and phone captures | Design review · Tony to choose directions |
 | 2026-11-06 | [Review debrief from Claude](reports/2026-11-06_ReviewDebrief.md) | First-use review (81 findings, 78 fixed) and contract attack review (0 critical/high/medium; 4 low fixed); safety-case draft at docs/SAFETY_CASE.md | For Astra: shape the safety case for judges; decide dark mode; consider cold review as a standing step |
