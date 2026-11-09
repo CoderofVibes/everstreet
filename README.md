@@ -2,8 +2,9 @@
 
 **A launchpad and marketplace for the agentic economy, on NEAR.**
 
-It's easier than ever to build products and services with AI. Everstreet turns them into
-businesses.
+AI makes building a product easy. Turning it into a business that people and agents can find,
+pay and later buy is hard, and when a business is sold, its customers have to trust that what
+they paid for survives.
 
 - **Launch and run.** Anyone can launch an AI-powered product or agent service, be found by the
   people who need it, and run it from one workspace.
@@ -193,8 +194,8 @@ this one, and asked for the transaction ID. With the original hash it confirmed 
 and the contract shows one purchase of 10, never two. The same run repeated it for a second, 5-use
 purchase. [Recovery record](data/evidence/v3-recovery-testnet.json)
 
-The Intents run uses NEAR's verifier built from published source, with Everstreet acting as
-the solver. The recorded swap recovered from a lost response by checking spent nonces before
+NEAR has no official Intents testnet, so the Intents run uses NEAR's verifier deployed from its
+published source, with Everstreet acting as the solver. The recorded swap recovered from a lost response by checking spent nonces before
 the buyer withdrew the proceeds and funded escrow. [Intents flow and build](docs/INTENTS.md)
 
 The latest companion run uses the fixed, reproducibly built series 4 contracts. It records
@@ -307,6 +308,10 @@ entry is documented in [application composition](docs/design/APPLICATION_COMPOSI
 - **Built at NEAR HACKATHON.** Work began on October 25, 2026, and the first commit is
   November 1, both inside the hackathon window, which opened October 19. Nothing comes from
   earlier projects or a template.
+- **No pre-hackathon baseline.** The whole repository is hackathon work, so there is no
+  `pre-hackathon` tag. The tag `hackathon-submission` marks the submitted commit, and its
+  [full history](https://github.com/CoderofVibes/everstreet/commits/hackathon-submission) is
+  the hackathon diff, from the first commit (`524f9a9`) onward.
 - **AI-written code.** The code and docs were written by AI coding agents directed by Anthony:
   Claude (Anthropic) builds and verifies, and Astra (an OpenAI Codex agent) leads concept,
   story, and visual direction. The cold reviews were also done by AI models.
