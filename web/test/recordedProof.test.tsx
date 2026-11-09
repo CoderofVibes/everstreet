@@ -82,7 +82,10 @@ describe("recorded testnet proof", () => {
     expect(rows[2]?.textContent).toContain("appoint_operator_guarded to this business");
     expect(rows[0]?.textContent).not.toContain("to this business");
     expect(rows[0]?.textContent).toContain("80");
-    expect(rows[1]?.textContent).toContain("Not read");
+    expect(rows[1]?.textContent).toContain("Not recorded in this run");
+    // The card below shows the whole progression after the first sale (Nov 9): 80, 79, 78.
+    const steps = [...host.querySelectorAll(".proof-steps .proof-n")].map((n) => n.textContent);
+    expect(steps).toEqual(["80", "79", "78"]);
     expect(strip?.querySelector(".hand-after")?.textContent).toMatch(
       /78 unused · 22 used · 100 bought/,
     );

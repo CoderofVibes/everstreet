@@ -358,6 +358,15 @@ textarea.input { min-height: 88px; resize: vertical; line-height: 1.5; }
 .proof-site-hero { grid-template-columns: 1fr; }
 .proof-site-hero h1 { font-size: 30px; color: #fff; letter-spacing: -0.02em; margin: 6px 0 0; }
 .proof-site-nav { flex-wrap: wrap; }
+.hand-info { color: var(--text-3); font-size: 12px; cursor: help; }
+.proof-steps { list-style: none; margin: 8px 0 12px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 0; }
+.proof-steps li { display: grid; gap: 2px; min-width: 0; }
+.proof-steps li + li { padding-left: 46px; position: relative; }
+.proof-steps li + li::before { content: "→"; position: absolute; left: 12px; top: 0.12em; font-size: 40px; line-height: 1; color: var(--cobalt); }
+.proof-n { font: 700 72px/1 var(--display); letter-spacing: -0.03em; color: var(--ink); }
+.proof-steps { align-items: flex-start; }
+.proof-n-k { font: 500 13.5px/1.35 var(--sans); letter-spacing: 0; color: var(--text-3); max-width: 18ch; }
+@media (max-width: 560px) { .proof-n { font-size: 48px; } .proof-steps li + li { padding-left: 34px; } .proof-steps li + li::before { font-size: 28px; left: 8px; } }
 .proof-claims-line { color: var(--text-2); margin: -18px 0 0; }
 .proof-next { padding-top: 0; }
 .proof-next a { display: grid; gap: 2px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-decoration: none; color: var(--text); max-width: 560px; }

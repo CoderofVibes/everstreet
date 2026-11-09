@@ -165,7 +165,17 @@ export function HandoverStrip({ h }: { h: Handovers }) {
             )}
           </div>
           <div className="hand-cell hand-wide">
-            <span className="hand-k">Customer {who(h.after.customer.account)}</span>
+            <span className="hand-k">
+              Customer {who(h.after.customer.account)}'s prepaid uses{" "}
+              <span
+                className="hand-info"
+                title="A use is one prepaid run of the service: for Ledgerline, one invoice read. The customer bought them before the first sale; the contract holds them through every sale."
+                role="img"
+                aria-label="A use is one prepaid run of the service: for Ledgerline, one invoice read. The customer bought them before the first sale; the contract holds them through every sale."
+              >
+                (i)
+              </span>
+            </span>
             <span>
               <span className="hand-big">{h.after.customer.unused ?? "—"}</span> unused ·{" "}
               {h.after.customer.used ?? "—"} used · {h.after.customer.bought ?? "—"} bought
@@ -244,8 +254,11 @@ export function HandoverStrip({ h }: { h: Handovers }) {
               {x.customer_unused_at_close ? (
                 <span className="hand-big">{x.customer_unused_at_close}</span>
               ) : (
-                <span className="unknown" title="This run didn't read the customer">
-                  Not read
+                <span
+                  className="unknown"
+                  title="This sale's run didn't read the customer's balance. The read after the last sale, at the top, accounts for all of them."
+                >
+                  Not recorded in this run
                 </span>
               )}
             </div>
@@ -271,6 +284,7 @@ export function RecordedProof({ e }: { e: Example }) {
   const bought = at("bought_100");
   const closed = at("closed");
   const next = at("next_use_under_buyer");
+  const updated = at("after_update");
   const before = at("before_close");
   const closeTx = e.transactions.filter((t) => t.method === "accept_sale").at(-1) ?? null;
   const link = (t: Tx | null) =>
@@ -303,21 +317,28 @@ export function RecordedProof({ e }: { e: Example }) {
       {e.handovers && <HandoverStrip h={e.handovers} />}
       <section className="card proof-hero" aria-labelledby="rp-cont">
         <div className="eyebrow" id="rp-cont">
-          Customer's unused uses · prepaid before the sale
+          The customer's prepaid uses, after the first sale
         </div>
-        <p className="proof-units">
-          <span>{closed?.free ?? "—"}</span>
-          <span aria-hidden="true" className="proof-arrow">
-            →
-          </span>
-          <span className="sr-only"> then </span>
-          <span>{next?.free ?? "—"}</span>
-        </p>
+        <ol className="proof-units proof-steps">
+          <li>
+            <span className="proof-n">{closed?.free ?? "—"}</span>
+            <span className="proof-n-k">unused at the close</span>
+          </li>
+          <li>
+            <span className="proof-n">{next?.free ?? "—"}</span>
+            <span className="proof-n-k">next use, served by the buyer</span>
+          </li>
+          {updated?.free && (
+            <li>
+              <span className="proof-n">{updated.free}</span>
+              <span className="proof-n-k">after the buyer's update</span>
+            </li>
+          )}
+        </ol>
         <div className="row proof-hero-tags">
-          {bought?.free && <span className="pill">{bought.free} uses bought</span>}
-          {closed?.free && <span className="pill">{closed.free} unused at close</span>}
-          {next?.free && <span className="pill success">Next use settled under the buyer</span>}
-          <SourceTag source="testnet_final" block={next?.block} />
+          {bought?.free && <span className="pill">{bought.free} bought before the sale</span>}
+          {next?.free && <span className="pill success">Served under the buyer</span>}
+          <SourceTag source="testnet_final" block={(updated ?? next)?.block} />
         </div>
       </section>
       <div className="sale-grid proof-grid">
