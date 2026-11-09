@@ -77,10 +77,11 @@
     },
     {
       "name": "demo",
-      "runtimeExecutable": "npx",
+      "runtimeExecutable": "npm",
       "runtimeArgs": [
-        "tsx",
-        "scripts/demo.ts",
+        "run",
+        "demo",
+        "--",
         "--minutes",
         "300"
       ],

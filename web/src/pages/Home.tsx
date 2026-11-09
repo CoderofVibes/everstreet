@@ -75,7 +75,7 @@ export function Home() {
       <section className="home-stage">
         <div className="home-stage-main">
           <div className="eyebrow">Build, run and hand over digital businesses</div>
-          <h1 className="home-title">What do you want to build?</h1>
+          <h1 className="home-title">What can you create?</h1>
           <p className="lede">
             AI tools, SaaS, APIs, agents and online services. Shape it here, open it to customers,
             and if you ever sell, hand it over on NEAR without breaking what customers were
