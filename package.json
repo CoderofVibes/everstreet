@@ -23,7 +23,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "check": "npm run lint && npm run typecheck && npm test",
+    "check": "npm run lint && npm run typecheck && npm run web:build && npm test",
     "setup:v2": "tsx scripts/setup-v2.ts",
     "smoke:payments": "tsx scripts/smoke-payments.ts",
     "smoke:sale": "tsx scripts/smoke-sale.ts",
