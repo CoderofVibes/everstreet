@@ -1,3 +1,5 @@
+# Text files check out with LF everywhere, so `npm run check` passes on a fresh Windows clone too.
+* text=auto eol=lf
 *.cmd text eol=crlf
 # Job 002e: the worker host files run inside Linux; CRLF would break `#!/bin/sh` and sudoers.
 scripts/worker-host/** text eol=lf
