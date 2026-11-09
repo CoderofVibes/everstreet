@@ -35,11 +35,42 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
   return real(input, init);
 };
 
-const NAV = [
-  { to: "/example/ledgerline?tab=acquire", label: "The recorded sale" },
-  { to: "/proof/ledgerline", label: "Handoff proof" },
-  { to: "/attacks", label: "What we tried to break" },
+/** The repository's README on GitHub: the agent evidence and the claims table live there. */
+export const README_URL = "https://github.com/CoderofVibes/everstreet";
+
+/**
+ * The route through the proof, in reading order (Anthony, Nov 9: a judge should be able to follow
+ * one train of proof). Each page ends with a link to the next; the last two are README sections.
+ */
+export const ROUTE = [
+  {
+    to: "/proof/ledgerline",
+    label: "Handoff proof",
+    icon: "shield" as const,
+    line: "Owner at generation 4, the former owner refused by the contract, the customer's 100 uses.",
+  },
+  {
+    to: "/example/ledgerline?tab=acquire",
+    label: "The recorded sale",
+    icon: "handshake" as const,
+    line: "What the buyer took over and what the customer kept, read from the record.",
+  },
+  {
+    to: "/attacks",
+    label: "What we tried to break",
+    icon: "flask" as const,
+    line: "Attacks on the app and its contract rules, each refused or flagged.",
+  },
+  {
+    to: `${README_URL}#for-agents`,
+    label: "Agents on NEAR testnet",
+    icon: "agent" as const,
+    line: "An agent pays over HTTP 402 from its own account; one business's agent buys from another.",
+  },
 ];
+const NAV = ROUTE.slice(0, 3);
+const CLAIMS_URL = `${README_URL}#follow-the-proof`;
+const external = (to: string) => to.startsWith("https://");
 
 function Landing() {
   return (
@@ -47,33 +78,80 @@ function Landing() {
       <section className="intact proof-site-hero">
         <div>
           <div className="eyebrow">Recorded on NEAR testnet</div>
-          <h1>Built to change hands intact.</h1>
+          <h1>A launchpad and marketplace for the agentic economy, on NEAR.</h1>
         </div>
       </section>
-      <nav className="entries proof-entries" aria-label="What proves it">
-        <Link to="/example/ledgerline?tab=acquire" className="entry">
-          <Icon name="handshake" />
-          <span>
-            <strong>A recorded sale on NEAR testnet</strong>
-            <span>Ledgerline changed hands; every transaction linked.</span>
-          </span>
-        </Link>
-        <Link to="/proof/ledgerline" className="entry">
-          <Icon name="shield" />
-          <span>
-            <strong>Handoff proof</strong>
-            <span>Each sale at the close, the former owner refused, the customer's uses.</span>
-          </span>
-        </Link>
-        <Link to="/attacks" className="entry">
-          <Icon name="flask" />
-          <span>
-            <strong>What we tried to break</strong>
-            <span>Attacks on the app and its contract rules, each refused or flagged.</span>
-          </span>
-        </Link>
+      <nav className="entries proof-entries" aria-label="The proof, in order">
+        {ROUTE.map((r, i) =>
+          external(r.to) ? (
+            <a key={r.to} href={r.to} className="entry" target="_blank" rel="noopener">
+              <Icon name={r.icon} />
+              <span>
+                <strong>
+                  {i + 1}. {r.label}
+                </strong>
+                <span>{r.line}</span>
+              </span>
+            </a>
+          ) : (
+            <Link key={r.to} to={r.to} className="entry">
+              <Icon name={r.icon} />
+              <span>
+                <strong>
+                  {i + 1}. {r.label}
+                </strong>
+                <span>{r.line}</span>
+              </span>
+            </Link>
+          ),
+        )}
       </nav>
+      <p className="proof-claims-line">
+        Then every claim, with its test and transaction:{" "}
+        <a href={CLAIMS_URL} target="_blank" rel="noopener">
+          the claims table in the README
+        </a>
+        .
+      </p>
     </div>
+  );
+}
+
+/** The next stop on the route after the page at `path`, shown at the bottom of each proof page. */
+export function nextAfter(path: string) {
+  const i = ROUTE.findIndex((r) => r.to.split("?")[0] === path);
+  if (i < 0) return null;
+  const n = ROUTE[i + 1];
+  return n
+    ? { step: i + 2, label: n.label, line: n.line, to: n.to }
+    : {
+        step: i + 2,
+        label: "Every claim, with its test and transaction",
+        line: "",
+        to: CLAIMS_URL,
+      };
+}
+
+function NextStep({ path }: { path: string }) {
+  const n = nextAfter(path);
+  if (!n) return null;
+  const body = (
+    <>
+      <span className="proof-next-k">Next · step {n.step}</span>
+      <strong>{n.label} →</strong>
+      {n.line && <span className="proof-next-line">{n.line}</span>}
+    </>
+  );
+  return (
+    <nav className="page proof-next" aria-label="Next in the proof">
+      {external(n.to) ? (
+        <a href={n.to} target="_blank" rel="noopener">
+          {body}
+        </a>
+      ) : (
+        <Link to={n.to}>{body}</Link>
+      )}
+    </nav>
   );
 }
 
@@ -118,6 +196,7 @@ export function ProofSite() {
       </header>
       <main className="main">
         <Routes />
+        <NextStep path={path} />
       </main>
       <footer className="site-foot">
         <span>Everstreet · a NEAR hackathon entry · fictional data, testnet only</span>

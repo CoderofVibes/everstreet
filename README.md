@@ -24,7 +24,15 @@ In the recorded snapshot after the third sale, its first customer has **78 unuse
 | Ledgerline moves to its next owner, at generation 4. | Ledgerline's contract refuses the former owner's owner actions with `E_NOT_OWNER`. Control is unchanged. | All 100 uses are accounted for after three sales. |
 | [Closing transaction](https://testnet.nearblocks.io/txns/3psBJvLE3EBq9BNMF7ZZQub9EZab77L7je5U8x8zcSet) | [Refused owner action](https://testnet.nearblocks.io/txns/ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb) | [Customer snapshot](data/evidence/ledgerline-after-sales-testnet.json) |
 
-[Try Everstreet](#try-everstreet) · [Follow the proof](#follow-the-proof) · [Check the build](#check-the-build)
+**One route through the proof**
+
+1. [Follow the proof](#follow-the-proof): the story, then every claim with its test and its transaction.
+2. The proof site, which opens on the answers (owner at generation 4, the former owner refused by
+   the contract, 78 · 22 · 100). It runs locally from [Try Everstreet](#try-everstreet).
+   Its pages go in order: handoff proof, the recorded sale, what we tried to break.
+3. [For agents](#for-agents): an agent paying over HTTP 402, and one business's agent buying from another.
+4. Any transaction, in the explorer or straight from NEAR's RPC ([Check the build](#check-the-build)).
+<!-- TODO on the 13th: link "The proof site" in step 2 to its public address. -->
 
 Built at NEAR HACKATHON, November 2026. Fictional businesses and people, NEAR testnet and
 Ethereum Sepolia, and test tokens with no monetary value.
@@ -176,16 +184,16 @@ chains unless the row names a local NEAR node or testnet run.
 
 | Claim | Test or verifier | Recorded evidence | Where to look |
 |---|---|---|---|
-| The buyer serves a customer who prepaid before the sale, including on a new release. | [Full application journey](server/test/flagship-journey-process.test.ts) | [NEAR close](https://testnet.nearblocks.io/txns/24RLpPg2CdVbPRUtLSKUL1fhFqP4TP2FhkarZWEoreGi), [Direct record](data/evidence/v3-direct-testnet.json) | `next_use_under_buyer` and `after_update` checkpoints |
-| The business contract refuses the former owner's owner actions after the third sale and leaves control unchanged. | [Contract attack tests](contracts/business-v3/src/attack_tests3.rs) | [Refused appointment](https://testnet.nearblocks.io/txns/ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb), [refused withdrawal](https://testnet.nearblocks.io/txns/5GHE62Gn8futiMAsjBiU1GDLeyeDr3y9oYiLPDyN2gzF) | `before` and `after` checkpoints in the [former-owner record](data/evidence/former-owner-probe-testnet.json) |
-| The former owner's supplier grant is refused after the third sale. | [Companion on a local NEAR node](contracts/spend-allowance/tests/sandbox.rs) | [Failed grant](https://testnet.nearblocks.io/txns/6wPkYAYDvcyQGZtmqyC4EXe75Cc5zrj9Nr9iytuN625f), [series 4 record](data/evidence/v3-s4-testnet.json) | `former_owner_grant_refused` |
-| A Gated sale returns an outstanding reservation and resumes service under the buyer. | [Gated application journey](server/test/flagship-gated-journey.test.ts) | [Gated testnet record](data/evidence/v3-gated-testnet.json) | `request_during_gate` and the closing checkpoints |
+| The buyer serves a customer who prepaid before the sale, including on a new release. | [Full application journey](server/test/flagship-journey-process.test.ts) | [NEAR close](https://testnet.nearblocks.io/txns/24RLpPg2CdVbPRUtLSKUL1fhFqP4TP2FhkarZWEoreGi), [Direct record](data/evidence/v3-direct-testnet.json) | [`next_use_under_buyer`](data/evidence/v3-direct-testnet.json#L1479) and [`after_update`](data/evidence/v3-direct-testnet.json#L1607) checkpoints |
+| The business contract refuses the former owner's owner actions after the third sale and leaves control unchanged. | [Contract attack tests](contracts/business-v3/src/attack_tests3.rs) | [Refused appointment](https://testnet.nearblocks.io/txns/ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb), [refused withdrawal](https://testnet.nearblocks.io/txns/5GHE62Gn8futiMAsjBiU1GDLeyeDr3y9oYiLPDyN2gzF) | [`before`](data/evidence/former-owner-probe-testnet.json#L130) and [`after`](data/evidence/former-owner-probe-testnet.json#L169) checkpoints in the [former-owner record](data/evidence/former-owner-probe-testnet.json) |
+| The former owner's supplier grant is refused after the third sale. | [Companion on a local NEAR node](contracts/spend-allowance/tests/sandbox.rs) | [Failed grant](https://testnet.nearblocks.io/txns/6wPkYAYDvcyQGZtmqyC4EXe75Cc5zrj9Nr9iytuN625f), [series 4 record](data/evidence/v3-s4-testnet.json) | [`former_owner_grant_refused`](data/evidence/v3-s4-testnet.json#L1704) |
+| A Gated sale returns an outstanding reservation and resumes service under the buyer. | [Gated application journey](server/test/flagship-gated-journey.test.ts) | [Gated testnet record](data/evidence/v3-gated-testnet.json) | [`request_during_gate`](data/evidence/v3-gated-testnet.json#L715) and the closing checkpoints |
 | A buyer funds escrow from another token through NEAR Intents. | [Verifier and business on a local NEAR node](contracts/intents-funding/tests/sandbox.rs) | [Withdrawal from the verifier](https://testnet.nearblocks.io/txns/CdoArhZoAVJ6b6Cn5xEvr2MfEZae3uEwr4gY4hQJFgWk), [escrow funding](https://testnet.nearblocks.io/txns/CvmiCw4NpvT8k6H2jQPeRTJ7CfCDYxjTUB1EsuhSB95a) | [Recorded swap, recovery, and funding](data/evidence/v3-ext-testnet.json) |
-| The buyer moves a Sepolia role through Chain Signatures to an address derived by the companion. | [Asset key on a local NEAR node](contracts/asset-key/tests/sandbox.rs) | [Final Sepolia transaction](https://sepolia.etherscan.io/tx/0x512803af90ad082206987398a933fc9ae84184498715d1fcb56a9cae264c2934) | `move_destination_derived` and `role_move_final_gen4` in [series 4](data/evidence/v3-s4-testnet.json) |
-| A registration paid by the owner causes that customer's revenue to be flagged as linked. | [Revenue attribution tests](server/test/revenue-sources.test.ts) | [Owner-paid registration](https://testnet.nearblocks.io/txns/BrRgXa3Sjj71rB2SuVsozocyyDRSb3a2GCovFWW4sscQ) | `revenue_by_source` in the [recorded application view](data/evidence/linked-revenue-testnet.json) |
-| An agent with its own NEAR account gets HTTP 402 with the exact calls, pays from its own account, and gets units only once the contract confirms the purchase. | [HTTP 402 tests](server/test/payment-402.test.ts) | [Agent's registration](https://testnet.nearblocks.io/txns/WYCbUpGY6fvmVWwyPPgAGC8c4ZjYcDfpyqqEjpa7g4R), [agent's purchase](https://testnet.nearblocks.io/txns/2eMu6YHuVFQ5BXGi8qMx4W9NK5F2fcFPQhgt97GUDPPV) | `http_402_first`, `http_402_purchase`, and `owner_sees_agent_purchases` in the [agent record](data/evidence/agent-402-testnet.json) |
-| An agent appointed by one business buys and uses another business's service over HTTP 402, from its own account. | [Demo world tests](server/test/demo-world.test.ts) | [Appointment on Signalwatch](https://testnet.nearblocks.io/txns/CGjBBb6ec6APwdWhkfb83s8WZLrUYHxpHGFnQ8ofuj5Q), [purchase from Ledgerline](https://testnet.nearblocks.io/txns/Hfhwf17ADeAEu6GPnYV8fWt6zrSbHqdsGCEVbbn1am9V) | `agent_appointed_by_signalwatch` and `used_once` in the [agent-hires-agent record](data/evidence/agent-hires-agent-testnet.json) |
-| When the app loses the network's answer to a purchase, it says so, then confirms the same purchase from its original transaction and credits it once. | [Purchase recovery tests](server/test/customer-purchase.test.ts) | [The 10-use purchase](https://testnet.nearblocks.io/txns/HBzH3xmFsvafQRdiCEjL8rR1DhEk4Tb5sUmYJSCYAgNa) | `readback_answer_dropped`, `recovered_with_original_hash`, and the `recovered_purchase_recovery` checkpoint (10 purchased, purchase number 1, one purchase held) in the [recovery record](data/evidence/v3-recovery-testnet.json) |
+| The buyer moves a Sepolia role through Chain Signatures to an address derived by the companion. | [Asset key on a local NEAR node](contracts/asset-key/tests/sandbox.rs) | [Final Sepolia transaction](https://sepolia.etherscan.io/tx/0x512803af90ad082206987398a933fc9ae84184498715d1fcb56a9cae264c2934) | [`move_destination_derived`](data/evidence/v3-s4-testnet.json#L2097) and [`role_move_final_gen4`](data/evidence/v3-s4-testnet.json#L2108) in [series 4](data/evidence/v3-s4-testnet.json) |
+| A registration paid by the owner causes that customer's revenue to be flagged as linked. | [Revenue attribution tests](server/test/revenue-sources.test.ts) | [Owner-paid registration](https://testnet.nearblocks.io/txns/BrRgXa3Sjj71rB2SuVsozocyyDRSb3a2GCovFWW4sscQ) | [`revenue_by_source`](data/evidence/linked-revenue-testnet.json#L150) in the [recorded application view](data/evidence/linked-revenue-testnet.json) |
+| An agent with its own NEAR account gets HTTP 402 with the exact calls, pays from its own account, and gets units only once the contract confirms the purchase. | [HTTP 402 tests](server/test/payment-402.test.ts) | [Agent's registration](https://testnet.nearblocks.io/txns/WYCbUpGY6fvmVWwyPPgAGC8c4ZjYcDfpyqqEjpa7g4R), [agent's purchase](https://testnet.nearblocks.io/txns/2eMu6YHuVFQ5BXGi8qMx4W9NK5F2fcFPQhgt97GUDPPV) | [`http_402_first`](data/evidence/agent-402-testnet.json#L24), [`http_402_purchase`](data/evidence/agent-402-testnet.json#L100), and [`owner_sees_agent_purchases`](data/evidence/agent-402-testnet.json#L219) in the [agent record](data/evidence/agent-402-testnet.json) |
+| An agent appointed by one business buys and uses another business's service over HTTP 402, from its own account. | [Demo world tests](server/test/demo-world.test.ts) | [Appointment on Signalwatch](https://testnet.nearblocks.io/txns/CGjBBb6ec6APwdWhkfb83s8WZLrUYHxpHGFnQ8ofuj5Q), [purchase from Ledgerline](https://testnet.nearblocks.io/txns/Hfhwf17ADeAEu6GPnYV8fWt6zrSbHqdsGCEVbbn1am9V) | [`agent_appointed_by_signalwatch`](data/evidence/agent-hires-agent-testnet.json#L395) and [`used_once`](data/evidence/agent-hires-agent-testnet.json#L579) in the [agent-hires-agent record](data/evidence/agent-hires-agent-testnet.json) |
+| When the app loses the network's answer to a purchase, it says so, then confirms the same purchase from its original transaction and credits it once. | [Purchase recovery tests](server/test/customer-purchase.test.ts) | [The 10-use purchase](https://testnet.nearblocks.io/txns/HBzH3xmFsvafQRdiCEjL8rR1DhEk4Tb5sUmYJSCYAgNa) | [`readback_answer_dropped`](data/evidence/v3-recovery-testnet.json#L215), [`recovered_with_original_hash`](data/evidence/v3-recovery-testnet.json#L234), and the [`recovered_purchase_recovery`](data/evidence/v3-recovery-testnet.json#L1152) checkpoint (10 purchased, purchase number 1, one purchase held) in the [recovery record](data/evidence/v3-recovery-testnet.json) |
 | A failed sale-proceeds transfer restores the seller's claim, which can be collected later. | [Contract payout tests](contracts/business-v3/tests/sandbox.rs) | [Failed transfer and restored claim](https://testnet.nearblocks.io/txns/BeTTPWocGTCCjm84iPyWcAc5mm9cRKsQPgCCmQWosrFB), [successful retry](https://testnet.nearblocks.io/txns/GAKRgxD9BZ19f2hBi538zfHsjELHeq5Kxz7J2UNELZLm) | [Recovery record](data/evidence/v3-recovery-testnet.json) |
 
 The recovery run lost a purchase's answer on purpose: a test relay dropped one transaction-status
@@ -249,6 +257,18 @@ The rehearsal verifier checks the record's digests offline. Add `--live` to read
 testnet code hash, access keys, owner, and customer balance without signing a transaction.
 The light-client verifier checks the closing transaction and receipt against a recorded
 block header.
+
+The explorer may show automated readers a browser check. Every transaction in the records can be
+read straight from NEAR's archival RPC instead, with its hash and its signer (both are in the
+record):
+
+```sh
+curl -s https://archival-rpc.testnet.near.org -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tx","params":{"tx_hash":"ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb","sender_account_id":"noor-v3s3.everstreet.testnet","wait_until":"NONE"}}'
+```
+
+That one is the former owner's refused appointment: its status reads
+`E_NOT_OWNER: only the current owner`.
 
 For contract tests, run in WSL Ubuntu from `contracts/`.
 

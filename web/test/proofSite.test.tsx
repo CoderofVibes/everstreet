@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
-import { STATIC_READS } from "../src/proofSite.tsx";
+import { nextAfter, ROUTE, STATIC_READS } from "../src/proofSite.tsx";
 
 /** Source files the static entry reaches through relative imports that bundle code. */
 function reachable(entry: string) {
@@ -58,5 +58,21 @@ describe("the static proof site", () => {
     const r = await fetch("/api/me/dashboard");
     expect(r.status).toBe(404);
     expect(((await r.json()) as { code: string }).code).toBe("static");
+  });
+});
+
+// Nov 9 (Anthony): one train of proof a judge can follow, each page leading to the next.
+describe("the route through the proof", () => {
+  it("goes handoff proof, recorded sale, attacks, agents, then the claims table", () => {
+    expect(ROUTE.map((r) => r.label)).toEqual([
+      "Handoff proof",
+      "The recorded sale",
+      "What we tried to break",
+      "Agents on NEAR testnet",
+    ]);
+    expect(nextAfter("/proof/ledgerline")).toMatchObject({ step: 2, label: "The recorded sale" });
+    expect(nextAfter("/example/ledgerline")).toMatchObject({ step: 3, to: "/attacks" });
+    expect(nextAfter("/attacks")?.to).toBe("https://github.com/CoderofVibes/everstreet#for-agents");
+    expect(nextAfter("/")).toBeNull();
   });
 });
