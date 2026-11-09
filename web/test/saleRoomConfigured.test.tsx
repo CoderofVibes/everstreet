@@ -178,7 +178,7 @@ describe("003wf2 the sale page over the configured composition (actual child pro
     expect((fieldInput("Buyer's NEAR account") as HTMLInputElement).value).toBe(CONFIGURED_BUYER);
     expect(h.controls.sent).toEqual([]);
     await click("Review the exact request");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("Deal 1, version 1"), "the proposal on the contract");
     expect(h.controls.sent.map((c) => c.methodName)).toEqual(["propose_sale_guarded"]);
   }, 60_000);
@@ -187,11 +187,11 @@ describe("003wf2 the sale page over the configured composition (actual child pro
     await as(CONFIGURED_BUYER);
     await wait(() => text().includes("you are the buyer"), "the buyer's page");
     await click("Register with the token");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("Registered with the token"), "registered");
     await fetchControl("/lose-next");
     await click("Fund escrow");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(
       () => Boolean(historyRow("Fund escrow")?.querySelector("form")),
       "the recovery form",
@@ -217,14 +217,14 @@ describe("003wf2 the sale page over the configured composition (actual child pro
     await wait(() => text().includes("Escrow is funded"), "the original transaction");
     expect(h.controls.sent.length).toBe(sent);
     await click("Accept version 1");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("Waiting for the seller"), "waiting for the seller");
   }, 90_000);
 
   it("seller: the close is applied by the composition; the sidebar shows the closed terms apart from current authority", async () => {
     await as(CONFIGURED_SELLER);
     await click("Accept version 1 and close the sale");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("closed on the contract"), "the close");
     const aside = document.querySelector(".sale-continuity") as HTMLElement;
     await wait(() => (aside.textContent ?? "").includes("Authority after deal 1 closed"), "aside");

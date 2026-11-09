@@ -209,7 +209,7 @@ describe("003wf4 Set up customer access (actual component, synthetic wallet)", {
     await click("Review this plan");
     await wait(() => text().includes("Review the plan"), "the review again");
     h.controls.cancelNext = true;
-    await click("Ask my wallet");
+    await click("Approve in my wallet");
     await wait(() => text().includes("You closed the wallet"), "the cancelled wallet");
     expect(h.world.sale.planCount).toBe(1);
     await wait(
@@ -233,7 +233,7 @@ describe("003wf4 Set up customer access (actual component, synthetic wallet)", {
     await typeInto(field("Hold length") as HTMLInputElement, "10");
     await click("Review this plan");
     await wait(() => text().includes("Review the plan"), "the review");
-    await click("Ask my wallet");
+    await click("Approve in my wallet");
     await wait(() => step(0).textContent?.includes("Done") === true, "the plan confirmed");
     expect(step(0).textContent).toContain("Plan 2: 0.15 TUSD per use, holds of 10 min");
     expect(h.controls.sent.map((c: Json) => c.methodName)).toEqual(["create_plan_guarded"]);
@@ -302,7 +302,7 @@ describe("003wf4 Set up customer access (actual component, synthetic wallet)", {
     await click("Review this plan");
     await wait(() => text().includes("Review the plan"), "the review");
     h.controls.loseNext = true;
-    await click("Ask my wallet");
+    await click("Approve in my wallet");
     await wait(
       () => step(0).textContent?.includes("Your earlier request") === true,
       "the unresolved request",

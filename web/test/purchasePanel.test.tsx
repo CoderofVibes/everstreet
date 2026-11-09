@@ -144,7 +144,7 @@ describe("003web the Buy uses panel, for a fresh customer, on the actual page", 
     await click("Review: create your registration");
     await wait(() => text().includes("0.0082 NEAR"), "the exact deposit");
     expect(text()).toContain("820 bytes");
-    await click("Ask my wallet to approve exactly this");
+    await click("Approve in my wallet");
     await wait(
       () => text().includes("registration with this business is confirmed"),
       "shell confirmed",
@@ -155,7 +155,7 @@ describe("003web the Buy uses panel, for a fresh customer, on the actual page", 
     await wait(() => text().includes("Review: buy uses"), "the purchase review");
     expect(text()).toContain("100 uses for 5 TUSD, paid from your account");
     expect(text()).toContain("5000000 base units of tusd.near"); // exact, in the details
-    await click("Ask my wallet to approve exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("Purchase confirmed by the contract"), "confirmed");
     expect(h.world.chain.ent(FRESH)).toMatchObject({ free: "100", purchase_seq: 1 });
     expect(h.controls.sent.map((c) => c.methodName)).toEqual(["sponsor_shell", "ft_transfer_call"]);
@@ -165,12 +165,12 @@ describe("003web the Buy uses panel, for a fresh customer, on the actual page", 
   it("a lost answer, then the registration replaced: the old purchase is listed as unknown and no longer blocks", async () => {
     const h = await signedIn();
     await click("Review: create your registration");
-    await click("Ask my wallet to approve exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("registration with this business is confirmed"), "shell");
     await setUnits(2);
     await click("Review this purchase");
     h.controls.loseNext = true;
-    await click("Ask my wallet to approve exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("A purchase is waiting for its outcome"), "open, unknown");
     // Later, elsewhere: the registration is removed and a new one made (a new registration id).
     h.world.chain.ents.delete(FRESH);
@@ -191,13 +191,13 @@ describe("003web the Buy uses panel, for a fresh customer, on the actual page", 
   it("a lost reply that landed: the device panel follows the contract's units without a manual refresh", async () => {
     const h = await signedIn();
     await click("Review: create your registration");
-    await click("Ask my wallet to approve exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("registration with this business is confirmed"), "shell");
     await wait(() => text().includes("nothing to enroll a device for"), "no units yet");
     await setUnits(100);
     await click("Review this purchase");
     h.controls.loseNext = true;
-    await click("Ask my wallet to approve exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("A purchase is waiting for its outcome"), "open, unknown");
     expect(h.world.chain.ent(FRESH)).toMatchObject({ free: "100", purchase_seq: 1 }); // it landed
     // The purchase stays unknown (no proof it is THIS purchase), but the contract's units are read:
@@ -249,12 +249,12 @@ describe("003web the Buy uses panel, for a fresh customer, on the actual page", 
   it("recovery by the original transaction's ID after a lost reply and a reload: wrong IDs change nothing, the right one confirms, the wallet is never asked", async () => {
     const h = await signedIn();
     await click("Review: create your registration");
-    await click("Ask my wallet to approve exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("registration with this business is confirmed"), "shell");
     await setUnits(10);
     await click("Review this purchase");
     h.controls.loseNext = true;
-    await click("Ask my wallet to approve exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("A purchase is waiting for its outcome"), "unknown");
     const sent = h.controls.sent.length;
     const txs = [...h.world.chain.txs.values()];

@@ -91,7 +91,7 @@ function OpenRequest({
               disabled={busy}
               onClick={() => void flow.continuePrepared(a.id)}
             >
-              Ask my wallet now
+              Approve in my wallet now
             </button>
             <button
               type="button"
@@ -188,7 +188,7 @@ function Review({
           disabled={busy}
           onClick={() => void flow.confirm()}
         >
-          {sale.busy === "wallet" ? "Waiting for your wallet…" : "Ask my wallet"}
+          {sale.busy === "wallet" ? "Waiting for your wallet…" : "Approve in my wallet"}
         </button>
         <button
           type="button"

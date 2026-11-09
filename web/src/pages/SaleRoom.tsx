@@ -488,7 +488,7 @@ function Review({ flow, st, s }: { flow: SaleFlow; st: SaleFlowState; s: SaleSet
             ? "Storing…"
             : st.busy === "wallet"
               ? "Waiting for your wallet…"
-              : "Ask my wallet for exactly this"}
+              : "Approve in my wallet"}
         </button>
         <button
           type="button"
@@ -531,7 +531,7 @@ function OpenRequest({ flow, st, a }: { flow: SaleFlow; st: SaleFlowState; a: Sa
             disabled={st.busy !== null}
             onClick={() => void flow.continuePrepared(a.id)}
           >
-            Ask my wallet for exactly this
+            Approve in my wallet
           </button>
           <button
             type="button"
@@ -1477,7 +1477,7 @@ export function SaleRoom({ id }: { id: string }) {
                 disabled={st.busy !== null}
                 onClick={() => void flow.resume()}
               >
-                Ask my wallet for this request
+                Approve in my wallet
               </button>
             </section>
           )}

@@ -355,7 +355,7 @@ export function PurchasePanel({
                     s.review?.kind === "purchase" ? flow.confirmPurchase() : flow.confirmSetupStep()
                   }
                 >
-                  Ask my wallet to approve exactly this
+                  Approve in my wallet
                 </button>
                 <button
                   type="button"
@@ -560,7 +560,7 @@ function OpenPurchase({
               disabled={busy}
               onClick={() => flow.confirmResend()}
             >
-              Ask my wallet again for exactly this
+              Approve in my wallet again
             </button>
             <button
               type="button"

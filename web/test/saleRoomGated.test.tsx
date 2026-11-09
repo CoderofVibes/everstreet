@@ -154,7 +154,7 @@ describe("003wf3 a Gated sale on the sale page over the configured composition (
     expect(text()).toContain("It keeps its metering authority after the close.");
     expect(text()).not.toContain("Customers' new uses continue right after the close.");
     await click("Review the exact request");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("Deal 1, version 1"), "the proposal on the contract");
     // The live terms and progress follow the business's close mode, never the Direct wording.
     expect(text()).toContain("By its named closer (closer-synthetic.testnet)");
@@ -177,7 +177,7 @@ describe("003wf3 a Gated sale on the sale page over the configured composition (
         expect(text()).toContain("after the closing deadline, either party ends the closing");
         expect(text()).not.toContain("until the sale closes");
       }
-      await click("Ask my wallet for exactly this");
+      await click("Approve in my wallet");
       await wait(() => text().includes(done as string), done as string);
     }
   }, 90_000);
@@ -186,7 +186,7 @@ describe("003wf3 a Gated sale on the sale page over the configured composition (
     await as(CONFIGURED_SELLER);
     await control("/hold-close");
     await click("Accept version 1 and start the closing");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("Everstreet is checking the handover"), "the closing");
     expect(button("End the closing")).toBeUndefined(); // only after the deadline
     // Astra 02:23: the SAME mounted page follows the handover, never a remount or reload.

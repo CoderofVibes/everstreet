@@ -324,8 +324,8 @@ export function DeviceKeyPanel({
               }
             >
               {review.kind === "enroll"
-                ? "Ask my wallet to enroll exactly this"
-                : "Ask my wallet to revoke exactly this"}
+                ? "Approve in my wallet"
+                : "Approve the removal in my wallet"}
             </button>
             <button
               type="button"

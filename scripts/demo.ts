@@ -61,6 +61,34 @@ for (const k of ["ledgerline", "signalwatch"] as const) {
   });
   if (r.status !== 200) throw new Error(`runtime budget for ${k}: ${r.status}`);
 }
+// Ledgerline's product brief carries its name, as a founder would save it in the studio (Anthony,
+// Nov 9: the studio and "Continue building" read "Untitled product").
+{
+  const project = w.business.ledgerline.project;
+  const head = (await w.delphine(`/api/product-projects/${project}`)).body.head as {
+    number: number;
+    brief: Record<string, unknown>;
+    prototype: unknown;
+  };
+  const saved = await w.delphine(`/api/product-projects/${project}/revisions`, "POST", {
+    base_revision: head.number,
+    brief: {
+      ...head.brief,
+      name: "Invoice reader v2",
+      audience: (head.brief.audience as string) || "Small finance teams",
+      problem:
+        (head.brief.problem as string) || "Supplier invoices arrive as text and must be retyped",
+      promise:
+        (head.brief.promise as string) || "Every promised field read exactly, or an honest refusal",
+      // The price its offer charges: 0.4 test dollars a use.
+      price: { model: "per_use", amount_cents: 40 },
+    },
+    prototype: head.prototype,
+    note: "Named and priced the product",
+  });
+  if (saved.status !== 201 && saved.status !== 200)
+    throw new Error(`Ledgerline's brief: ${saved.status} ${saved.body.error}`);
+}
 // Agent hires agent: Signalwatch's own agent buys and uses an invoice read from Ledgerline over
 // 402 (after the fresh runtime budget, so its use runs).
 const a2a = await agentHiresAgent(w);

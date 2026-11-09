@@ -230,7 +230,7 @@ describe("003wf2 the sale room page", () => {
     expect(document.activeElement?.classList.contains("sale-review")).toBe(true);
     expect(text()).toContain("propose_sale_guarded");
     expect(text()).toContain("checked in your browser");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("Deal 1, version 1"), "the proposal on the contract");
     expect(h.world.sale.controlView().live_deal).toMatchObject({
       seq: "1",
@@ -270,7 +270,7 @@ describe("003wf2 the sale room page", () => {
     expect(summary.textContent).toContain("Available balance kept (floor)0.1 TUSD");
     expect(summary.textContent).toContain("meter.near (metering)");
     expect(
-      summary.compareDocumentPosition(button("Ask my wallet for exactly this") as Node) &
+      summary.compareDocumentPosition(button("Approve in my wallet") as Node) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(text()).not.toContain("open until the time shown");
@@ -300,11 +300,11 @@ describe("003wf2 the sale room page", () => {
     });
     await wait(() => text().includes("you are the buyer"), "the buyer's page");
     await click("Register with the token");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(() => text().includes("Registered with the token"), "registered");
     h.controls.loseNext = true;
     await click("Fund escrow");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(
       () => Boolean(historyRow("Fund escrow")?.querySelector("form")),
       "the recovery form",
@@ -356,7 +356,7 @@ describe("003wf2 the sale room page", () => {
     );
     h.controls.loseNext = true;
     await click("Accept version 1 and close the sale");
-    await click("Ask my wallet for exactly this");
+    await click("Approve in my wallet");
     await wait(
       () => Boolean(historyRow("Accept this version")?.querySelector("form")),
       "the recovery form",

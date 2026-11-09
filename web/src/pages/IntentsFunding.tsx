@@ -321,7 +321,7 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
                     <dd>1 yoctoNEAR (a confirmation, not a payment)</dd>
                   </div>
                 </dl>
-                {btn("Ask my wallet for exactly this", "deposit", deposit, true)}
+                {btn("Approve in my wallet", "deposit", deposit, true)}
               </span>
             )}
           </Step>
@@ -361,7 +361,7 @@ export function IntentsFunding({ s, onChange }: { s: SaleSetup; onChange: () => 
                     <dd>{clock(f.deadline_ms)}; both sides swap or neither does</dd>
                   </div>
                 </dl>
-                {btn("Ask my wallet to sign exactly this", "sign", sign, true)}
+                {btn("Approve in my wallet", "sign", sign, true)}
               </span>
             )}
           </Step>

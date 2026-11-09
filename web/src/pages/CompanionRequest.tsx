@@ -183,7 +183,7 @@ export function CompanionRequest({
                 ? "Waiting for your wallet…"
                 : busy === "checking"
                   ? "Checking its transaction…"
-                  : "Ask my wallet for exactly this"}
+                  : "Approve in my wallet"}
             </button>
             <button
               type="button"
