@@ -133,7 +133,8 @@ const sections = parts.slice(1).map((s) => {
 const hb = heroBlocks.filter((b) => b.type !== "h");
 const headline = hb.find((b) => b.type === "p" && /^\*\*.+\*\*$/.test(b.text));
 const intro = hb[hb.indexOf(headline) + 1];
-const pillars = hb.find((b) => b.type === "list");
+const pillars = hb.find((b) => b.type === "list" && !b.ordered);
+const route = hb.find((b) => b.type === "list" && b.ordered);
 const lead = hb.find((b) => b.type === "p" && b.text.startsWith("**Ledgerline"));
 const strip = hb.find((b) => b.type === "table");
 const built = hb.find((b) => b.type === "p" && b.text.startsWith("Built at"));
@@ -224,6 +225,8 @@ strong { font-weight: 650; }
 .step-n { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cobalt-ink); font-weight: 600; }
 .step h3 { margin: 0; font-family: var(--display); font-size: 17px; font-weight: 650; }
 .step p { margin: 0; color: var(--text-2); font-size: 14.5px; }
+.route-h { font-size: 19px; border-top: 0; padding-top: 22px; margin: 0 0 10px; }
+.route { max-width: 74ch; }
 .step .step-ev { margin-top: auto; padding-top: 6px; font-size: 14px; }
 
 /* Section bar */
@@ -299,6 +302,7 @@ footer .wrap { padding-block: 20px 36px; font-size: 13px; color: var(--text-3); 
 <div class="wrap proof">
   <p class="lead">${inline(lead.text)}</p>
   <ol class="strip">${stripCards}</ol>
+  ${route ? `<h2 class="route-h">One route through the proof</h2><ol class="steps route">${route.items.map((x) => `<li>${inline(x)}</li>`).join("")}</ol>` : ""}
 </div>
 
 <div class="bar"><div class="wrap"><nav aria-label="Sections">${sections.map((s) => `<a href="#${s.id}">${esc(s.title)}</a>`).join("")}</nav></div></div>
