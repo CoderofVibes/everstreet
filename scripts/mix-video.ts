@@ -2,15 +2,22 @@
 //
 //   npx tsx scripts/mix-video.ts <picture.mp4> <folder with 01.wav … 16.wav> <out.mp4>
 //
-// For each beat (web/src/video/beats.ts): finds the speech in its line (silence detection), keeps
-// the pauses between phrases but shortens any longer than 0.4 s, and places the speech 0.15 s after
-// the beat starts. A line longer than its beat is never sped up or cut: the beat's last picture
-// frame is held until the line has finished (plus 0.2 s), so every caption still changes with its
-// beat. Two beats with time to spare are shortened (SHORTER) so the whole stays under 2:20. The voice is cleaned (high-pass, light noise reduction), set to -16 LUFS for the web, and
-// silence fills the rest. Prints each beat's planned and final times. Never overwrites a file.
+// For each beat (web/src/video/beats.ts): finds the speech in its line (silence detection) and
+// keeps the line whole, its own pauses as Tony said them, from just before the first word to just
+// after the last. The line starts speaking 0.15 s after its beat starts. A line longer than its beat
+// is never sped up or cut: the beat's last picture frame is held until the line has finished, so
+// every caption still changes with its beat. Two beats with time to spare are shortened (SHORTER)
+// so the whole stays under 2:20.
+//
+// Under everything runs a bed of Tony's own room tone (Nov 11: silence between takes sounded
+// chopped): the quiet before and after the words in each take, joined with crossfades and looped.
+// Each line fades in over it and the bed fades out under it, so the noise never drops away or
+// doubles. Then the whole is cleaned (high-pass, light noise reduction) and raised to -16 LUFS by
+// one fixed gain, so the room tone stays level.
+// Prints each beat's times. Never overwrites a file.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { BEATS, beatStart } from "../web/src/video/beats.ts";
 
@@ -27,11 +34,16 @@ const bin = (() => {
   return dir ? join(root, pkg, dir, "bin") : "";
 })();
 const ffmpeg = bin ? join(bin, "ffmpeg.exe") : "ffmpeg";
+/** Seconds from a beat's start to the first word. */
 const LEAD = 0.15;
-const TAIL = 0.2;
-const MAX_PAUSE = 0.4;
-const PAUSE = 0.35;
-const PAD = 0.06;
+/** Room kept before the first word and after the last (the line's own breath and room). */
+const PRE = 0.12;
+const POST = 0.15;
+/** Seconds the picture keeps after a line ends, before the next beat. */
+const TAIL = 0.05;
+/** Crossfade between a line and the room tone. */
+const FADE = 0.06;
+
 /**
  * Beats with time to spare, shortened in the edit to keep the whole under X's 2:20 (Nov 11, with
  * Tony's lines): the close's picture has settled by 11.5 s, and the closing slide needs 6 s.
@@ -70,20 +82,18 @@ function speech(file: string): { spans: [number, number][]; total: number } {
 const plan = BEATS.map((b, i) => {
   const file = join(voices, `${String(i + 1).padStart(2, "0")}.wav`);
   if (!existsSync(file)) throw new Error(`missing ${file}`);
-  const { spans } = speech(file);
+  const { spans, total: takeLength } = speech(file);
   if (!spans.length) throw new Error(`no speech found in ${file}`);
-  // Each span with a little padding; pauses between spans kept, the long ones shortened.
-  const pieces = spans.map(([s, e]) => [Math.max(0, s - PAD), e + PAD] as [number, number]);
-  const gaps = pieces.slice(1).map((p, j) => {
-    const gap = Math.max(0, p[0] - (pieces[j] as [number, number])[1]);
-    return gap > MAX_PAUSE ? PAUSE : gap;
-  });
-  const length = pieces.reduce((n, [s, e]) => n + (e - s), 0) + gaps.reduce((n, g) => n + g, 0);
+  const first = (spans[0] as [number, number])[0];
+  const last = (spans.at(-1) as [number, number])[1];
+  const piece = [Math.max(0, first - PRE), last + POST] as [number, number];
+  const lead = first - piece[0];
+  const length = piece[1] - piece[0];
   const dur = Math.min(b.dur, SHORTER[b.id] ?? b.dur);
-  if (LEAD + length + TAIL > dur && dur < b.dur)
-    throw new Error(`${b.id}: its line no longer fits`);
-  const hold = Math.max(0, LEAD + length + TAIL - dur);
-  return { id: b.id, file, pieces, gaps, length, hold, dur };
+  const ends = LEAD - lead + length;
+  if (ends + TAIL > dur && dur < b.dur) throw new Error(`${b.id}: its line no longer fits`);
+  const hold = Math.max(0, ends + TAIL - dur);
+  return { id: b.id, file, piece, lead, length, ends, hold, dur, total: takeLength };
 });
 
 // The picture: each beat cut out and, where its line is longer, its last frame held.
@@ -96,43 +106,105 @@ const cuts = plan
   .join(";");
 const vcat = `${plan.map((_, i) => `[v${i}]`).join("")}concat=n=${plan.length}:v=1:a=0[v]`;
 
-// The voice: every line's pieces and pauses, placed at its beat's new start.
+// The voice: each line, faded at its edges, placed at its beat's new start.
 let starts = 0;
 const voiceParts: string[] = [];
 const voiceLabels: string[] = [];
+const windows: [number, number][] = [];
 plan.forEach((p, i) => {
-  const input = i + 1;
-  const segs: string[] = [];
-  p.pieces.forEach(([s, e], j) => {
-    voiceParts.push(
-      `[${input}:a]atrim=start=${s.toFixed(3)}:end=${e.toFixed(3)},asetpts=PTS-STARTPTS[a${i}_${j}]`,
-    );
-    segs.push(`[a${i}_${j}]`);
-    const gap = p.gaps[j];
-    if (gap !== undefined) {
-      voiceParts.push(`anullsrc=r=44100:cl=mono,atrim=duration=${gap.toFixed(3)}[g${i}_${j}]`);
-      segs.push(`[g${i}_${j}]`);
-    }
-  });
-  const delay = Math.round((starts + LEAD) * 1000);
-  voiceParts.push(`${segs.join("")}concat=n=${segs.length}:v=0:a=1,adelay=${delay}[l${i}]`);
+  const at = starts + LEAD - p.lead;
+  windows.push([at, at + p.length]);
+  voiceParts.push(
+    `[${i + 1}:a]atrim=start=${p.piece[0].toFixed(3)}:end=${p.piece[1].toFixed(3)},asetpts=PTS-STARTPTS,afade=t=in:d=${FADE},afade=t=out:st=${(p.length - FADE).toFixed(3)}:d=${FADE},adelay=${Math.round(at * 1000)}[l${i}]`,
+  );
   voiceLabels.push(`[l${i}]`);
   starts += p.dur + p.hold;
 });
 const total = starts;
-const amix = `${voiceLabels.join("")}amix=inputs=${voiceLabels.length}:normalize=0,highpass=f=80,afftdn=nf=-62:nr=10,loudnorm=I=-16:TP=-1.5:LRA=11,apad,atrim=duration=${total.toFixed(3)},aformat=sample_rates=48000:channel_layouts=stereo[a]`;
 
-const inputs = ["-i", picture, ...plan.flatMap((p) => ["-i", p.file])];
-const graph = [cuts, vcat, ...voiceParts, amix].join(";");
+// The room tone: the quiet before and after the words in every take, joined with crossfades.
+const room: [number, number, number][] = [];
+plan.forEach((p, i) => {
+  const head: [number, number] = [0.15, p.piece[0] + p.lead - 0.25];
+  const tail: [number, number] = [p.piece[1] - POST + 0.25, p.total - 0.1];
+  for (const [a, b] of [head, tail]) if (b - a >= 0.4) room.push([i + 1, a, b]);
+});
+if (room.length < 4) throw new Error("not enough quiet in the takes to make room tone");
+const XF = 0.08;
+const roomParts = room.map(
+  ([input, a, b], k) =>
+    `[${input}:a]atrim=start=${a.toFixed(3)}:end=${b.toFixed(3)},asetpts=PTS-STARTPTS[r${k}]`,
+);
+let chain = "[r0]";
+room.slice(1).forEach((_, k) => {
+  roomParts.push(`${chain}[r${k + 1}]acrossfade=d=${XF}[x${k + 1}]`);
+  chain = `[x${k + 1}]`;
+});
+const roomLength = room.reduce((n, [, a, b]) => n + (b - a), 0) - XF * (room.length - 1);
+// Looped to the length of the video; out under each line, with the same fade as the line.
+const inside = windows
+  .map(([a, b]) => `clip(min((t-${a.toFixed(3)})/${FADE},(${b.toFixed(3)}-t)/${FADE}),0,1)`)
+  .reduce((acc, x) => `max(${acc},${x})`);
+roomParts.push(
+  `${chain}aloop=loop=-1:size=${Math.floor(roomLength * 44100)},atrim=duration=${total.toFixed(3)},volume=eval=frame:volume='1-${inside}'[bedraw]`,
+);
+
+/** The bed sits this many dB up from the quiet before the takes, to match the pauses inside them. */
+const BED_GAIN_DB = 1.5;
+const amix = `[bedraw]volume=${BED_GAIN_DB}dB[bed];[bed]${voiceLabels.join("")}amix=inputs=${voiceLabels.length + 1}:normalize=0,highpass=f=80,afftdn=nf=-62:nr=10,atrim=duration=${total.toFixed(3)}[a]`;
+
+// 1. The voice and the bed, cleaned, at the takes' own level.
+const temp = `${out}.voice.wav`;
+const voiceInputs = plan.flatMap((p) => ["-i", p.file]);
+// The voice graph numbers its inputs from 1 (the picture is 0 in the final step): shift by one.
+const voiceGraph = [...voiceParts, ...roomParts, amix]
+  .join(";")
+  .replace(/\[(\d+):a\]/g, (_m, n: string) => `[${Number(n) - 1}:a]`);
 execFileSync(
   ffmpeg,
   [
     "-hide_banner",
     "-v",
     "error",
-    ...inputs,
+    "-y",
+    ...voiceInputs,
     "-filter_complex",
-    graph,
+    voiceGraph,
+    "-map",
+    "[a]",
+    "-c:a",
+    "pcm_s24le",
+    temp,
+  ],
+  { stdio: "inherit" },
+);
+
+// 2. One gain for the whole track to -16 LUFS (a level that rides the quiet parts up would make
+// the room tone rise and fall), with a limiter for the peaks.
+const measured = spawnSync(
+  ffmpeg,
+  ["-hide_banner", "-i", temp, "-af", "ebur128", "-f", "null", "-"],
+  {
+    encoding: "utf8",
+  },
+).stderr;
+const loudness = Number([...measured.matchAll(/\bI:\s+(-?[\d.]+) LUFS/g)].at(-1)?.[1]);
+if (!Number.isFinite(loudness)) throw new Error("couldn't measure the voice's loudness");
+const gain = -16 - loudness;
+
+// 3. The picture with its holds, and the voice at that gain.
+execFileSync(
+  ffmpeg,
+  [
+    "-hide_banner",
+    "-v",
+    "error",
+    "-i",
+    picture,
+    "-i",
+    temp,
+    "-filter_complex",
+    `${cuts};${vcat};[1:a]volume=${gain.toFixed(2)}dB,alimiter=limit=0.84:level=false,aformat=sample_rates=48000:channel_layouts=stereo[a]`,
     "-map",
     "[v]",
     "-map",
@@ -157,13 +229,18 @@ execFileSync(
   ],
   { stdio: "inherit" },
 );
+unlinkSync(temp);
+console.log(
+  `voice: ${loudness.toFixed(1)} LUFS as recorded, raised ${gain.toFixed(1)} dB as one gain`,
+);
 
 let at = 0;
 for (const p of plan) {
   const mmss = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, "0")}`;
   console.log(
-    `${p.id.padEnd(15)} beat ${mmss(at)} ${String(p.dur).padStart(2)} s · line ${p.length.toFixed(2)} s · ends ${(LEAD + p.length).toFixed(2)} s in${p.hold ? ` · held ${p.hold.toFixed(2)} s` : ""}`,
+    `${p.id.padEnd(15)} beat ${mmss(at)} ${String(p.dur).padStart(4)} s · words end ${(p.ends - POST).toFixed(2)} s in${p.hold ? ` · held ${p.hold.toFixed(2)} s` : ""}`,
   );
   at += p.dur + p.hold;
 }
+console.log(`room tone: ${room.length} quiet stretches, ${roomLength.toFixed(1)} s, looped`);
 console.log(`total ${Math.floor(total / 60)}:${(total % 60).toFixed(2).padStart(5, "0")} → ${out}`);

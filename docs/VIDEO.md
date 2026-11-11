@@ -118,7 +118,10 @@ then from, to and any transfer) and stacked, so the text stays readable in a qua
   across them, and re-time with `setpts` so every beat starts at its scripted second. Check the
   beat starts against the table above before sending.
 - Lay the voice under the picture: `npx tsx scripts/mix-video.ts <picture.mp4> <folder of 01.wav to 16.wav> <out.mp4>`.
-  Each line starts 0.15 s into its beat; a line longer than its beat holds that beat's last frame
-  (never sped up), and the close and the closing slide are shortened to keep the whole under 2:20.
-  The voice is set to -16 LUFS. Check the caption changes and the speech against the printed plan.
+  Each line is kept whole, with its own pauses, and starts speaking 0.15 s into its beat; a line
+  longer than its beat holds that beat's last frame (never sped up), and the close and the closing
+  slide are shortened to keep the whole under 2:20. Under everything runs a bed of the takes' own
+  room tone (the quiet before and after the words, joined and looped), crossfaded with each line,
+  so the gaps never drop to silence. One fixed gain takes the whole to -16 LUFS. Check the caption
+  changes and the speech against the printed plan.
 - Save every version as a new numbered file; never overwrite an older one.
