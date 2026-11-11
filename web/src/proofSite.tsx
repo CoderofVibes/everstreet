@@ -32,8 +32,30 @@ export const STATIC_READS: Record<string, string> = {
   "/api/public/attacks": "/data/attacks.json",
 };
 
-/** The video's settings, read once: the pages it plays change the address as they go. */
-const VIDEO = videoOptions(window.location.search);
+/**
+ * The video's settings, read once: the pages it plays change the address as they go. A reload of
+ * a video window (F5) starts the video again from the top, not the page it had reached (Tony,
+ * Nov 11): the tab remembers that it is a video window.
+ */
+const VIDEO_KEY = "everstreet:video";
+const VIDEO = (() => {
+  const store = (() => {
+    try {
+      return window.sessionStorage;
+    } catch {
+      return null;
+    }
+  })();
+  const asked = videoOptions(window.location.search);
+  if (asked) {
+    store?.setItem(VIDEO_KEY, window.location.search);
+    return asked;
+  }
+  const kept = store?.getItem(VIDEO_KEY) ?? null;
+  const options = kept ? videoOptions(kept) : null;
+  if (kept && options) window.history.replaceState(null, "", `/${kept}`);
+  return options;
+})();
 
 const VIEWER_KEY = "everstreet:tour:viewer";
 const json = (status: number, body: unknown) =>
