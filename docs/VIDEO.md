@@ -98,8 +98,8 @@ then from, to and any transfer) and stacked, so the text stays readable in a qua
 ## Recording a take (OBS)
 
 1. `npm run video:check`, then serve the site (the two commands above).
-2. Open a bare Edge window on the video:
-   `msedge --app="http://localhost:8830/?video=1&capture=1" --window-size=1920,1080`
+2. Open a bare Edge window on the video (PowerShell):
+   `Start-Process msedge -ArgumentList '--app=http://localhost:8830/?video=1&capture=1', '--window-size=1920,1080', "--user-data-dir=$env:TEMP\everstreet-video"`
 3. In OBS: a Window Capture of that window, Capture Cursor off, desktop audio and the microphone
    muted, the canvas and output at 1920 by 1080, 60 frames a second.
 4. Click the Edge window once, press F11, start recording in OBS, wait two seconds, press Space.
