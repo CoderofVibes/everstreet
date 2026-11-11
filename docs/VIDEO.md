@@ -84,8 +84,9 @@ synthetic Signalwatch sale. A name card says who the picture is following whenev
 ## The explorer pictures
 
 Beat 15 shows four public explorer pages, side by side, from pictures in `web/public/video/`.
-The explorers turn away automated browsers, so these are taken by hand, once, in an ordinary
-browser window about 1280 wide, light theme, the top of the page in view:
+The explorers turn away automated browsers, so Tony took these by hand on Nov 11, in an ordinary
+browser, light theme. Each is cut with ffmpeg to the rows that make its point (hash and status,
+then from, to and any transfer) and stacked, so the text stays readable in a quarter of the frame:
 
 | File | Page |
 |---|---|

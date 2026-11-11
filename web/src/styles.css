@@ -1962,7 +1962,7 @@ body { padding-bottom: var(--tour-h, 0px); }
 .video-shot.on { opacity: 1; transform: none; }
 .video-shot figcaption { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: 15px; }
 .video-shot figcaption span { flex: none; font: 600 11px/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--cobalt-ink); }
-.video-shot img { width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.video-shot img { width: 100%; height: 100%; padding: 10px 14px; box-sizing: border-box; object-fit: contain; object-position: left center; background: #fff; }
 .video-end { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 40px; background: #101a2e; color: #fff; text-align: center; }
 .video-end > div { max-width: 900px; display: grid; gap: 18px; justify-items: center; }
 .video-end h1, .video-end p { margin: 0; opacity: 0; transform: translateY(8px); transition: opacity 0.6s, transform 0.6s; }
