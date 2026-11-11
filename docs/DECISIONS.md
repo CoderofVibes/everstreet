@@ -254,3 +254,27 @@ comes after buildout; seven to ten days is a planning horizon, not a completion 
 Public release, pushing, mainnet, new service spending and billing changes remain unapproved.
 
 See `docs/design/PLATFORM_VISION.md`, `docs/astra/2026-11-02_BuildMandate.md`, and the job queue.
+
+## 2026-11-11 · The hosted copy is a guided tour, then the proof
+
+Tony (Nov 11): the hosted proof site opened on a page that didn't say how to move through it. He
+asked for a guide in a limited number of steps: a high-level view of what Everstreet is and what
+people do there (builders, investors, customers on the main page; the build workshop; the
+portfolio), then the handoff proof, the sale, what we tried to break, and agents.
+
+1. **Seven steps, docked under the app's own pages.** Everstreet's front page, the product
+   studio, the portfolio, the handoff proof, the recorded sale, the attack docket, the agent
+   desk. The guide carries the explaining, so the product pages are unchanged. Each step says
+   where its data comes from: the recorded demo (simulated history), NEAR testnet, or a recorded
+   test run.
+2. **The app pages are a replay of the demo, not screenshots.** A local proxy
+   (`scripts/record-tour.ts`) kept every read the demo's pages made while they were walked, per
+   viewer, with the routes walked (`data/tour/recording.json`, committed). The static site answers
+   those reads with those bodies, refuses every write, and blocks links to routes nobody walked.
+   The proof pages still read the committed testnet evidence.
+3. **Three viewers.** Delphine Marsh (founder) for the main line; Cara Okafor (customer) and Noah
+   Brandt (buyer) as side doors from step 1, so the three audiences are one click away without
+   adding steps.
+4. **Flagged:** the recording is of one demo run on Nov 11, so its dates are that day's. Re-record
+   after any change to what those pages read (the steps are at the top of the script), and on the
+   release commit if the pages changed.

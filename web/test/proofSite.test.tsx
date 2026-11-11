@@ -1,78 +1,178 @@
 // @vitest-environment jsdom
 //
-// The static proof site (web/src/proofSite.tsx) answers every public read its pages make from a
-// build-time file; a page that starts reading something new must be added there, or it would show
-// "not part of this copy" once hosted. The check follows the static entry's imports (every
-// relative, non-type import, transitively) to the page files it bundles and looks at every "/api/"
-// string in them, template strings included (Nov 7 review: the earlier check read three named
-// files for string literals). A shared helper that reads a path of its own, not one the page hands
-// it, is outside this check; the pages hand their helpers the path.
+// The static site (web/src/proofSite.tsx): the app's own pages, answering from files. The proof
+// pages read the committed testnet evidence (STATIC_READS); every other read is answered from the
+// committed recording of the demo (data/tour/recording.json), as whoever walked that route, and
+// from nothing else: an unrecorded read is "not in this tour" and nothing can be written. The
+// guide's stops must all be routes the recording holds, or a visitor would be led to an empty page.
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve, sep } from "node:path";
-import { describe, expect, it } from "vitest";
-import { nextAfter, ROUTE, STATIC_READS } from "../src/proofSite.tsx";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { tourData } from "../../scripts/lib/tourData.ts";
+import { STATIC_READS } from "../src/proofSite.tsx";
+import { Router } from "../src/router.tsx";
+import { Guide } from "../src/tour/Guide.tsx";
+import { answer, type TourData, viewerFor } from "../src/tour/replay.ts";
+import { STEPS, STOPS_USED, stepAt, stepRoute, tourProblems } from "../src/tour/steps.ts";
 
-/** Source files the static entry reaches through relative imports that bundle code. */
-function reachable(entry: string) {
-  const seen = new Set<string>();
-  const walk = (file: string) => {
-    if (seen.has(file)) return;
-    seen.add(file);
-    const text = readFileSync(file, "utf8");
-    for (const m of text.matchAll(/import\s+(type\s+)?[^;]*?from\s+"(\.{1,2}\/[^"]+)"/g)) {
-      if (m[1]) continue; // a type-only import bundles nothing
-      const target = resolve(dirname(file), m[2] as string);
-      if (/\.tsx?$/.test(target)) walk(target);
-      else if (!/\.(json|css)$/.test(target)) walk(`${target}.ts`);
-    }
-  };
-  walk(resolve(entry));
-  return [...seen];
-}
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-describe("the static proof site", () => {
-  it("has a data file for every read the pages it bundles can make", () => {
-    const files = reachable("web/src/proofSite.tsx");
-    const pages = files.filter((f) => f.includes(`${sep}pages${sep}`));
-    for (const p of ["RecordedProof.tsx", "AttackDocket.tsx", "Showcase.tsx", "HandoffProof.tsx"])
-      expect(
-        pages.some((f) => f.endsWith(p)),
-        p,
-      ).toBe(true);
-    const reads: string[] = [];
-    for (const f of pages) {
-      // Every "/api/..." in a string or template literal; a template with an expression is a read
-      // this check can't resolve, so it fails here instead of once hosted.
-      for (const m of readFileSync(f, "utf8").matchAll(/["`'](\/api\/[^"`']*)["`']/g)) {
-        const path = m[1] as string;
-        expect(path, `${f}: a read this copy can't answer`).not.toMatch(/\$\{/);
-        reads.push(path);
-      }
-    }
-    expect(reads.length).toBeGreaterThan(0);
-    for (const r of reads) expect(STATIC_READS[r], r).toMatch(/^\/data\/[a-z]+\.json$/);
+let root: Root | null = null;
+afterEach(() => {
+  act(() => root?.unmount());
+  root = null;
+  document.body.innerHTML = "";
+});
+
+const data: TourData = {
+  recorded_at: "2026-11-11T00:00:00.000Z",
+  commit: "test",
+  viewers: {
+    delphine: {
+      routes: ["/", "/portfolio", "/build/p1"],
+      reads: { "/api/me": { person: { display_name: "Delphine Marsh" } }, "/api/x?days=30": [1] },
+    },
+    cara: { routes: ["/", "/use/o1"], reads: { "/api/me": { person: { display_name: "Cara" } } } },
+  },
+  stops: { studio: "/build/p1", portfolio: "/portfolio", customer: "/use/o1" },
+};
+
+describe("the replay", () => {
+  it("answers a recorded read with its recorded body, as the viewer who made it", () => {
+    expect(answer(data, "delphine", "GET", "/api/x?days=30")).toEqual({ status: 200, body: [1] });
+    expect(answer(data, "cara", "GET", "/api/me").body).toEqual({
+      person: { display_name: "Cara" },
+    });
   });
 
-  it("answers any other API read with 404, never a call to a server", async () => {
-    const r = await fetch("/api/me/dashboard");
-    expect(r.status).toBe(404);
-    expect(((await r.json()) as { code: string }).code).toBe("static");
+  it("answers nothing it did not record: another query, another viewer's read, no viewer", () => {
+    for (const [who, target] of [
+      ["delphine", "/api/x?days=7"],
+      ["delphine", "/api/x"],
+      ["cara", "/api/x?days=30"],
+      [null, "/api/me"],
+      ["delphine", "constructor"],
+    ] as const) {
+      const a = answer(data, who, "GET", target);
+      expect(a.status, target).toBe(404);
+      expect((a.body as { code: string }).code).toBe("static");
+    }
+  });
+
+  it("refuses every write", () => {
+    for (const m of ["POST", "PUT", "PATCH", "DELETE"]) {
+      const a = answer(data, "delphine", m, "/api/me");
+      expect(a.status, m).toBe(403);
+      expect((a.body as { code: string }).code).toBe("recording");
+    }
+  });
+
+  it("picks who views a route: the one asked for, else whoever is viewing, else who walked it", () => {
+    expect(viewerFor(data, "/", "cara")).toBe("cara");
+    expect(viewerFor(data, "/", "cara", "delphine")).toBe("delphine");
+    expect(viewerFor(data, "/portfolio", "cara")).toBe("delphine");
+    expect(viewerFor(data, "/use/o1", "delphine")).toBe("cara");
+    expect(viewerFor(data, "/use/o1", null, "delphine")).toBe("cara");
+    expect(viewerFor(data, "/", null)).toBe("delphine");
+    expect(viewerFor(data, "/nowhere", "delphine")).toBeNull();
   });
 });
 
-// Nov 9 (Anthony): one train of proof a judge can follow, each page leading to the next.
-describe("the route through the proof", () => {
-  it("goes handoff proof, recorded sale, attacks, agents, then the claims table", () => {
-    expect(ROUTE.map((r) => r.label)).toEqual([
+describe("the static site's reads", () => {
+  it("keeps the proof pages on the committed evidence files", () => {
+    expect(STATIC_READS).toEqual({
+      "/api/examples/ledgerline": "/data/ledgerline.json",
+      "/api/public/attacks": "/data/attacks.json",
+    });
+  });
+
+  it("answers an unrecorded read with 404 and a write with 403, never a call to a server", async () => {
+    const r = await fetch("/api/me/dashboard");
+    expect(r.status).toBe(404);
+    expect(((await r.json()) as { code: string }).code).toBe("static");
+    const w = await fetch("/api/projects", { method: "POST", body: "{}" });
+    expect(w.status).toBe(403);
+    expect(((await w.json()) as { code: string }).code).toBe("recording");
+  });
+});
+
+// Nov 11 (Anthony): a guide that walks a judge through what Everstreet is, then the proof.
+describe("the guided tour", () => {
+  it("goes Everstreet, build, run, then handoff proof, recorded sale, attacks, agents", () => {
+    expect(STEPS.map((s) => s.label)).toEqual([
+      "Everstreet",
+      "Build",
+      "Run",
       "Handoff proof",
-      "The recorded sale",
-      "What we tried to break",
-      "Agents on NEAR testnet",
+      "Recorded sale",
+      "Attacks",
+      "Agents",
     ]);
-    expect(nextAfter("/proof/ledgerline")).toMatchObject({ step: 2, label: "The recorded sale" });
-    expect(nextAfter("/example/ledgerline")).toMatchObject({ step: 3, to: "/attacks" });
-    expect(nextAfter("/attacks")?.to).toBe("https://github.com/CoderofVibes/everstreet#for-agents");
-    expect(nextAfter("/")).toBeNull();
+    expect(STEPS.map((s) => s.to ?? `stop:${s.stop}`)).toEqual([
+      "/",
+      "stop:studio",
+      "stop:portfolio",
+      "/proof/ledgerline",
+      "/example/ledgerline?tab=acquire",
+      "/attacks",
+      "stop:agents",
+    ]);
+  });
+
+  it("says where each stop's data comes from, and keeps each step to a few lines", () => {
+    expect(STEPS.filter((s) => s.source === "testnet").map((s) => s.id)).toEqual([
+      "handoff",
+      "sale",
+    ]);
+    expect(STEPS.find((s) => s.id === "attacks")?.source).toBe("tests");
+    for (const s of STEPS) {
+      expect(s.body.length, s.id).toBe(1);
+      expect((s.body[0] as string).length, s.id).toBeLessThan(320);
+      for (const l of s.links ?? [])
+        expect(l.href, l.label).toMatch(
+          /^https:\/\/testnet\.nearblocks\.io\/txns\/[1-9A-HJ-NP-Za-km-z]{43,44}$/,
+        );
+    }
+  });
+
+  it("finds every stop and side door in the committed recording, walked by its viewer", () => {
+    const committed = tourData();
+    expect(tourProblems(committed)).toEqual([]);
+    for (const stop of STOPS_USED) expect(committed.stops[stop], stop).toMatch(/^\//);
+    const routes = STEPS.map((s) => stepRoute(s, committed.stops));
+    expect(new Set(routes).size).toBe(STEPS.length);
+    routes.forEach((r, i) => {
+      expect(stepAt(r.split("?")[0] as string, committed.stops)).toBe(i);
+    });
+    expect(stepAt("/somewhere-else", committed.stops)).toBe(-1);
+  });
+
+  it("reports a stop the recording does not hold", () => {
+    expect(tourProblems({ ...data, stops: { ...data.stops, studio: "/build/gone" } })).toContain(
+      "step build: /build/gone was not walked by delphine",
+    );
+    expect(tourProblems({ ...data, stops: {} }).length).toBeGreaterThan(0);
+  });
+
+  it("shows the first stop, and Next opens the next stop's page as its viewer", () => {
+    const visit = vi.fn();
+    const host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    act(() =>
+      root?.render(
+        createElement(Router, null, createElement(Guide, { data, viewer: "delphine", visit })),
+      ),
+    );
+    const button = (name: RegExp) =>
+      [...host.querySelectorAll("button")].find((b) => name.test(b.textContent ?? ""));
+    expect(host.textContent).toContain("Step 1 of 7");
+    expect(host.textContent).toContain("Viewing as Delphine Marsh");
+    expect(host.querySelectorAll(".tour-rail button").length).toBe(7);
+    expect(button(/^Back$/)?.disabled).toBe(true);
+    act(() => button(/A customer's side/)?.click());
+    expect(visit).toHaveBeenLastCalledWith("/use/o1", "cara");
+    act(() => button(/Next: Build/)?.click());
+    expect(visit).toHaveBeenLastCalledWith("/build/p1", "delphine");
   });
 });

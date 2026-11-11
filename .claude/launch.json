@@ -97,6 +97,15 @@
         "web/vite.proof.config.ts"
       ],
       "port": 8830
+    },
+    {
+      "name": "tour-recorder",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "scripts/record-tour.ts"
+      ],
+      "port": 8852
     }
   ]
 }

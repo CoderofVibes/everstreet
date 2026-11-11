@@ -1,6 +1,7 @@
-// Builds the static proof site into web/dist-proof (web/src/proofSite.tsx): the front end, then the
-// two data files its pages read, written from the same functions the server answers with (each
-// serves nothing from a record whose digests don't verify). Then fallbacks so a static host serves
+// Builds the static site into web/dist-proof (web/src/proofSite.tsx): the front end, then the data
+// files its pages read. The two proof files are written from the same functions the server answers
+// with (each serves nothing from a record whose digests don't verify); the guided tour's file is
+// the committed recording of the demo (data/tour/recording.json). Then fallbacks so a static host serves
 // the page for every route (it must sit at the domain root: `base` is `/`), and a manifest of what
 // went in.
 //
@@ -21,6 +22,7 @@ import {
 import { join, relative } from "node:path";
 import { attackSuite, ledgerlineExample } from "../server/src/examples.ts";
 import { SECRETISH } from "../server/src/rehearsalRecord.ts";
+import { tourData } from "./lib/tourData.ts";
 
 const OUT = join("web", "dist-proof");
 
@@ -31,9 +33,12 @@ execFileSync(
 );
 renameSync(join(OUT, "proof.html"), join(OUT, "index.html"));
 
+// The proof pages read the committed testnet evidence; the guided tour reads the committed recording
+// of the demo (the app's own answers, kept by scripts/record-tour.ts).
 const data = {
   "ledgerline.json": ledgerlineExample(),
   "attacks.json": attackSuite(),
+  "tour.json": tourData(),
 };
 mkdirSync(join(OUT, "data"), { recursive: true });
 for (const [name, value] of Object.entries(data)) {

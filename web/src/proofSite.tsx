@@ -1,208 +1,152 @@
-// The static proof site (Nov 7, Tony): the recorded proof pages only, servable from any static host
-// with no Everstreet server behind them. The pages are the app's own components; the two public
-// reads they make are answered from JSON files written at build time from the same projections the
-// server serves (scripts/build-proof-site.ts), so nothing here is recomputed or hand-written.
-// Any other /api read answers 404: this copy holds no app, accounts or sign-in.
+// The static site (Nov 7, Tony: the recorded proof; Nov 11, Tony: a guided tour of Everstreet, then
+// the proof). Servable from any static host with no Everstreet server behind it. The pages are the
+// app's own (App.tsx, unchanged); what they read is answered from files written at build time
+// (scripts/build-proof-site.ts):
+//   - the proof pages' two public reads, from the committed testnet evidence (STATIC_READS);
+//   - every other read, from a recording of the demo (data/tour/recording.json, web/src/tour).
+// Nothing is recomputed or hand-written, nothing can be changed, and a route nobody walked while
+// the recording ran is not offered. The guide (tour/Guide.tsx) walks a visitor through in order.
 
-import { StrictMode } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Icon } from "./icons.tsx";
-import { AttackDocketPage } from "./pages/AttackDocket.tsx";
-import { RecordedProofPage } from "./pages/RecordedProof.tsx";
-import { ExamplePage } from "./pages/Showcase.tsx";
-import { Link, Router, useRouter } from "./router.tsx";
+import { App } from "./App.tsx";
+import { Link, queryParam, Router, splitLocation, useRouter } from "./router.tsx";
+import { SessionProvider } from "./session.tsx";
+import { Guide, notify } from "./tour/Guide.tsx";
+import {
+  answer,
+  NOT_RECORDED_TEXT,
+  RECORDING_TEXT,
+  type TourData,
+  viewerFor,
+} from "./tour/replay.ts";
 import "./styles.css";
 
-/** The reads the proof pages make, and the build-time file that answers each. */
+/** The proof pages' reads, and the build-time file (from committed evidence) that answers each. */
 export const STATIC_READS: Record<string, string> = {
   "/api/examples/ledgerline": "/data/ledgerline.json",
   "/api/public/attacks": "/data/attacks.json",
 };
 
+const EMPTY: TourData = { recorded_at: "", commit: "", viewers: {}, stops: {} };
+
+/** Who is viewing (the replay answers as them), and who a guide step has asked for next. */
+const tour = { data: EMPTY, viewer: null as string | null, asked: null as string | null };
+
+const VIEWER_KEY = "everstreet:tour:viewer";
+const json = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
 const real = window.fetch.bind(window);
 window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-  const path = new URL(url, window.location.origin).pathname;
-  const file = STATIC_READS[path];
-  if (file) return real(file, init);
-  if (path.startsWith("/api/"))
-    return Promise.resolve(
-      new Response(JSON.stringify({ error: "Not part of this copy", code: "static" }), {
-        status: 404,
-        headers: { "content-type": "application/json" },
-      }),
-    );
-  return real(input, init);
+  const at = new URL(url, window.location.origin);
+  if (!at.pathname.startsWith("/api/")) return real(input, init);
+  const method = (
+    init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET")
+  ).toUpperCase();
+  const file = STATIC_READS[at.pathname];
+  if (file && method === "GET") return real(file);
+  const a = answer(tour.data, tour.viewer, method, `${at.pathname}${at.search}`);
+  if (a.status === 403) notify(RECORDING_TEXT);
+  else if (a.status === 404) console.debug(`[tour] not recorded: ${at.pathname}${at.search}`);
+  return Promise.resolve(json(a.status, a.body));
 };
 
-/** The repository's README on GitHub: the agent evidence and the claims table live there. */
-export const README_URL = "https://github.com/CoderofVibes/everstreet";
+// The app shell's own label (previewLabel.ts): one strip saying what this copy is.
+(globalThis as { __everstreetPreview?: unknown }).__everstreetPreview = {
+  label: "Recorded tour",
+  detail: "fictional people and test tokens · the pages are live to explore, changes are off",
+};
+// A wallet button in a recording has no wallet to open: it says so (wallet.ts reads this global).
+(globalThis as { __everstreetHarnessWallet?: unknown }).__everstreetHarnessWallet = () => {
+  throw new Error(RECORDING_TEXT);
+};
 
-/**
- * The route through the proof, in reading order (Anthony, Nov 9: a judge should be able to follow
- * one train of proof). Each page ends with a link to the next; the last two are README sections.
- */
-export const ROUTE = [
-  {
-    to: "/proof/ledgerline",
-    label: "Handoff proof",
-    icon: "shield" as const,
-    line: "Owner at generation 4, the former owner refused by the contract, the customer's 100 uses.",
-  },
-  {
-    to: "/example/ledgerline?tab=acquire",
-    label: "The recorded sale",
-    icon: "handshake" as const,
-    line: "What the buyer took over and what the customer kept, read from the record.",
-  },
-  {
-    to: "/attacks",
-    label: "What we tried to break",
-    icon: "flask" as const,
-    line: "Attacks on the app and its contract rules, each refused or flagged.",
-  },
-  {
-    to: `${README_URL}#for-agents`,
-    label: "Agents on NEAR testnet",
-    icon: "agent" as const,
-    line: "An agent pays over HTTP 402 from its own account; one business's agent buys from another.",
-  },
-];
-const NAV = ROUTE.slice(0, 3);
-const CLAIMS_URL = `${README_URL}#follow-the-proof`;
-const external = (to: string) => to.startsWith("https://");
+/** A link inside the page to a route nobody walked while the recording ran goes nowhere. */
+function fence(e: MouseEvent) {
+  const a = (e.target as Element | null)?.closest?.("a[href]");
+  const href = a?.getAttribute("href");
+  if (!a || !href?.startsWith("/") || href.startsWith("/data/")) return;
+  if (viewerFor(tour.data, splitLocation(href).path, tour.viewer) !== null) return;
+  e.preventDefault();
+  e.stopPropagation();
+  notify(NOT_RECORDED_TEXT);
+}
 
-function Landing() {
+function Tour({ data }: { data: TourData }) {
+  const { path, search, go } = useRouter();
+  // Who views this route: set while rendering, so every read the page below makes is theirs.
+  const viewer = viewerFor(data, path, tour.viewer, tour.asked ?? queryParam("as", search));
+  if (viewer) tour.viewer = viewer;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: path is a trigger: a step's request for a viewer is spent once its route shows
+  useEffect(() => {
+    tour.asked = null;
+    try {
+      if (tour.viewer) window.sessionStorage.setItem(VIEWER_KEY, tour.viewer);
+    } catch {
+      // Blocked storage: a reload starts as the first viewer who walked the route.
+    }
+  }, [path, viewer]);
+  useEffect(() => {
+    document.addEventListener("click", fence, true);
+    return () => document.removeEventListener("click", fence, true);
+  }, []);
+  const visit = (to: string, as?: string) => {
+    tour.asked = as ?? null;
+    go(to);
+  };
   return (
-    <div className="page">
-      <section className="intact proof-site-hero">
-        <div>
-          <div className="eyebrow">Recorded on NEAR testnet</div>
-          <h1>A launchpad and marketplace for the agentic economy, on NEAR.</h1>
-        </div>
-      </section>
-      <nav className="entries proof-entries" aria-label="The proof, in order">
-        {ROUTE.map((r, i) =>
-          external(r.to) ? (
-            <a key={r.to} href={r.to} className="entry" target="_blank" rel="noopener">
-              <Icon name={r.icon} />
-              <span>
-                <strong>
-                  {i + 1}. {r.label}
-                </strong>
-                <span>{r.line}</span>
-              </span>
-            </a>
-          ) : (
-            <Link key={r.to} to={r.to} className="entry">
-              <Icon name={r.icon} />
-              <span>
-                <strong>
-                  {i + 1}. {r.label}
-                </strong>
-                <span>{r.line}</span>
-              </span>
-            </Link>
-          ),
-        )}
-      </nav>
-      <p className="proof-claims-line">
-        Then every claim, with its test and transaction:{" "}
-        <a href={CLAIMS_URL} target="_blank" rel="noopener">
-          the claims table in the README
-        </a>
-        .
-      </p>
-    </div>
-  );
-}
-
-/** The next stop on the route after the page at `path`, shown at the bottom of each proof page. */
-export function nextAfter(path: string) {
-  const i = ROUTE.findIndex((r) => r.to.split("?")[0] === path);
-  if (i < 0) return null;
-  const n = ROUTE[i + 1];
-  return n
-    ? { step: i + 2, label: n.label, line: n.line, to: n.to }
-    : {
-        step: i + 2,
-        label: "Every claim, with its test and transaction",
-        line: "",
-        to: CLAIMS_URL,
-      };
-}
-
-function NextStep({ path }: { path: string }) {
-  const n = nextAfter(path);
-  if (!n) return null;
-  const body = (
     <>
-      <span className="proof-next-k">Next · step {n.step}</span>
-      <strong>{n.label} →</strong>
-      {n.line && <span className="proof-next-line">{n.line}</span>}
-    </>
-  );
-  return (
-    <nav className="page proof-next" aria-label="Next in the proof">
-      {external(n.to) ? (
-        <a href={n.to} target="_blank" rel="noopener">
-          {body}
-        </a>
+      {viewer ? (
+        // The app remounts for each viewer, as it does when someone signs in.
+        <SessionProvider key={viewer}>
+          <App />
+        </SessionProvider>
       ) : (
-        <Link to={n.to}>{body}</Link>
+        <main className="main">
+          <div className="page empty">
+            <h2>Not part of this recorded tour</h2>
+            <p>
+              <Link to="/">Start the tour</Link>
+            </p>
+          </div>
+        </main>
       )}
-    </nav>
-  );
-}
-
-function Routes() {
-  const { path } = useRouter();
-  if (path === "/proof/ledgerline") return <RecordedProofPage />;
-  if (path === "/attacks") return <AttackDocketPage />;
-  if (path.startsWith("/example/")) return <ExamplePage which={path.slice("/example/".length)} />;
-  if (path === "/") return <Landing />;
-  return (
-    <div className="page empty">
-      <h2>Not part of this copy</h2>
-      <p>
-        <Link to="/">The recorded proof</Link>
-      </p>
-    </div>
-  );
-}
-
-export function ProofSite() {
-  const { path } = useRouter();
-  return (
-    <>
-      <div className="env-strip preview-strip" role="note">
-        <span>
-          <strong>Recorded proof</strong> · NEAR testnet · fictional people and test tokens
-        </span>
-      </div>
-      <header className="site-header">
-        <div className="site-header-inner">
-          <Link to="/" className="wordmark">
-            <img src="/favicon.svg" alt="" /> Everstreet
-          </Link>
-          <nav className="primary-nav proof-site-nav" aria-label="Proof">
-            {NAV.map((n) => (
-              <Link key={n.to} to={n.to} current={path === n.to.split("?")[0]}>
-                {n.label}
-              </Link>
-            ))}
-          </nav>
-        </div>
-      </header>
-      <main className="main">
-        <Routes />
-        <NextStep path={path} />
-      </main>
-      <footer className="site-foot">
-        <span>Everstreet · a NEAR hackathon entry · fictional data, testnet only</span>
-      </footer>
+      <Guide data={data} viewer={viewer} visit={visit} />
     </>
   );
+}
+
+function Loader() {
+  const [data, setData] = useState<TourData | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    real("/data/tour.json")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: TourData) => {
+        tour.data = d;
+        try {
+          tour.viewer = window.sessionStorage.getItem(VIEWER_KEY);
+        } catch {
+          tour.viewer = null;
+        }
+        setData(d);
+      })
+      .catch(() => setFailed(true));
+  }, []);
+  if (failed)
+    return (
+      <div className="page empty">
+        <h2>The recorded tour couldn't be loaded</h2>
+        <p>Reload the page to try again.</p>
+      </div>
+    );
+  if (!data) return <div className="page muted">Loading…</div>;
+  return <Tour data={data} />;
 }
 
 const root = document.getElementById("root");
@@ -210,7 +154,7 @@ if (root)
   createRoot(root).render(
     <StrictMode>
       <Router>
-        <ProofSite />
+        <Loader />
       </Router>
     </StrictMode>,
   );

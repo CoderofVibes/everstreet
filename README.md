@@ -27,12 +27,13 @@ In the recorded snapshot after the third sale, its first customer has **78 unuse
 **One route through the proof**
 
 1. [Follow the proof](#follow-the-proof): the story, then every claim with its test and its transaction.
-2. The proof site, which opens on the answers (owner at generation 4, the former owner refused by
-   the contract, 78 · 22 · 100). It runs locally from [Try Everstreet](#try-everstreet).
-   Its pages go in order: handoff proof, the recorded sale, what we tried to break.
+2. The guided tour, a static copy of the app with a guide in seven steps: the front page, the
+   product studio and the portfolio, then the handoff proof (owner at generation 4, the former
+   owner refused by the contract, 78 · 22 · 100), the recorded sale, what we tried to break, and
+   agents. It runs locally from [Try Everstreet](#try-everstreet).
 3. [For agents](#for-agents): an agent paying over HTTP 402, and one business's agent buying from another.
 4. Any transaction, in the explorer or straight from NEAR's RPC ([Check the build](#check-the-build)).
-<!-- TODO on the 13th: link "The proof site" in step 2 to its public address. -->
+<!-- TODO on the 13th: link "The guided tour" in step 2 to its public address. -->
 
 Built at NEAR HACKATHON, November 2026. Fictional businesses and people, NEAR testnet and
 Ethereum Sepolia, and test tokens with no monetary value.
@@ -155,15 +156,18 @@ The recorded Ledgerline proof is also available in the running app at
 [/proof/ledgerline](http://127.0.0.1:8820/proof/ledgerline), with the attack docket at
 [/attacks](http://127.0.0.1:8820/attacks).
 
-To view just the recorded proof as a static site, after installing dependencies, run the
-following and open the [proof copy](http://localhost:8830).
+To view the guided tour as a static site, after installing dependencies, run the following and
+open the [tour](http://localhost:8830).
 
 ```sh
 npm run proof-site
 npx vite preview --config web/vite.proof.config.ts
 ```
 
-This builds the same proof pages from committed evidence into `web/dist-proof/`.
+This builds the app's own pages into `web/dist-proof/`, with a guide that walks through them in
+seven steps. The front page, the studio, the portfolio and the agent desk answer from a
+[recording of the demo](data/tour/recording.json) (made with `scripts/record-tour.ts`); the proof
+pages read the committed testnet evidence. Nothing in the copy can be changed.
 
 ## Follow the proof
 
