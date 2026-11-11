@@ -46,17 +46,18 @@ name ever answers 200 early, remove the alias first, then tell Tony.
 ## The recording behind the tour
 
 The app pages in the tour (front page, studio, portfolio, desks, a customer's and a buyer's view)
-answer from `data/tour/recording.json`, one demo run kept on Nov 11. Its dates are that day's, and
+answer from `data/tour/recording.json`, one demo run kept on Nov 11. The self-playing demo video
+(`/?video=1`, docs/VIDEO.md) plays from the same recording. Its dates are that day's, and
 Signalwatch's sale in it is open until Nov 26. Record again if those pages change what they read,
 and before the release build if they did:
 
-1. `npm run demo`, then `npx tsx scripts/record-tour.ts` (launch configs "demo" and "tour-recorder").
-2. `POST http://127.0.0.1:8852/__record/viewer/delphine`, open http://127.0.0.1:8852/, sign in, and
-   walk every page and tab the tour should hold. Repeat as `cara` (`POST
-   http://127.0.0.1:8821/account/cara.near`) and `noah` (`buyer.near`), signing out and in each time.
-3. `POST http://127.0.0.1:8852/__record/save`, then `npm run proof-site`: it stops if a guide stop
-   is missing from the recording. Walk the built copy once with the console open; an unrecorded
-   read is logged at debug level as `[tour] not recorded`.
+1. `npm run tour:record` (about four minutes): it starts a fresh demo, walks its pages in a
+   headless Edge as each person, closes Signalwatch's sale through the real routes, walks the
+   pages again as they stand after it, and writes the recording.
+2. `npm run video:check`: it builds the site and stops if a guide stop or a video beat is missing
+   from the recording, or if the video doesn't play through (docs/VIDEO.md).
+3. Walk the built copy's guide once with the console open; an unrecorded read is logged at debug
+   level as `[tour] not recorded`.
 
 ## Friday Nov 13, only after Tony's yes in chat
 

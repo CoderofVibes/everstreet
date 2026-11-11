@@ -13,7 +13,7 @@ import { tourData } from "../../scripts/lib/tourData.ts";
 import { STATIC_READS } from "../src/proofSite.tsx";
 import { Router } from "../src/router.tsx";
 import { Guide } from "../src/tour/Guide.tsx";
-import { answer, type TourData, viewerFor } from "../src/tour/replay.ts";
+import { answer, preparedKey, type TourData, viewerFor } from "../src/tour/replay.ts";
 import { STEPS, STOPS_USED, stepAt, stepRoute, tourProblems } from "../src/tour/steps.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -58,6 +58,33 @@ describe("the replay", () => {
       expect(a.status, target).toBe(404);
       expect((a.body as { code: string }).code).toBe("static");
     }
+  });
+
+  it("answers a recorded request-for-review again, only for the same path and body", () => {
+    const withReview: TourData = {
+      ...data,
+      viewers: {
+        ...data.viewers,
+        delphine: {
+          routes: ["/"],
+          reads: { 'POST /api/sales/s1/prepare {"kind":"accept","input":{}}': { preview: 1 } },
+        },
+      },
+    };
+    const ask = (who: string, path: string, body: string) =>
+      answer(withReview, who, "POST", path, body);
+    expect(ask("delphine", "/api/sales/s1/prepare", '{ "kind": "accept", "input": {} }')).toEqual({
+      status: 200,
+      body: { preview: 1 },
+    });
+    expect(preparedKey("/api/sales/s1/prepare", "not json")).toBe("POST /api/sales/s1/prepare ");
+    for (const [who, path, body] of [
+      ["delphine", "/api/sales/s1/prepare", '{"kind":"cancel","input":{}}'],
+      ["delphine", "/api/sales/s2/prepare", '{"kind":"accept","input":{}}'],
+      ["cara", "/api/sales/s1/prepare", '{"kind":"accept","input":{}}'],
+      ["delphine", "/api/sales/s1/actions", '{"kind":"accept","input":{}}'],
+    ] as const)
+      expect(ask(who, path, body).status, `${who} ${path} ${body}`).toBe(403);
   });
 
   it("refuses every write", () => {

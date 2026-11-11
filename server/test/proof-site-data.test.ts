@@ -41,6 +41,15 @@ describe("the static proof copy's data", () => {
       Object.fromEntries(
         Object.entries(rec.viewers).map(([k, v]) => [k, v.reads["/api/me"]?.account]),
       ),
-    ).toEqual({ delphine: "delphine.near", cara: "cara.near", noah: "buyer.near" });
+    ).toEqual({
+      delphine: "delphine.near",
+      cara: "cara.near",
+      noah: "buyer.near",
+      agent: "signalwatch-agent.demo.near",
+      "noah-closed": "buyer.near",
+      "noah-after": "buyer.near",
+      "delphine-after": "delphine.near",
+      "cara-after": "cara.near",
+    });
   });
 });

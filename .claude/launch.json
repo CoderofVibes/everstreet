@@ -103,7 +103,8 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": [
         "tsx",
-        "scripts/record-tour.ts"
+        "scripts/record-tour.ts",
+        "--manual"
       ],
       "port": 8852
     }

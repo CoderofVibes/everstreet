@@ -75,10 +75,7 @@ export const STEPS: TourStep[] = [
     ],
     stop: "portfolio",
     as: "delphine",
-    peeks: [
-      { label: "Ledgerline's desk", stop: "desk", as: "delphine" },
-      { label: "What Ledgerline could be worth", stop: "value", as: "delphine" },
-    ],
+    peeks: [{ label: "Ledgerline's desk", stop: "desk", as: "delphine" }],
   },
   {
     id: "handoff",

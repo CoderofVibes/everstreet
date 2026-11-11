@@ -1,12 +1,16 @@
 // The guided tour's replay (web/src/proofSite.tsx): the app's own pages answer from a recording of
 // the demo (scripts/record-tour.ts, data/tour/recording.json) instead of a server. A recorded read
 // gets its recorded body; any other read is "not in this tour"; nothing can be written. Who is
-// viewing follows the route: each recorded viewer has the routes they walked.
+// viewing follows the route: each recorded viewer has the routes they walked. The self-playing
+// video (web/src/video) plays from the same recording, including its after-the-sale viewers.
 
 export interface TourViewer {
   /** The routes (pathnames) this viewer walked while the recording ran. */
   routes: string[];
-  /** Every successful GET /api read those pages made: "path?query" → the body. */
+  /**
+   * Every successful GET /api read those pages made: "path?query" → the body. Also the requests the
+   * server prepared for review ("POST path body" → the body): reads made by POST, storing nothing.
+   */
   reads: Record<string, unknown>;
 }
 
@@ -55,15 +59,32 @@ export const RECORDING_TEXT =
 export const NOT_RECORDED_TEXT =
   "Not part of this recorded tour. The whole app runs on your computer with npm run demo.";
 
-/** What the replay answers to one API call (`target` is "path?query"). */
+/** The key a prepared request was recorded under: its path and its exact JSON body. */
+export function preparedKey(path: string, body: string | null | undefined): string {
+  try {
+    return `POST ${path} ${JSON.stringify(JSON.parse(body || "{}"))}`;
+  } catch {
+    return `POST ${path} `;
+  }
+}
+
+/**
+ * What the replay answers to one API call (`target` is "path?query"). A POST is answered only
+ * when it is a recorded request-for-review (the same path and body); every other write is refused.
+ */
 export function answer(
   data: TourData,
   viewer: string | null,
   method: string,
   target: string,
+  body?: string | null,
 ): Answer {
-  if (method !== "GET") return { status: 403, body: { error: RECORDING_TEXT, code: "recording" } };
   const reads = viewer ? data.viewers[viewer]?.reads : undefined;
+  if (method !== "GET") {
+    const key = method === "POST" ? preparedKey(target.split("?")[0] as string, body) : "";
+    if (key && reads && Object.hasOwn(reads, key)) return { status: 200, body: reads[key] };
+    return { status: 403, body: { error: RECORDING_TEXT, code: "recording" } };
+  }
   if (reads && Object.hasOwn(reads, target)) return { status: 200, body: reads[target] };
   return { status: 404, body: { error: NOT_RECORDED_TEXT, code: "static" } };
 }

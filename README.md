@@ -167,7 +167,8 @@ npx vite preview --config web/vite.proof.config.ts
 This builds the app's own pages into `web/dist-proof/`, with a guide that walks through them in
 seven steps. The front page, the studio, the portfolio and the agent desk answer from a
 [recording of the demo](data/tour/recording.json) (made with `scripts/record-tour.ts`); the proof
-pages read the committed testnet evidence. Nothing in the copy can be changed.
+pages read the committed testnet evidence. Nothing in the copy can be changed. The same build
+plays the demo video by itself at `/?video=1` ([how the video is made](docs/VIDEO.md)).
 
 ## Follow the proof
 

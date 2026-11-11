@@ -6,6 +6,8 @@
 //   - every other read, from a recording of the demo (data/tour/recording.json, web/src/tour).
 // Nothing is recomputed or hand-written, nothing can be changed, and a route nobody walked while
 // the recording ran is not offered. The guide (tour/Guide.tsx) walks a visitor through in order.
+// With ?video=1 the same pages play themselves instead (video/Video.tsx), for recording the demo
+// video in one take.
 
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -20,6 +22,8 @@ import {
   type TourData,
   viewerFor,
 } from "./tour/replay.ts";
+import { tour } from "./tour/state.ts";
+import { Video, videoOptions } from "./video/Video.tsx";
 import "./styles.css";
 
 /** The proof pages' reads, and the build-time file (from committed evidence) that answers each. */
@@ -28,10 +32,8 @@ export const STATIC_READS: Record<string, string> = {
   "/api/public/attacks": "/data/attacks.json",
 };
 
-const EMPTY: TourData = { recorded_at: "", commit: "", viewers: {}, stops: {} };
-
-/** Who is viewing (the replay answers as them), and who a guide step has asked for next. */
-const tour = { data: EMPTY, viewer: null as string | null, asked: null as string | null };
+/** The video's settings, read once: the pages it plays change the address as they go. */
+const VIDEO = videoOptions(window.location.search);
 
 const VIEWER_KEY = "everstreet:tour:viewer";
 const json = (status: number, body: unknown) =>
@@ -50,7 +52,8 @@ window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
   ).toUpperCase();
   const file = STATIC_READS[at.pathname];
   if (file && method === "GET") return real(file);
-  const a = answer(tour.data, tour.viewer, method, `${at.pathname}${at.search}`);
+  const sent = typeof init?.body === "string" ? init.body : null;
+  const a = answer(tour.data, tour.viewer, method, `${at.pathname}${at.search}`, sent);
   if (a.status === 403) notify(RECORDING_TEXT);
   else if (a.status === 404) console.debug(`[tour] not recorded: ${at.pathname}${at.search}`);
   return Promise.resolve(json(a.status, a.body));
@@ -130,7 +133,7 @@ function Loader() {
       .then((d: TourData) => {
         tour.data = d;
         try {
-          tour.viewer = window.sessionStorage.getItem(VIEWER_KEY);
+          tour.viewer = VIDEO ? null : window.sessionStorage.getItem(VIEWER_KEY);
         } catch {
           tour.viewer = null;
         }
@@ -146,7 +149,7 @@ function Loader() {
       </div>
     );
   if (!data) return <div className="page muted">Loading…</div>;
-  return <Tour data={data} />;
+  return VIDEO ? <Video data={data} options={VIDEO} /> : <Tour data={data} />;
 }
 
 const root = document.getElementById("root");

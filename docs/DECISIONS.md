@@ -278,3 +278,25 @@ portfolio), then the handoff proof, the sale, what we tried to break, and agents
 4. **Flagged:** the recording is of one demo run on Nov 11, so its dates are that day's. Re-record
    after any change to what those pages read (the steps are at the top of the script), and on the
    release commit if the pages changed.
+
+## 2026-11-11 · The demo video plays itself
+
+Tony (Nov 11): record the video in one take with no clicking, as a page that plays Everstreet's
+own screens, ending on a closing slide; a voice-over recorded per beat afterwards. Light theme
+only.
+
+1. **The script is data** (`web/src/video/beats.ts`): 16 beats in the filming script's order, 2:16,
+   grouped under the README's three parts and the proof. Captions make the claims and stay inside
+   the filming script's claim boundaries; every beat says where its data comes from.
+2. **Recorded states, not live flows.** The recording now holds the demo before and after
+   Signalwatch's sale (`npm run tour:record`). Where the real flow needs a wallet approval, the
+   picture shows the wallet's review of the exact request, then cuts to the recorded state after
+   it. The replay answers a recorded request-for-review again (a read made by POST that stores
+   nothing) and still refuses every write.
+3. **One screen of explorer pages** for the testnet and Sepolia transactions, from screenshots,
+   labelled as Ledgerline's recorded runs.
+4. **The closing slide** is Tony's wording. Its small print says the demo runs on a synthetic chain
+   and the proof is recorded on NEAR testnet, because the video shows both.
+5. **Flagged:** the valuation page reads "No range yet" for all three demo businesses (they earn in
+   a test token, so no dollar estimate is made), so the video and the tour show a business's desk
+   instead of its valuation.

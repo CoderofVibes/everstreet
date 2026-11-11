@@ -28,7 +28,9 @@
     "smoke:payments": "tsx scripts/smoke-payments.ts",
     "smoke:sale": "tsx scripts/smoke-sale.ts",
     "seed:history": "tsx scripts/seed-history.ts",
-    "entry": "tsx server/src/entry.ts"
+    "entry": "tsx server/src/entry.ts",
+    "tour:record": "tsx scripts/record-tour.ts",
+    "video:check": "tsx scripts/check-video.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.5",
@@ -50,6 +52,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "fake-indexeddb": "6.2.7",
     "jsdom": "30.1.3",
+    "playwright-core": "1.65.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "^8.3.5",
