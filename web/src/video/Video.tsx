@@ -62,7 +62,7 @@ export function videoOptions(search: string): VideoOptions | null {
  * are composed for a 1280-wide frame and scaled on their own, so they read the same at any
  * page width. `&page=1440` (1024 to 2560) tries another width.
  */
-export const PAGE_WIDTH = 1600;
+export const PAGE_WIDTH = 1920;
 const FRAME_WIDTH = 1280;
 /** How many animation frames a cue may wait for its target before the video reports it. */
 const HOLD_FRAMES = 180;

@@ -136,17 +136,17 @@ describe("the video player", () => {
       autostart: false,
       from: null,
       speed: 1,
-      page: 1600,
+      page: 1920,
     });
     expect(videoOptions("?video=1&capture=1&autostart=1&from=close&speed=10")).toEqual({
       capture: true,
       autostart: true,
       from: "close",
       speed: 10,
-      page: 1600,
+      page: 1920,
     });
     expect(videoOptions("?video=1&speed=900")?.speed).toBe(1);
     expect(videoOptions("?video=1&page=1440")?.page).toBe(1440);
-    expect(videoOptions("?video=1&page=99999")?.page).toBe(1600);
+    expect(videoOptions("?video=1&page=99999")?.page).toBe(1920);
   });
 });
