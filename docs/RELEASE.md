@@ -8,7 +8,8 @@ in chat on Fri Nov 13. Pin the CLI: `npx --yes vercel@65.5.0` everywhere.
 
 | What | Address | Signed out |
 |---|---|---|
-| Guided tour, preview of b62396f | https://everstreet-demo-re8fxokj2-coderofvibes.vercel.app | 302 to Vercel sign-in |
+| Guided tour and the self-playing video (`/?video=1`), preview of e391101 | https://everstreet-demo-os2621v64-coderofvibes.vercel.app | 302 to Vercel sign-in |
+| Earlier guided tour, preview of b62396f | https://everstreet-demo-re8fxokj2-coderofvibes.vercel.app | 302 to Vercel sign-in |
 | Earlier preview of 5fc8cf8 (proof pages only) | https://everstreet-demo-m0d8gr08h-coderofvibes.vercel.app | 302 to Vercel sign-in |
 | Placeholder on production ("Nothing here yet.") | https://everstreet-demo-qpm0z5sr1-coderofvibes.vercel.app | 302 to Vercel sign-in |
 | Public name | https://everstreet-demo.vercel.app | 404 (alias removed) |
