@@ -117,5 +117,8 @@ then from, to and any transfer) and stacked, so the text stays readable in a qua
   find the caption changes (scene detection on a crop of the caption bar), fit one speed factor
   across them, and re-time with `setpts` so every beat starts at its scripted second. Check the
   beat starts against the table above before sending.
-- Lay each voice take under its beat and check it ends inside it.
+- Lay the voice under the picture: `npx tsx scripts/mix-video.ts <picture.mp4> <folder of 01.wav to 16.wav> <out.mp4>`.
+  Each line starts 0.15 s into its beat; a line longer than its beat holds that beat's last frame
+  (never sped up), and the close and the closing slide are shortened to keep the whole under 2:20.
+  The voice is set to -16 LUFS. Check the caption changes and the speech against the printed plan.
 - Save every version as a new numbered file; never overwrite an older one.
