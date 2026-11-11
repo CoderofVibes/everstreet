@@ -101,6 +101,26 @@ try {
   if ((await page.locator(".video-hud").count()) > 0)
     problems.push("the hint is showing in capture mode");
 
+  // At normal speed the video keeps time: about five seconds of video in five seconds.
+  const timed = await context.newPage();
+  await timed.goto(`${base}/?video=1&capture=1&autostart=1`);
+  await timed.waitForFunction(
+    () => ((window as { __everstreetVideo?: { time: number } }).__everstreetVideo?.time ?? 0) > 0,
+  );
+  const t0 = Date.now();
+  const v0 = (await timed.evaluate(
+    () => (window as { __everstreetVideo?: { time: number } }).__everstreetVideo?.time,
+  )) as number;
+  await timed.waitForTimeout(5000);
+  const played =
+    ((await timed.evaluate(
+      () => (window as { __everstreetVideo?: { time: number } }).__everstreetVideo?.time,
+    )) as number) - v0;
+  const ratio = played / ((Date.now() - t0) / 1000);
+  if (ratio > 1.05 || ratio < 0.8)
+    problems.push(`at normal speed the video played ${ratio.toFixed(2)} times real time`);
+  await timed.close();
+
   if (flag("--shots")) {
     mkdirSync(SHOTS, { recursive: true });
     const [w, h] = (process.argv[process.argv.indexOf("--size") + 1] ?? "").split("x").map(Number);

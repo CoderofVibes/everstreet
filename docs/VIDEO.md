@@ -104,6 +104,7 @@ then from, to and any transfer) and stacked, so the text stays readable in a qua
 3. In OBS: a Window Capture of that window, Capture Cursor off, desktop audio and the microphone
    muted, the canvas and output at 1920 by 1080, 60 frames a second.
 4. Click the Edge window once, press F11, start recording in OBS, wait two seconds, press Space.
+   (Any screen refresh rate is fine: the video paces itself to 60 frames a second.)
 5. The video stops on the closing slide. Wait three seconds, then stop recording.
 6. Save takes in `data/runtime/video/` (not committed), each with its own number.
 

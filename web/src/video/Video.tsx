@@ -7,8 +7,9 @@
 //   &from=<beat id>           start at a beat (for a retake); &autostart=1 starts at once.
 //   &speed=10                 for the automatic check (scripts/check-video.ts).
 //
-// The clock counts animation frames, 60 to the second, and never reads the system clock: every
-// take is the same, and a busy computer plays slower instead of skipping. A cue that needs
+// The clock counts video frames, 60 to the second, one per screen redraw at most (so a 120 or 144 Hz
+// screen waits between frames): every take is the same, and a busy computer plays slower instead
+// of skipping. A cue that needs
 // something on the page (a button to press, a place to scroll to) holds the clock until it is
 // there. Nothing here reaches a network: the pages answer from the recording (tour/replay.ts).
 
@@ -86,6 +87,21 @@ type Op =
   | { at: number; kind: "card"; text: string };
 
 /** A beat's cues as single steps, in time order (a click is a ring, then a press). */
+/**
+ * How many video frames are due at a screen redraw `dt` milliseconds after the last one, and the
+ * time carried over. The video runs at 60 frames a second whatever the screen's refresh rate (Tony,
+ * Nov 11: on a 144 Hz screen one frame per redraw played 2.4 times too fast). At most one frame per
+ * redraw, and no debt carried: a busy computer plays slower, it never skips.
+ */
+export function pace(carry: number, dt: number): { due: number; carry: number } {
+  const step = 1000 / FPS;
+  const t = carry + Math.max(0, dt);
+  // A 60 Hz screen's redraws jitter around the step; a little slack keeps one frame per redraw.
+  if (t < step - 2) return { due: 0, carry: t };
+  // The slack is paid back on the next frame, so the average stays exactly 60 a second.
+  return { due: 1, carry: Math.min(t - step, step) };
+}
+
 export function compile(cues: Cue[]): Op[] {
   const ops: Op[] = [];
   for (const c of cues) {
@@ -385,8 +401,13 @@ export function Video({ data, options }: { data: TourData; options: VideoOptions
     };
 
     let raf = 0;
-    const loop = () => {
-      for (let i = 0; i < options.speed; i++) {
+    let last: number | null = null;
+    let carry = 0;
+    const loop = (now: number) => {
+      const paced = pace(carry, last === null ? 1000 / FPS : now - last);
+      last = now;
+      carry = paced.carry;
+      for (let i = 0; i < options.speed * paced.due; i++) {
         if (!process()) break;
         if (!v.playing) break;
         if (s.frame >= end) {

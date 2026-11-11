@@ -21,7 +21,7 @@ import {
   VOICE,
   videoProblems,
 } from "../src/video/beats.ts";
-import { compile, videoOptions } from "../src/video/Video.tsx";
+import { compile, pace, videoOptions } from "../src/video/Video.tsx";
 
 describe("the video's script", () => {
   it("fits in 2:20, and every beat is long enough to read its captions", () => {
@@ -114,6 +114,27 @@ describe("the video's script", () => {
 });
 
 describe("the video player", () => {
+  const second = (hz: number, busy = 0) => {
+    let carry = 0;
+    let frames = 0;
+    for (let i = 0; i < hz; i++) {
+      const p = pace(carry, 1000 / hz + (i % 2 ? busy : -busy));
+      carry = p.carry;
+      frames += p.due;
+    }
+    return frames;
+  };
+
+  it("plays 60 frames a second on any screen, and slower, never skipping, when redraws are late", () => {
+    for (const hz of [60, 75, 120, 144, 165, 240])
+      expect(second(hz), `${hz} Hz`).toBeGreaterThanOrEqual(59);
+    for (const hz of [60, 75, 120, 144, 165, 240])
+      expect(second(hz), `${hz} Hz`).toBeLessThanOrEqual(61);
+    expect(second(60, 1.5)).toBeGreaterThanOrEqual(59); // a 60 Hz screen's jitter
+    expect(second(30)).toBe(30); // a busy computer: one frame per redraw
+    expect(pace(0, 500).due).toBe(1); // a long stall: one frame, no catching up
+  });
+
   it("turns a click into a ring, then a press, in time order", () => {
     const ops = compile([
       { at: 2, click: "Search", lead: 0.5 },
