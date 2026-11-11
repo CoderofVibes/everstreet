@@ -1,6 +1,6 @@
-# Release: the hosted proof site
+# Release: the hosted guided tour
 
-The proof site (`npm run proof-site`, built into `web/dist-proof/`) is hosted on Vercel as the
+The guided tour and recorded proof (`npm run proof-site`, built into `web/dist-proof/`) is hosted on Vercel as the
 project `everstreet-demo` under the `coderofvibes` account. It stays private until Tony says yes
 in chat on Fri Nov 13. Pin the CLI: `npx --yes vercel@65.5.0` everywhere.
 
@@ -8,7 +8,8 @@ in chat on Fri Nov 13. Pin the CLI: `npx --yes vercel@65.5.0` everywhere.
 
 | What | Address | Signed out |
 |---|---|---|
-| Preview of 5fc8cf8 | https://everstreet-demo-m0d8gr08h-coderofvibes.vercel.app | 302 to Vercel sign-in |
+| Guided tour, preview of b62396f | https://everstreet-demo-re8fxokj2-coderofvibes.vercel.app | 302 to Vercel sign-in |
+| Earlier preview of 5fc8cf8 (proof pages only) | https://everstreet-demo-m0d8gr08h-coderofvibes.vercel.app | 302 to Vercel sign-in |
 | Placeholder on production ("Nothing here yet.") | https://everstreet-demo-qpm0z5sr1-coderofvibes.vercel.app | 302 to Vercel sign-in |
 | Public name | https://everstreet-demo.vercel.app | 404 (alias removed) |
 
@@ -42,6 +43,21 @@ curl.exe -s -o NUL -w "%{http_code}" https://everstreet-demo.vercel.app/
 Before Friday the first must be 302 to `vercel.com/sso-api` and the second 404. If the public
 name ever answers 200 early, remove the alias first, then tell Tony.
 
+## The recording behind the tour
+
+The app pages in the tour (front page, studio, portfolio, desks, a customer's and a buyer's view)
+answer from `data/tour/recording.json`, one demo run kept on Nov 11. Its dates are that day's, and
+Signalwatch's sale in it is open until Nov 26. Record again if those pages change what they read,
+and before the release build if they did:
+
+1. `npm run demo`, then `npx tsx scripts/record-tour.ts` (launch configs "demo" and "tour-recorder").
+2. `POST http://127.0.0.1:8852/__record/viewer/delphine`, open http://127.0.0.1:8852/, sign in, and
+   walk every page and tab the tour should hold. Repeat as `cara` (`POST
+   http://127.0.0.1:8821/account/cara.near`) and `noah` (`buyer.near`), signing out and in each time.
+3. `POST http://127.0.0.1:8852/__record/save`, then `npm run proof-site`: it stops if a guide stop
+   is missing from the recording. Walk the built copy once with the console open; an unrecorded
+   read is logged at debug level as `[tour] not recorded`.
+
 ## Friday Nov 13, only after Tony's yes in chat
 
 1. Run the full sweep (secret scan, fresh clone, `npm run check`), then build from the frozen
@@ -51,5 +67,5 @@ name ever answers 200 early, remove the alias first, then tell Tony.
 3. `vercel deploy --prod --yes` from that folder.
 4. If `https://everstreet-demo.vercel.app/` still answers 404, attach it:
    `vercel alias set <deployment address> everstreet-demo.vercel.app`.
-5. Open it signed out, check every page (/, /proof/ledgerline, /example/ledgerline with each tab,
-   /attacks, an unknown path) and the console, then link it in the README (the TODO in step 2).
+5. Open it signed out, walk all seven steps of the guide and both side doors on step 1, try an
+   unknown path, check the console, then link it in the README (the TODO in step 2).
