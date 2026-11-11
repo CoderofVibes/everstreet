@@ -459,31 +459,32 @@ export function videoProblems(data: {
 }
 
 /**
- * The voice-over, one line per beat (Tony records each in Audacity). A line fits its beat at about
+ * The voice-over, one line per beat (Tony records each in Audacity; wording settled with him on
+ * Nov 11). A line fits its beat at about
  * 2.5 words a second and claims no more than the beat's captions do. docs/VIDEO.md carries the
  * same lines for reading aloud.
  */
 export const VOICE: Record<string, string> = {
-  open: "Everstreet is a launchpad and marketplace for the agentic economy, on NEAR. Launch a business. People and agents find it and pay for what it does.",
+  open: "Everstreet is a launchpad and marketplace for the agentic economy that runs on NEAR. Launch a product, and people and agents find it and pay for it.",
   build:
-    "Start with an idea, or bring a product you've already built. Shape it in the studio, then publish an offer customers can buy.",
-  find: "Customers find a service they can use today, or post what they need next.",
+    "Start with an idea, or bring a product you've already built. Shape it in the studio, then release it to customers at a price per use.",
+  find: "Customers search for services they need today, or post requests for future solutions.",
   portfolio:
-    "One desk shows what your businesses earn, what they deliver, and what they owe customers.",
-  "agent-buys": "An agent gets a price over HTTP 402 and pays from its own NEAR account.",
+    "The portfolio shows what your businesses earn, what they deliver, and other financial metrics.",
+  "agent-buys": "Agents get an HTTP 402 price and pay from their own NEAR account.",
   "agent-activity":
-    "Signalwatch's agent buys invoice reads from Ledgerline. One business is another's customer.",
+    "Businesses buy from each other: Signalwatch's agent pays Ledgerline to read its invoices.",
   allowance:
-    "The agent also pays suppliers, within limits the contract enforces. Larger invoices wait for the owner.",
+    "The agent also pays suppliers, within limits the contract enforces. Larger invoices wait for owner approval.",
   acquire:
-    "Investors and other companies look for a business to own. Noah opens Signalwatch and checks its revenue and what it still owes customers.",
+    "Everstreet also allows investors and companies to search for businesses to acquire. Companies can opt to share financials, with revenue verifiable on NEAR.",
   terms: "The price waits in escrow. Both sides review the same exact terms.",
   close:
-    "Both sides accept, and the contract transfers control. The seller collects the proceeds. The buyer takes charge.",
+    "Both sides accept, and the contract transfers control. The seller collects the proceeds. The buyer assumes ownership.",
   "first-shift":
-    "The buyer also moves the business's asset on Ethereum, signed with NEAR Chain Signatures.",
-  refused: "The former owner tries an owner action. The contract refuses it.",
-  cara: "Cara keeps using what she paid for. Her prepaid uses followed the business to its new owner.",
+    "The business's Ethereum asset moves to the buyer too, signed with NEAR Chain Signatures.",
+  refused: "The contract on NEAR refuses the former owner's actions.",
+  cara: "Customers keep using what they paid for, even after the business changes hands.",
   proof:
     "On NEAR testnet, Ledgerline has changed hands three times. The contract refuses the former owner. All one hundred customer uses are accounted for.",
   explorers:

@@ -50,25 +50,27 @@ recording. `npm run video:check -- --shots` also saves two pictures of every bea
 
 ## The beats and the voice
 
-One voice line per beat. Each fits its beat at about 2.5 words a second and claims no more than
-the captions on screen. Record one take per line; each is laid under its beat and must end inside
+One voice line per beat, wording settled with Tony on Nov 11. Each fits its beat at about 2.5 words
+a second and claims no more than the captions on screen. Say "HTTP 402" as "H-T-T-P four-oh-two"
+and NEAR as the word. Beat 5 is the tightest; if its take runs long, that beat is slowed by up to
+about 5% in the edit. Record one take per line; each is laid under its beat and must end inside
 it.
 
 | # | Starts | Length | Beat | Voice |
 |---|---|---|---|---|
-| 1 | 0:00 | 11 s | open | Everstreet is a launchpad and marketplace for the agentic economy, on NEAR. Launch a business. People and agents find it and pay for what it does. |
-| 2 | 0:11 | 12 s | build | Start with an idea, or bring a product you've already built. Shape it in the studio, then publish an offer customers can buy. |
-| 3 | 0:23 | 7 s | find | Customers find a service they can use today, or post what they need next. |
-| 4 | 0:30 | 9 s | portfolio | One desk shows what your businesses earn, what they deliver, and what they owe customers. |
-| 5 | 0:39 | 6 s | agent-buys | An agent gets a price over HTTP 402 and pays from its own NEAR account. |
-| 6 | 0:45 | 6 s | agent-activity | Signalwatch's agent buys invoice reads from Ledgerline. One business is another's customer. |
-| 7 | 0:51 | 7 s | allowance | The agent also pays suppliers, within limits the contract enforces. Larger invoices wait for the owner. |
-| 8 | 0:58 | 12 s | acquire | Investors and other companies look for a business to own. Noah opens Signalwatch and checks its revenue and what it still owes customers. |
+| 1 | 0:00 | 11 s | open | Everstreet is a launchpad and marketplace for the agentic economy that runs on NEAR. Launch a product, and people and agents find it and pay for it. |
+| 2 | 0:11 | 12 s | build | Start with an idea, or bring a product you've already built. Shape it in the studio, then release it to customers at a price per use. |
+| 3 | 0:23 | 7 s | find | Customers search for services they need today, or post requests for future solutions. |
+| 4 | 0:30 | 9 s | portfolio | The portfolio shows what your businesses earn, what they deliver, and other financial metrics. |
+| 5 | 0:39 | 6 s | agent-buys | Agents get an HTTP 402 price and pay from their own NEAR account. |
+| 6 | 0:45 | 6 s | agent-activity | Businesses buy from each other: Signalwatch's agent pays Ledgerline to read its invoices. |
+| 7 | 0:51 | 7 s | allowance | The agent also pays suppliers, within limits the contract enforces. Larger invoices wait for owner approval. |
+| 8 | 0:58 | 12 s | acquire | Everstreet also allows investors and companies to search for businesses to acquire. Companies can opt to share financials, with revenue verifiable on NEAR. |
 | 9 | 1:10 | 5 s | terms | The price waits in escrow. Both sides review the same exact terms. |
-| 10 | 1:15 | 13 s | close | Both sides accept, and the contract transfers control. The seller collects the proceeds. The buyer takes charge. |
-| 11 | 1:28 | 8 s | first-shift | The buyer also moves the business's asset on Ethereum, signed with NEAR Chain Signatures. |
-| 12 | 1:36 | 6 s | refused | The former owner tries an owner action. The contract refuses it. |
-| 13 | 1:42 | 8 s | cara | Cara keeps using what she paid for. Her prepaid uses followed the business to its new owner. |
+| 10 | 1:15 | 13 s | close | Both sides accept, and the contract transfers control. The seller collects the proceeds. The buyer assumes ownership. |
+| 11 | 1:28 | 8 s | first-shift | The business's Ethereum asset moves to the buyer too, signed with NEAR Chain Signatures. |
+| 12 | 1:36 | 6 s | refused | The contract on NEAR refuses the former owner's actions. |
+| 13 | 1:42 | 8 s | cara | Customers keep using what they paid for, even after the business changes hands. |
 | 14 | 1:50 | 10 s | proof | On NEAR testnet, Ledgerline has changed hands three times. The contract refuses the former owner. All one hundred customer uses are accounted for. |
 | 15 | 2:00 | 8 s | explorers | Each step is a public transaction: the agent's payment, the escrow, the refusal, the move on Ethereum. |
 | 16 | 2:08 | 8 s | end | Everstreet. What can you create? |
