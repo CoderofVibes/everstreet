@@ -9,7 +9,15 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 import { attackSuite, ledgerlineExample } from "../server/src/examples.ts";
 import { SECRETISH } from "../server/src/rehearsalRecord.ts";
@@ -39,16 +47,36 @@ for (const [name, value] of Object.entries(data)) {
 // A host with none of these answers 404 to a deep link; serve index.html for every route there.
 writeFileSync(join(OUT, "_redirects"), "/*  /index.html  200\n");
 writeFileSync(join(OUT, "404.html"), readFileSync(join(OUT, "index.html")));
-writeFileSync(
-  join(OUT, "vercel.json"),
-  `${JSON.stringify({ rewrites: [{ source: "/((?!data/|assets/).*)", destination: "/index.html" }] }, null, 2)}\n`,
-);
+// noindex on every path: the copy is a proof to open from the README, not a page to be found by search.
+const vercel = {
+  headers: [{ source: "/(.*)", headers: [{ key: "X-Robots-Tag", value: "noindex" }] }],
+  rewrites: [{ source: "/((?!data/|assets/).*)", destination: "/index.html" }],
+};
+writeFileSync(join(OUT, "vercel.json"), `${JSON.stringify(vercel, null, 2)}\n`);
 
 const files = (dir: string): string[] =>
   readdirSync(dir).flatMap((f) => {
     const p = join(dir, f);
     return statSync(p).isDirectory() ? files(p) : [p];
   });
+
+// Nothing secret leaves in any file: key and token shapes, and no value from a local .env (read here,
+// never printed). Stops the build and names the file, not the match.
+const TOKENISH =
+  /-----BEGIN [A-Z ]*PRIVATE KEY|VERCEL_OIDC_TOKEN|gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{20,}/;
+const envValues = [".env", ".env.local"]
+  .filter((f) => existsSync(f))
+  .flatMap((f) => readFileSync(f, "utf8").split(/\r?\n/))
+  .map((l) =>
+    l.replace(/^\s*(export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*/, "").replace(/^["']|["']$/g, ""),
+  )
+  .filter((v) => v.length >= 8);
+for (const p of files(OUT)) {
+  if (/(^|[\\/])\.env/.test(relative(OUT, p))) throw new Error(`${p} is an env file`);
+  const text = readFileSync(p, "latin1");
+  if (SECRETISH.test(text) || TOKENISH.test(text) || envValues.some((v) => text.includes(v)))
+    throw new Error(`${p} would contain key or token material`);
+}
 const commit = execFileSync("git", ["rev-parse", "HEAD"]).toString().trim();
 const manifest = {
   format: "everstreet.proof-site",
