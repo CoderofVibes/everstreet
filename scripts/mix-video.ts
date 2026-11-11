@@ -193,6 +193,11 @@ if (!Number.isFinite(loudness)) throw new Error("couldn't measure the voice's lo
 const gain = -16 - loudness;
 
 // 3. The picture with its holds, and the voice at that gain.
+// The sound stops just after the last word (Tony, Nov 11): the closing slide holds in silence.
+const lastLine = plan.at(-1);
+if (!lastLine) throw new Error("no lines");
+const lastWord = total - lastLine.dur - lastLine.hold + lastLine.ends - POST;
+const endFade = `afade=t=out:st=${(lastWord + 0.04).toFixed(3)}:d=0.1`;
 execFileSync(
   ffmpeg,
   [
@@ -204,7 +209,7 @@ execFileSync(
     "-i",
     temp,
     "-filter_complex",
-    `${cuts};${vcat};[1:a]volume=${gain.toFixed(2)}dB,alimiter=limit=0.84:level=false,aformat=sample_rates=48000:channel_layouts=stereo[a]`,
+    `${cuts};${vcat};[1:a]volume=${gain.toFixed(2)}dB,alimiter=limit=0.84:level=false,${endFade},aformat=sample_rates=48000:channel_layouts=stereo[a]`,
     "-map",
     "[v]",
     "-map",
