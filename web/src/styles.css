@@ -1948,7 +1948,8 @@ body { padding-bottom: var(--tour-h, 0px); }
 }
 
 /* ---------- The self-playing video (web/src/video/Video.tsx; the static site with ?video=1) ---------- */
-.video-mode body { padding-bottom: 124px; }
+.video-mode body { padding-bottom: calc(124px * var(--video-overlay, 1)); }
+.video-bar, .video-card, .video-explorers, .video-end, .video-hud { zoom: var(--video-overlay, 1); }
 .video-proof .acting { visibility: hidden; }
 .video-bar { position: fixed; z-index: 70; left: 0; right: 0; bottom: 0; min-height: 116px; display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 28px; align-items: center; padding: 14px 44px 16px; background: var(--ink); color: #fff; border-top: 1px solid var(--ink-line); }
 .video-meta { display: grid; gap: 8px; justify-items: start; }

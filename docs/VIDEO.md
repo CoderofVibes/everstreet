@@ -29,11 +29,12 @@ npx vite preview --config web/vite.proof.config.ts
 | `&capture=1` | For recording: no hint, no scrollbar, no cursor. Captions stay |
 | `&from=<beat id>` | Starts at a beat, for a retake |
 | `&autostart=1` | Starts at once |
+| `&page=1440` | Lays the app page out at another width (default 1600; 1024 to 2560). Wider shows more of each page, smaller. Captions keep their size |
 
 Space starts and pauses. R goes back to the start. The left and right arrows skip a beat.
 
-The picture is composed for 1280 by 720 and scales up to fill a larger window, so a 1920 by 1080
-window records the same frame, sharper.
+The picture is 16:9 and fills the window: the app page is laid out 1600 wide and scaled to fit, and
+the captions and slides are composed for a 1280-wide frame and scaled on their own.
 
 ## The check
 

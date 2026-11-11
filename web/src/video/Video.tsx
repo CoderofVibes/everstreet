@@ -37,6 +37,8 @@ export interface VideoOptions {
   autostart: boolean;
   from: string | null;
   speed: number;
+  /** How wide the app's page is laid out, in CSS pixels; the window shows it scaled to fit. */
+  page: number;
 }
 
 /** The video's settings from the address, or null when the address doesn't ask for the video. */
@@ -44,16 +46,24 @@ export function videoOptions(search: string): VideoOptions | null {
   const q = new URLSearchParams(search);
   if (q.get("video") !== "1") return null;
   const speed = Number(q.get("speed") ?? "1");
+  const page = Number(q.get("page") ?? String(PAGE_WIDTH));
   return {
     capture: q.get("capture") === "1",
     autostart: q.get("autostart") === "1",
     from: q.get("from"),
     speed: Number.isFinite(speed) && speed >= 1 && speed <= 20 ? Math.round(speed) : 1,
+    page: Number.isFinite(page) && page >= 1024 && page <= 2560 ? Math.round(page) : PAGE_WIDTH,
   };
 }
 
-/** The picture is composed for a 1280 by 720 frame; a larger window is the same picture, larger. */
-const STAGE_WIDTH = 1280;
+/**
+ * The picture is composed for a 16:9 frame. The app's page is laid out PAGE_WIDTH pixels wide
+ * (Tony, Nov 11: 1280 looked too zoomed in) and scaled to the window; the captions, cards and slides
+ * are composed for a 1280-wide frame and scaled on their own, so they read the same at any
+ * page width. `&page=1440` (1024 to 2560) tries another width.
+ */
+export const PAGE_WIDTH = 1600;
+const FRAME_WIDTH = 1280;
 /** How many animation frames a cue may wait for its target before the video reports it. */
 const HOLD_FRAMES = 180;
 const STRIPS = {
@@ -195,8 +205,10 @@ export function Video({ data, options }: { data: TourData; options: VideoOptions
     if (options.capture) root.classList.add("video-capture");
     (window as { __everstreetVideo?: Report }).__everstreetVideo = s.report;
     const size = () => {
-      s.scale = Math.max(1, window.innerWidth / STAGE_WIDTH);
+      s.scale = window.innerWidth / options.page;
       root.style.zoom = String(s.scale);
+      // The overlays are zoomed again, so they come out as if composed for a 1280-wide frame.
+      root.style.setProperty("--video-overlay", String(options.page / FRAME_WIDTH));
     };
     size();
     window.addEventListener("resize", size);
@@ -417,6 +429,7 @@ export function Video({ data, options }: { data: TourData; options: VideoOptions
       window.removeEventListener("resize", size);
       root.classList.remove("video-mode", "video-capture", "video-proof");
       root.style.zoom = "";
+      root.style.removeProperty("--video-overlay");
     };
   }, []);
 
