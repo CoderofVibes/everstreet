@@ -8,20 +8,21 @@ they paid for survives.
 
 - **Launch and run.** Anyone can launch an AI-powered product or agent service, be found by the
   people who need it, and run it from one workspace.
-- **Agents as customers and spenders.** Agents buy from it and spend for it, using their own
-  NEAR accounts, within limits the contract enforces.
+- **Agents as customers and spenders.** Agents buy from it with their own NEAR accounts, paying
+  from their own balance. A business can also give its agent a supplier budget, whose
+  per-payment and period caps and owner approval for larger payments the contract enforces.
 - **Sell it, and hand it over intact.** Investors and other companies can find businesses open to
   acquisition and check what they would buy. When a business changes hands, its treasury, its
   customers' prepaid uses and its agents' permissions follow the contract, and its products and
   customer records come with it.
 
 **Ledgerline, our example invoice API, has changed hands three times on NEAR testnet.**
-In the recorded snapshot after the third sale, its first customer has **78 unused uses and
-22 used of the 100 they bought**.
+In the recorded snapshot after the third sale, its first customer still has **78 of the 100
+prepaid uses unused (22 used)**.
 
 | The sale closes | The former owner is refused | The customer keeps their uses |
 |---|---|---|
-| Ledgerline moves to its next owner, at generation 4. | Ledgerline's contract refuses the former owner's owner actions with `E_NOT_OWNER`. Control is unchanged. | All 100 uses are accounted for after three sales. |
+| Ledgerline moves to its next owner, at generation 4 (its fourth owner; each sale adds one). | Ledgerline's contract refuses the former owner's owner actions with `E_NOT_OWNER`. Control is unchanged. | All 100 uses are accounted for after three sales. |
 | [Closing transaction](https://testnet.nearblocks.io/txns/3psBJvLE3EBq9BNMF7ZZQub9EZab77L7je5U8x8zcSet) | [Refused owner action](https://testnet.nearblocks.io/txns/ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb) | [Customer snapshot](data/evidence/ledgerline-after-sales-testnet.json) |
 
 **One route through the proof**
@@ -29,11 +30,12 @@ In the recorded snapshot after the third sale, its first customer has **78 unuse
 1. [Follow the proof](#follow-the-proof): the story, then every claim with its test and its transaction.
 2. The guided tour, a static copy of the app with a guide in seven steps: the front page, the
    product studio and the portfolio, then the handoff proof (owner at generation 4, the former
-   owner refused by the contract, 78 · 22 · 100), the recorded sale, what we tried to break, and
-   agents. It runs locally from [Try Everstreet](#try-everstreet).
+   owner refused by the contract, 78 of the 100 uses still unused), the recorded sale, what we
+   tried to break, and agents. Its app pages replay the local demo, where Signalwatch is sold on a
+   synthetic chain; its proof pages show Ledgerline's testnet record. It runs locally from
+   [Try Everstreet](#try-everstreet).
 3. [For agents](#for-agents): an agent paying over HTTP 402, and one business's agent buying from another.
 4. Any transaction, in the explorer or straight from NEAR's RPC ([Check the build](#check-the-build)).
-<!-- TODO on the 13th: link "The guided tour" in step 2 to its public address. -->
 
 Built at NEAR HACKATHON, November 2026. Fictional businesses and people, NEAR testnet and
 Ethereum Sepolia, and test tokens with no monetary value.
@@ -125,6 +127,19 @@ businesses, each with its own contract, and one agent working for one and paying
 The agent's spend is limited by its own balance, not by a contract cap.
 [Agent-hires-agent record](data/evidence/agent-hires-agent-testnet.json)
 
+## Who pays
+
+Customers and agents pay each business directly for prepaid uses, into its contract's treasury.
+That part is built. Everstreet's own revenue is not built or charged yet; these are the plans
+we would test first:
+
+- **Founders** pay a subscription for the workspace that builds and runs their business.
+- **A sale** can add an optional paid diligence workspace and, later, a closing-service fee.
+- **Search is not for sale.** A business's place in search does not depend on deal fees.
+
+Prices come after we measure what each founder, discovery request, completed handoff and
+inference-heavy workflow costs to serve.
+
 ## Try Everstreet
 
 Requires Node 24 or later.
@@ -135,18 +150,20 @@ npm run demo
 ```
 
 Open the [demo portfolio](http://127.0.0.1:8820/portfolio) and choose **Continue with Synthetic
-demo wallet**. You start as Delphine Marsh. This local walkthrough uses a synthetic wallet and
+demo wallet**. You start as Delphine Marsh, who is selling Signalwatch to Noah Brandt; Cara
+Okafor is a customer who prepaid before the sale. This local walkthrough uses a synthetic wallet and
 chain. Its mid-sale business is Signalwatch. To switch people, open the menu under your name,
 choose **Disconnect Synthetic demo wallet**, then **Sign out of Everstreet**, and sign in again
 to pick someone from the wallet's list.
 
-1. As **Delphine Marsh**, open Signalwatch from **Needs you today** and accept the sale terms.
-2. As **Noah Brandt**, accept and close. Follow the first-shift checklist into the business
-   you now control.
-3. As **Delphine**, register with the token, collect the proceeds, and choose **Try an owner
-   action**. The synthetic contract refuses her attempt to appoint herself.
-4. As **Cara Okafor**, open Signalwatch from **My activity**, enroll the device, and spend one of
-   the prepaid uses she bought before the sale.
+1. As **Delphine Marsh**, the seller, open Signalwatch from **Needs you today** and accept the
+   sale terms.
+2. As **Noah Brandt**, the buyer, accept and close. Follow the first-shift checklist into the
+   business you now control.
+3. As **Delphine**, now the former owner, register with the token, collect the proceeds, and
+   choose **Try an owner action**. The synthetic contract refuses her attempt to appoint herself.
+4. As **Cara Okafor**, the customer, open Signalwatch from **My activity**, enroll the device, and
+   spend one of the prepaid uses she bought before the sale.
 
 Explore the studio and the other businesses from Delphine's portfolio. The demo uses ports
 8820 and 8821 and stops after two hours. Use `npm run demo -- --port 8840` to move the ports
@@ -257,6 +274,15 @@ npm run attacks -- --check
 npx tsx scripts/verify-rehearsal.ts data/evidence/ledgerline-after-sales-testnet.json
 npx tsx scripts/verify-light-client.ts data/evidence/light-client-close.json
 ```
+
+What a passing run ends with:
+
+| Command | Last lines |
+|---|---|
+| `npm run check` | Lint (`No fixes applied`), types and the web build, then three test runs, each ending `Test Files … passed` with none failed (here: 1,992, 12 and 70 tests, 1 skipped) |
+| `npm run attacks -- --check` | `OK: 27/27 cases, 5/5 planted faults caught` |
+| `verify-rehearsal.ts` | `OK: data/evidence/ledgerline-after-sales-testnet.json`, then `completed: true` |
+| `verify-light-client.ts` | `the business contract returned "closed" and logged sale_finalized`, then `proved against block header CBzboDVhyS9VhzCJdoDK2rKWrLQgXAAAE5vw4xdDH8Af at height 276584431` |
 
 The rehearsal verifier checks the record's digests offline. Add `--live` to read the current
 testnet code hash, access keys, owner, and customer balance without signing a transaction.
