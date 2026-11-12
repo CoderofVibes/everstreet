@@ -70,6 +70,7 @@ and before the release build if they did:
 4. If `https://everstreet-demo.vercel.app/` still answers 404, attach it:
    `vercel alias set <deployment address> everstreet-demo.vercel.app`.
 5. Open it signed out, walk all seven steps of the guide and both side doors on step 1, try an
-   unknown path, check the console, then link it in the README: make "The guided tour" in
-   route step 2 a link to the public address, and put the tour and the video (`/?video=1`)
-   first under the proof table.
+   unknown path, check the console. The README already links `https://everstreet-demo.vercel.app`
+   and `/?video=1` (under the proof table, route step 2, and Try Everstreet; added Nov 12 while
+   the address still answered 404): open each of those links from the README and confirm they
+   load signed out. If the address changes, update all three.

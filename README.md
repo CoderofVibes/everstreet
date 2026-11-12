@@ -25,14 +25,17 @@ prepaid uses unused (22 used)**.
 | Ledgerline moves to its next owner, at generation 4 (its fourth owner; each sale adds one). | Ledgerline's contract refuses the former owner's owner actions with `E_NOT_OWNER`. Control is unchanged. | All 100 uses are accounted for after three sales. |
 | [Closing transaction](https://testnet.nearblocks.io/txns/3psBJvLE3EBq9BNMF7ZZQub9EZab77L7je5U8x8zcSet) | [Refused owner action](https://testnet.nearblocks.io/txns/ZWJP4nst8L6Syx52WkyZ7fmCuHZJSoER6j5oD7f8zyb) | [Customer snapshot](data/evidence/ledgerline-after-sales-testnet.json) |
 
+**[Open the guided tour](https://everstreet-demo.vercel.app)** in your browser, with nothing to
+install, or [watch the demo play itself](https://everstreet-demo.vercel.app/?video=1).
+
 **One route through the proof**
 
 1. [Follow the proof](#follow-the-proof): the story, then every claim with its test and its transaction.
-2. The guided tour, a static copy of the app with a guide in seven steps: the front page, the
+2. [The guided tour](https://everstreet-demo.vercel.app), a static copy of the app with a guide in seven steps: the front page, the
    product studio and the portfolio, then the handoff proof (owner at generation 4, the former
    owner refused by the contract, 78 of the 100 uses still unused), the recorded sale, what we
    tried to break, and agents. Its app pages replay the local demo, where Signalwatch is sold on a
-   synthetic chain; its proof pages show Ledgerline's testnet record. It runs locally from
+   synthetic chain; its proof pages show Ledgerline's testnet record. It also runs locally from
    [Try Everstreet](#try-everstreet).
 3. [For agents](#for-agents): an agent paying over HTTP 402, and one business's agent buying from another.
 4. Any transaction, in the explorer or straight from NEAR's RPC ([Check the build](#check-the-build)).
@@ -173,8 +176,9 @@ The recorded Ledgerline proof is also available in the running app at
 [/proof/ledgerline](http://127.0.0.1:8820/proof/ledgerline), with the attack docket at
 [/attacks](http://127.0.0.1:8820/attacks).
 
-To view the guided tour as a static site, after installing dependencies, run the following and
-open the [tour](http://localhost:8830).
+The guided tour is hosted at [everstreet-demo.vercel.app](https://everstreet-demo.vercel.app).
+To build and view the same static site yourself, after installing dependencies, run the
+following and open the [tour](http://localhost:8830).
 
 ```sh
 npm run proof-site
