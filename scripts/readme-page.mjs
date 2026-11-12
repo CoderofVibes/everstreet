@@ -137,6 +137,7 @@ const pillars = hb.find((b) => b.type === "list" && !b.ordered);
 const route = hb.find((b) => b.type === "list" && b.ordered);
 const lead = hb.find((b) => b.type === "p" && b.text.startsWith("**Ledgerline"));
 const strip = hb.find((b) => b.type === "table");
+const open = hb.find((b) => b.type === "p" && b.text.startsWith("**[Open"));
 const built = hb.find((b) => b.type === "p" && b.text.startsWith("Built at"));
 const pillar = (x) => {
   const m = x.match(/^\*\*(.+?)\*\*\s*(.*)$/);
@@ -227,6 +228,7 @@ strong { font-weight: 650; }
 .step p { margin: 0; color: var(--text-2); font-size: 14.5px; }
 .route-h { font-size: 19px; border-top: 0; padding-top: 22px; margin: 0 0 10px; }
 .route { max-width: 74ch; }
+.open { font-size: 17px; margin: 18px 0 0; padding: 14px 18px; background: var(--cobalt-soft); border-radius: 10px; }
 .step .step-ev { margin-top: auto; padding-top: 6px; font-size: 14px; }
 
 /* Section bar */
@@ -302,6 +304,7 @@ footer .wrap { padding-block: 20px 36px; font-size: 13px; color: var(--text-3); 
 <div class="wrap proof">
   <p class="lead">${inline(lead.text)}</p>
   <ol class="strip">${stripCards}</ol>
+  ${open ? `<p class="open">${inline(open.text)}</p>` : ""}
   ${route ? `<h2 class="route-h">One route through the proof</h2><ol class="steps route">${route.items.map((x) => `<li>${inline(x)}</li>`).join("")}</ol>` : ""}
 </div>
 
