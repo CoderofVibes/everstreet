@@ -355,7 +355,8 @@ The remaining contract assumptions and failure windows are documented in the
 
 The earlier OpenSeat booking and v2 sale examples remain in the
 [feature reference](docs/FEATURES.md), with their [handoff](data/evidence/handoff-testnet.json)
-and [sale](data/evidence/sale-testnet.json) records. Configuration for the normal application
+and [sale](data/evidence/sale-testnet.json) records (an earlier format, which the verifiers
+above do not read). Configuration for the normal application
 entry is documented in [application composition](docs/design/APPLICATION_COMPOSITION.md).
 
 ## How it was made
@@ -370,9 +371,12 @@ entry is documented in [application composition](docs/design/APPLICATION_COMPOSI
 - **AI-written code.** The code and docs were written by AI coding agents directed by Anthony:
   Claude (Anthropic) builds and verifies, and Astra (an OpenAI Codex agent) leads concept,
   story, and visual direction. The cold reviews were also done by AI models.
-- **Libraries.** Contracts: near-sdk and near-contract-standards, tested with near-sandbox and
-  near-api, built with cargo-near. App: Hono, React, Vite, near-api-js, NEAR Wallet Selector,
-  and noble curves and hashes. Tooling: TypeScript, Biome, and Vitest.
+- **Libraries.** Contracts: near-sdk and near-contract-standards, tested with near-sandbox,
+  near-api and tokio, built with cargo-near; the crates also use
+  k256, sha2, sha3, ed25519-dalek, curve25519-dalek, hex, serde_json and base64. App: Hono,
+  React, Vite, near-api-js, NEAR Wallet Selector, noble curves and hashes, and buffer. Tooling:
+  TypeScript, tsx, Biome, Vitest with jsdom and fake-indexeddb, and playwright-core (records
+  the tour and the video).
 - **Third-party contract.** NEAR's intents verifier, built unmodified from
   [github.com/near/intents](https://github.com/near/intents) (MIT) at commit `32cd1f97`.
   [Build and deployment](docs/INTENTS.md)
